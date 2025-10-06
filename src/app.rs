@@ -71,7 +71,6 @@ fn HomePage() -> impl IntoView {
 #[cfg(feature = "ssr")]
 #[component]
 fn AccountList() -> impl IntoView {
-    use leptos::server_fn::redirect;
     let accounts = Resource::new(|| (), |_| async { get_accounts().await });
 
     view! {
