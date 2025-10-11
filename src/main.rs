@@ -19,7 +19,7 @@ async fn main() {
     let leptos_options = conf.leptos_options;
     // Generate the list of routes in your Leptos App
 
-    let pool = SqlitePool::connect("sqlite:accounts.db")
+    let pool = SqlitePool::connect("sqlite:database.db")
         .await
         .expect("the database to exist");
 
@@ -29,6 +29,28 @@ async fn main() {
                 session_id TEXT NOT NULL,
                 title TEXT NOT NULL,
                 balance_cents INTEGER NOT NULL DEFAULT 0
+            )",
+    )
+    .execute(&pool)
+    .await
+    .expect("to be able to create a table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                created_at INTEGER DEFAULT (unixepoch())
+            )",
+    )
+    .execute(&pool)
+    .await
+    .expect("to be able to create a table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS partial_transactions (
+                id INTEGER NOT NULL,
+                account_id TEXT NOT NULL,
+                balance_diff_cents INTEGER NOT NULL
             )",
     )
     .execute(&pool)
