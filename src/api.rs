@@ -410,8 +410,21 @@ pub async fn login(username: String, password: String) -> Result<(), ServerFnErr
 }
 
 #[cfg(feature = "ssr")]
+#[server]
 pub async fn is_logged_in() -> Result<(), ServerFnError> {
     pull_database_and_client_info!(_pool, _session_id, _user_id);
     // this will return an error if you are not logged in
+    Ok(())
+}
+
+#[cfg(feature = "ssr")]
+#[server]
+pub async fn log_out() -> Result<(), ServerFnError> {
+    pull_database_and_client_info!(pool, session_id, _user_id);
+    sqlx::query("DELETE FROM authenticated_sessions WHERE session_id = ?")
+        .bind(&session_id)
+        .execute(&pool)
+        .await?;
+
     Ok(())
 }
