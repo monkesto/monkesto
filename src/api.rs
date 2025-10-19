@@ -1,8 +1,8 @@
 macro_rules! pull_database_and_client_info {
-    ($x:ident, $y:ident) => {
+    ($x:ident, $y:ident, $z:ident) => {
         let Extension(session) = extract::<Extension<Session>>().await?;
 
-        let Extension($x) = extract::<Extension<SqlitePool>>().await?;
+        let Extension(pool) = extract::<Extension<SqlitePool>>().await?;
 
         // force initialize the session
         if session
@@ -18,7 +18,7 @@ macro_rules! pull_database_and_client_info {
             };
         }
 
-        let $y = match session.id() {
+        let session_id = match session.id() {
             Some(s) => s.to_string(),
             None => {
                 return Err(ServerFnError::ServerError(
@@ -26,6 +26,25 @@ macro_rules! pull_database_and_client_info {
                 ))
             }
         };
+
+        let user_id = match sqlx::query_scalar::<_, Option<u32>>(
+            "SELECT 1 user_id FROM authenticated_sessions WHERE session_id = ?",
+        )
+        .bind(&session_id)
+        .fetch_one(&pool)
+        .await
+        {
+            Ok(s) => s,
+            Err(_) => {
+                return Err(ServerFnError::ServerError(
+                    "You must be logged in!".to_string(),
+                ));
+            }
+        };
+
+        let $x = pool;
+        let $y = session_id;
+        let $z = user_id;
     };
 }
 
@@ -54,12 +73,12 @@ use crate::types::{
 #[cfg(feature = "ssr")]
 #[server]
 pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
-    pull_database_and_client_info!(pool, session_id);
+    pull_database_and_client_info!(pool, _session_id, user_id);
 
     let accounts: Vec<(u32, String, i64)> = sqlx::query_as(
-        "SELECT id, title, balance_cents FROM accounts WHERE session_id = ? ORDER BY id ASC",
+        "SELECT id, title, balance_cents FROM accounts WHERE user_id = ? ORDER BY id ASC",
     )
-    .bind(&session_id)
+    .bind(&user_id)
     .fetch_all(&pool)
     .await?;
 
@@ -76,10 +95,10 @@ pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
 #[cfg(feature = "ssr")]
 #[server]
 pub async fn add_account(title: String) -> Result<(), ServerFnError> {
-    pull_database_and_client_info!(pool, session_id);
+    pull_database_and_client_info!(pool, _session_id, user_id);
 
-    sqlx::query("INSERT INTO accounts (session_id, title, balance_cents) VALUES (?, ?, 0)")
-        .bind(&session_id)
+    sqlx::query("INSERT INTO accounts (user_id, title, balance_cents) VALUES (?, ?, 0)")
+        .bind(&user_id)
         .bind(title.trim())
         .execute(&pool)
         .await?;
@@ -100,7 +119,7 @@ pub async fn transact(
     balance_add_cents_three: i64,
     balance_remove_cents_three: i64,
 ) -> Result<TransactionResult, ServerFnError> {
-    pull_database_and_client_info!(pool, session_id);
+    pull_database_and_client_info!(pool, _session_id, user_id);
 
     let balance_updates = [
         BalanceUpdate {
@@ -143,17 +162,17 @@ pub async fn transact(
         ));
     }
 
-    sqlx::query("INSERT INTO transactions (session_id) VALUES (?)")
-        .bind(&session_id)
+    sqlx::query("INSERT INTO transactions (user_id) VALUES (?)")
+        .bind(&user_id)
         .execute(&pool)
         .await?;
 
     // The table auto-increments the id, so I must fetch it so I know what to tag the children with.
     // binding the session ID prevents a race condition in the case where two users call transact() simultaneously
     let transaction_id = sqlx::query_scalar::<_, Option<u32>>(
-        "SELECT MAX(id) FROM transactions WHERE session_id = ?",
+        "SELECT MAX(id) FROM transactions WHERE user_id = ?",
     )
-    .bind(&session_id)
+    .bind(&user_id)
     .fetch_one(&pool)
     .await?
     .expect("the entry to exist");
@@ -172,11 +191,11 @@ pub async fn transact(
        .await?;
 
         sqlx::query(
-            "UPDATE accounts SET balance_cents = balance_cents + ? WHERE id = ? AND session_id = ?",
+            "UPDATE accounts SET balance_cents = balance_cents + ? WHERE id = ? AND user_id = ?",
         )
         .bind(update.balance_diff_cents)
         .bind(update.id)
-        .bind(&session_id)
+        .bind(&user_id)
         .execute(&pool)
         .await?;
     }
@@ -185,12 +204,12 @@ pub async fn transact(
 
 #[cfg(feature = "ssr")]
 pub async fn get_transaction_parents() -> Result<Vec<Transaction>, ServerFnError> {
-    pull_database_and_client_info!(pool, session_id);
+    pull_database_and_client_info!(pool, _session_id, user_id);
 
     let transactions: Vec<(u32, i64)> = match sqlx::query_as(
-        "SELECT id, created_at FROM transactions WHERE session_id = ? ORDER BY created_at DESC",
+        "SELECT id, created_at FROM transactions WHERE user_id = ? ORDER BY created_at DESC",
     )
-    .bind(&session_id)
+    .bind(&user_id)
     .fetch_all(&pool)
     .await
     {
@@ -210,7 +229,7 @@ pub async fn get_transaction_children(
 ) -> Result<Vec<PartialTransaction>, ServerFnError> {
     use crate::types::PartialTransaction;
 
-    pull_database_and_client_info!(pool, session_id);
+    pull_database_and_client_info!(pool, _session_id, user_id);
 
     let partial_transactions: Vec<(u32, i64)> = match sqlx::query_as(
         "SELECT account_id, balance_diff_cents FROM partial_transactions WHERE id = ? ORDER by balance_diff_cents ASC",
@@ -227,9 +246,9 @@ pub async fn get_transaction_children(
 
     for transaction in &partial_transactions {
         let name = sqlx::query_scalar::<_, Option<String>>(
-            "SELECT title FROM accounts WHERE session_id = ? AND id = ?",
+            "SELECT title FROM accounts WHERE user_id = ? AND id = ?",
         )
-        .bind(&session_id)
+        .bind(&user_id)
         .bind(transaction.0)
         .fetch_one(&pool)
         .await?
@@ -276,4 +295,123 @@ pub async fn package_transactions() -> Result<Vec<PackagedTransaction>, ServerFn
         packaged_transactions.push(PackagedTransaction { parent, children });
     }
     Ok(packaged_transactions)
+}
+
+#[cfg(feature = "ssr")]
+#[server]
+pub async fn create_account(
+    username: String,
+    password: String,
+    confirm_password: String,
+) -> Result<(), ServerFnError> {
+    use bcrypt::DEFAULT_COST;
+    use rand::{rngs::OsRng, TryRngCore};
+
+    if password != confirm_password {
+        return Err(ServerFnError::ServerError(
+            ("Your passwords do not match!".to_string()),
+        ));
+    }
+
+    let Extension(session) = extract::<Extension<Session>>().await?;
+
+    let Extension(pool) = extract::<Extension<SqlitePool>>().await?;
+
+    // force initialize the session
+    if session
+        .get::<bool>("initialized")
+        .await
+        .ok()
+        .flatten()
+        .is_none()
+    {
+        match session.insert("initialized", true).await {
+            Ok(s) => s,
+            Err(e) => return Err(ServerFnError::ServerError(e.to_string())),
+        };
+    }
+
+    let account_exists: (i64,) =
+        sqlx::query_as("SELECT EXISTS(SELECT 1 FROM users WHERE username = ?)")
+            .bind(&username)
+            .fetch_one(&pool)
+            .await?;
+
+    if account_exists.0 == 1 {
+        return Err(ServerFnError::ServerError(format!(
+            "An account with the username {} already exists!",
+            username
+        )));
+    }
+
+    let mut rng = OsRng;
+    let mut salt = [0u8; 16];
+
+   let _ = rng.try_fill_bytes(&mut salt);
+
+    sqlx::query("INSERT INTO users (username, hash_and_salt) VALUES (?, ?)")
+        .bind(&username)
+        .bind(bcrypt::hash(password, DEFAULT_COST).unwrap())
+        .execute(&pool)
+        .await?;
+
+    Ok(())
+}
+
+#[cfg(feature = "ssr")]
+#[server]
+pub async fn login(username: String, password: String) -> Result<(), ServerFnError> {
+    let Extension(session) = extract::<Extension<Session>>().await?;
+
+    let Extension(pool) = extract::<Extension<SqlitePool>>().await?;
+
+    // force initialize the session
+    if session
+        .get::<bool>("initialized")
+        .await
+        .ok()
+        .flatten()
+        .is_none()
+    {
+        match session.insert("initialized", true).await {
+            Ok(s) => s,
+            Err(e) => return Err(ServerFnError::ServerError(e.to_string())),
+        };
+    }
+
+    let session_id = match session.id() {
+        Some(s) => s.to_string(),
+        None => {
+            return Err(ServerFnError::ServerError(
+                "Session id not found-try refreshing the page".to_string(),
+            ))
+        }
+    };
+
+    let account: (u32, String) = match sqlx::query_as("SELECT id, hash_and_salt  FROM users WHERE username = ?")
+        .bind(&username)
+        .fetch_one(&pool)
+        .await {
+          Ok(s) => s,
+          Err(_) => return Err(ServerFnError::ServerError(format!("An account with the username \"{}\" does not exist. Please sign up.", &username))),
+        };
+
+    if bcrypt::verify(password, &account.1).unwrap() {
+        sqlx::query("INSERT INTO authenticated_sessions (session_id, user_id) VALUES (?, ?)")
+            .bind(&session_id)
+            .bind(account.0)
+            .execute(&pool)
+            .await?;
+    } else {
+        return Err(ServerFnError::ServerError("Incorrect Password!".to_string()));
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "ssr")]
+pub async fn is_logged_in() -> Result<(), ServerFnError> {
+    pull_database_and_client_info!(_pool, _session_id, _user_id);
+    // this will return an error if you are not logged in
+    Ok(())
 }

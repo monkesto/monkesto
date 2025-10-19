@@ -9,10 +9,10 @@ async fn main() {
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
+    use leptos_router::components::provide_server_redirect;
     use prototype::app::*;
-    use tower_sessions::SessionManagerLayer;
+    use tower_sessions::{cookie::time::Duration, Expiry, SessionManagerLayer};
     use tower_sessions_sqlx_store::{sqlx::SqlitePool, SqliteStore};
-    use types::*;
 
     let conf = get_configuration(None).unwrap();
     let addr = conf.leptos_options.site_addr;
@@ -26,7 +26,7 @@ async fn main() {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS accounts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
                 title TEXT NOT NULL,
                 balance_cents INTEGER NOT NULL DEFAULT 0
             )",
@@ -38,7 +38,7 @@ async fn main() {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS transactions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT NOT NULL,
+                user_id INTEGER NOT NULL,
                 created_at INTEGER DEFAULT (unixepoch())
             )",
     )
@@ -57,13 +57,35 @@ async fn main() {
     .await
     .expect("to be able to create a table");
 
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                hash_and_salt TEXT NOT NULL
+            )",
+    )
+    .execute(&pool)
+    .await
+    .expect("to be able to create a table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS authenticated_sessions (
+                session_id TEXT NOT NULL,
+                user_id INTEGER NOT NULL
+            )",
+    )
+    .execute(&pool)
+    .await
+    .expect("to be able to create a table");
+
     let session_store = SqliteStore::new(pool.clone());
     session_store
         .migrate()
         .await
         .expect("to be able to migrate the session store");
 
-    let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
+    let session_layer = SessionManagerLayer::new(session_store)
+        .with_expiry(Expiry::OnInactivity(Duration::hours(6)));
 
     let routes = generate_route_list(App);
 
