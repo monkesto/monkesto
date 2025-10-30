@@ -2,48 +2,111 @@
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "ssr")]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct Account {
-    pub id: u32,
-    pub title: String,
-    pub balance_cents: i64,
-    pub shared: bool,
+use uuid::Uuid;
+
+use std::collections::{HashMap, HashSet};
+
+#[derive(Serialize, Deserialize, Hash)]
+enum Permissions {
+    Read,
+    Write,
 }
 
 #[cfg(feature = "ssr")]
-#[derive(Clone, Debug, Serialize, Deserialize, Hash, PartialEq, Eq)]
-pub struct Transaction {
-    pub id: u32,
-    // session_id is in the db entry, but I dont think it's ever necessary to return it
-    pub created_at: i64,
+struct AccountState {
+    owner_id: Uuid,
+    tenants: HashMap<Uuid, Permissions>,
+    name: String,
+    balance: i64,
+    deleted: bool,
 }
 
 #[cfg(feature = "ssr")]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PartialTransaction {
-    pub transaction_id: u32,
-    pub account_id: u32,
-    pub account_name: String,
-    pub balance_diff_cents: i64,
+impl AccountState {
+    fn apply(&mut self, event: AccountEvent) {
+        match event {
+            AccountEvent::Created {
+                owner_id,
+                name,
+                starting_balance,
+            } => {
+                self.owner_id = owner_id;
+                self.name = name;
+                self.balance = starting_balance;
+            }
+
+            AccountEvent::BalanceUpdated { amount } => self.balance += amount,
+
+            AccountEvent::AddTenant {
+                shared_user_id,
+                permissions,
+            } => _ = self.tenants.insert(shared_user_id, permissions),
+
+            AccountEvent::RemoveTenant { shared_user_id } => {
+                _ = self.tenants.remove(&shared_user_id)
+            }
+
+            AccountEvent::Deleted => self.deleted = true,
+        }
+    }
 }
 
 #[cfg(feature = "ssr")]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BalanceUpdate {
-    pub id: u32,
-    pub balance_diff_cents: i64,
+struct UserState {
+    username: String,
+    password: String,
+    accounts: Vec<AccountState>,
+    authenticated_sessions: HashSet<String>,
+    deleted: bool,
 }
 
 #[cfg(feature = "ssr")]
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub enum TransactionResult {
-    UPDATED,
-    BALANCEMISMATCH,
+impl UserState {
+    fn apply(&mut self, event: UserEvent) {
+        match event {
+            UserEvent::Created { username, password } => {
+                self.username = username;
+                self.password = password;
+            }
+            UserEvent::UsernameUpdate { username } => self.username = username,
+            UserEvent::PasswordUpdate { password } => self.password = password,
+            UserEvent::Login { session_id } => _ = self.authenticated_sessions.insert(session_id),
+            UserEvent::Logout { session_id } => _ = self.authenticated_sessions.remove(&session_id),
+            UserEvent::Deleted => self.deleted = true,
+        }
+    }
 }
 
 #[cfg(feature = "ssr")]
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct PackagedTransaction {
-    pub parent: Transaction,
-    pub children: Vec<PartialTransaction>,
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+enum UserEvent {
+    Created { username: String, password: String },
+    UsernameUpdate { username: String },
+    PasswordUpdate { password: String },
+    Login { session_id: String },
+    Logout { session_id: String },
+    Deleted,
+}
+
+#[cfg(feature = "ssr")]
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "type", content = "data")]
+enum AccountEvent {
+    Created {
+        owner_id: Uuid,
+        name: String,
+        starting_balance: i64,
+    },
+    BalanceUpdated {
+        amount: i64,
+    },
+    AddTenant {
+        shared_user_id: Uuid,
+        permissions: Permissions,
+    },
+    RemoveTenant {
+        shared_user_id: Uuid,
+    },
+    Deleted,
 }

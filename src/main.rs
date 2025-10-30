@@ -5,90 +5,50 @@ use leptos::prelude::LeptosOptions;
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
+    use std::path::Path;
+
     use axum::Router;
+    use dotenvy::dotenv;
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
     use leptos_router::components::provide_server_redirect;
     use prototype::app::*;
+    use sqlx::postgres::PgPoolOptions;
+    use sqlx::{Pool, Postgres};
+    use std::env;
     use tower_sessions::{cookie::time::Duration, Expiry, SessionManagerLayer};
-    use tower_sessions_sqlx_store::{sqlx::SqlitePool, SqliteStore};
+    use tower_sessions_sqlx_store::PostgresStore;
 
     let conf = get_configuration(None).unwrap();
     let addr = conf.leptos_options.site_addr;
     let leptos_options = conf.leptos_options;
     // Generate the list of routes in your Leptos App
 
-    let pool = SqlitePool::connect("sqlite:database.db")
-        .await
-        .expect("the database to exist");
+    dotenv().ok();
+
+    let database_url = env::var("DATABASE_URL");
+
+    let pool: Pool<Postgres> = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await?;
 
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS users (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   username TEXT NOT NULL,
-                   hash_and_salt TEXT NOT NULL
-               )",
-    )
-    .execute(&pool)
-    .await
-    .expect("to be able to create a table");
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS authenticated_sessions (
-                    session_id TEXT NOT NULL,
-                    user_id INTEGER NOT NULL
-                )",
-    )
-    .execute(&pool)
-    .await
-    .expect("to be able to create a table");
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS accounts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                title TEXT NOT NULL,
-                shared INTEGER DEFAULT 0,
-                balance_cents INTEGER NOT NULL DEFAULT 0
+        "CREATE TABLE IF NOT EXISTS events (
+            id BIGSERIAL PRIMARY KEY,
+            aggregate_id UUID NOT NULL,
+            sequence_number INT NOT NULL,
+            event_type INT NOT NULL,
+            payload JSONB NOT NULL,
+            created_at TIMESTAMPZ NOT NULL DEFAULT now()
             )",
     )
     .execute(&pool)
     .await
     .expect("to be able to create a table");
 
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS account_connections (
-                    id INTEGER NOT NULL,
-                    user_id INTEGER NOT NULL
-                )",
-    )
-    .execute(&pool)
-    .await
-    .expect("to be able to create a table");
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                author_id INTEGER NOT NULL,
-                created_at INTEGER DEFAULT (unixepoch())
-            )",
-    )
-    .execute(&pool)
-    .await
-    .expect("to be able to create a table");
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS partial_transactions (
-                id INTEGER NOT NULL,
-                account_id INTEGER NOT NULL,
-                balance_diff_cents INTEGER NOT NULL
-            )",
-    )
-    .execute(&pool)
-    .await
-    .expect("to be able to create a table");
-
-    let session_store = SqliteStore::new(pool.clone());
+    let session_store = PostgresStore::new(pool.clone());
     session_store
         .migrate()
         .await

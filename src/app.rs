@@ -1,6 +1,6 @@
 #[cfg(feature = "ssr")]
 use crate::api::{get_accounts, AddAccount};
-use leptos::{html::P, prelude::*};
+use leptos::prelude::*;
 
 #[cfg(feature = "ssr")]
 use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
