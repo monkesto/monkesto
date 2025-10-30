@@ -30,7 +30,7 @@ pub(crate) mod app {
         // Provides context that manages stylesheets, titles, meta tags, etc.
         provide_meta_context();
 
-        view! {
+        view! {improve view semantics with EitherOf
             // injects a stylesheet into the document <head>
             // id=leptos means cargo-leptos will hot-reload this stylesheet
             <Stylesheet id="leptos" href="/pkg/prototype.css"/>
@@ -59,7 +59,7 @@ pub(crate) mod app {
     #[component]
     fn ClientSignUp() -> impl IntoView {
         use crate::api::api::{is_logged_in, CreateAccount};
-        use leptos::either::EitherOf3;
+        use leptos::either::{Either, EitherOf3};
         let signup = ServerAction::<CreateAccount>::new();
 
         view! {
@@ -106,9 +106,8 @@ pub(crate) mod app {
                 </Suspense>
 
                 {move || match signup.value().get() {
-                    None => EitherOf3::A( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}),
-                    Some(Ok(_)) => EitherOf3::B( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}),
-                    Some(Err(e)) => EitherOf3::C( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>{e.to_string()}</p></div>}),
+                    Some(Err(e)) => Either::Left( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>{e.to_string()}</p></div>}),
+                    _ => Either::Right( view! {} )
                 }
         }
         </div>
@@ -118,7 +117,7 @@ pub(crate) mod app {
     #[component]
     fn ClientLogin() -> impl IntoView {
         use crate::api::api::{is_logged_in, Login};
-        use leptos::either::EitherOf3;
+        use leptos::either::{Either, EitherOf3};
         let login = ServerAction::<Login>::new();
         let logged_in = Resource::new(|| (), |_| async { is_logged_in().await });
 
@@ -160,17 +159,15 @@ pub(crate) mod app {
                                     <a href = "/signup" class="mt-3 rounded bg-purple-900 px-10 py-2 font-bold text-white hover:bg-blue-400" type="submit">"Don't have an account? Sign up"</a>
                             </div>
                         }),
-                        None => EitherOf3::C (view! {
-                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"loading..."</p></div>}),
-                        }
+                        None => EitherOf3::C (view! {})
                     }
+                }
                 </Suspense>
                 {move || match login.value().get() {
-                    None => EitherOf3::A( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}),
-                    Some(Ok(_)) => EitherOf3::B( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}),
-                    Some(Err(e)) => EitherOf3::C( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>{e.to_string()}</p></div>}),
+                    Some(Err(e)) => Either::Left( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>{e.to_string()}</p></div>}),
+                    _ => Either::Right(view! {}),
                 }
-        }
+            }
         </div>
             }
     }
@@ -222,86 +219,82 @@ pub(crate) mod app {
         let share_account = ServerAction::<ShareAccount>::new();
 
         view! {
-            <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4">
-                <h1 class="font-bold text-4xl">"Accounts"</h1>
-            </div>
-            <Suspense>
-            {move || {
-                let login_state = logged_in.get();
-                let accounts_state = accounts.get();
-                let share_state = share_account.value().get();
+                <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4">
+                    <h1 class="font-bold text-4xl">"Accounts"</h1>
+                </div>
+                <Suspense>
+                {move || {
+                    let login_state = logged_in.get();
+                    let accounts_state = accounts.get();
+                    let share_state = share_account.value().get();
 
-                match login_state {
-                    None => EitherOf3::A (view!{
-                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"checking if you are logged in"</p></div>
-                    }),
-                    Some(Err(_)) => EitherOf3::B( view! {
-                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><meta http-equiv="refresh" content="0; url=/login"/></div>
-                    }),
-                    Some(Ok(_)) => EitherOf3::C(
-                        view! {
-                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}),
-                    };
+                    match login_state {
+                        None => EitherOf3::A ( view!{
+                            <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"checking if you are logged in"</p></div>
+                        }),
+                        Some(Err(_)) => EitherOf3::B( view! {
+                            <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><meta http-equiv="refresh" content="0; url=/login"/></div>
+                        }),
+                        Some(Ok(_)) => EitherOf3::C( view! {})}
 
-                match accounts_state {
-                    None => view! { <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"Loading accounts..."</p></div> }.into_view(),
-                    Some(Err(e)) => {
-                        view! {
-                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"Error loading accounts: " {e.to_string()}</p></div>}.into_view()},
-                    Some(Ok(s)) => {
-                        if s.is_empty() {
+                    match accounts_state {
+                        None => view! { <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"Loading accounts..."</p></div> }.into_view(),
+                        Some(Err(e)) => {
                             view! {
-                                <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"No accounts yet. Add one below!"</p>
-                                <AddAccount/>
-                                </div>
-
-                            }.into_view()
-                            } else {
+                            <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"Error loading accounts: " {e.to_string()}</p></div>}.into_view()},
+                        Some(Ok(s)) => {
+                            if s.is_empty() {
                                 view! {
-                                    <div class="mx-auto flex min-w-full flex-col items-center">
-                                        <ul>
-                                            {s.into_iter()
-                                                .map(|n| view! {
-                                                    <div style=move || if n.shared {
-                                                        "color: red;"
-                                                    } else {
-                                                        ""
-                                                    }>
-                                                    <ActionForm action=share_account>
-                                                    <li class = "px-1 py-1 font-bold text-2xl">
-                                                        {n.title}"     "{format!("{}${}.{:02}", if n.balance_cents < 0 {"-"} else {""}, (n.balance_cents.abs() / 100), ((n.balance_cents).abs() % 100))}
-                                                                <input
-                                                                type = "hidden"
-                                                                name = "account_id"
-                                                                value = n.id
-                                                                />
-                                                                <input
-                                                                    class = "shadow appearance-none border rounded text-gray-700 leading-tight focus:outline-none focus:shadow-outline max-w-xs"
-                                                                    type="text"
-                                                                    name="username"
-                                                                    placeholder = "username"
-                                                                    required
-                                                                />
-                                                                <button class="mt-3 rounded bg-purple-900 font-bold text-white hover:bg-blue-400" type="submit">"Share"</button>
-                                                    </li></ActionForm></div>})
-                                                .collect_view()}
-                                        </ul>
-                                        <AddAccount/>
-                                        {match share_state{
-                                            None => EitherOf3::A( view!{<div class="mx-auto flex min-w-full flex-col items-center"><p></p></div>}),
-                                            Some(Ok(_)) => EitherOf3::B( view!{<div class="mx-auto flex min-w-full flex-col items-center"><p></p></div>}),
-                                            Some(Err(e)) => EitherOf3::C( view!{<div class="mx-auto flex min-w-full flex-col items-center"><p>{e.to_string()}</p></div>}),
-                                        }}
+                                    <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"No accounts yet. Add one below!"</p>
+                                    <AddAccount/>
                                     </div>
+
                                 }.into_view()
+                                } else {
+                                    view! {
+                                        <div class="mx-auto flex min-w-full flex-col items-center">
+                                            <ul>
+                                                {s.into_iter()
+                                                    .map(|n| view! {
+                                                        <div style=move || if n.shared {
+                                                            "color: red;"
+                                                        } else {
+                                                            ""
+                                                        }>
+                                                        <ActionForm action=share_account>
+                                                        <li class = "px-1 py-1 font-bold text-2xl">
+                                                            {n.title}"     "{format!("{}${}.{:02}", if n.balance_cents < 0 {"-"} else {""}, (n.balance_cents.abs() / 100), ((n.balance_cents).abs() % 100))}
+                                                                    <input
+                                                                    type = "hidden"
+                                                                    name = "account_id"
+                                                                    value = n.id
+                                                                    />
+                                                                    <input
+                                                                        class = "shadow appearance-none border rounded text-gray-700 leading-tight focus:outline-none focus:shadow-outline max-w-xs"
+                                                                        type="text"
+                                                                        name="username"
+                                                                        placeholder = "username"
+                                                                        required
+                                                                    />
+                                                                    <button class="mt-3 rounded bg-purple-900 font-bold text-white hover:bg-blue-400" type="submit">"Share"</button>
+                                                        </li></ActionForm></div>})
+                                                    .collect_view()}
+                                            </ul>
+                                            <AddAccount/>
+                                            {match share_state{
+                                                Some(Err(e)) => Either::Left( view!{<div class="mx-auto flex min-w-full flex-col items-center"><p>{e.to_string()}</p></div>}),
+                                                _ => Either::Right( view! )
+                                            }}
+                                        </div>
+                                    }.into_view()
+                                }
                             }
-                        }
-                }
-            }}
-            </Suspense>
+                    }
+                }}
+                </Suspense>
+            }
         }
     }
-
     #[component]
     fn AddAccount() -> impl IntoView {
         let add_account = ServerAction::<crate::api::api::AddAccount>::new();
@@ -324,7 +317,7 @@ pub(crate) mod app {
     #[component]
     fn Transact() -> impl IntoView {
         use crate::api::api::{get_accounts, is_logged_in, Transact};
-        use leptos::either::EitherOf3;
+        use leptos::either::{Either, EitherOf3};
         let items_resource = Resource::new(|| (), |_| async { get_accounts().await });
         let logged_in_resource = Resource::new(|| (), |_| async { is_logged_in().await });
         let update_action = ServerAction::<Transact>::new();
@@ -343,9 +336,7 @@ pub(crate) mod app {
                         Some(Err(_)) => EitherOf3::B( view! {
                             <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><meta http-equiv="refresh" content="0; url=/login"/></div>
                         }),
-                        Some(Ok(_)) => EitherOf3::C( view! {
-                            <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>
-                        }),
+                        Some(Ok(_)) => EitherOf3::C( view! {}),
                     }
                 }}
                 {move || match logged_in_resource.get() {
@@ -408,15 +399,13 @@ pub(crate) mod app {
                                            <br/>
 
                                        {move || match update_action.value().get() {
-                                               None =>
-                                                   EitherOf3::A (view! {}),
 
-                                               Some(Err(e)) => EitherOf3::B(
+                                               Some(Err(e)) => Either::Left(
                                                    view! {
                                                        <p>{e.to_string()}</p>
                                                    }),
 
-                                               Some(Ok(_)) => EitherOf3::C( view! {}),
+                                               _ => Either::Right( view! {}),
 
                                            }
                                        }
@@ -445,7 +434,6 @@ pub(crate) mod app {
     fn GeneralJournal() -> impl IntoView {
         use crate::api::api::{is_logged_in, package_transactions};
         use chrono::TimeZone;
-        use leptos::either::EitherOf3;
 
         let transactions_resource =
             Resource::new(|| (), |_| async { package_transactions().await });
@@ -453,66 +441,64 @@ pub(crate) mod app {
 
         view! {
 
-            <TopBar/>
-            <Suspense fallback=|| view! { <p>"Loading transaction history..."</p> }>
+                <TopBar/>
+                <Suspense fallback=|| view! { <p>"Loading transaction history..."</p> }>
 
-            {move || {
-                let login_state = logged_in_resource.get();
+                {move || {
+                    let login_state = logged_in_resource.get();
 
-                match login_state {
-                    None => EitherOf3::A( view! {
-                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"checking if you are logged in"</p></div>
-                    }),
-                    Some(Err(_)) => EitherOf3::B( view! {
-                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><meta http-equiv="refresh" content="0; url=/login"/></div>
-                    }),
-                    Some(Ok(_)) => EitherOf3::C( view! {
-                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}),
-                    }
+                    match login_state {
+                        None => EitherOf3::A( view! {
+                            <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"checking if you are logged in"</p></div>
+                        }),
+                        Some(Err(_)) => EitherOf3::B( view! {
+                            <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><meta http-equiv="refresh" content="0; url=/login"/></div>
+                        }),
+                        Some(Ok(_)) => EitherOf3::C( view! {} )
 
-            }}
+                }}
 
-            {move || transactions_resource.get().map(|transactions|{
-                   match transactions {
-                       Ok(transactions) => {
-                       if transactions.is_empty() {
+                {move || transactions_resource.get().map(|transactions|{
+                       match transactions {
+                           Ok(transactions) => {
+                           if transactions.is_empty() {
+                               return view! {
+                                   <div class="flex flex-col items-center text-center px-10 py-10"><p>"no transactions yet"</p></div>
+                               }.into_view()
+                           } else {
                            return view! {
-                               <div class="flex flex-col items-center text-center px-10 py-10"><p>"no transactions yet"</p></div>
-                           }.into_view()
-                       } else {
-                       return view! {
-                           <div class="flex flex-col items-center text-center px-10 py-10">
-                                <h1 class="font-bold text-4xl">"Transactions"</h1>
-                                <ul>
-                                    {transactions.iter().map(|packaged_transaction| {
-                                         //using utc because we can't get users' timezones without JS
-                                         view! {
-                                        <div class="flex flex-col items-center text-center px-10 py-10">
-                                            <li>
-                                                <h2 font-bold text-xl>
-                                                {chrono::Utc.timestamp(packaged_transaction.parent.created_at, 0).to_string()}":"
-                                                </h2>
-                                                <ul>
-                                                    {packaged_transaction.children.iter().map(|partial_transaction| {
-                                                        view! {
-                                                        <li>{partial_transaction.account_name.clone()} " : $" {partial_transaction.balance_diff_cents.abs()/100}"."{partial_transaction.balance_diff_cents.abs()%100} " " {if partial_transaction.balance_diff_cents < 0 {"Dr".to_string()} else {"Cr".to_string()}} </li>
-                                                        }
-                                                    }).collect_view()}
-                                                </ul>
-                                            </li>
-                                        </div>
-                                        }
-                                    }).collect_view()}
-                                </ul>
-                           </div>
-                       }.into_view()}},
-                       Err(e) => return view! {
-                           <div class="flex flex-col items-center text-center px-10 py-10"><p>{e.to_string()}</p></div>
-                       }.into_view(),
-                   }
-                })}
+                               <div class="flex flex-col items-center text-center px-10 py-10">
+                                    <h1 class="font-bold text-4xl">"Transactions"</h1>
+                                    <ul>
+                                        {transactions.iter().map(|packaged_transaction| {
+                                             //using utc because we can't get users' timezones without JS
+                                             view! {
+                                            <div class="flex flex-col items-center text-center px-10 py-10">
+                                                <li>
+                                                    <h2 font-bold text-xl>
+                                                    {chrono::Utc.timestamp(packaged_transaction.parent.created_at, 0).to_string()}":"
+                                                    </h2>
+                                                    <ul>
+                                                        {packaged_transaction.children.iter().map(|partial_transaction| {
+                                                            view! {
+                                                            <li>{partial_transaction.account_name.clone()} " : $" {partial_transaction.balance_diff_cents.abs()/100}"."{partial_transaction.balance_diff_cents.abs()%100} " " {if partial_transaction.balance_diff_cents < 0 {"Dr".to_string()} else {"Cr".to_string()}} </li>
+                                                            }
+                                                        }).collect_view()}
+                                                    </ul>
+                                                </li>
+                                            </div>
+                                            }
+                                        }).collect_view()}
+                                    </ul>
+                               </div>
+                           }.into_view()}},
+                           Err(e) => return view! {
+                               <div class="flex flex-col items-center text-center px-10 py-10"><p>{e.to_string()}</p></div>
+                           }.into_view(),
+                       }
+                    })}}
 
-            </Suspense>
+                </Suspense>
         }
     }
 }
