@@ -59,6 +59,7 @@ pub(crate) mod app {
     #[component]
     fn ClientSignUp() -> impl IntoView {
         use crate::api::api::{is_logged_in, CreateAccount};
+        use leptos::either::EitherOf3;
         let signup = ServerAction::<CreateAccount>::new();
 
         view! {
@@ -102,12 +103,12 @@ pub(crate) mod app {
                                     <a href = "/login" class="mt-3 rounded bg-purple-900 px-10 py-2 font-bold text-white hover:bg-blue-400" type="submit">"Have an account? Sign in"</a>
                             </div>
 
-
                 </Suspense>
+
                 {move || match signup.value().get() {
-                    None => return view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}.into_view(),
-                    Some(Ok(_)) => return view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}.into_view(),
-                    Some(Err(e)) => return view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>{e.to_string()}</p></div>}.into_view(),
+                    None => EitherOf3::A( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}),
+                    Some(Ok(_)) => EitherOf3::B( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}),
+                    Some(Err(e)) => EitherOf3::C( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>{e.to_string()}</p></div>}),
                 }
         }
         </div>
@@ -117,6 +118,7 @@ pub(crate) mod app {
     #[component]
     fn ClientLogin() -> impl IntoView {
         use crate::api::api::{is_logged_in, Login};
+        use leptos::either::EitherOf3;
         let login = ServerAction::<Login>::new();
         let logged_in = Resource::new(|| (), |_| async { is_logged_in().await });
 
@@ -124,12 +126,10 @@ pub(crate) mod app {
                 <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4">
                 <Suspense>
                     {move || match logged_in.get() {
-                        Some(Ok(_)) => {
-                            return view! {
+                        Some(Ok(_)) => EitherOf3::A( view! {
                             <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><meta http-equiv="refresh" content="0; url=/"/></div>
-                        }.into_view()},
-                        Some(Err(_)) => {
-                            return view! {
+                        }),
+                        Some(Err(_)) => EitherOf3::B( view! {
                                 <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4">
 
                                     <br/>
@@ -159,16 +159,16 @@ pub(crate) mod app {
                                     </ActionForm>
                                     <a href = "/signup" class="mt-3 rounded bg-purple-900 px-10 py-2 font-bold text-white hover:bg-blue-400" type="submit">"Don't have an account? Sign up"</a>
                             </div>
-                        }.into_view()},
-                        None => return view! {
-                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"loading..."</p></div>}.into_view(),
+                        }),
+                        None => EitherOf3::C (view! {
+                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"loading..."</p></div>}),
                         }
                     }
                 </Suspense>
                 {move || match login.value().get() {
-                    None => return view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}.into_view(),
-                    Some(Ok(_)) => return view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}.into_view(),
-                    Some(Err(e)) => return view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>{e.to_string()}</p></div>}.into_view(),
+                    None => EitherOf3::A( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}),
+                    Some(Ok(_)) => EitherOf3::B( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}),
+                    Some(Err(e)) => EitherOf3::C( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>{e.to_string()}</p></div>}),
                 }
         }
         </div>
@@ -215,6 +215,7 @@ pub(crate) mod app {
     #[component]
     fn AccountList() -> impl IntoView {
         use crate::api::api::{get_accounts, is_logged_in, ShareAccount};
+        use leptos::either::EitherOf3;
 
         let accounts = Resource::new(move || (), |_| async move { get_accounts().await });
         let logged_in = Resource::new(move || (), |_| async move { is_logged_in().await });
@@ -231,15 +232,15 @@ pub(crate) mod app {
                 let share_state = share_account.value().get();
 
                 match login_state {
-                    None => view!{
+                    None => EitherOf3::A (view!{
                         <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"checking if you are logged in"</p></div>
-                    }.into_view(),
-                    Some(Err(_)) => return view! {
+                    }),
+                    Some(Err(_)) => EitherOf3::B( view! {
                         <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><meta http-equiv="refresh" content="0; url=/login"/></div>
-                    }.into_view(),
-                    Some(Ok(_)) =>
+                    }),
+                    Some(Ok(_)) => EitherOf3::C(
                         view! {
-                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}.into_view(),
+                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}),
                     };
 
                 match accounts_state {
@@ -287,9 +288,9 @@ pub(crate) mod app {
                                         </ul>
                                         <AddAccount/>
                                         {match share_state{
-                                            None => view!{<div class="mx-auto flex min-w-full flex-col items-center"><p></p></div>}.into_view(),
-                                            Some(Ok(_)) => view!{<div class="mx-auto flex min-w-full flex-col items-center"><p></p></div>}.into_view(),
-                                            Some(Err(e)) => view!{<div class="mx-auto flex min-w-full flex-col items-center"><p>{e.to_string()}</p></div>}.into_view(),
+                                            None => EitherOf3::A( view!{<div class="mx-auto flex min-w-full flex-col items-center"><p></p></div>}),
+                                            Some(Ok(_)) => EitherOf3::B( view!{<div class="mx-auto flex min-w-full flex-col items-center"><p></p></div>}),
+                                            Some(Err(e)) => EitherOf3::C( view!{<div class="mx-auto flex min-w-full flex-col items-center"><p>{e.to_string()}</p></div>}),
                                         }}
                                     </div>
                                 }.into_view()
@@ -323,6 +324,7 @@ pub(crate) mod app {
     #[component]
     fn Transact() -> impl IntoView {
         use crate::api::api::{get_accounts, is_logged_in, Transact};
+        use leptos::either::EitherOf3;
         let items_resource = Resource::new(|| (), |_| async { get_accounts().await });
         let logged_in_resource = Resource::new(|| (), |_| async { is_logged_in().await });
         let update_action = ServerAction::<Transact>::new();
@@ -335,15 +337,15 @@ pub(crate) mod app {
                     let items_state = items_resource.get();
 
                     match login_state {
-                        None => { view! {
+                        None => EitherOf3::A( view! {
                             <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"checking if you are logged in"</p></div>
-                        }.into_view()},
-                        Some(Err(_)) => { view! {
+                        }),
+                        Some(Err(_)) => EitherOf3::B( view! {
                             <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><meta http-equiv="refresh" content="0; url=/login"/></div>
-                        }.into_view()},
-                        Some(Ok(_)) => { view! {
+                        }),
+                        Some(Ok(_)) => EitherOf3::C( view! {
                             <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>
-                        }.into_view()},
+                        }),
                     }
                 }}
                 {move || match logged_in_resource.get() {
@@ -364,7 +366,7 @@ pub(crate) mod app {
                                             <div class="flex flex-col items-center text-center px-10 py-10"><p>"You must have two accounts in order to transact!"</p></div>
                                         }.into_view()
                                     }
-                                    return view! {
+                                    view! {
                                         <div class="flex flex-col items-center text-center px-10 py-10">
                                         <h1 class="font-bold text-4xl">"Make a transaction"</h1>
                                         <p>"Please enter your values in cents"</p>
@@ -406,21 +408,16 @@ pub(crate) mod app {
                                            <br/>
 
                                        {move || match update_action.value().get() {
-                                               None => {
+                                               None =>
+                                                   EitherOf3::A (view! {}),
+
+                                               Some(Err(e)) => EitherOf3::B(
                                                    view! {
-                                                       <div><p></p></div>
-                                                   }.into_view()
-                                               }
-                                               Some(Err(e)) => {
-                                                   view! {
-                                                       <div><p>{e.to_string()}</p></div>
-                                                   }.into_view()
-                                               }
-                                               Some(Ok(val)) => {
-                                                   view! {
-                                                       <div><p></p></div>
-                                                   }.into_view()
-                                               }
+                                                       <p>{e.to_string()}</p>
+                                                   }),
+
+                                               Some(Ok(_)) => EitherOf3::C( view! {}),
+
                                            }
                                        }
 
@@ -448,9 +445,12 @@ pub(crate) mod app {
     fn GeneralJournal() -> impl IntoView {
         use crate::api::api::{is_logged_in, package_transactions};
         use chrono::TimeZone;
+        use leptos::either::EitherOf3;
+
         let transactions_resource =
             Resource::new(|| (), |_| async { package_transactions().await });
         let logged_in_resource = Resource::new(|| (), |_| async { is_logged_in().await });
+
         view! {
 
             <TopBar/>
@@ -458,16 +458,16 @@ pub(crate) mod app {
 
             {move || {
                 let login_state = logged_in_resource.get();
+
                 match login_state {
-                    None => { view! {
+                    None => EitherOf3::A( view! {
                         <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>"checking if you are logged in"</p></div>
-                    }.into_view()},
-                    Some(Err(_)) => { view! {
+                    }),
+                    Some(Err(_)) => EitherOf3::B( view! {
                         <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><meta http-equiv="refresh" content="0; url=/login"/></div>
-                    }.into_view()},
-                    Some(Ok(_)) => {
-                        view! {
-                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}.into_view()},
+                    }),
+                    Some(Ok(_)) => EitherOf3::C( view! {
+                        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p></p></div>}),
                     }
 
             }}
