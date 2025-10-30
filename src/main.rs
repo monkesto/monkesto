@@ -7,13 +7,13 @@ use leptos::prelude::LeptosOptions;
 async fn main() {
     use std::path::Path;
 
+    use crate::app::*;
     use axum::Router;
     use dotenvy::dotenv;
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
     use leptos_router::components::provide_server_redirect;
-    use prototype::app::*;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::{Pool, Postgres};
     use std::env;
@@ -35,7 +35,7 @@ async fn main() {
         .await?;
 
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS events (
+        "CREATE TABLE IF NOT EXISTS user_events (
             id BIGSERIAL PRIMARY KEY,
             aggregate_id UUID NOT NULL,
             sequence_number INT NOT NULL,
@@ -43,6 +43,20 @@ async fn main() {
             payload JSONB NOT NULL,
             created_at TIMESTAMPZ NOT NULL DEFAULT now()
             )",
+    )
+    .execute(&pool)
+    .await
+    .expect("to be able to create a table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS account_events (
+                id BIGSERIAL PRIMARY KEY,
+                aggregate_id UUID NOT NULL,
+                sequence_number INT NOT NULL,
+                event_type INT NOT NULL,
+                payload JSONB NOT NULL,
+                created_at TIMESTAMPZ NOT NULL DEFAULT now()
+                )",
     )
     .execute(&pool)
     .await
