@@ -1,11 +1,14 @@
-mod api;
+#[cfg(feature = "ssr")]
+#[allow(dead_code, unused_must_use)]
 mod app;
-mod types;
+
+#[cfg(feature = "ssr")]
+mod api;
 
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
-    use crate::app::app::*;
+    use app::*;
     use axum::Router;
     use dotenvy::dotenv;
     use leptos::logging::log;
@@ -36,28 +39,14 @@ async fn main() {
         .expect("to be able to connet to the pool");
 
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS user_events (
+        "CREATE TABLE IF NOT EXISTS events (
             id BIGSERIAL PRIMARY KEY,
             aggregate_id UUID NOT NULL,
-            sequence_number INT NOT NULL,
-            event_type INT NOT NULL,
+            aggregate_type SMALLINT NOT NULL,
+            event_type SMALLINT NOT NULL,
             payload JSONB NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )",
-    )
-    .execute(&pool)
-    .await
-    .expect("to be able to create a table");
-
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS account_events (
-                id BIGSERIAL PRIMARY KEY,
-                aggregate_id UUID NOT NULL,
-                sequence_number INT NOT NULL,
-                event_type INT NOT NULL,
-                payload JSONB NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                )",
     )
     .execute(&pool)
     .await

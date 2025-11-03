@@ -1,6 +1,12 @@
+#[cfg(feature = "ssr")]
 pub mod api;
+
+#[cfg(feature = "ssr")]
+#[allow(dead_code, unused_must_use)]
 pub mod app;
-pub mod types;
+
+#[cfg(feature = "ssr")]
+pub mod event_sourcing;
 
 #[cfg(feature = "hydrate")]
 #[wasm_bindgen::prelude::wasm_bindgen]
