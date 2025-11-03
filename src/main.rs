@@ -1,20 +1,16 @@
 mod api;
 mod app;
 mod types;
-use leptos::prelude::LeptosOptions;
 
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
-    use std::path::Path;
-
     use crate::app::app::*;
     use axum::Router;
     use dotenvy::dotenv;
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
-    use leptos_router::components::provide_server_redirect;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::{Pool, Postgres};
     use std::env;
@@ -30,7 +26,7 @@ async fn main() {
 
     let database_url: String = match env::var("DATABASE_URL") {
         Ok(s) => s,
-        Err(e) => panic!("failed to get database url"),
+        Err(_) => panic!("failed to get database url"),
     };
 
     let pool: Pool<Postgres> = PgPoolOptions::new()

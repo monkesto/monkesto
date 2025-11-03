@@ -1,4 +1,5 @@
 #[cfg(feature = "ssr")]
+#[allow(dead_code, unused_must_use)]
 pub(crate) mod app {
     use leptos::prelude::*;
     use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
@@ -58,8 +59,8 @@ pub(crate) mod app {
 
     #[component]
     fn ClientSignUp() -> impl IntoView {
-        use crate::api::api::{is_logged_in, CreateAccount};
-        use leptos::either::{Either, EitherOf3};
+        use crate::api::api::CreateAccount;
+        use leptos::either::Either;
         let signup = ServerAction::<CreateAccount>::new();
 
         view! {
@@ -319,7 +320,7 @@ pub(crate) mod app {
     #[component]
     fn Transact() -> impl IntoView {
         use crate::api::api::{get_accounts, is_logged_in, Transact};
-        use leptos::either::{Either, EitherOf3, EitherOf4};
+        use leptos::either::{Either, EitherOf3};
         let items_resource = Resource::new(|| (), |_| async { get_accounts().await });
         let logged_in_resource = Resource::new(|| (), |_| async { is_logged_in().await });
         let update_action = ServerAction::<Transact>::new();
@@ -329,7 +330,7 @@ pub(crate) mod app {
             <Suspense fallback=|| view! { <p>"Loading..."</p> }>
                 {move || {
                     let login_state = logged_in_resource.get();
-                    let items_state = items_resource.get();
+                    let _items_state = items_resource.get();
 
                     match login_state {
                         None => EitherOf3::A( view! {
@@ -476,7 +477,7 @@ pub(crate) mod app {
                                             <div class="flex flex-col items-center text-center px-10 py-10">
                                                 <li>
                                                     <h2 font-bold text-xl>
-                                                    {chrono::Utc.timestamp(packaged_transaction.0.1, 0).to_string()}":"
+                                                    {chrono::Utc.timestamp_opt(packaged_transaction.0.1, 0).unwrap().to_string()}":"
                                                     </h2>
                                                     <ul>
                                                         {packaged_transaction.1.iter().map(|partial_transaction| {

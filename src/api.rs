@@ -1,4 +1,5 @@
 #[cfg(feature = "ssr")]
+#[allow(dead_code)]
 pub(crate) mod api {
     use axum::Extension;
     use leptos::prelude::*;
@@ -235,7 +236,7 @@ pub(crate) mod api {
     pub async fn get_transaction_children(
         transaction_id: i32,
     ) -> Result<Vec<(i32, i64)>, ServerFnError> {
-        pull_database_and_client_info!(pool, _session_id, user_id);
+        pull_database_and_client_info!(pool, _session_id, _user_id);
 
         let partial_transactions: Vec<(i32, i64)> = match sqlx::query_as(
         "SELECT account_id, balance_diff_cents FROM partial_transactions WHERE id = ? ORDER by balance_diff_cents ASC",
