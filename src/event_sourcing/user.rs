@@ -1,9 +1,13 @@
+use leptos::prelude::ServerFnError;
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use uuid::Uuid;
+
+use super::event::{AggregateType, EventType};
 
 #[derive(Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
-pub(crate) enum UserEvent {
+pub enum UserEvent {
     Created { username: String, password: String },
     UsernameUpdate { username: String },
     PasswordUpdate { password: String },
@@ -11,6 +15,37 @@ pub(crate) enum UserEvent {
     Logout { session_id: String },
     AddAccount { id: Uuid },
     Deleted,
+}
+
+impl UserEvent {
+    pub async fn push_db(&self, uuid: Uuid, pool: &PgPool) -> Result<i64, ServerFnError> {
+        let payload = match serde_json::to_value(self) {
+            Ok(s) => s,
+            Err(e) => return Err(ServerFnError::ServerError(e.to_string())),
+        };
+        match sqlx::query_scalar(
+            r#"
+            INSERT INTO events (
+                aggregate_id,
+                aggregate_type,
+                event_type,
+                payload
+            )
+            VALUES ($1, $2, $3, $4)
+            RETURNING id
+            "#,
+        )
+        .bind(uuid)
+        .bind(AggregateType::User)
+        .bind(EventType::from_user_event(self))
+        .bind(payload)
+        .fetch_one(pool)
+        .await
+        {
+            Ok(s) => Ok(s),
+            Err(e) => Err(ServerFnError::ServerError(e.to_string())),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -24,19 +59,19 @@ struct UserState {
 }
 
 impl UserState {
-    pub fn from_events(id: Uuid, events: Vec<UserEvent>) -> Self {
+    pub async fn from_events(id: Uuid, events: Vec<UserEvent>) -> Self {
         let mut aggregate = Self {
             id,
             ..Default::default()
         };
 
         for event in events {
-            aggregate.apply(event);
+            aggregate.apply(event).await;
         }
         aggregate
     }
 
-    pub fn apply(&mut self, event: UserEvent) {
+    pub async fn apply(&mut self, event: UserEvent) {
         match event {
             UserEvent::Created { username, password } => {
                 self.username = username;

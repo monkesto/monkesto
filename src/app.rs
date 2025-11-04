@@ -56,7 +56,7 @@ pub fn App() -> impl IntoView {
 
 #[component]
 fn ClientSignUp() -> impl IntoView {
-    use crate::api::CreateAccount;
+    use crate::api::api::CreateAccount;
     use leptos::either::Either;
     let signup = ServerAction::<CreateAccount>::new();
 
@@ -114,7 +114,7 @@ fn ClientSignUp() -> impl IntoView {
 
 #[component]
 fn ClientLogin() -> impl IntoView {
-    use crate::api::{is_logged_in, Login};
+    use crate::api::api::{is_logged_in, Login};
     use leptos::either::{Either, EitherOf3};
     let login = ServerAction::<Login>::new();
     let logged_in = Resource::new(|| (), |_| async { is_logged_in().await });
@@ -172,7 +172,7 @@ fn ClientLogin() -> impl IntoView {
 
 #[component]
 fn TopBar() -> impl IntoView {
-    use crate::api::LogOut;
+    use crate::api::api::LogOut;
     let log_out_action = ServerAction::<LogOut>::new();
     view! {
                     <div class="flex max-w-7xl mx-auto items-center flex-col">
@@ -209,7 +209,7 @@ fn HomePage() -> impl IntoView {
 
 #[component]
 fn AccountList() -> impl IntoView {
-    use crate::api::{get_accounts, is_logged_in, ShareAccount};
+    use crate::api::api::{get_accounts, is_logged_in, ShareAccount};
     use leptos::either::{Either, EitherOf3};
 
     let accounts = Resource::new(move || (), |_| async move { get_accounts().await });
@@ -297,7 +297,7 @@ fn AccountList() -> impl IntoView {
 
 #[component]
 fn AddAccount() -> impl IntoView {
-    let add_account = ServerAction::<crate::api::AddAccount>::new();
+    let add_account = ServerAction::<crate::api::api::AddAccount>::new();
     view! {
             <div class="flex flex-col items-center text-center px-10 py-10">
                 <h1>"Create a new account"</h1>
@@ -316,7 +316,7 @@ fn AddAccount() -> impl IntoView {
 
 #[component]
 fn Transact() -> impl IntoView {
-    use crate::api::{get_accounts, is_logged_in, Transact};
+    use crate::api::api::{get_accounts, is_logged_in, Transact};
     use leptos::either::{Either, EitherOf3};
     let items_resource = Resource::new(|| (), |_| async { get_accounts().await });
     let logged_in_resource = Resource::new(|| (), |_| async { is_logged_in().await });
@@ -428,7 +428,7 @@ fn Transact() -> impl IntoView {
 
 #[component]
 fn GeneralJournal() -> impl IntoView {
-    use crate::api::{is_logged_in, package_transactions};
+    use crate::api::api::{is_logged_in, package_transactions};
     use chrono::TimeZone;
     use leptos::either::EitherOf3;
 

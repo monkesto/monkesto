@@ -9,3 +9,7 @@ pub mod event;
 #[cfg(feature = "ssr")]
 #[allow(dead_code)]
 pub mod user;
+
+#[cfg(feature = "ssr")]
+#[allow(dead_code)]
+pub mod transaction;

@@ -4,15 +4,16 @@ use super::user::UserEvent;
 #[derive(sqlx::Type)]
 #[sqlx(type_name = "smallint")]
 #[repr(i16)]
-enum AggregateType {
+pub enum AggregateType {
     User = 1,
     Account = 2,
+    Transaction = 3,
 }
 
 #[derive(sqlx::Type)]
 #[sqlx(type_name = "smallint")]
 #[repr(i16)]
-enum EventType {
+pub enum EventType {
     // User events (1-99)
     UserCreated = 1,
     UsernameUpdate = 2,
@@ -29,10 +30,13 @@ enum EventType {
     AccountRemoveTenant = 103,
     AccountBalanceUpdated = 104,
     AccountDeleted = 105,
+
+    // Transaction events (200-299)
+    TransactionPosted = 200,
 }
 
 impl EventType {
-    fn from_user_event(user_event: UserEvent) -> Self {
+    pub fn from_user_event(user_event: &UserEvent) -> Self {
         match user_event {
             UserEvent::Created { .. } => Self::UserCreated,
             UserEvent::UsernameUpdate { .. } => Self::UsernameUpdate,
@@ -44,7 +48,7 @@ impl EventType {
         }
     }
 
-    fn from_account_event(account_event: AccountEvent) -> Self {
+    pub fn from_account_event(account_event: &AccountEvent) -> Self {
         match account_event {
             AccountEvent::Created { .. } => Self::AccountCreated,
             AccountEvent::AddTenant { .. } => Self::AccountAddTenant,
