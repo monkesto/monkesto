@@ -4,8 +4,8 @@ use strum_macros::{Display, EnumString};
 use uuid::Uuid;
 
 use crate::event_sourcing::{
+    journal::JournalTenantInfo,
     journal::{BalanceUpdate, Permissions, Transaction},
-    user::JournalTenantInfo,
 };
 
 #[derive(EnumString, Display)]
