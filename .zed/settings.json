@@ -1,6 +1,4 @@
 {
-    "vim_mode": true,
-    "autosave": "on_focus_change",
     "lsp": {
         "rust-analyzer": {
             "initialization_options": {
