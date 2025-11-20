@@ -16,8 +16,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    - name: install leptos
-      run: cargo install leptos
+    - name: install cargo-leptos
+      run: cargo install --locked cargo-leptos
     - name: format
       run: cargo fmt --verbose
     - name: Build
