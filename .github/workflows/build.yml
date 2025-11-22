@@ -24,7 +24,7 @@ jobs:
         components: clippy
     
     - name: Run Clippy
-      run: cargo clippy --verbose -- -D warnings
+      run: cargo clippy -- -D warnings
 
   format:
 
@@ -39,7 +39,7 @@ jobs:
         components: rustfmt
      
     - name: Run Formatter
-      run: cargo fmt --verbose
+      run: cargo fmt
 
   build:
 
@@ -66,5 +66,5 @@ jobs:
       run: cargo leptos build --release 
       
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test
   
