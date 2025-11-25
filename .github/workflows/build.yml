@@ -59,5 +59,33 @@ jobs:
       - name: Install cargo-leptos
         run: cargo install --locked cargo-leptos
 
-      - name: Run tests
+      - name: Run rust tests
         run: cargo leptos test --release --features=ssr
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: "npm"
+
+      - name: Install node deps
+        run: npm ci
+
+      - name: Install playwright
+        run: npx install playwright@latest
+
+      - name: Run end-to-end tests
+        run: cargo leptos end-to-end
+
+      - name: Upload playwright report
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: end2end/playwright-report/
+          retention-days: 30
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: end2end/test-results/
+          retention-days: 30
