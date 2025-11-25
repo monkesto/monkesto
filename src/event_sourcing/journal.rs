@@ -148,7 +148,7 @@ impl JournalState {
     }
 }
 
-#[derive(Default, Serialize, Deserialize, Clone)]
+#[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct JournalTenantInfo {
     pub tenant_permissions: Permissions,
     pub inviting_user: Uuid,

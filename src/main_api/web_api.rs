@@ -142,6 +142,7 @@ pub async fn select_journal(user_id: String, journal_id: String) -> Result<(), S
     let user_state = UserState::build(
         &user_id,
         vec![
+            UserCreatedJournal,
             UserInvitedToJournal,
             UserAcceptedJournalInvite,
             UserDeclinedJournalInvite,
@@ -168,6 +169,7 @@ pub async fn select_journal(user_id: String, journal_id: String) -> Result<(), S
             ));
         }
     }
+
     UserEvent::SelectedJournal { id: journal_id }
         .push_db(&user_id, &pool)
         .await?;
@@ -334,6 +336,14 @@ pub async fn get_associated_journals(
                 id: journal_id,
                 name: journal_state.name,
             });
+            if journal_id == user.selected_journal {
+                selected = Some(
+                    journals
+                        .last()
+                        .expect("the value was just added, it should exist.")
+                        .clone(),
+                )
+            }
         }
     }
 

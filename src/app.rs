@@ -374,7 +374,6 @@ fn HomePage() -> impl IntoView {
                         Err(e) => return EitherOf5::D(view! {<p>"An error occured while fetching accounts: "{e.to_string()}</p>})
                     };
                     EitherOf5::E(view! {
-                        <h1>"test"</h1>
                         <TopBar journals=journals.clone() user_id=user_id/>
                         <AccountList accounts=accounts journals=journals user_id=user_id/>
                     })

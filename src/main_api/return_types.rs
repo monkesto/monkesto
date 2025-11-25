@@ -66,7 +66,7 @@ pub struct Account {
     pub balance: i64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum AssociatedJournal {
     Owned {
         id: Uuid,
