@@ -17,19 +17,20 @@ bitflags! {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BalanceUpdate {
     pub account_name: String,
     pub changed_by: i64,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Transaction {
     pub author: Uuid,
     pub updates: Vec<BalanceUpdate>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(tag = "type", content = "data")]
 pub enum JournalEvent {
     Created { name: String, owner: Uuid },
     Renamed { name: String },
@@ -40,7 +41,7 @@ pub enum JournalEvent {
 }
 impl JournalEvent {
     pub async fn push_db(&self, uuid: &Uuid, pool: &PgPool) -> Result<i64, ServerFnError> {
-        let payload = serde_json::to_value(self)?;
+        let payload = serde_json::to_value(DomainEvent::Journal(self.clone()))?;
 
         let id: i64 = sqlx::query_scalar(
             r#"

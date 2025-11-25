@@ -9,7 +9,7 @@ use crate::{event_sourcing::journal::Permissions, main_api::return_types::KnownE
 
 use super::event::{AggregateType, DomainEvent, EventType};
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type", content = "data")]
 pub enum UserEvent {
     Created {
@@ -54,7 +54,7 @@ pub enum UserEvent {
 
 impl UserEvent {
     pub async fn push_db(&self, uuid: &Uuid, pool: &PgPool) -> Result<i64, ServerFnError> {
-        let payload = serde_json::to_value(self)?;
+        let payload = serde_json::to_value(DomainEvent::User(self.clone()))?;
         let id: i64 = sqlx::query_scalar(
             r#"
             INSERT INTO events (
@@ -214,11 +214,12 @@ pub async fn get_id_from_session(
     let uuid: Option<Uuid> = query_scalar(
         r#"
         SELECT aggregate_id FROM events
-        WHERE (event_type = $1 OR event_type = $2) AND payload->'data'->>'session_id' = $3
+        WHERE event_type = $1 AND payload->'data'->>'session_id' = $2
         ORDER BY created_at DESC
         LIMIT 1
         "#,
     )
+    .bind(EventType::UserLoggedIn)
     .bind(session_id)
     .fetch_optional(pool)
     .await?;

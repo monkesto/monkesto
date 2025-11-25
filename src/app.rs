@@ -112,7 +112,7 @@ fn ClientSignUp() -> impl IntoView {
 
             {move || match signup.value().get() {
                 Some(Err(e)) => Either::Left( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>{e.to_string()}</p></div>}),
-                _ => Either::Right( view! {()} )
+                _ => Either::Right( view! {""} )
             }
     }
     </div>
@@ -165,13 +165,13 @@ fn ClientLogin() -> impl IntoView {
                                 <a href = "/signup" class="mt-3 rounded bg-purple-900 px-10 py-2 font-bold text-white hover:bg-blue-400" type="submit">"Don't have an account? Sign up"</a>
                         </div>
                     }),
-                    None => EitherOf3::C (view! {()})
+                    None => EitherOf3::C (view! {""})
                 }
             }
             </Suspense>
             {move || match login.value().get() {
                 Some(Err(e)) => Either::Left( view! {<div class="mx-auto flex min-w-full flex-col items-center px-4 py-4"><p>{e.to_string()}</p></div>}),
-                _ => Either::Right(view! {()}),
+                _ => Either::Right(view! {""}),
             }
         }
     </div>
@@ -261,7 +261,7 @@ fn AddAccount(user_id: Uuid, journal_id: Uuid) -> impl IntoView {
                                 Some(Err(e)) => Either::Left(view! {
                                     <p>"An error occured: " {e.to_string()}</p>
                                 }),
-                                _ => Either::Right(view! {()})
+                                _ => Either::Right(view! {""})
                             }
                         }
                     }
@@ -322,12 +322,12 @@ fn AccountList(user_id: Uuid, journals: Journals) -> impl IntoView {
                         if tenant_info.tenant_permissions.contains(Permissions::ADDACCOUNT) {
                             EitherOf4::B(view! { <AddAccount user_id=user_id journal_id=id/> })
                         } else {
-                            EitherOf4::C(view! {()})
+                            EitherOf4::C(view! {""})
                         }
                     }
                 }
             } else {
-                EitherOf4::D( view! {()} )
+                EitherOf4::D( view! {""} )
             }
         }}
 
@@ -368,7 +368,7 @@ fn HomePage() -> impl IntoView {
                                         }),
 
                                         None => EitherOf3::C(view! {
-                                            <p>"Unable to fetch user id"</p>
+                                            <p>"Unable to fetch journals"</p>
                                         }),
                                     }
                                 }
@@ -483,7 +483,7 @@ fn Transact() -> impl IntoView {
                                                     <p>"An error occured while sumbitting your transaction: " {e.to_string()}</p>
                                                 })
                                             } else {
-                                                Either::Right(view! {()})
+                                                Either::Right(view! {""})
                                             }
                                         }
 

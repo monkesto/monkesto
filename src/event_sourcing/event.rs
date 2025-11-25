@@ -3,7 +3,7 @@ use super::user::UserEvent;
 use leptos::prelude::ServerFnError;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(tag = "payload")]
 pub enum DomainEvent {
     User(UserEvent),
