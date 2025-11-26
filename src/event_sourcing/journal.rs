@@ -7,7 +7,8 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 bitflags! {
-#[derive(Serialize, Deserialize, Hash, Default, Debug, Clone, Copy)]
+    #[derive(Serialize, Deserialize, Hash, Default, Debug, Clone, Copy)]
+    #[serde(transparent)]
     pub struct Permissions: u16 {
         const READ = 1 << 0;
         const ADDACCOUNT = 1 << 1;

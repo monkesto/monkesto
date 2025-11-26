@@ -20,7 +20,6 @@ pub enum KnownErrors {
 
     LoginFailed {
         username: String,
-        password: String,
     },
 
     SignupPasswordMismatch {
@@ -89,6 +88,17 @@ pub enum AssociatedJournal {
 }
 
 impl AssociatedJournal {
+    fn has_permission(&self, permissions: Permissions) -> bool {
+        match self {
+            Self::Owned { .. } => true,
+            Self::Shared { tenant_info, .. } => {
+                tenant_info.tenant_permissions.contains(permissions)
+            }
+        }
+    }
+}
+
+impl AssociatedJournal {
     pub fn get_id(&self) -> Uuid {
         match self {
             Self::Owned { id, .. } => *id,
@@ -107,6 +117,13 @@ impl AssociatedJournal {
 pub struct Journals {
     pub associated: Vec<AssociatedJournal>,
     pub selected: Option<AssociatedJournal>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct JournalInvite {
+    pub id: Uuid,
+    pub name: String,
+    pub tenant_info: JournalTenantInfo,
 }
 
 #[derive(Serialize, Deserialize, Clone)]

@@ -85,7 +85,7 @@ pub async fn login(username: String, password: String) -> Result<(), ServerFnErr
             .await?;
     } else {
         return Err(ServerFnError::ServerError(
-            KnownErrors::LoginFailed { username, password }.to_string()?,
+            KnownErrors::LoginFailed { username }.to_string()?,
         ));
     }
 
@@ -156,7 +156,7 @@ pub async fn select_journal(user_id: String, journal_id: String) -> Result<(), S
     if !user_state.owned_journals.contains(&journal_id) {
         let journal = user_state.accepted_journal_invites.get(&journal_id);
 
-        if journal.is_some_and(|j| j.tenant_permissions.contains(Permissions::READ)) {
+        if !journal.is_some_and(|j| j.tenant_permissions.contains(Permissions::READ)) {
             return Err(ServerFnError::ServerError(
                 KnownErrors::PermissionError {
                     required_permissions: Permissions::READ,
@@ -178,10 +178,12 @@ pub async fn invite_to_journal(
     journal_id: String,
     own_id: String,
     invitee_username: String,
-    permissions: Permissions,
+    permissions: String,
 ) -> Result<(), ServerFnError> {
     let journal_id = Uuid::try_parse(&journal_id)?;
     let own_id = Uuid::try_parse(&own_id)?;
+
+    let permissions: Permissions = serde_json::from_str(&permissions)?;
 
     let pool = extensions::get_pool().await?;
 
@@ -266,8 +268,13 @@ pub async fn invite_to_journal(
 }
 
 #[server]
-pub async fn accept_journal_invite(user_id: Uuid, journal_id: Uuid) -> Result<(), ServerFnError> {
+pub async fn get_journal_invites(
+    user_id: Result<Uuid, ServerFnError>,
+) -> Result<Vec<JournalInvite>, ServerFnError> {
+    let user_id = user_id?;
     use EventType::*;
+
+    let mut invites = Vec::new();
 
     let pool = extensions::get_pool().await?;
 
@@ -283,21 +290,31 @@ pub async fn accept_journal_invite(user_id: Uuid, journal_id: Uuid) -> Result<()
     )
     .await?;
 
-    if user_state.pending_journal_invites.contains_key(&journal_id) {
-        UserEvent::AcceptedJournalInvite { id: journal_id }
-            .push_db(&user_id, &pool)
-            .await?;
-    } else {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::NoInvitation.to_string()?,
-        ));
+    for (id, tenant_info) in user_state.pending_journal_invites {
+        let journal_state =
+            JournalState::build(&id, vec![JournalCreated, JournalRenamed], &pool).await?;
+
+        invites.push(JournalInvite {
+            id,
+            name: journal_state.name,
+            tenant_info,
+        })
     }
 
-    Ok(())
+    Ok(invites)
 }
 
 #[server]
-pub async fn decline_journal_invite(user_id: Uuid, journal_id: Uuid) -> Result<(), ServerFnError> {
+pub async fn respond_to_journal_invite(
+    user_id: String,
+    journal_id: String,
+    accepted: String,
+) -> Result<(), ServerFnError> {
+    let user_id = Uuid::try_parse(&user_id)?;
+    let journal_id = Uuid::try_parse(&journal_id)?;
+
+    let accepted: bool = serde_json::from_str(&accepted)?;
+
     use EventType::*;
 
     let pool = extensions::get_pool().await?;
@@ -315,14 +332,21 @@ pub async fn decline_journal_invite(user_id: Uuid, journal_id: Uuid) -> Result<(
     .await?;
 
     if user_state.pending_journal_invites.contains_key(&journal_id) {
-        UserEvent::DeclinedJournalInvite { id: journal_id }
-            .push_db(&user_id, &pool)
-            .await?;
+        if accepted {
+            UserEvent::AcceptedJournalInvite { id: journal_id }
+                .push_db(&user_id, &pool)
+                .await?;
+        } else {
+            UserEvent::DeclinedJournalInvite { id: journal_id }
+                .push_db(&user_id, &pool)
+                .await?;
+        }
     } else {
         return Err(ServerFnError::ServerError(
             KnownErrors::NoInvitation.to_string()?,
         ));
     }
+
     Ok(())
 }
 
@@ -439,7 +463,7 @@ pub async fn get_accounts(
     if !user_state.owned_journals.contains(&journal_id) {
         let journal_perms = user_state.accepted_journal_invites.get(&journal_id);
 
-        if journal_perms.is_some_and(|j| j.tenant_permissions.contains(Permissions::READ)) {
+        if !journal_perms.is_some_and(|j| j.tenant_permissions.contains(Permissions::READ)) {
             return Err(ServerFnError::ServerError(
                 KnownErrors::PermissionError {
                     required_permissions: Permissions::READ,
@@ -531,6 +555,10 @@ pub async fn add_account(
             return Err(ServerFnError::ServerError(
                 KnownErrors::AccountExists.to_string()?,
             ));
+        } else {
+            JournalEvent::CreatedAccount { account_name }
+                .push_db(&journal_id, &pool)
+                .await?;
         }
     } else {
         return Err(ServerFnError::ServerError(
@@ -667,7 +695,7 @@ pub async fn get_transactions(
 
     if !user_state.owned_journals.contains(&journal_id) {
         let shared_journal = user_state.accepted_journal_invites.get(&journal_id);
-        if shared_journal.is_some_and(|j| j.tenant_permissions.contains(Permissions::READ)) {
+        if !shared_journal.is_some_and(|j| j.tenant_permissions.contains(Permissions::READ)) {
             return Err(ServerFnError::ServerError(
                 KnownErrors::PermissionError {
                     required_permissions: Permissions::READ,

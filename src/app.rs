@@ -52,7 +52,7 @@ pub fn App() -> impl IntoView {
                         <Route path=StaticSegment("/journal") view=GeneralJournal/>
                         <Route path=StaticSegment("/login") view=ClientLogin/>
                         <Route path=StaticSegment("/signup") view=ClientSignUp/>
-                        //<Route path=StaticSegment("/invites") view=Invites/>
+                        <Route path=StaticSegment("/invites") view=JournalInvites/>
                     </Routes>
                 </head>
             </main>
@@ -135,7 +135,6 @@ fn ClientLogin() -> impl IntoView {
                     }),
                     Some(Err(_)) => EitherOf3::B( view! {
                             <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4">
-
                                 <br/>
 
                                 <ActionForm action=login>
@@ -147,6 +146,13 @@ fn ClientLogin() -> impl IntoView {
                                     type="text"
                                     name="username"
                                     placeholder="username"
+                                    value= {move || match login.value().get() {
+                                        Some(Err(e)) => match KnownErrors::parse_error(e) {
+                                            Some(KnownErrors::LoginFailed { username }) => username,
+                                            _ => "".to_string()
+                                        },
+                                        _ => "".to_string()
+                                    }}
                                     required
                                 />
                                 <br/>
@@ -179,12 +185,27 @@ fn ClientLogin() -> impl IntoView {
 
 #[component]
 fn TopBar(journals: Journals, user_id: Uuid) -> impl IntoView {
+    use leptos::either::Either;
     use web_api::{LogOut, SelectJournal};
     let log_out_action = ServerAction::<LogOut>::new();
     let select_journal = ServerAction::<SelectJournal>::new();
+    let username_resource = Resource::new(
+        || (),
+        move |_| async move { web_api::get_username_from_id(user_id).await },
+    );
 
     view! {
             <div class="flex max-w-7xl mx-auto items-center flex-col px-4 py-4 gey-8">
+                        <Suspense>
+                        {
+                            move | | Suspend::new(async move {
+                                match username_resource.await {
+                                    Err(e) => Either::Left(view! {<p>"An error occured while fetching username: "{e.to_string()}</p>}),
+                                    Ok(s) => Either::Right(view! {<h1 class="text-4xl">"Welcome, "{s}"!"</h1>})
+                                }
+                            })
+                        }
+                        </Suspense>
                         <a href="/transact" class="mt-3 rounded bg-purple-900 px-2 py-2 font-bold text-white hover:bg-blue-400 mx-3">
                             "Make a Transaction"
                         </a>
@@ -222,6 +243,12 @@ fn TopBar(journals: Journals, user_id: Uuid) -> impl IntoView {
                         </select>
                         <button class = "mt-3 rounded bg-purple-900 px-2 py-2 font-bold text-white hover:bg-blue-400" type="submit">"Select"</button>
                         </ActionForm>
+                        {
+                            match select_journal.value().get() {
+                                Some(Err(e)) => Either::Left(view! {<p>"An error occured while switching journals: "{e.to_string()}</p>}),
+                                _ => Either::Right(view! {""})
+                            }
+                        }
             </div>
     }
 }
@@ -356,6 +383,7 @@ fn HomePage() -> impl IntoView {
                                     value=user_id.to_string()
                                     />
                                     <input
+                                    class="shadow appearance-none border rounded py-2 px-2 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                                     name="journal_name"
                                     type="text"
                                     placeholder="journal name"
@@ -543,7 +571,7 @@ fn GeneralJournal() -> impl IntoView {
                                 transactions.into_iter().map(|transaction| view! {
                                     <div class="flex flex-col items-center text-center px-10 py-10">
                                         <li>
-                                            <h2 class="font-bold text-xl">{transaction.timestamp.to_string()}":"</h2>
+                                            <h2 class="font-bold text-xl">{transaction.timestamp.to_string()}" by "{transaction.transaction.author.to_string()}":"</h2>
                                             <br/>
                                             <ul>
                                                 {
@@ -561,6 +589,135 @@ fn GeneralJournal() -> impl IntoView {
                         </ul>
                     </div>
                 })
+            })}
+        </Suspense>
+    }
+}
+
+#[component]
+fn JournalInvites() -> impl IntoView {
+    use crate::main_api::web_api::{
+        InviteToJournal, RespondToJournalInvite, get_associated_journals, get_journal_invites,
+        get_user_id_from_session,
+    };
+    use leptos::either::{Either, EitherOf4};
+
+    let invite_action = ServerAction::<InviteToJournal>::new();
+    let response_action = ServerAction::<RespondToJournalInvite>::new();
+
+    let user_id_resource =
+        Resource::new(|| (), |_| async move { get_user_id_from_session().await });
+
+    let journals_resource = Resource::new(
+        || (),
+        move |_| async move { get_associated_journals(user_id_resource.await).await },
+    );
+
+    let invites_resource = Resource::new(
+        || (),
+        move |_| async move { get_journal_invites(user_id_resource.await).await },
+    );
+
+    view! {
+        <Suspense>
+            {move | | Suspend::new(async move {
+                let user_id = match user_id_resource.await {
+                    Ok(s) => s,
+                    Err(_) => return EitherOf4::A(view! {<meta http-equiv="refresh" content="0; url=/login"/>}),
+                };
+
+                let journals = match journals_resource.await {
+                    Ok(s) => s,
+                    Err(e) => return EitherOf4::B(view! {<p>"An error occured while fetching journals: "{e.to_string()}</p>})
+                };
+
+                let invites = match invites_resource.await {
+                    Ok(s) => s,
+                    Err(e) => return EitherOf4::C(view! {<p>"An error occured while fetching invites: "{e.to_string()}</p>})
+                };
+
+                EitherOf4::D(view! {
+                    <TopBar user_id=user_id journals=journals.clone()/>
+
+                    {if let Some(selected) = journals.selected {
+                        Either::Left(view! {
+                            <ActionForm action=invite_action>
+                                <input
+                                type="hidden"
+                                name="journal_id"
+                                value=selected.get_id().to_string()
+                                />
+
+                                <input
+                                type="hidden"
+                                name="own_id"
+                                value=user_id.to_string()
+                                />
+
+                                <input
+                                type="hidden"
+                                name="permissions"
+                                value=serde_json::to_string(&Permissions::all()).expect("serialization of permissions failed") // TODO: Add a selector for permissions
+                                />
+
+                                <input
+                                class="shadow appearance-none border rounded py-2 px-2 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
+                                type="text"
+                                name="invitee_username"
+                                placeholder="johndoe"
+                                required
+                                />
+
+                                <button class="mt-3 rounded bg-purple-900 px-10 py-2 font-bold text-white hover:bg-blue-400">"Invite to "{selected.get_name()} "!"</button>
+
+                            </ActionForm>
+
+                            {if let Some(Err(e)) = invite_action.value().get() {
+                                Either::Left(view! {<p>"An error occured while creating the invitation: "{e.to_string()}</p>})
+                            } else {Either::Right(view! {""})}}
+                        })
+                    }
+                    else {Either::Right(view! {""})}
+                    }
+
+                    {
+                        invites.into_iter().map(|invite| view! {
+                            <ActionForm action=response_action>
+
+                            <label class="block mb-2 font-medium">{invite.name}</label>
+
+                            <input
+                            type="hidden"
+                            name="user_id"
+                            value=user_id.to_string()
+                            />
+
+                            <input
+                            type="hidden"
+                            name="journal_id"
+                            value=invite.id.to_string()
+                            />
+
+                            <select name="accepted">
+                            <option value=serde_json::to_string(&true).expect("failed to serialize false")>"Accept"</option>
+                            <option value=serde_json::to_string(&false).expect("failed to serialize true")>"Decline"</option>
+                            </select>
+
+                            <button
+                            type="submit"
+                            class="mt-3 rounded bg-purple-900 px-2 py-2 font-bold text-white hover:bg-blue-400"
+                            >"Submit"</button>
+
+                            </ActionForm>
+                        }).collect_view()
+                    }
+
+                    {if let Some(Err(e)) = response_action.value().get() {
+                        Either::Left(view! {<p>"An error occured: "{e.to_string()}</p>})
+                    } else {Either::Right(view! {""})}}
+
+                })
+
             })}
         </Suspense>
     }
