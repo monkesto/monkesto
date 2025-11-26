@@ -466,14 +466,44 @@ pub async fn add_account(
     .await?;
 
     if user_state.owned_journals.contains(&journal_id) {
+        let state = JournalState::build(
+            &journal_id,
+            vec![JournalAccountCreated, JournalAccountDeleted],
+            &pool,
+        )
+        .await?;
+
+        if state.accounts.contains_key(&account_name) {
+            return Err(ServerFnError::ServerError(
+                KnownErrors::AccountExists.to_string(),
+            ));
+        }
+
         JournalEvent::CreatedAccount { account_name }
             .push_db(&journal_id, &pool)
             .await?;
-    } else if let Some(tenant_info) = user_state.accepted_journal_invites.get(&journal_id)
-        && tenant_info
-            .tenant_permissions
-            .contains(Permissions::ADDACCOUNT)
+    } else if user_state
+        .accepted_journal_invites
+        .get(&journal_id)
+        .is_some_and(|tenant_info| {
+            tenant_info
+                .tenant_permissions
+                .contains(Permissions::ADDACCOUNT)
+        })
     {
+        let state = JournalState::build(
+            &journal_id,
+            vec![JournalAccountCreated, JournalAccountDeleted],
+            &pool,
+        )
+        .await?;
+
+        if state.accounts.contains_key(&account_name) {
+            return Err(ServerFnError::ServerError(
+                KnownErrors::AccountExists.to_string(),
+            ));
+        }
+    } else {
         return Err(ServerFnError::ServerError(
             KnownErrors::PermissionError {
                 required_permissions: Permissions::ADDACCOUNT,

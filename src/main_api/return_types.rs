@@ -34,6 +34,8 @@ pub enum KnownErrors {
         username: String,
     },
 
+    AccountExists,
+
     BalanceMismatch {
         attempted_transaction: Vec<BalanceUpdate>,
     },
