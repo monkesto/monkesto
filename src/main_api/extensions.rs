@@ -31,6 +31,6 @@ pub async fn get_session_id() -> Result<String, ServerFnError> {
         return Ok(s.to_string());
     }
     Err(ServerFnError::ServerError(
-        KnownErrors::SessionIdNotFound.to_string(),
+        KnownErrors::SessionIdNotFound.to_string()?,
     ))
 }

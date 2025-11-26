@@ -35,7 +35,7 @@ pub async fn create_account(
 
     if password != confirm_password {
         return Err(ServerFnError::ServerError(
-            KnownErrors::SignupPasswordMismatch { username }.to_string(),
+            KnownErrors::SignupPasswordMismatch { username }.to_string()?,
         ));
     }
 
@@ -56,7 +56,7 @@ pub async fn create_account(
             .await?;
     } else {
         return Err(ServerFnError::ServerError(
-            KnownErrors::UserExists { username }.to_string(),
+            KnownErrors::UserExists { username }.to_string()?,
         ));
     }
 
@@ -72,7 +72,7 @@ pub async fn login(username: String, password: String) -> Result<(), ServerFnErr
         Some(s) => s,
         None => {
             return Err(ServerFnError::ServerError(
-                KnownErrors::UserDoesntExist.to_string(),
+                KnownErrors::UserDoesntExist.to_string()?,
             ));
         }
     };
@@ -85,7 +85,7 @@ pub async fn login(username: String, password: String) -> Result<(), ServerFnErr
             .await?;
     } else {
         return Err(ServerFnError::ServerError(
-            KnownErrors::LoginFailed { username, password }.to_string(),
+            KnownErrors::LoginFailed { username, password }.to_string()?,
         ));
     }
 
@@ -161,7 +161,7 @@ pub async fn select_journal(user_id: String, journal_id: String) -> Result<(), S
                 KnownErrors::PermissionError {
                     required_permissions: Permissions::READ,
                 }
-                .to_string(),
+                .to_string()?,
             ));
         }
     }
@@ -175,11 +175,14 @@ pub async fn select_journal(user_id: String, journal_id: String) -> Result<(), S
 
 #[server]
 pub async fn invite_to_journal(
-    journal_id: Uuid,
-    own_id: Uuid,
+    journal_id: String,
+    own_id: String,
     invitee_username: String,
     permissions: Permissions,
 ) -> Result<(), ServerFnError> {
+    let journal_id = Uuid::try_parse(&journal_id)?;
+    let own_id = Uuid::try_parse(&own_id)?;
+
     let pool = extensions::get_pool().await?;
 
     if let Some(invitee_id) = user::get_id_from_username(&invitee_username, &pool).await? {
@@ -195,6 +198,32 @@ pub async fn invite_to_journal(
             &pool,
         )
         .await?;
+
+        let invitee_state = UserState::build(
+            &invitee_id,
+            vec![
+                EventType::UserCreatedJournal,
+                EventType::UserInvitedToJournal,
+                EventType::UserAcceptedJournalInvite,
+                EventType::UserDeclinedJournalInvite,
+                EventType::UserRemovedFromJournal,
+            ],
+            &pool,
+        )
+        .await?;
+
+        if invitee_state.owned_journals.contains(&journal_id)
+            || invitee_state
+                .accepted_journal_invites
+                .contains_key(&journal_id)
+            || invitee_state
+                .pending_journal_invites
+                .contains_key(&journal_id)
+        {
+            return Err(ServerFnError::ServerError(
+                KnownErrors::UserCanAccessJournal.to_string()?,
+            ));
+        }
 
         if inviting_user_state.owned_journals.contains(&journal_id) {
             UserEvent::InvitedToJournal {
@@ -215,7 +244,7 @@ pub async fn invite_to_journal(
                         KnownErrors::PermissionError {
                             required_permissions: permission,
                         }
-                        .to_string(),
+                        .to_string()?,
                     ));
                 }
             }
@@ -231,7 +260,7 @@ pub async fn invite_to_journal(
         Ok(())
     } else {
         Err(ServerFnError::ServerError(
-            KnownErrors::UserDoesntExist.to_string(),
+            KnownErrors::UserDoesntExist.to_string()?,
         ))
     }
 }
@@ -260,7 +289,7 @@ pub async fn accept_journal_invite(user_id: Uuid, journal_id: Uuid) -> Result<()
             .await?;
     } else {
         return Err(ServerFnError::ServerError(
-            KnownErrors::NoInvitation.to_string(),
+            KnownErrors::NoInvitation.to_string()?,
         ));
     }
 
@@ -291,7 +320,7 @@ pub async fn decline_journal_invite(user_id: Uuid, journal_id: Uuid) -> Result<(
             .await?;
     } else {
         return Err(ServerFnError::ServerError(
-            KnownErrors::NoInvitation.to_string(),
+            KnownErrors::NoInvitation.to_string()?,
         ));
     }
     Ok(())
@@ -403,7 +432,7 @@ pub async fn get_accounts(
 
     if journal_id.is_nil() {
         return Err(ServerFnError::ServerError(
-            KnownErrors::InvalidJournal.to_string(),
+            KnownErrors::InvalidJournal.to_string()?,
         ));
     }
 
@@ -415,7 +444,7 @@ pub async fn get_accounts(
                 KnownErrors::PermissionError {
                     required_permissions: Permissions::READ,
                 }
-                .to_string(),
+                .to_string()?,
             ));
         }
     }
@@ -475,7 +504,7 @@ pub async fn add_account(
 
         if state.accounts.contains_key(&account_name) {
             return Err(ServerFnError::ServerError(
-                KnownErrors::AccountExists.to_string(),
+                KnownErrors::AccountExists.to_string()?,
             ));
         }
 
@@ -500,7 +529,7 @@ pub async fn add_account(
 
         if state.accounts.contains_key(&account_name) {
             return Err(ServerFnError::ServerError(
-                KnownErrors::AccountExists.to_string(),
+                KnownErrors::AccountExists.to_string()?,
             ));
         }
     } else {
@@ -508,7 +537,7 @@ pub async fn add_account(
             KnownErrors::PermissionError {
                 required_permissions: Permissions::ADDACCOUNT,
             }
-            .to_string(),
+            .to_string()?,
         ));
     }
 
@@ -552,7 +581,7 @@ pub async fn transact(
                     KnownErrors::PermissionError {
                         required_permissions: Permissions::APPENDTRANSACTION,
                     }
-                    .to_string(),
+                    .to_string()?,
                 ));
             }
         } else {
@@ -560,7 +589,7 @@ pub async fn transact(
                 KnownErrors::PermissionError {
                     required_permissions: Permissions::APPENDTRANSACTION,
                 }
-                .to_string(),
+                .to_string()?,
             ));
         }
     }
@@ -589,7 +618,7 @@ pub async fn transact(
             KnownErrors::BalanceMismatch {
                 attempted_transaction: updates,
             }
-            .to_string(),
+            .to_string()?,
         ));
     }
 
@@ -614,7 +643,7 @@ pub async fn get_transactions(
         Some(s) => s.get_id(),
         None => {
             return Err(ServerFnError::ServerError(
-                KnownErrors::InvalidJournal.to_string(),
+                KnownErrors::InvalidJournal.to_string()?,
             ));
         }
     };
@@ -643,7 +672,7 @@ pub async fn get_transactions(
                 KnownErrors::PermissionError {
                     required_permissions: Permissions::READ,
                 }
-                .to_string(),
+                .to_string()?,
             ));
         }
     }

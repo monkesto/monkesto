@@ -242,7 +242,7 @@ pub async fn get_id_from_session(
     }
 
     Err(ServerFnError::ServerError(
-        KnownErrors::NotLoggedIn.to_string(),
+        KnownErrors::NotLoggedIn.to_string()?,
     ))
 }
 

@@ -1,7 +1,6 @@
 use chrono::Utc;
 use leptos::prelude::ServerFnError;
 use serde::{Deserialize, Serialize};
-use strum_macros::{Display, EnumString};
 use uuid::Uuid;
 
 use crate::event_sourcing::{
@@ -9,7 +8,7 @@ use crate::event_sourcing::{
     journal::{BalanceUpdate, Permissions, Transaction},
 };
 
-#[derive(EnumString, Display)]
+#[derive(Serialize, Deserialize)]
 pub enum KnownErrors {
     None,
 
@@ -50,16 +49,23 @@ pub enum KnownErrors {
 
     NotLoggedIn,
 
+    UserCanAccessJournal,
+
     InvalidJournal,
 }
 
 impl KnownErrors {
+    pub fn to_string(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+
     pub fn parse_error(error: ServerFnError) -> Option<Self> {
-        error
-            .to_string()
-            .trim_start_matches("error running server function: ")
-            .parse::<KnownErrors>()
-            .ok()
+        serde_json::from_str(
+            error
+                .to_string()
+                .trim_start_matches("error running server function: "),
+        )
+        .ok()
     }
 }
 
