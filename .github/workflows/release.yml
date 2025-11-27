@@ -30,11 +30,11 @@ jobs:
 
       - name: Tag image with release version
         run: |
-          docker tag app:latest ghcr.io/${{ github.repository_owner }}/double-book:${{ steps.ver.outputs.VERSION }}
+          docker tag double-book_app:latest ghcr.io/${{ github.repository_owner }}/double-book:${{ steps.ver.outputs.VERSION }}
 
       - name: Tag image as latest
         run: |
-          docker tag app:latest ghcr.io/${{ github.repository_owner }}/double-book:latest
+          docker tag double-book_app:latest ghcr.io/${{ github.repository_owner }}/double-book:latest
 
       - name: Push tags to GHCR
         run: |
