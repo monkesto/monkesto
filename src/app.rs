@@ -469,6 +469,15 @@ fn Transact() -> impl IntoView {
                         />
 
                         {
+
+                            let last_transaction = match update_action.value().get() {
+                                Some(Err(e)) => match KnownErrors::parse_error(e) {
+                                    Some(KnownErrors::BalanceMismatch { attempted_transaction }) => Some(attempted_transaction.into_iter().map(|update| (update.account_name, update.changed_by)).collect::<std::collections::HashMap<String, i64>>()),
+                                    _ => None,
+                                },
+                                _ => None
+                            };
+
                             accounts.into_iter().map(|account| view! {
                                 <div class="flex items-center text-center px-10 py-10">
                                     <label class="block mb-2 font-medium">{account.name.to_string()}</label>
@@ -485,6 +494,10 @@ fn Transact() -> impl IntoView {
                                         class="shadow appearance-none border rounded py-2 px-2 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                                         name="balance_add_cents[]"
                                         type="number"
+                                        value={match &last_transaction {
+                                            Some(s) => if let Some(t) = s.get(&account.name) && t>&0 {t.abs().to_string()} else {"".to_string()},
+                                            None => "".to_string()
+                                        }}
                                         placeholder=0
                                         />
 
@@ -492,6 +505,10 @@ fn Transact() -> impl IntoView {
                                         class="shadow appearance-none border rounded py-2 px-2 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                                         name="balance_remove_cents[]"
                                         type="number"
+                                        value={match &last_transaction {
+                                            Some(s) => if let Some(t) = s.get(&account.name) && t<&0 {t.abs().to_string()} else {"".to_string()},
+                                            None => "".to_string()
+                                        }}
                                         placeholder=0
                                         />
 
@@ -504,8 +521,8 @@ fn Transact() -> impl IntoView {
                         <br/>
 
                         {
-                            if let Some(Err(e)) = update_action.value().get() {
-                                Either::Left(view! {<p>"An error occured: "{e.to_string()}</p>})
+                            if let Some(Err(_)) = update_action.value().get() {
+                                Either::Left(view! {<p>"An error occured while processing your transaction. Please make sure that your credits match your debits."</p>})
                             } else {
                                 Either::Right(view! {""})
                             }
