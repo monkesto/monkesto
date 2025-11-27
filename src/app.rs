@@ -497,22 +497,26 @@ fn Transact() -> impl IntoView {
                                         class="shadow appearance-none border rounded py-2 px-2 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                                         name="balance_add_cents[]"
                                         type="number"
+                                        inputmode="decimal"
+                                        step="0.01"
                                         value={match &last_transaction {
-                                            Some(s) => if let Some(t) = s.get(&account.name) && t>&0 {t.abs().to_string()} else {"".to_string()},
+                                            Some(s) => if let Some(t) = s.get(&account.name) && t>&0 {(t.abs() as f64/100.0).to_string()} else {"".to_string()},
                                             None => "".to_string()
                                         }}
-                                        placeholder=0
+                                        placeholder="0.00"
                                         />
 
                                         <input
                                         class="shadow appearance-none border rounded py-2 px-2 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
                                         name="balance_remove_cents[]"
                                         type="number"
+                                        inputmode="decimal"
+                                        step="0.01"
                                         value={match &last_transaction {
-                                            Some(s) => if let Some(t) = s.get(&account.name) && t<&0 {t.abs().to_string()} else {"".to_string()},
+                                            Some(s) => if let Some(t) = s.get(&account.name) && t<&0 {(t.abs() as f64/100.0).to_string()} else {"".to_string()},
                                             None => "".to_string()
                                         }}
-                                        placeholder=0
+                                        placeholder="0.00"
                                         />
 
                                     </div>
@@ -524,8 +528,8 @@ fn Transact() -> impl IntoView {
                         <br/>
 
                         {
-                            if let Some(Err(_)) = update_action.value().get() {
-                                Either::Left(view! {<p>"An error occured while processing your transaction. Please make sure that your credits match your debits."</p>})
+                            if let Some(Err(e)) = update_action.value().get() {
+                                Either::Left(view! {{if let Some(KnownErrors::BalanceMismatch { .. }) = KnownErrors::parse_error(e) {Either::Left(view! {<p>"Please confirm that your credits match your debits"</p>})} else {Either::Right(view! {<p>"Please ensure that you filled out at least two fields."</p>})}}})
                             } else {
                                 Either::Right(view! {""})
                             }
@@ -599,7 +603,7 @@ fn GeneralJournal() -> impl IntoView {
                                                 {
                                                     transaction.transaction.updates.into_iter().map(|update| view! {
                                                         <li>
-                                                            {update.account_name} " : $" {update.changed_by.abs()/100} "." {update.changed_by.abs() % 100} " " {if update.changed_by < 0 {String::from("Dr")} else {String::from("Cr")}}
+                                                            {update.account_name} " : $" {format!("{}.{:02} {}",update.changed_by.abs()/100, update.changed_by.abs() % 100, if update.changed_by < 0 {"Dr"} else {"Cr"})}
                                                         </li>
                                                     }).collect_view()
                                                 }
