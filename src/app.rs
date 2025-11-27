@@ -728,33 +728,60 @@ fn JournalInvites() -> impl IntoView {
 
                     {
                         invites.into_iter().map(|invite| view! {
+                            <h2 class="block mb-2 font-xl">{invite.name}</h2>
+                            <div class="flex">
                             <ActionForm action=response_action>
 
-                            <label class="block mb-2 font-medium">{invite.name}</label>
+                                <input
+                                type="hidden"
+                                name="user_id"
+                                value=user_id.to_string()
+                                />
 
-                            <input
-                            type="hidden"
-                            name="user_id"
-                            value=user_id.to_string()
-                            />
+                                <input
+                                type="hidden"
+                                name="journal_id"
+                                value=invite.id.to_string()
+                                />
 
-                            <input
-                            type="hidden"
-                            name="journal_id"
-                            value=invite.id.to_string()
-                            />
+                                <input
+                                type="hidden"
+                                name="accepted"
+                                value=serde_json::to_string(&true).expect("failed to serialize true")
+                                />
 
-                            <select name="accepted">
-                            <option value=serde_json::to_string(&true).expect("failed to serialize false")>"Accept"</option>
-                            <option value=serde_json::to_string(&false).expect("failed to serialize true")>"Decline"</option>
-                            </select>
-
-                            <button
-                            type="submit"
-                            class="mt-3 rounded bg-purple-900 px-2 py-2 font-bold text-white hover:bg-blue-400"
-                            >"Submit"</button>
+                                <button
+                                type="submit"
+                                class="mt-3 rounded bg-purple-900 px-2 py-2 font-bold text-white hover:bg-blue-400"
+                                >"Accept"</button>
 
                             </ActionForm>
+                            <ActionForm action=response_action>
+                                <input
+                                    type="hidden"
+                                    name="user_id"
+                                    value=user_id.to_string()
+                                    />
+
+                                    <input
+                                    type="hidden"
+                                    name="journal_id"
+                                    value=invite.id.to_string()
+                                    />
+
+                                    <input
+                                    type="hidden"
+                                    name="accepted"
+                                    value=serde_json::to_string(&false).expect("failed to serialize true")
+                                    />
+
+                                    <button
+                                    type="submit"
+                                    class="mt-3 rounded bg-purple-900 px-2 py-2 font-bold text-white hover:bg-blue-400"
+                                    >"Decline"</button>
+                            </ActionForm>
+                            </div>
+
                         }).collect_view()
                     }
 
