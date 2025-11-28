@@ -132,7 +132,7 @@ jobs:
             $IMAGE_NAME:${VERSION}-arm64
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: $IMAGE_NAME:${VERSION}
           path: $IMAGE_NAME:${VERSION}.tar
@@ -143,6 +143,7 @@ jobs:
           name: |
             amd64-image
             arm64-image
+
   test:
     runs-on: ubuntu-latest
 
