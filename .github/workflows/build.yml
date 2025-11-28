@@ -51,7 +51,7 @@ jobs:
           docker buildx inspect --bootstrap
 
       - name: Build image
-        run: docker buildx build --platform linux/amd64 --output=type=docker,dest=amd64.tar -t $IMAGE_NAME:${VERSION}-amd64 .
+        run: docker buildx build --platform linux/amd64 --output type=oci,dest=amd64.tar -t $IMAGE_NAME:${VERSION}-amd64 .
 
       - name: Upload amd64 artifact
         uses: actions/upload-artifact@v4
@@ -71,7 +71,7 @@ jobs:
           docker buildx inspect --bootstrap
 
       - name: Build image
-        run: docker buildx build --platform linux/arm64 --output=type=docker,dest=arm64.tar -t $IMAGE_NAME:${VERSION}-arm64 .
+        run: docker buildx build --platform linux/arm64 --output type=oci,dest=arm64.tar -t $IMAGE_NAME:${VERSION}-arm64 .
 
       - name: Upload arm64 artifact
         uses: actions/upload-artifact@v4
@@ -108,21 +108,12 @@ jobs:
           docker load < amd64.tar
           docker load < arm64.tar
 
-      - name: Create multi-arch manifest
-        run: |
-          docker buildx imagetools create \
-            -t $IMAGE_NAME:${VERSION} \
-            $IMAGE_NAME:${VERSION}-amd64 \
-            $IMAGE_NAME:${VERSION}-arm64
-
-          docker buildx imagetools inspect $IMAGE_NAME:${VERSION}
-
-      - name: Save image as artifact
-        run: |
-          docker buildx imagetools create \
-            --output=type=docker,dest=${IMAGE_NAME}_${VERSION}.tar \
-            $IMAGE_NAME:${VERSION}-amd64 \
-            $IMAGE_NAME:${VERSION}-arm64
+      - name: Create combined image
+        run: docker buildx imagetools create \
+          -t $IMAGE_NAME:${VERSION} \
+          --output type=oci,dest=$IMAGE_NAME_${VERSION}.tar \
+          --oci-layout-path amd64.tar \
+          --oci-layout-path arm64.tar
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
