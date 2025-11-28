@@ -47,7 +47,7 @@ jobs:
 
       - name: Setup Buildx
         run: |
-          docker buildx create --use --drive docker-container
+          docker buildx create --use --driver docker-container
           docker builx inspect --bootstrap
 
       - name: Build image
@@ -67,7 +67,7 @@ jobs:
 
       - name: Setup buildx
         run: |
-          docker buildx create --use --drive docker-container
+          docker buildx create --use --driver docker-container
           docker builx inspect --bootstrap
 
       - name: Build image
@@ -111,7 +111,7 @@ jobs:
 
       - name: Setup Buildx
         run: |
-          docker buildx create --use --drive docker-container
+          docker buildx create --use --driver docker-container
           docker builx inspect --bootstrap
 
       - name: Save image as artifact
