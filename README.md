@@ -11,7 +11,7 @@ echo "POSTGRES_DB=dbname" >> .env
 
 ## Start the server container (requires docker):
 ```
-curl -sSL -o docker-compose.yml https://raw.githubusercontent.com/shaggysa/leptos-prototyping/main/docker-compose.deploy.yml
+curl -sSL -o docker-compose.deploy.yml https://raw.githubusercontent.com/shaggysa/leptos-prototyping/main/docker-compose.deploy.yml
 
 docker compose -f docker-compose.deploy.yml up
 ```
