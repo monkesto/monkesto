@@ -25,7 +25,7 @@ jobs:
           password: ${{ secrets.GHCR_PAT }}
 
       - name: Setup buildx
-        run: docker buildx create --user --driver docker-container
+        run: docker buildx create --use --driver docker-container
 
       - name: Build amd64 image
         run: docker buildx build --platform linux/amd64 -t $IMAGE_NAME:${VERSION}-amd64 --push .
@@ -44,7 +44,7 @@ jobs:
           password: ${{ secrets.GHCR_PAT }}
 
       - name: Setup buildx
-        run: docker buildx create --user --driver docker-container
+        run: docker buildx create --use --driver docker-container
 
       - name: Build arm64 image
         run: docker buildx build --platform linux/arm64 -t $IMAGE_NAME:${VERSION}-arm64 --push .
