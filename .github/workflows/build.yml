@@ -103,11 +103,6 @@ jobs:
           name: arm64-image
           path: .
 
-      - name: Load images
-        run: |
-          docker load < amd64.tar
-          docker load < arm64.tar
-
       - name: Create combined image
         run: docker buildx imagetools create \
           -t $IMAGE_NAME:${VERSION} \
