@@ -1,4 +1,11 @@
-# To run the server:
+# Official site:
+You can connect to [staging.monkesto.com] to try out the latest version.
+It is updated with every commit to the main branch. Be aware that versions before 1.0 are very unstable,
+and breaking changes in updates may cause the website to be reset at any time. Any lost data will not be recovered.
+
+[staging.monkesto.com]: https://staging.monkesto.com
+
+# To run the server yourself:
 
 ## Create a .env file with postgres credentials:
 ```
