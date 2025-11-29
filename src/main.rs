@@ -19,7 +19,6 @@ async fn main() {
     use sqlx::postgres::PgPoolOptions;
     use sqlx::{Pool, Postgres};
     use std::env;
-    use tower_sessions::cookie;
     use tower_sessions::{Expiry, SessionManagerLayer, cookie::time::Duration};
     use tower_sessions_sqlx_store::PostgresStore;
 
@@ -69,7 +68,6 @@ async fn main() {
         .expect("failed to migrate the session store");
 
     let session_layer = SessionManagerLayer::new(session_store)
-        .with_same_site(cookie::SameSite::None)
         .with_expiry(Expiry::OnInactivity(Duration::hours(48)));
 
     let routes = generate_route_list(App);
