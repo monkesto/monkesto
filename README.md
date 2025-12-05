@@ -7,32 +7,29 @@ and breaking changes may cause the website to be reset at any time. Any lost dat
 
 # To run the server yourself:
 
-## Create a .env file with postgres credentials:
+## Download the default docker-compose file provided in the repo:
 ```
-touch .env
-
-echo "POSTGRES_USER=username" >> .env
-echo "POSTGRES_PASSWORD=password" >> .env
-echo "POSTGRES_DB=dbname" >> .env
+curl https://raw.githubusercontent.com/shaggysa/leptos-prototyping/main/docker-compose.yml -o docker-compose-yml
 ```
 
-## Start the server container (requires docker):
-```
-curl -sSL -o docker-compose.deploy.yml https://raw.githubusercontent.com/shaggysa/leptos-prototyping/main/docker-compose.deploy.yml
+## Alternatively, use the builder script to create a custom docker compose file:
+This script supports many options, such as providing your own postgres database 
+or setting options for the inbuilt database.
 
-docker compose -f docker-compose.deploy.yml up --pull always
+```
+curl https://raw.githubusercontent.com/shaggysa/leptos-prototyping/main/docker_compose_builder.py | python3
 ```
 
-## Or, you can use the latest pre-release image (created at every commit to main):
-```
-curl -sSL -o docker-compose.prerelease.yml https://raw.githubusercontent.com/shaggysa/leptos-prototyping/main/docker-compose.prerelease.yml
 
-docker compose -f docker-compose.prerelease.yml up --pull always
+## Deploy your docker compose file:
 ```
+docker compose up --pull always
+```
+Note that your docker compose file also serves as a .env file, so keep it secure.
 
 ### Builds are currently unstable, and database resets will almost certainly be necessary at some point. You can do this with:
 ```
-docker compose -f docker-compose.deploy.yml down -v
+docker compose down -v
 ```
 
 # Or build from source:
@@ -61,10 +58,7 @@ cd leptos-prototyping
 ```
 touch .env
 
-echo "POSTGRES_USER=username" >> .env
-echo "POSTGRES_PASSWORD=password" >> .env
-echo "DATABASE_HOST=localhost" >> .env
-echo "POSTGRES_DB=dbname" >> .env
+echo "postgres://username:password@localhost:5432/dbname"
 ```
 
 ## Start the server:

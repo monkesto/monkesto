@@ -29,21 +29,12 @@ async fn main() {
 
     dotenv().ok();
 
-    let user = env::var("POSTGRES_USER").expect("failed to get postgres user from .env");
-
-    let password =
-        env::var("POSTGRES_PASSWORD").expect("failed to get postgres password from .env");
-
-    let host = env::var("DATABASE_HOST").expect("failed to get database host from .env");
-
-    let db = env::var("POSTGRES_DB").expect("failed to get postgres database from .env");
+    let database_url =
+        env::var("DATABASE_URL").expect("failed to get postgres database from the environment");
 
     let pool: Pool<Postgres> = PgPoolOptions::new()
         .max_connections(5)
-        .connect(&format!(
-            "postgres://{}:{}@{}:5432/{}",
-            user, password, host, db
-        ))
+        .connect(&database_url)
         .await
         .expect("failed to connect to the postgres pool");
 

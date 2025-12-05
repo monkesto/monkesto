@@ -1,0 +1,26 @@
+services:
+
+ database:
+  image: postgres:16
+
+  volumes:
+   - monkesto-db:/var/lib/postgresql/data
+
+  environment:
+   POSTGRES_USER: monkesto
+   POSTGRES_PASSWORD: leptos
+
+ monkesto:
+  image: ghcr.io/shaggysa/double-book:latest
+
+  ports:
+    - "8080:8080"
+
+  environment:
+   - DATABASE_URL=postgres://monkesto:leptos@database:5432/monkesto
+
+  depends_on:
+   - database
+
+volumes:
+ monkesto-db:
