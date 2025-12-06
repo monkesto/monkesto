@@ -18,7 +18,7 @@ echo "POSTGRES_DB=dbname" >> .env
 
 ## Start the server container (requires docker):
 ```
-curl -sSL -o docker-compose.deploy.yml https://raw.githubusercontent.com/shaggysa/leptos-prototyping/main/docker-compose.deploy.yml
+curl -sSL -o docker-compose.deploy.yml https://raw.githubusercontent.com/shaggysa/monkesto/main/docker-compose.deploy.yml
 
 docker compose -f docker-compose.deploy.yml up --pull always
 ```
@@ -53,8 +53,8 @@ CREATE DATABASE dbname WITH OWNER username;
 
 ## Clone the repo:
 ```
-git clone https://github.com/shaggysa/leptos-prototyping.git
-cd leptos-prototyping
+git clone https://github.com/shaggysa/monkesto.git
+cd monkesto
 ```
 
 ## Create a .env file with postgres credentials:
