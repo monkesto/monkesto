@@ -71,29 +71,6 @@ echo "POSTGRES_DB=monkesto" >> .env
 cargo leptos watch 
 ```
 
-## If you do not have postgres installed already:
-
-### macos:
-```
-brew install postgresql@15
-```
-
-### debian:
-```
-sudo apt install postgresql
-```
-
-### fedora:
-```
-sudo dnf install postgresql-server postgresql
-```
-
-### arch:
-```
-sudo pacman -S postgresql
-```
-
-
 ## If you do not have cargo-leptos already:
 ```
 cargo install --locked cargo-leptos
