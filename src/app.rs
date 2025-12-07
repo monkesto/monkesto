@@ -40,7 +40,7 @@ pub fn App() -> impl IntoView {
         // id=leptos means cargo-leptos will hot-reload this stylesheet
         <Stylesheet id="leptos" href="/pkg/prototype.css"/>
 
-        <Title text="Double-book accounting"/>
+        <Title text="Monkesto"/>
 
         // content for this welcome page
 
