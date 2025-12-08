@@ -31,13 +31,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install fustfmt
+      - name: Install rustfmt
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           components: rustfmt
 
       - name: Run formatter
-        run: cargo fmt
+        run: cargo fmt -- --check
 
       - uses: cargo-bins/cargo-binstall@main
 
@@ -45,7 +45,7 @@ jobs:
         run: cargo binstall leptosfmt
 
       - name: Run leptosfmt
-        run: leptosfmt .
+        run: leptosfmt --check .
 
   test:
     runs-on: ubuntu-24.04-arm
