@@ -7,6 +7,13 @@ mod event_sourcing;
 #[allow(dead_code)]
 mod main_api;
 
+mod auth;
+mod nav;
+mod journal;
+mod transaction;
+mod home;
+mod account;
+
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
