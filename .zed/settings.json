@@ -14,29 +14,11 @@
   "lsp": {
     "rust-analyzer": {
       "initialization_options": {
-        "check": {
-          "command": "clippy",
-          "arguments": ["--features=ssr", "--offline"]
-        },
-        "diagnostics": {
-          "experimental": "true",
-          "disabled": ["unresolved-import", "macro-error"]
-        },
-        "cargo": {
-          "features": ["ssr"],
-          "buildScripts": {
-            "enable": false
-          },
-          "offline": true
-        },
-        "procMacro": {
-          "enable": true,
-          "ignored": {
-            "sqlx": ["Type"]
-          }
-        },
         "rustfmt": {
           "overrideCommand": ["leptosfmt", "--stdin", "--rustfmt"]
+        },
+        "check": {
+          "overrideCommand": ["cargo", "clippy", "--features=ssr"]
         }
       }
     }
