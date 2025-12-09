@@ -5,10 +5,10 @@ use super::journal::GeneralJournal;
 use super::journal::JournalInvites;
 use super::transaction::Transact;
 use leptos::prelude::*;
-use leptos_meta::{MetaTags, Stylesheet, Title, provide_meta_context};
+use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
 use leptos_router::{
-    StaticSegment,
     components::{Route, Router, Routes},
+    StaticSegment,
 };
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
