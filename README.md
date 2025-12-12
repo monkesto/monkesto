@@ -4,7 +4,7 @@ You can connect to [monkesto.com] to try out the latest version.
 It is updated with every commit to the main branch. Be aware that backwards compatibility between updates is not currently guaranteed,
 and breaking changes may cause the website to be reset at any time. Any lost data will not be recovered.
 
-[staging.monkesto.com]: https://monkesto.com
+[monkesto.com]: https://monkesto.com
 
 # Or build from source:
 
