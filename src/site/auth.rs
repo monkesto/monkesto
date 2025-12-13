@@ -98,9 +98,9 @@ pub fn ClientLogin() -> impl IntoView {
 
 #[component]
 pub fn ClientSignUp() -> impl IntoView {
-    use crate::api::main_api::CreateAccount;
+    use crate::api::main_api::CreateUser;
     use leptos::either::Either;
-    let signup = ServerAction::<CreateAccount>::new();
+    let signup = ServerAction::<CreateUser>::new();
 
     view! {
         <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4">

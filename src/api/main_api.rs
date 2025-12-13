@@ -25,7 +25,7 @@ pub async fn get_username_from_id(id: Uuid) -> Result<String, ServerFnError> {
 }
 
 #[server]
-pub async fn create_account(
+pub async fn create_user(
     username: String,
     password: String,
     confirm_password: String,
