@@ -3,6 +3,20 @@ use crate::event_sourcing::journal::Permissions;
 use leptos::prelude::*;
 
 #[component]
+pub fn JournalList() -> impl IntoView {
+    view! {
+        <div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8">
+            <div class="sm:mx-auto sm:w-full sm:max-w-sm">
+                <img src="logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto" />
+                <h2 class="mt-10 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white">
+                    Journals
+                </h2>
+            </div>
+        </div>
+    }
+}
+
+#[component]
 pub fn GeneralJournal() -> impl IntoView {
     use crate::api::main_api::{
         get_associated_journals, get_transactions, get_user_id_from_session,
