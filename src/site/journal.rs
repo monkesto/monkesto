@@ -25,7 +25,7 @@ fn journals() -> Vec<Journal> {
 pub fn JournalList() -> impl IntoView {
     view! {
         <div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8">
-            <div class="sm:mx-auto sm:w-full max-w-xs sm:max-w-sm">
+            <div class="w-full sm:mx-auto sm:max-w-sm">
                 <img src="logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto" />
                 {journals()
                     .into_iter()
@@ -33,13 +33,45 @@ pub fn JournalList() -> impl IntoView {
                         view! {
                             <a
                                 href=format!("/journal/{}", journal.id)
-                                class="block mt-6 border border-gray-300 rounded-xl p-6 text-gray-700 hover:bg-blue-50 hover:border-blue-400 transition-colors duration-200 text-center"
+                                class="block mt-6 border border-gray-300 dark:border-gray-600 rounded-xl p-4 text-gray-700 dark:text-gray-200 hover:bg-blue-50 dark:hover:bg-gray-700 hover:border-blue-400 dark:hover:border-blue-500 transition-colors duration-200 text-center"
                             >
                                 <span class="text-xl font-semibold">{journal.name}</span>
                             </a>
                         }
                     })
                     .collect_view()}
+
+                <hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600" />
+
+                <div class="mt-10">
+                    <form class="space-y-6">
+                        <div>
+                            <label
+                                for="journal_name"
+                                class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100"
+                            >
+                                "Create New Journal"
+                            </label>
+                            <div class="mt-2">
+                                <input
+                                    id="journal_name"
+                                    type="text"
+                                    name="journal_name"
+                                    required
+                                    class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
+                                />
+                            </div>
+                        </div>
+                        <div>
+                            <button
+                                type="submit"
+                                class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
+                            >
+                                "Create Journal"
+                            </button>
+                        </div>
+                    </form>
+                </div>
             </div>
         </div>
     }
