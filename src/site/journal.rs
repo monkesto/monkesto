@@ -9,13 +9,14 @@ struct Journal {
 }
 
 fn journals() -> Vec<Journal> {
+    use std::str::FromStr;
     vec![
         Journal {
-            id: Uuid::new_v4(),
+            id: Uuid::from_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
             name: "Personal".to_string(),
         },
         Journal {
-            id: Uuid::new_v4(),
+            id: Uuid::from_str("550e8400-e29b-41d4-a716-446655440001").unwrap(),
             name: "Business".to_string(),
         },
     ]
@@ -110,7 +111,13 @@ pub fn JournalDetail() -> impl IntoView {
     let params = use_params_map();
     let journal_id = move || params.get().get("id").unwrap_or_default().to_string();
 
-    let journal_name = "Personal";
+    let journal_name = move || {
+        journals()
+            .into_iter()
+            .find(|j| j.id.to_string() == journal_id())
+            .map(|j| j.name)
+            .unwrap_or_else(|| "Unknown Journal".to_string())
+    };
 
     view! {
         <div class="min-h-full">
@@ -127,7 +134,7 @@ pub fn JournalDetail() -> impl IntoView {
                         <div class="flex items-center gap-4">
                             <div class="flex flex-col items-end justify-center">
                                 <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    {journal_name}
+                                    {journal_name()}
                                 </span>
                                 <a
                                     href="/journal"
