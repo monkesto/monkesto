@@ -1,3 +1,4 @@
+use super::layout::Layout;
 use super::nav::TopBar;
 use crate::event_sourcing::journal::Permissions;
 use leptos::prelude::*;
@@ -25,82 +26,52 @@ fn journals() -> Vec<Journal> {
 #[component]
 pub fn JournalList() -> impl IntoView {
     view! {
-        <div class="min-h-full">
-            // Global Navigation Bar
-            <nav class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div class="flex justify-between h-16">
-                        <div class="flex items-center">
-                            <img src="/logo.svg" alt="Monkesto" class="h-8 w-auto" />
-                            <span class="ml-4 text-xl font-bold text-gray-900 dark:text-white">
-                                "Monkesto"
-                            </span>
-                        </div>
-                        <div class="flex items-center gap-4">
-                            <a
-                                href="/login"
-                                class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-2 py-1"
-                            >
-                                "Sign out"
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </nav>
-
-            // Main Content
-            <div class="flex-1 p-6">
-                <div class="max-w-7xl mx-auto">
-                    <div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm">
-                        {journals()
-                            .into_iter()
-                            .map(|journal| {
-                                view! {
-                                    <a
-                                        href=format!("/journal/{}", journal.id)
-                                        class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                                    >
-                                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
-                                            {journal.name}
-                                        </h3>
-                                    </a>
-                                }
-                            })
-                            .collect_view()}
-                        <hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600" />
-                        <div class="mt-10">
-                            <form class="space-y-6">
-                                <div>
-                                    <label
-                                        for="journal_name"
-                                        class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100"
-                                    >
-                                        "Create New Journal"
-                                    </label>
-                                    <div class="mt-2">
-                                        <input
-                                            id="journal_name"
-                                            type="text"
-                                            name="journal_name"
-                                            required
-                                            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                                        />
-                                    </div>
-                                </div>
-                                <div>
-                                    <button
-                                        type="submit"
-                                        class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
-                                    >
-                                        "Create Journal"
-                                    </button>
-                                </div>
-                            </form>
+        <Layout>
+            {journals()
+                .into_iter()
+                .map(|journal| {
+                    view! {
+                        <a
+                            href=format!("/journal/{}", journal.id)
+                            class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                        >
+                            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                                {journal.name}
+                            </h3>
+                        </a>
+                    }
+                })
+                .collect_view()} <hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600" />
+            <div class="mt-10">
+                <form class="space-y-6">
+                    <div>
+                        <label
+                            for="journal_name"
+                            class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100"
+                        >
+                            "Create New Journal"
+                        </label>
+                        <div class="mt-2">
+                            <input
+                                id="journal_name"
+                                type="text"
+                                name="journal_name"
+                                required
+                                class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
+                            />
                         </div>
                     </div>
-                </div>
+                    <div>
+                        <button
+                            type="submit"
+                            class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
+                        >
+                            "Create Journal"
+                        </button>
+                    </div>
+                </form>
             </div>
-        </div>
+        </Layout>
     }
 }
 
@@ -120,74 +91,28 @@ pub fn JournalDetail() -> impl IntoView {
     };
 
     view! {
-        <div class="min-h-full">
-            // Global Navigation Bar
-            <nav class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div class="flex justify-between h-16">
-                        <div class="flex items-center">
-                            <img src="/logo.svg" alt="Monkesto" class="h-8 w-auto" />
-                            <span class="ml-4 text-xl font-bold text-gray-900 dark:text-white">
-                                "Monkesto"
-                            </span>
-                        </div>
-                        <div class="flex items-center gap-4">
-                            <div class="flex flex-col items-end justify-center">
-                                <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                                    {journal_name()}
-                                </span>
-                                <a
-                                    href="/journal"
-                                    class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                                >
-                                    "Switch"
-                                </a>
-                            </div>
-                            <a
-                                href="/login"
-                                class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-2 py-1"
-                            >
-                                "Sign out"
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </nav>
+        <Layout page_title=journal_name() show_switch_link=true>
+            <a
+                href=format!("/journal/{}/transaction", journal_id())
+                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">"Transactions"</h3>
+            </a>
 
-            // Main Content
-            <div class="flex-1 p-6">
-                <div class="max-w-7xl mx-auto">
-                    <div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm">
-                        <a
-                            href=format!("/journal/{}/transaction", journal_id())
-                            class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                        >
-                            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
-                                "Transactions"
-                            </h3>
-                        </a>
+            <a
+                href=format!("/journal/{}/account", journal_id())
+                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">"Accounts"</h3>
+            </a>
 
-                        <a
-                            href=format!("/journal/{}/account", journal_id())
-                            class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                        >
-                            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
-                                "Accounts"
-                            </h3>
-                        </a>
-
-                        <a
-                            href=format!("/journal/{}/person", journal_id())
-                            class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                        >
-                            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
-                                "People"
-                            </h3>
-                        </a>
-                    </div>
-                </div>
-            </div>
-        </div>
+            <a
+                href=format!("/journal/{}/person", journal_id())
+                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            >
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">"People"</h3>
+            </a>
+        </Layout>
     }
 }
 
