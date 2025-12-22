@@ -140,6 +140,7 @@ pub fn AccountList(mut accounts: Vec<Account>, journals: Journals, user_id: Uuid
 struct AccountItem {
     pub id: Uuid,
     pub name: String,
+    pub balance: i64, // in cents
 }
 
 fn accounts() -> Vec<AccountItem> {
@@ -148,14 +149,17 @@ fn accounts() -> Vec<AccountItem> {
         AccountItem {
             id: Uuid::from_str("450e8400-e29b-41d4-a716-446655440000").expect("Invalid UUID"),
             name: "Cash".to_string(),
+            balance: 25043, // $250.43
         },
         AccountItem {
             id: Uuid::from_str("450e8400-e29b-41d4-a716-446655440001").expect("Invalid UUID"),
             name: "Checking Account".to_string(),
+            balance: 152067, // $1,520.67
         },
         AccountItem {
             id: Uuid::from_str("450e8400-e29b-41d4-a716-446655440002").expect("Invalid UUID"),
             name: "Savings Account".to_string(),
+            balance: 500000, // $5,000.00
         },
     ]
 }
@@ -203,9 +207,20 @@ pub fn AccountListPage() -> impl IntoView {
                             href=format!("/journal/{}/account/{}", journal_id(), account.id)
                             class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
-                            <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
-                                {account.name}
-                            </h3>
+                            <div class="flex justify-between items-center">
+                                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
+                                    {account.name}
+                                </h3>
+                                <div class="text-right">
+                                    <div class="text-lg font-medium text-gray-900 dark:text-white">
+                                        {format!(
+                                            "${}.{:02}",
+                                            account.balance / 100,
+                                            account.balance % 100,
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
                         </a>
                     }
                 })
