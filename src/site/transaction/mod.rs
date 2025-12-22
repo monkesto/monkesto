@@ -134,10 +134,14 @@ fn journals() -> Vec<super::journal::Journal> {
         super::journal::Journal {
             id: Uuid::from_str("550e8400-e29b-41d4-a716-446655440000").expect("Invalid UUID"),
             name: "Personal".to_string(),
+            creator_username: "johndoe".to_string(),
+            created_at: "2024-01-15 09:30:45".to_string(),
         },
         super::journal::Journal {
             id: Uuid::from_str("550e8400-e29b-41d4-a716-446655440001").expect("Invalid UUID"),
             name: "Business".to_string(),
+            creator_username: "janesmith".to_string(),
+            created_at: "2024-01-20 14:22:18".to_string(),
         },
     ]
 }
