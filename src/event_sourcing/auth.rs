@@ -50,7 +50,7 @@ pub async fn get_user_id(session_id: &String, pool: &PgPool) -> Result<Uuid, Ser
         r#"
         SELECT user_id, event_type FROM auth_events
         WHERE session_id = $1
-        ORDER BY id DESC
+        ORDER BY created_at DESC
         LIMIT 1
         "#,
     )

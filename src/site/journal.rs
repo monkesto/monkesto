@@ -194,7 +194,7 @@ pub fn JournalInvites() -> impl IntoView {
                 };
 
                 view! {
-                    <TopBar user_id=user_id journals=journals.clone() />
+                    <TopBar journals=journals.clone() />
 
                     {if let Some(selected) = journals.selected {
                         view! {

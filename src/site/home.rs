@@ -44,7 +44,7 @@ pub fn HomePage() -> impl IntoView {
                 };
                 if journals.selected.is_none() {
                     return view! {
-                        <TopBar user_id=user_id journals=journals.clone() />
+                        <TopBar journals=journals.clone() />
                         <h1>"Please select a journal to continue!"</h1>
                         <ActionForm action=create_journal>
                             <input type="hidden" name="user_id" value=user_id.to_string() />
@@ -70,7 +70,7 @@ pub fn HomePage() -> impl IntoView {
                     }
                 };
                 view! {
-                    <TopBar journals=journals.clone() user_id=user_id />
+                    <TopBar journals=journals.clone() />
 
                     <AccountList accounts=accounts journals=journals user_id=user_id />
                 }

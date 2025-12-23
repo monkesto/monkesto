@@ -22,13 +22,10 @@ pub fn GeneralJournal() -> impl IntoView {
     view! {
         <Suspense>
             {move || Suspend::new(async move {
-                let user_id = match user_id_resource.await {
-                    Ok(s) => s,
-                    Err(_) => {
-                        return view! { <meta http-equiv="refresh" content="0; url=/login" /> }
-                            .into_any();
-                    }
-                };
+                if user_id_resource.await.is_err() {
+                    return view! { <meta http-equiv="refresh" content="0; url=/login" /> }
+                        .into_any();
+                }
                 let journals = match journals_resource.await {
                     Ok(s) => s,
                     Err(e) => {
@@ -40,7 +37,7 @@ pub fn GeneralJournal() -> impl IntoView {
                 };
                 if journals.selected.is_none() {
                     return view! {
-                        <TopBar journals=journals user_id=user_id />
+                        <TopBar journals=journals />
                         <h1 class="font-bold text-4xl">"please select a journal"</h1>
                     }
                         .into_any();
@@ -56,7 +53,7 @@ pub fn GeneralJournal() -> impl IntoView {
                 };
 
                 view! {
-                    <TopBar journals=journals user_id=user_id />
+                    <TopBar journals=journals />
                     <div class="flex flex-col items-center text-center px-10 py-10">
                         <h1 class="font-bold text-4xl">"General Journal"</h1>
                         <ul>

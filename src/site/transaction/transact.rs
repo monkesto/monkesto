@@ -40,7 +40,7 @@ pub fn Transact() -> impl IntoView {
                 };
                 if journals.selected.is_none() {
                     return view! {
-                        <TopBar journals=journals user_id=user_id />
+                        <TopBar journals=journals />
                         <h1 class="font-bold text-4xl">"please select a journal"</h1>
                     }
                         .into_any();
@@ -55,7 +55,7 @@ pub fn Transact() -> impl IntoView {
                     }
                 };
                 view! {
-                    <TopBar journals=journals.clone() user_id=user_id />
+                    <TopBar journals=journals.clone() />
                     <h1 class="font-bold text-4xl">"Transact"</h1>
                     <h2 class="font-bold text-2xl">"Credits/Debits"</h2>
                     <ActionForm action=update_action>

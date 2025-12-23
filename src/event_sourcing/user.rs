@@ -10,11 +10,7 @@ use crate::event_sourcing::journal::Permissions;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum UserEvent {
     Created {
-        username: String,
         hashed_password: String,
-    },
-    UsernameUpdated {
-        username: String,
     },
     PasswordUpdated {
         hashed_password: String,
@@ -64,7 +60,6 @@ impl UserEvent {
         use UserEventType::*;
         match self {
             Self::Created { .. } => Created,
-            Self::UsernameUpdated { .. } => UsernameUpdated,
             Self::PasswordUpdated { .. } => PasswordUpdated,
             Self::CreatedJournal { .. } => CreatedJournal,
             Self::InvitedToJournal { .. } => InvitedToJournal,
@@ -102,7 +97,6 @@ impl UserEvent {
 pub struct UserState {
     pub id: Uuid,
     pub authenticated_sessions: std::collections::HashSet<String>,
-    pub username: String,
     pub hashed_password: String,
     pub pending_journal_invites: HashMap<Uuid, JournalTenantInfo>,
     pub accepted_journal_invites: HashMap<Uuid, JournalTenantInfo>,
@@ -158,13 +152,10 @@ impl UserState {
     pub fn apply(&mut self, event: UserEvent) {
         match event {
             UserEvent::Created {
-                username,
                 hashed_password: password,
             } => {
-                self.username = username;
                 self.hashed_password = password;
             }
-            UserEvent::UsernameUpdated { username } => self.username = username,
             UserEvent::PasswordUpdated {
                 hashed_password: password,
             } => self.hashed_password = password,
@@ -199,42 +190,6 @@ impl UserState {
             UserEvent::Deleted => self.deleted = true,
         }
     }
-}
-
-pub async fn get_id_from_username(
-    username: &String,
-    pool: &PgPool,
-) -> Result<Option<Uuid>, ServerFnError> {
-    Ok(query_scalar(
-        r#"
-        SELECT user_id FROM user_events
-        WHERE (event_type = $1 OR event_type = $2) AND COALESCE( payload-> 'Created' ->> 'username', payload -> 'UsernameUpdated' ->> 'username') = $3
-        ORDER BY created_at DESC
-        LIMIT 1
-        "#,
-    )
-    .bind(UserEventType::Created)
-    .bind(UserEventType::UsernameUpdated)
-    .bind(username)
-    .fetch_optional(pool)
-    .await?)
-}
-
-pub async fn get_username_from_id(user_id: &Uuid, pool: &PgPool) -> Result<String, ServerFnError> {
-    let user = UserState::build(
-        user_id,
-        vec![UserEventType::Created, UserEventType::UsernameUpdated],
-        pool,
-    )
-    .await?;
-
-    if !user.username.is_empty() {
-        return Ok(user.username);
-    }
-
-    Err(ServerFnError::ServerError(
-        "unable to fetch username from uuid".to_string(),
-    ))
 }
 
 pub async fn get_hashed_pw(user_id: &Uuid, pool: &PgPool) -> Result<String, ServerFnError> {

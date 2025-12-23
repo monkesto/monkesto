@@ -1,16 +1,15 @@
 use crate::api::main_api;
 use crate::api::return_types::*;
 use leptos::prelude::*;
-use uuid::Uuid;
 
 #[component]
-pub fn TopBar(journals: Journals, user_id: Uuid) -> impl IntoView {
+pub fn TopBar(journals: Journals) -> impl IntoView {
     use main_api::{LogOut, SelectJournal};
     let log_out_action = ServerAction::<LogOut>::new();
     let select_journal = ServerAction::<SelectJournal>::new();
     let username_resource = Resource::new(
         || (),
-        move |_| async move { main_api::get_username_from_id(user_id).await },
+        move |_| async move { main_api::get_username().await },
     );
 
     view! {

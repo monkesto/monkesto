@@ -4,6 +4,7 @@ use crate::event_sourcing;
 use crate::event_sourcing::auth;
 use crate::event_sourcing::auth::AuthEvent;
 use crate::event_sourcing::journal;
+use crate::event_sourcing::username;
 use chrono::Utc;
 use event_sourcing::journal::{
     BalanceUpdate, JournalEvent, JournalState, Permissions, Transaction,
@@ -24,9 +25,15 @@ pub async fn get_user_id_from_session() -> Result<Uuid, ServerFnError> {
 }
 
 #[server]
-pub async fn get_username_from_id(id: Uuid) -> Result<String, ServerFnError> {
+pub async fn get_username() -> Result<String, ServerFnError> {
     let pool = extensions::get_pool().await?;
-    user::get_username_from_id(&id, &pool).await
+    let user_id = get_user_id_from_session().await?;
+
+    username::get_username(&user_id, &pool)
+        .await?
+        .ok_or(ServerFnError::ServerError(
+            KnownErrors::UserDoesntExist.to_string()?,
+        ))
 }
 
 #[server]
@@ -50,17 +57,15 @@ pub async fn create_user(
         ));
     }
 
-    if user::get_id_from_username(&username, &pool)
-        .await?
-        .is_none()
-    {
+    if username::get_id(&username, &pool).await?.is_none() {
         let uuid = Uuid::new_v4();
         UserEvent::Created {
-            username,
             hashed_password: bcrypt::hash(password, bcrypt::DEFAULT_COST)?,
         }
         .push_db(&uuid, &pool)
         .await?;
+
+        username::update(&uuid, &username, &pool).await?;
 
         AuthEvent::Login.push_db(&uuid, &session_id, &pool).await?;
     } else {
@@ -77,7 +82,7 @@ pub async fn login(username: String, password: String) -> Result<(), ServerFnErr
     let session_id = extensions::get_session_id().await?;
     let pool = extensions::get_pool().await?;
 
-    let user_id = match user::get_id_from_username(&username, &pool).await? {
+    let user_id = match username::get_id(&username, &pool).await? {
         Some(s) => s,
         None => {
             return Err(ServerFnError::ServerError(
@@ -202,7 +207,7 @@ pub async fn invite_to_journal(
 
     let own_id = auth::get_user_id(&session_id, &pool).await?;
 
-    if let Some(invitee_id) = user::get_id_from_username(&invitee_username, &pool).await? {
+    if let Some(invitee_id) = username::get_id(&invitee_username, &pool).await? {
         let inviting_user_state = UserState::build(
             &own_id,
             vec![
@@ -736,10 +741,9 @@ pub async fn get_transactions(
     for raw_transaction in raw_transactions {
         let event: JournalEvent = serde_json::from_value(raw_transaction.0)?;
         if let JournalEvent::AddedEntry { transaction } = event {
-            let author =
-                UserState::build(&transaction.author, vec![Created, UsernameUpdated], &pool)
-                    .await?
-                    .username;
+            let author = username::get_username(&transaction.author, &pool)
+                .await?
+                .unwrap_or("unknown user".to_string());
 
             bundled_transactions.push(TransactionWithTimeStamp {
                 transaction: TransactionWithUsername {

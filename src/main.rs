@@ -48,7 +48,7 @@ async fn main() {
     )
     .execute(&pool)
     .await
-    .expect("failed to create the events table");
+    .expect("failed to create the user events table");
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS journal_events (
@@ -61,7 +61,7 @@ async fn main() {
     )
     .execute(&pool)
     .await
-    .expect("failed to create the events table");
+    .expect("failed to create the journal events table");
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS auth_events (
@@ -74,7 +74,19 @@ async fn main() {
     )
     .execute(&pool)
     .await
-    .expect("failed to create the events table");
+    .expect("failed to create the auth events table");
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS username_events (
+                id BIGSERIAL PRIMARY KEY,
+                user_id UUID NOT NULL,
+                username VARCHAR(64) NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )",
+    )
+    .execute(&pool)
+    .await
+    .expect("failed to create the auth events table");
 
     let session_store = PostgresStore::new(pool.clone());
     session_store
