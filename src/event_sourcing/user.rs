@@ -1,7 +1,8 @@
 use super::journal::JournalTenantInfo;
 use leptos::prelude::ServerFnError;
+use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, query_scalar, types::JsonValue};
+use sqlx::{PgPool, query_as};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
@@ -71,7 +72,9 @@ impl UserEvent {
         }
     }
     pub async fn push_db(&self, uuid: &Uuid, pool: &PgPool) -> Result<i64, ServerFnError> {
-        let payload = serde_json::to_value(self.clone())?;
+        let event_type = self.get_type();
+        let payload: Vec<u8> = to_allocvec(self)?;
+
         let id: i64 = sqlx::query_scalar(
             r#"
             INSERT INTO user_events (
@@ -84,7 +87,7 @@ impl UserEvent {
             "#,
         )
         .bind(uuid)
-        .bind(self.get_type())
+        .bind(event_type)
         .bind(payload)
         .fetch_one(pool)
         .await?;
@@ -111,7 +114,7 @@ impl UserState {
         event_types: Vec<UserEventType>,
         pool: &PgPool,
     ) -> Result<Self, ServerFnError> {
-        let user_events: Vec<JsonValue> = query_scalar(
+        let user_events = query_as::<_, (Vec<u8>,)>(
             r#"
             SELECT payload FROM user_events
             WHERE user_id = $1 AND event_type = ANY($2)
@@ -129,23 +132,13 @@ impl UserState {
             ..Default::default()
         };
 
-        for raw_event in user_events {
-            let event: UserEvent = serde_json::from_value(raw_event)?;
-            aggregate.apply(event);
-        }
-        Ok(aggregate)
-    }
+        user_events
+            .into_iter()
+            .try_for_each(|(payload,)| -> Result<(), ServerFnError> {
+                aggregate.apply(from_bytes::<UserEvent>(&payload)?);
+                Ok(())
+            })?;
 
-    pub async fn from_events(id: Uuid, events: Vec<JsonValue>) -> Result<Self, ServerFnError> {
-        let mut aggregate = Self {
-            id,
-            ..Default::default()
-        };
-
-        for raw_event in events {
-            let event: UserEvent = serde_json::from_value(raw_event)?;
-            aggregate.apply(event);
-        }
         Ok(aggregate)
     }
 

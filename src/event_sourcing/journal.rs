@@ -1,7 +1,8 @@
 use bitflags::bitflags;
 use leptos::prelude::ServerFnError;
+use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, query_scalar, types::JsonValue};
+use sqlx::{PgPool, query_as};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -64,7 +65,7 @@ impl JournalEvent {
     }
 
     pub async fn push_db(&self, uuid: &Uuid, pool: &PgPool) -> Result<i64, ServerFnError> {
-        let payload = serde_json::to_value(self)?;
+        let payload: Vec<u8> = to_allocvec(self)?;
 
         let id: i64 = sqlx::query_scalar(
             r#"
@@ -103,7 +104,7 @@ impl JournalState {
         event_types: Vec<JournalEventType>,
         pool: &PgPool,
     ) -> Result<Self, ServerFnError> {
-        let journal_events: Vec<JsonValue> = query_scalar(
+        let journal_events = query_as::<_, (Vec<u8>,)>(
             r#"
                 SELECT payload FROM journal_events
                 WHERE journal_id = $1 AND event_type = ANY($2)
@@ -120,23 +121,13 @@ impl JournalState {
             ..Default::default()
         };
 
-        for raw_event in journal_events {
-            let event: JournalEvent = serde_json::from_value(raw_event)?;
-            aggregate.apply(event);
-        }
-        Ok(aggregate)
-    }
+        journal_events
+            .into_iter()
+            .try_for_each(|(payload,)| -> Result<(), ServerFnError> {
+                aggregate.apply(from_bytes::<JournalEvent>(&payload)?);
+                Ok(())
+            })?;
 
-    pub fn from_events(id: Uuid, events: Vec<JsonValue>) -> Result<Self, ServerFnError> {
-        let mut aggregate = Self {
-            id,
-            ..Default::default()
-        };
-
-        for raw_event in events {
-            let event: JournalEvent = serde_json::from_value(raw_event)?;
-            aggregate.apply(event);
-        }
         Ok(aggregate)
     }
 

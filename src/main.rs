@@ -42,7 +42,7 @@ async fn main() {
             id BIGSERIAL PRIMARY KEY,
             user_id UUID NOT NULL,
             event_type SMALLINT NOT NULL,
-            payload JSONB NOT NULL,
+            payload BYTEA NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )",
     )
@@ -55,7 +55,7 @@ async fn main() {
             id BIGSERIAL PRIMARY KEY,
             journal_id UUID NOT NULL,
             event_type SMALLINT NOT NULL,
-            payload JSONB NOT NULL,
+            payload BYTEA NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
             )",
     )

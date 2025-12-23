@@ -12,6 +12,7 @@ use event_sourcing::journal::{
 use event_sourcing::user;
 use event_sourcing::user::{UserEvent, UserState};
 use leptos::prelude::*;
+use postcard::from_bytes;
 use uuid::Uuid;
 
 #[server]
@@ -726,7 +727,7 @@ pub async fn get_transactions(
         }
     }
 
-    let raw_transactions: Vec<(sqlx::types::JsonValue, chrono::DateTime<Utc>)> = sqlx::query_as(
+    let raw_transactions = sqlx::query_as::<_, (Vec<u8>, chrono::DateTime<Utc>)>(
         r#"
         SELECT payload, created_at FROM journal_events
         WHERE journal_id = $1 AND event_type = $2
@@ -738,8 +739,23 @@ pub async fn get_transactions(
     .fetch_all(&pool)
     .await?;
 
-    for raw_transaction in raw_transactions {
-        let event: JournalEvent = serde_json::from_value(raw_transaction.0)?;
+    let transactions: Vec<(Result<JournalEvent, ServerFnError>, chrono::DateTime<Utc>)> =
+        raw_transactions
+            .into_iter()
+            .map(|(transaction, timestamp)| {
+                (
+                    from_bytes::<JournalEvent>(&transaction).map_err(|_| {
+                        ServerFnError::ServerError("failed to deserialize transaction".to_string())
+                    }),
+                    timestamp,
+                )
+            })
+            .collect();
+
+    for transaction in transactions {
+        let event: JournalEvent = transaction.0?;
+        let timestamp = transaction.1;
+
         if let JournalEvent::AddedEntry { transaction } = event {
             let author = username::get_username(&transaction.author, &pool)
                 .await?
@@ -750,7 +766,7 @@ pub async fn get_transactions(
                     author,
                     updates: transaction.updates,
                 },
-                timestamp: raw_transaction.1,
+                timestamp,
             })
         }
     }
