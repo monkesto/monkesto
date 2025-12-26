@@ -1,7 +1,6 @@
+use super::LoginRedirect;
 use super::layout::Layout;
-use super::nav::TopBar;
 use crate::api::main_api;
-use crate::event_sourcing::journal::Permissions;
 use leptos::prelude::*;
 use uuid::Uuid;
 
@@ -53,6 +52,7 @@ pub fn JournalList() -> impl IntoView {
                         Err(e) => {
                             return view! {
                                 <p>"An error occurred while fetching journals: " {e.to_string()}</p>
+                                <LoginRedirect err=e />
                             }
                                 .into_any();
                         }
@@ -63,7 +63,7 @@ pub fn JournalList() -> impl IntoView {
 
                             view! {
                                 <a
-                                    href=format!("/journal/{}", journal_id)
+                                    href=format!("/{}", journal_id)
                                     class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                                 >
                                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -154,7 +154,7 @@ pub fn JournalDetail() -> impl IntoView {
                     >
 
                         <a
-                            href=format!("/journal/{}/transaction", journal_id())
+                            href=format!("/{}/transaction", journal_id())
                             class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
                             <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -163,7 +163,7 @@ pub fn JournalDetail() -> impl IntoView {
                         </a>
 
                         <a
-                            href=format!("/journal/{}/account", journal_id())
+                            href=format!("/{}/account", journal_id())
                             class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
                             <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -172,7 +172,7 @@ pub fn JournalDetail() -> impl IntoView {
                         </a>
 
                         <a
-                            href=format!("/journal/{}/person", journal_id())
+                            href=format!("/{}/person", journal_id())
                             class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
                             <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -199,188 +199,6 @@ pub fn JournalDetail() -> impl IntoView {
                         </div>
 
                     </Layout>
-                }
-                    .into_any()
-            })}
-        </Suspense>
-    }
-}
-
-#[component]
-pub fn JournalInvites() -> impl IntoView {
-    use crate::api::main_api::{
-        InviteToJournal, RespondToJournalInvite, get_associated_journals, get_journal_invites,
-        get_user_id_from_session,
-    };
-
-    let invite_action = ServerAction::<InviteToJournal>::new();
-    let response_action = ServerAction::<RespondToJournalInvite>::new();
-
-    let user_id_resource =
-        Resource::new(|| (), |_| async move { get_user_id_from_session().await });
-
-    let journals_resource = Resource::new(
-        || (),
-        move |_| async move { get_associated_journals().await },
-    );
-
-    let invites_resource =
-        Resource::new(|| (), move |_| async move { get_journal_invites().await });
-
-    view! {
-        <Suspense>
-            {move || Suspend::new(async move {
-                let user_id = match user_id_resource.await {
-                    Ok(s) => s,
-                    Err(_) => {
-                        return view! { <meta http-equiv="refresh" content="0; url=/login" /> }
-                            .into_any();
-                    }
-                };
-                let journals = match journals_resource.await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        return view! {
-                            <p>"An error occurred while fetching journals: "{e.to_string()}</p>
-                        }
-                            .into_any();
-                    }
-                };
-                let invites = match invites_resource.await {
-                    Ok(s) => s,
-                    Err(e) => {
-                        return view! {
-                            <p>"An error occurred while fetching invites: "{e.to_string()}</p>
-                        }
-                            .into_any();
-                    }
-                };
-
-                view! {
-                    <TopBar journals=journals.clone() />
-
-                    {if let Some(selected) = journals.selected {
-                        view! {
-                            <ActionForm action=invite_action>
-                                <input
-                                    type="hidden"
-                                    name="journal_id"
-                                    value=selected.get_id().to_string()
-                                />
-
-                                <input type="hidden" name="own_id" value=user_id.to_string() />
-
-                                <input
-                                    type="hidden"
-                                    name="permissions"
-                                    // TODO: Add a selector for permissions
-                                    value=serde_json::to_string(&Permissions::all())
-                                        .expect("serialization of permissions failed")
-                                />
-
-                                <input
-                                    class="shadow appearance-none border rounded py-2 px-2 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                                    type="text"
-                                    name="invitee_username"
-                                    placeholder="johndoe"
-                                    required
-                                />
-
-                                <button class="mt-3 rounded bg-purple-900 px-10 py-2 font-bold text-white hover:bg-blue-400">
-                                    "Invite to "{selected.get_name()} "!"
-                                </button>
-
-                            </ActionForm>
-
-                            {if let Some(Err(e)) = invite_action.value().get() {
-                                view! {
-                                    <p>
-                                        "An error occurred while creating the invitation: "
-                                        {e.to_string()}
-                                    </p>
-                                }
-                                    .into_any()
-                            } else {
-                                view! { "" }.into_any()
-                            }}
-                        }
-                            .into_any()
-                    } else {
-                        view! { "" }.into_any()
-                    }}
-
-                    {invites
-                        .into_iter()
-                        .map(|invite| {
-                            view! {
-                                <h2 class="block mb-2 font-xl">{invite.name}</h2>
-                                <div class="flex">
-                                    <ActionForm action=response_action>
-
-                                        <input
-                                            type="hidden"
-                                            name="user_id"
-                                            value=user_id.to_string()
-                                        />
-
-                                        <input
-                                            type="hidden"
-                                            name="journal_id"
-                                            value=invite.id.to_string()
-                                        />
-
-                                        <input
-                                            type="hidden"
-                                            name="accepted"
-                                            value=serde_json::to_string(&true)
-                                                .expect("failed to serialize true")
-                                        />
-
-                                        <button
-                                            type="submit"
-                                            class="mt-3 rounded bg-purple-900 px-2 py-2 font-bold text-white hover:bg-blue-400"
-                                        >
-                                            "Accept"
-                                        </button>
-
-                                    </ActionForm>
-                                    <ActionForm action=response_action>
-                                        <input
-                                            type="hidden"
-                                            name="user_id"
-                                            value=user_id.to_string()
-                                        />
-
-                                        <input
-                                            type="hidden"
-                                            name="journal_id"
-                                            value=invite.id.to_string()
-                                        />
-
-                                        <input
-                                            type="hidden"
-                                            name="accepted"
-                                            value=serde_json::to_string(&false)
-                                                .expect("failed to serialize true")
-                                        />
-
-                                        <button
-                                            type="submit"
-                                            class="mt-3 rounded bg-purple-900 px-2 py-2 font-bold text-white hover:bg-blue-400"
-                                        >
-                                            "Decline"
-                                        </button>
-                                    </ActionForm>
-                                </div>
-                            }
-                        })
-                        .collect_view()}
-
-                    {if let Some(Err(e)) = response_action.value().get() {
-                        view! { <p>"An error occurred: "{e.to_string()}</p> }.into_any()
-                    } else {
-                        view! { "" }.into_any()
-                    }}
                 }
                     .into_any()
             })}

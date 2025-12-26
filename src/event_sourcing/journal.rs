@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 bitflags! {
-    #[derive(Serialize, Deserialize, Hash, Default, Debug, Clone, Copy)]
+    #[derive(Serialize, Deserialize, Hash, Default, Debug, Clone, Copy, PartialEq)]
     pub struct Permissions: i16 {
         const READ = 1 << 0;
         const ADDACCOUNT = 1 << 1;
@@ -18,7 +18,7 @@ bitflags! {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BalanceUpdate {
     pub account_name: String,
     pub changed_by: i64,

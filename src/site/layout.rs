@@ -26,7 +26,7 @@ pub fn Layout(
                                         {if let Some(id) = journal_id.clone() {
                                             view! {
                                                 <a
-                                                    href=format!("/journal/{}", id)
+                                                    href=format!("/{}", id)
                                                     class="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
                                                 >
                                                     {title.clone()}
@@ -44,7 +44,7 @@ pub fn Layout(
                                         {if show_switch_link {
                                             view! {
                                                 <a
-                                                    href="/journal"
+                                                    href="/"
                                                     class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                                                 >
                                                     "Switch"

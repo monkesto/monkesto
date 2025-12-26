@@ -8,7 +8,7 @@ use crate::event_sourcing::{
     journal::{BalanceUpdate, Permissions},
 };
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, PartialEq)]
 pub enum KnownErrors {
     None,
 

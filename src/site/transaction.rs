@@ -1,9 +1,3 @@
-mod general;
-mod transact;
-
-pub use general::GeneralJournal;
-pub use transact::Transact;
-
 use super::layout::Layout;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -166,7 +160,7 @@ pub fn TransactionListPage() -> impl IntoView {
                 .map(|transaction| {
                     view! {
                         <a
-                            href=format!("/journal/{}/transaction/{}", journal_id(), transaction.id)
+                            href=format!("/{}/transaction/{}", journal_id(), transaction.id)
                             class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
                             <div class="space-y-3">

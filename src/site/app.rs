@@ -1,13 +1,9 @@
 use super::account::AccountListPage;
 use super::auth::ClientLogin;
 use super::auth::ClientSignUp;
-use super::home::HomePage;
 use super::journal::JournalDetail;
-use super::journal::JournalInvites;
 use super::journal::JournalList;
 use super::person::PeopleListPage;
-use super::transaction::GeneralJournal;
-use super::transaction::Transact;
 use super::transaction::TransactionListPage;
 use leptos::prelude::*;
 use leptos_meta::MetaTags;
@@ -51,17 +47,13 @@ pub fn App() -> impl IntoView {
         <Router>
             <main>
                 <Routes fallback=|| "Page not found.".into_view()>
-                    <Route path=path!("") view=HomePage />
-                    <Route path=path!("/transact") view=Transact />
-                    <Route path=path!("/transaction") view=GeneralJournal />
                     <Route path=path!("/login") view=ClientLogin />
                     <Route path=path!("/signup") view=ClientSignUp />
-                    <Route path=path!("/invites") view=JournalInvites />
-                    <Route path=path!("/journal") view=JournalList />
-                    <Route path=path!("/journal/:id") view=JournalDetail />
-                    <Route path=path!("/journal/:id/transaction") view=TransactionListPage />
-                    <Route path=path!("/journal/:id/account") view=AccountListPage />
-                    <Route path=path!("/journal/:id/person") view=PeopleListPage />
+                    <Route path=path!("/") view=JournalList />
+                    <Route path=path!("/:id") view=JournalDetail />
+                    <Route path=path!("/:id/transaction") view=TransactionListPage />
+                    <Route path=path!("/:id/account") view=AccountListPage />
+                    <Route path=path!("/:id/person") view=PeopleListPage />
                 </Routes>
             </main>
         </Router>
