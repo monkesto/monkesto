@@ -64,7 +64,7 @@ pub fn PeopleListPage() -> impl IntoView {
                 .map(|person| {
                     view! {
                         <a
-                            href=format!("/{}/person/{}", journal_id(), person.id)
+                            href=format!("/journal/{}/person/{}", journal_id(), person.id)
                             class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
                             <h3 class="text-lg font-semibold text-gray-900 dark:text-white">

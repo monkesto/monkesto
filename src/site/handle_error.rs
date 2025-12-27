@@ -7,7 +7,7 @@ use leptos::{
 use crate::api::return_types::KnownErrors;
 
 #[expect(non_snake_case)]
-pub fn HandleError(err: ServerFnError, context: String) -> impl IntoView {
+pub fn HandleError(err: ServerFnError, context: &str) -> impl IntoView {
     use KnownErrors::*;
     if let Some(e) = KnownErrors::parse_error(&err) {
         match e {

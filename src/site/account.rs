@@ -201,7 +201,7 @@ pub fn AccountListPage() -> impl IntoView {
                 .map(|account| {
                     view! {
                         <a
-                            href=format!("/{}/account/{}", journal_id(), account.id)
+                            href=format!("/journal/{}/account/{}", journal_id(), account.id)
                             class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
                             <div class="flex justify-between items-center">

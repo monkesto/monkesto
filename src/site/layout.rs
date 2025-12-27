@@ -17,7 +17,7 @@ pub fn Layout(
                 <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div class="flex justify-between h-16">
                         <div class="flex items-center">
-                            <img src="/public/logo.svg" alt="Monkesto" class="h-8 w-auto" />
+                            <img src="/logo.svg" alt="Monkesto" class="h-8 w-auto" />
                             <span class="ml-4 text-xl font-bold text-gray-900 dark:text-white">
                                 "Monkesto"
                             </span>
@@ -29,7 +29,7 @@ pub fn Layout(
                                         {if let Some(id) = journal_id.clone() {
                                             view! {
                                                 <a
-                                                    href=format!("/{}", id)
+                                                    href=format!("/journal/{}", id)
                                                     class="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
                                                 >
                                                     {title.clone()}

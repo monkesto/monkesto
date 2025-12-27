@@ -50,7 +50,7 @@ pub fn JournalList() -> impl IntoView {
                                 .map(|journal| (journal.get_id(), journal.get_name()))
                                 .collect()
                         }
-                        Err(e) => return HandleError(e, "test".to_string()).into_any(),
+                        Err(e) => return HandleError(e, "test").into_any(),
                     };
                     journals
                         .into_iter()
@@ -58,7 +58,7 @@ pub fn JournalList() -> impl IntoView {
 
                             view! {
                                 <a
-                                    href=format!("/{}", journal_id)
+                                    href=format!("/journal/{}", journal_id)
                                     class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                                 >
                                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -124,7 +124,7 @@ pub fn JournalDetail() -> impl IntoView {
                 let journals = match journals_res.clone() {
                     Ok(s) => s,
                     Err(e) => {
-                        return HandleError(e, "fetching journals".to_string()).into_any();
+                        return HandleError(e, "fetching journals").into_any();
                     }
                 };
                 let Some(journal) = journals
@@ -146,7 +146,7 @@ pub fn JournalDetail() -> impl IntoView {
                     >
 
                         <a
-                            href=format!("/{}/transaction", journal_id())
+                            href=format!("/journal/{}/transaction", journal_id())
                             class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
                             <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -155,7 +155,7 @@ pub fn JournalDetail() -> impl IntoView {
                         </a>
 
                         <a
-                            href=format!("/{}/account", journal_id())
+                            href=format!("/journal/{}/account", journal_id())
                             class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
                             <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
@@ -164,7 +164,7 @@ pub fn JournalDetail() -> impl IntoView {
                         </a>
 
                         <a
-                            href=format!("/{}/person", journal_id())
+                            href=format!("/journal{}/person", journal_id())
                             class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                         >
                             <h3 class="text-lg font-semibold text-gray-900 dark:text-white">

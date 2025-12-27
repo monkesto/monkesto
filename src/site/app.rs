@@ -22,7 +22,6 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
             <head>
                 <meta charset="utf-8" />
                 <meta name="viewport" content="width=device-width, initial-scale=1" />
-                <link rel="icon" type="image/x-icon" href="/public/favicon.ico" />
                 <AutoReload options=options.clone() />
                 <HydrationScripts options islands=true />
                 <MetaTags />
@@ -50,11 +49,18 @@ pub fn App() -> impl IntoView {
                 <Routes fallback=|| "Page not found.".into_view()>
                     <Route path=path!("/login") view=ClientLogin />
                     <Route path=path!("/signup") view=ClientSignUp />
-                    <Route path=path!("/") view=JournalList />
-                    <Route path=path!("/:id") view=JournalDetail />
-                    <Route path=path!("/:id/transaction") view=TransactionListPage />
-                    <Route path=path!("/:id/account") view=AccountListPage />
-                    <Route path=path!("/:id/person") view=PeopleListPage />
+                    <Route
+                        path=path!("/")
+                        view=move || {
+                            view! { <meta http-equiv="refresh" content="0; url=/journal" /> }
+                                .into_view()
+                        }
+                    />
+                    <Route path=path!("/journal") view=JournalList />
+                    <Route path=path!("/journal/:id") view=JournalDetail />
+                    <Route path=path!("/journal/:id/transaction") view=TransactionListPage />
+                    <Route path=path!("/journal/:id/account") view=AccountListPage />
+                    <Route path=path!("/journal/:id/person") view=PeopleListPage />
                 </Routes>
             </main>
         </Router>
