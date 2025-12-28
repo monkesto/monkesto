@@ -6,12 +6,11 @@ use leptos::{
 
 use crate::api::return_types::KnownErrors;
 
-#[expect(non_snake_case)]
-pub fn HandleError(err: ServerFnError, context: &str) -> impl IntoView {
+pub fn handle_error(err: ServerFnError, context: &str) -> impl IntoView {
     use KnownErrors::*;
     if let Some(e) = KnownErrors::parse_error(&err) {
         match e {
-            NotLoggedIn => {
+            NotLoggedIn | SessionIdNotFound => {
                 view! { <meta http-equiv="refresh" content="0; url=/login" /> }.into_any()
             }
 
@@ -26,4 +25,14 @@ pub fn HandleError(err: ServerFnError, context: &str) -> impl IntoView {
     } else {
         view! { <p>"An unknown error occurred: " {err.to_string()}</p> }.into_any()
     }
+}
+
+#[macro_export]
+macro_rules! unwrap_or_handle_error {
+    ($res:expr, $context:expr) => {
+        match $res {
+            Ok(s) => s,
+            Err(e) => return handle_error(e, $context).into_any(),
+        }
+    };
 }

@@ -1,6 +1,7 @@
-use super::handle_error::HandleError;
+use super::handle_error::handle_error;
 use super::layout::Layout;
 use crate::api::main_api;
+use crate::unwrap_or_handle_error;
 use leptos::prelude::*;
 use uuid::Uuid;
 
@@ -42,16 +43,13 @@ pub fn JournalList() -> impl IntoView {
         <Layout>
             <Suspense>
                 {move || Suspend::new(async move {
-                    let journals_res = journals_resource.await;
-                    let journals: Vec<(Uuid, String)> = match journals_res.clone() {
-                        Ok(s) => {
-                            s.associated
-                                .into_iter()
-                                .map(|journal| (journal.get_id(), journal.get_name()))
-                                .collect()
-                        }
-                        Err(e) => return HandleError(e, "test").into_any(),
-                    };
+                    let journals: Vec<(Uuid, String)> = unwrap_or_handle_error!(
+                        journals_resource.await, "fetching journals"
+                    )
+                        .associated
+                        .into_iter()
+                        .map(|journal| (journal.get_id(), journal.get_name()))
+                        .collect();
                     journals
                         .into_iter()
                         .map(|(journal_id, journal_name)| {
@@ -120,13 +118,9 @@ pub fn JournalDetail() -> impl IntoView {
         <Suspense>
             {move || Suspend::new(async move {
                 let journal_id = move || params.get().get("id").unwrap_or_default().to_string();
-                let journals_res = journals_resource.await;
-                let journals = match journals_res.clone() {
-                    Ok(s) => s,
-                    Err(e) => {
-                        return HandleError(e, "fetching journals").into_any();
-                    }
-                };
+                let journals = unwrap_or_handle_error!(
+                    journals_resource.await, "fetching journals"
+                );
                 let Some(journal) = journals
                     .associated
                     .into_iter()

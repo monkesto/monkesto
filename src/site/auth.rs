@@ -1,10 +1,10 @@
 use crate::api::return_types::*;
 use leptos::prelude::*;
 
+use crate::api::main_api::{CreateUser, Login, get_user_id_from_session};
+
 #[component]
 pub fn ClientLogin() -> impl IntoView {
-    use crate::api::main_api::{Login, get_user_id_from_session};
-
     let login = ServerAction::<Login>::new();
     let logged_in = Resource::new(|| (), |_| async { get_user_id_from_session().await }); // this throws an error if the database can't find an account associated with the session
 
@@ -22,7 +22,8 @@ pub fn ClientLogin() -> impl IntoView {
                     // redirect to the homepage if the user's session id is already associated with an account
                     {move || match logged_in.get() {
                         Some(Ok(_)) => {
-                            view! { <meta http-equiv="refresh" content="0; url=/" /> }.into_any()
+                            view! { <meta http-equiv="refresh" content="0; url=/journal" /> }
+                                .into_any()
                         }
                         Some(Err(_)) => {
                             view! {
@@ -121,7 +122,7 @@ pub fn ClientLogin() -> impl IntoView {
 
 #[component]
 pub fn ClientSignUp() -> impl IntoView {
-    use crate::api::main_api::CreateUser;
+    let logged_in = Resource::new(|| (), |_| async { get_user_id_from_session().await }); // this throws an error if the database can't find an account associated with the session
     let signup = ServerAction::<CreateUser>::new();
 
     view! {
@@ -136,7 +137,15 @@ pub fn ClientSignUp() -> impl IntoView {
             <div class="mt-10 sm:mx-auto sm:w-full sm:max-w-sm">
                 <Suspense>
 
-                    <ActionForm action=signup>
+                    // redirect to the homepage if the user is already logged in
+                    {Suspend::new(async move {
+                        if logged_in.await.is_ok() {
+                            view! { <meta http-equiv="refresh" content="0; url=/journal" /> }
+                                .into_any()
+                        } else {
+                            view! { "" }.into_any()
+                        }
+                    })} <ActionForm action=signup>
 
                         <div class="space-y-6">
                             <div>
