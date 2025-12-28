@@ -16,14 +16,15 @@ pub fn handle_error(err: ServerFnError, context: &str) -> impl IntoView {
 
             _ => view! {
                 <p>
-                    "An error occurred while " {context} ":"
-                    {e.to_string().unwrap_or("failed to encode error".to_string())}
+                    "An error occurred while " {context} " : "
+                    {e.to_string().unwrap_or("failed to decode error".to_string())}
                 </p>
             }
             .into_any(),
         }
     } else {
-        view! { <p>"An unknown error occurred: " {err.to_string()}</p> }.into_any()
+        view! { <p>"An unknown error occurred while " {context} " : " {err.to_string()}</p> }
+            .into_any()
     }
 }
 

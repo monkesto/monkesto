@@ -1,9 +1,9 @@
+use crate::api::return_types::Cuid;
 use leptos::prelude::ServerFnError;
 use sqlx::PgPool;
-use uuid::Uuid;
 
 pub async fn update(
-    user_id: &Uuid,
+    user_id: &Cuid,
     username: &String,
     pool: &PgPool,
 ) -> Result<i64, ServerFnError> {
@@ -17,7 +17,7 @@ pub async fn update(
         RETURNING id
         "#,
     )
-    .bind(user_id)
+    .bind(user_id.to_bytes())
     .bind(username)
     .fetch_one(pool)
     .await?;
@@ -25,7 +25,7 @@ pub async fn update(
     Ok(id)
 }
 
-pub async fn get_username(user_id: &Uuid, pool: &PgPool) -> Result<Option<String>, ServerFnError> {
+pub async fn get_username(user_id: &Cuid, pool: &PgPool) -> Result<Option<String>, ServerFnError> {
     let username: Option<String> = sqlx::query_scalar(
         r#"
         SELECT username FROM username_events
@@ -34,15 +34,15 @@ pub async fn get_username(user_id: &Uuid, pool: &PgPool) -> Result<Option<String
         LIMIT 1
         "#,
     )
-    .bind(user_id)
+    .bind(user_id.to_bytes())
     .fetch_optional(pool)
     .await?;
 
     Ok(username)
 }
 
-pub async fn get_id(username: &String, pool: &PgPool) -> Result<Option<Uuid>, ServerFnError> {
-    let id: Option<Uuid> = sqlx::query_scalar(
+pub async fn get_id(username: &String, pool: &PgPool) -> Result<Option<Cuid>, ServerFnError> {
+    let id: Option<Vec<u8>> = sqlx::query_scalar(
         r#"
         SELECT user_id FROM username_events
         WHERE username = $1
@@ -54,5 +54,9 @@ pub async fn get_id(username: &String, pool: &PgPool) -> Result<Option<Uuid>, Se
     .fetch_optional(pool)
     .await?;
 
-    Ok(id)
+    if let Some(s) = id {
+        Ok(Some(Cuid::from_bytes(&s)?))
+    } else {
+        Ok(None)
+    }
 }

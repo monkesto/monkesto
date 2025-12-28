@@ -1,7 +1,7 @@
 use super::layout::Layout;
+use crate::api::return_types::Cuid;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
-use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 enum EntryType {
@@ -18,37 +18,35 @@ struct Entry {
 
 #[derive(Debug, Clone)]
 struct AccountItem {
-    pub id: Uuid,
+    pub id: Cuid,
     pub name: String,
 }
 
 #[derive(Debug, Clone)]
 struct Person {
-    pub id: Uuid,
+    pub id: Cuid,
     pub username: String,
 }
 
 #[derive(Debug, Clone)]
 struct Transaction {
-    pub id: Uuid,
+    pub id: Cuid,
     pub author: Person,
     pub entries: Vec<Entry>,
 }
 
 fn transactions() -> Vec<Transaction> {
-    use std::str::FromStr;
     vec![
         Transaction {
-            id: Uuid::from_str("350e8400-e29b-41d4-a716-446655440000").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaab").expect("Invalid Cuid"),
             author: Person {
-                id: Uuid::from_str("250e8400-e29b-41d4-a716-446655440000").expect("Invalid UUID"),
+                id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
                 username: "johndoe".to_string(),
             },
             entries: vec![
                 Entry {
                     account: AccountItem {
-                        id: Uuid::from_str("450e8400-e29b-41d4-a716-446655440000")
-                            .expect("Invalid UUID"),
+                        id: Cuid::from_str("aaaaaaaaab").expect("Invalid Cuid"),
                         name: "Cash".to_string(),
                     },
                     amount: 4567, // $45.67 in cents
@@ -56,8 +54,7 @@ fn transactions() -> Vec<Transaction> {
                 },
                 Entry {
                     account: AccountItem {
-                        id: Uuid::from_str("450e8400-e29b-41d4-a716-446655440002")
-                            .expect("Invalid UUID"),
+                        id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
                         name: "Groceries Expense".to_string(),
                     },
                     amount: 4567, // $45.67 in cents
@@ -66,16 +63,15 @@ fn transactions() -> Vec<Transaction> {
             ],
         },
         Transaction {
-            id: Uuid::from_str("350e8400-e29b-41d4-a716-446655440001").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaab").expect("Invalid Cuid"),
             author: Person {
-                id: Uuid::from_str("250e8400-e29b-41d4-a716-446655440001").expect("Invalid UUID"),
+                id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
                 username: "janesmith".to_string(),
             },
             entries: vec![
                 Entry {
                     account: AccountItem {
-                        id: Uuid::from_str("450e8400-e29b-41d4-a716-446655440001")
-                            .expect("Invalid UUID"),
+                        id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
                         name: "Checking Account".to_string(),
                     },
                     amount: 3214, // $32.14 in cents
@@ -83,8 +79,7 @@ fn transactions() -> Vec<Transaction> {
                 },
                 Entry {
                     account: AccountItem {
-                        id: Uuid::from_str("450e8400-e29b-41d4-a716-446655440003")
-                            .expect("Invalid UUID"),
+                        id: Cuid::from_str("aaaaaaaaad").expect("Invalid Cuid"),
                         name: "Fuel Expense".to_string(),
                     },
                     amount: 3214, // $32.14 in cents
@@ -93,16 +88,15 @@ fn transactions() -> Vec<Transaction> {
             ],
         },
         Transaction {
-            id: Uuid::from_str("350e8400-e29b-41d4-a716-446655440002").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
             author: Person {
-                id: Uuid::from_str("250e8400-e29b-41d4-a716-446655440002").expect("Invalid UUID"),
+                id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
                 username: "bobjohnson".to_string(),
             },
             entries: vec![
                 Entry {
                     account: AccountItem {
-                        id: Uuid::from_str("450e8400-e29b-41d4-a716-446655440000")
-                            .expect("Invalid UUID"),
+                        id: Cuid::from_str("aaaaaaaaad").expect("Invalid Cuid"),
                         name: "Cash".to_string(),
                     },
                     amount: 425, // $4.25 in cents
@@ -110,8 +104,7 @@ fn transactions() -> Vec<Transaction> {
                 },
                 Entry {
                     account: AccountItem {
-                        id: Uuid::from_str("450e8400-e29b-41d4-a716-446655440004")
-                            .expect("Invalid UUID"),
+                        id: Cuid::from_str("aaaaaaaaae").expect("Invalid Cuid"),
                         name: "Coffee Expense".to_string(),
                     },
                     amount: 425, // $4.25 in cents
@@ -123,16 +116,15 @@ fn transactions() -> Vec<Transaction> {
 }
 
 fn journals() -> Vec<super::journal::Journal> {
-    use std::str::FromStr;
     vec![
         super::journal::Journal {
-            id: Uuid::from_str("550e8400-e29b-41d4-a716-446655440000").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaab").expect("Invalid Cuid"),
             name: "Personal".to_string(),
             creator_username: "johndoe".to_string(),
             created_at: "2024-01-15 09:30:45".to_string(),
         },
         super::journal::Journal {
-            id: Uuid::from_str("550e8400-e29b-41d4-a716-446655440001").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
             name: "Business".to_string(),
             creator_username: "janesmith".to_string(),
             created_at: "2024-01-20 14:22:18".to_string(),

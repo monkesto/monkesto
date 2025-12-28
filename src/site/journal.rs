@@ -1,28 +1,27 @@
 use super::handle_error::handle_error;
 use super::layout::Layout;
 use crate::api::main_api;
+use crate::api::return_types::Cuid;
 use crate::unwrap_or_handle_error;
 use leptos::prelude::*;
-use uuid::Uuid;
 
 pub struct Journal {
-    pub id: Uuid,
+    pub id: Cuid,
     pub name: String,
     pub creator_username: String,
     pub created_at: String,
 }
 
 fn journals() -> Vec<Journal> {
-    use std::str::FromStr;
     vec![
         Journal {
-            id: Uuid::from_str("550e8400-e29b-41d4-a716-446655440000").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaab").expect("Invalid CUID"),
             name: "Personal".to_string(),
             creator_username: "johndoe".to_string(),
             created_at: "2024-01-15 09:30:45".to_string(),
         },
         Journal {
-            id: Uuid::from_str("550e8400-e29b-41d4-a716-446655440001").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaac").expect("Invalid CUID"),
             name: "Business".to_string(),
             creator_username: "janesmith".to_string(),
             created_at: "2024-01-20 14:22:18".to_string(),
@@ -43,7 +42,7 @@ pub fn JournalList() -> impl IntoView {
         <Layout>
             <Suspense>
                 {move || Suspend::new(async move {
-                    let journals: Vec<(Uuid, String)> = unwrap_or_handle_error!(
+                    let journals: Vec<(Cuid, String)> = unwrap_or_handle_error!(
                         journals_resource.await, "fetching journals"
                     )
                         .associated
@@ -124,7 +123,7 @@ pub fn JournalDetail() -> impl IntoView {
                 let Some(journal) = journals
                     .associated
                     .into_iter()
-                    .find(|j| j.get_id().to_string() == journal_id()) else {
+                    .find(|j| { j.get_id().to_string() == journal_id() }) else {
                     return view! { <p>"Unable to find journal"</p> }.into_any()
                 };
                 let journal_owner_resource = Resource::new(

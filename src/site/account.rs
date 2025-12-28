@@ -1,13 +1,12 @@
 use super::layout::Layout;
 use crate::api::main_api;
+use crate::api::return_types::Cuid;
 use crate::api::return_types::*;
 use crate::event_sourcing::journal::Permissions;
 use leptos::prelude::*;
 
-use uuid::Uuid;
-
 #[component]
-fn AddAccount(user_id: Uuid, journal_id: Uuid) -> impl IntoView {
+fn AddAccount(user_id: String, journal_id: String) -> impl IntoView {
     let add_account = ServerAction::<main_api::AddAccount>::new();
     view! {
         <div class="flex flex-col items-center text-center px-10 py-10">
@@ -20,8 +19,8 @@ fn AddAccount(user_id: Uuid, journal_id: Uuid) -> impl IntoView {
                     required
                 />
 
-                <input type="hidden" name="user_id" value=user_id.to_string() />
-                <input type="hidden" name="journal_id" value=journal_id.to_string() />
+                <input type="hidden" name="user_id" value=user_id />
+                <input type="hidden" name="journal_id" value=journal_id />
 
                 <button
                     class="mt-3 rounded bg-purple-900 px-2 py-2 font-bold text-white hover:bg-blue-400"
@@ -49,7 +48,7 @@ fn AddAccount(user_id: Uuid, journal_id: Uuid) -> impl IntoView {
 }
 
 #[component]
-pub fn AccountList(mut accounts: Vec<Account>, journals: Journals, user_id: Uuid) -> impl IntoView {
+pub fn AccountList(mut accounts: Vec<Account>, journals: Journals, user_id: Cuid) -> impl IntoView {
     let create_journal = ServerAction::<main_api::CreateJournal>::new();
 
     view! {
@@ -117,13 +116,21 @@ pub fn AccountList(mut accounts: Vec<Account>, journals: Journals, user_id: Uuid
             if let Some(selected) = journals.selected.clone() {
                 match selected {
                     AssociatedJournal::Owned { id, .. } => {
-                        view! { <AddAccount user_id=user_id journal_id=id /> }.into_any()
+                        view! {
+                            <AddAccount user_id=user_id.to_string() journal_id=id.to_string() />
+                        }
+                            .into_any()
                     }
                     AssociatedJournal::Shared { id, tenant_info, .. } => {
                         if tenant_info.tenant_permissions.contains(Permissions::ADDACCOUNT) {
-                            view! { <AddAccount user_id=user_id journal_id=id /> }.into_any()
+                            view! {
+                                <AddAccount user_id=user_id.to_string() journal_id=id.to_string() />
+                            }
+                                .into_any()
                         } else {
-                            view! { "" }.into_any()
+
+                            view! { "" }
+                                .into_any()
                         }
                     }
                 }
@@ -135,26 +142,25 @@ pub fn AccountList(mut accounts: Vec<Account>, journals: Journals, user_id: Uuid
 }
 
 struct AccountItem {
-    pub id: Uuid,
+    pub id: Cuid,
     pub name: String,
     pub balance: i64, // in cents
 }
 
 fn accounts() -> Vec<AccountItem> {
-    use std::str::FromStr;
     vec![
         AccountItem {
-            id: Uuid::from_str("450e8400-e29b-41d4-a716-446655440000").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaab").expect("Invalid CUID"),
             name: "Cash".to_string(),
             balance: 25043, // $250.43
         },
         AccountItem {
-            id: Uuid::from_str("450e8400-e29b-41d4-a716-446655440001").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaac").expect("Invalid CUID"),
             name: "Checking Account".to_string(),
             balance: 152067, // $1,520.67
         },
         AccountItem {
-            id: Uuid::from_str("450e8400-e29b-41d4-a716-446655440002").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaad").expect("Invalid CUID"),
             name: "Savings Account".to_string(),
             balance: 500000, // $5,000.00
         },
@@ -162,16 +168,15 @@ fn accounts() -> Vec<AccountItem> {
 }
 
 fn journals() -> Vec<super::journal::Journal> {
-    use std::str::FromStr;
     vec![
         super::journal::Journal {
-            id: Uuid::from_str("550e8400-e29b-41d4-a716-446655440000").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaab").expect("Invalid CUID"),
             name: "Personal".to_string(),
             creator_username: "johndoe".to_string(),
             created_at: "2024-01-15 09:30:45".to_string(),
         },
         super::journal::Journal {
-            id: Uuid::from_str("550e8400-e29b-41d4-a716-446655440001").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaac").expect("Invalid CUID"),
             name: "Business".to_string(),
             creator_username: "janesmith".to_string(),
             created_at: "2024-01-20 14:22:18".to_string(),

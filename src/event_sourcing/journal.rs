@@ -1,3 +1,4 @@
+use crate::api::return_types::Cuid;
 use bitflags::bitflags;
 use chrono::Utc;
 use leptos::prelude::ServerFnError;
@@ -5,7 +6,6 @@ use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, query_as, query_scalar};
 use std::collections::HashMap;
-use uuid::Uuid;
 
 bitflags! {
     #[derive(Serialize, Deserialize, Hash, Default, Debug, Clone, Copy, PartialEq)]
@@ -20,22 +20,22 @@ bitflags! {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BalanceUpdate {
-    pub account_id: Uuid,
+    pub account_id: Cuid,
     pub changed_by: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Transaction {
-    pub author: Uuid,
+    pub author: Cuid,
     pub updates: Vec<BalanceUpdate>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum JournalEvent {
-    Created { name: String, owner: Uuid },
+    Created { name: String, owner: Cuid },
     Renamed { name: String },
     CreatedAccount { account_name: String },
-    DeletedAccount { account_id: Uuid },
+    DeletedAccount { account_id: Cuid },
     AddedEntry { transaction: Transaction },
     Deleted,
 }
@@ -65,7 +65,7 @@ impl JournalEvent {
         }
     }
 
-    pub async fn push_db(&self, uuid: &Uuid, pool: &PgPool) -> Result<i64, ServerFnError> {
+    pub async fn push_db(&self, id: &Cuid, pool: &PgPool) -> Result<i64, ServerFnError> {
         let payload: Vec<u8> = to_allocvec(self)?;
 
         let id: i64 = sqlx::query_scalar(
@@ -79,7 +79,7 @@ impl JournalEvent {
             RETURNING id
             "#,
         )
-        .bind(uuid)
+        .bind(id.to_bytes())
         .bind(self.get_type())
         .bind(payload)
         .fetch_one(pool)
@@ -91,18 +91,18 @@ impl JournalEvent {
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct JournalState {
-    pub id: Uuid,
+    pub id: Cuid,
     pub name: String,
     pub created_at: chrono::DateTime<Utc>,
-    pub owner: Uuid,
-    pub accounts: HashMap<Uuid, (String, i64)>,
+    pub owner: Cuid,
+    pub accounts: HashMap<Cuid, (String, i64)>,
     pub transactions: Vec<Transaction>,
     pub deleted: bool,
 }
 
 impl JournalState {
     pub async fn build(
-        id: &Uuid,
+        id: &Cuid,
         event_types: Vec<JournalEventType>,
         pool: &PgPool,
     ) -> Result<Self, ServerFnError> {
@@ -113,7 +113,7 @@ impl JournalState {
                 ORDER BY created_at ASC
                 "#,
         )
-        .bind(id)
+        .bind(id.to_bytes())
         .bind(event_types)
         .fetch_all(pool)
         .await?;
@@ -124,7 +124,7 @@ impl JournalState {
                 WHERE journal_id = $1 AND event_type = $2
             "#,
         )
-        .bind(id)
+        .bind(id.to_bytes())
         .bind(JournalEventType::Created)
         .fetch_optional(pool)
         .await?;
@@ -155,7 +155,7 @@ impl JournalState {
             JournalEvent::Renamed { name } => self.name = name,
 
             JournalEvent::CreatedAccount { account_name } => {
-                _ = self.accounts.insert(Uuid::new_v4(), (account_name, 0))
+                _ = self.accounts.insert(Cuid::new10(), (account_name, 0))
             }
             JournalEvent::DeletedAccount { account_id } => {
                 _ = self.accounts.remove(&account_id);
@@ -176,21 +176,21 @@ impl JournalState {
 #[derive(Default, Serialize, Deserialize, Clone, Debug)]
 pub struct JournalTenantInfo {
     pub tenant_permissions: Permissions,
-    pub inviting_user: Uuid,
-    pub journal_owner: Uuid,
+    pub inviting_user: Cuid,
+    pub journal_owner: Cuid,
 }
 
 pub struct SharedJournal {
-    pub id: Uuid,
+    pub id: Cuid,
     pub info: JournalTenantInfo,
 }
 
 pub struct SharedAndPendingJournals {
-    pub shared: HashMap<Uuid, JournalTenantInfo>,
-    pub pending: HashMap<Uuid, JournalTenantInfo>,
+    pub shared: HashMap<Cuid, JournalTenantInfo>,
+    pub pending: HashMap<Cuid, JournalTenantInfo>,
 }
 
-pub async fn get_name_from_id(id: &Uuid, pool: &PgPool) -> Result<Option<String>, ServerFnError> {
+pub async fn get_name_from_id(id: &Cuid, pool: &PgPool) -> Result<Option<String>, ServerFnError> {
     let journal_state = JournalState::build(
         id,
         vec![JournalEventType::Created, JournalEventType::Renamed],

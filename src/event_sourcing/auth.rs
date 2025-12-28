@@ -1,7 +1,7 @@
+use crate::api::return_types::Cuid;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use leptos::prelude::ServerFnError;
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::api::return_types::KnownErrors;
 
@@ -16,7 +16,7 @@ pub enum AuthEvent {
 impl AuthEvent {
     pub async fn push_db(
         &self,
-        user_id: &Uuid,
+        user_id: &Cuid,
         session_id: &String,
         pool: &PgPool,
     ) -> Result<i64, ServerFnError> {
@@ -33,7 +33,7 @@ impl AuthEvent {
             RETURNING id
             "#,
         )
-        .bind(user_id)
+        .bind(user_id.to_bytes())
         .bind(session_bytes)
         .bind(self)
         .fetch_one(pool)
@@ -43,10 +43,10 @@ impl AuthEvent {
     }
 }
 
-pub async fn get_user_id(session_id: &String, pool: &PgPool) -> Result<Uuid, ServerFnError> {
+pub async fn get_user_id(session_id: &String, pool: &PgPool) -> Result<Cuid, ServerFnError> {
     let session_bytes = URL_SAFE_NO_PAD.decode(session_id)?;
 
-    let event: Vec<(Uuid, AuthEvent)> = sqlx::query_as(
+    let event: Vec<(Vec<u8>, AuthEvent)> = sqlx::query_as(
         r#"
         SELECT user_id, event_type FROM auth_events
         WHERE session_id = $1
@@ -70,7 +70,7 @@ pub async fn get_user_id(session_id: &String, pool: &PgPool) -> Result<Uuid, Ser
 
     // if the latest event was a login, return the user id
     if *auth_type == AuthEvent::Login {
-        return Ok(*id);
+        return Cuid::from_bytes(id);
     }
 
     Err(ServerFnError::ServerError(

@@ -1,10 +1,10 @@
 use super::journal::JournalTenantInfo;
+use crate::api::return_types::Cuid;
 use leptos::prelude::ServerFnError;
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, query_as};
 use std::collections::{HashMap, HashSet};
-use uuid::Uuid;
 
 use crate::event_sourcing::journal::Permissions;
 
@@ -17,25 +17,25 @@ pub enum UserEvent {
         hashed_password: String,
     },
     CreatedJournal {
-        id: Uuid,
+        id: Cuid,
     },
     InvitedToJournal {
-        id: Uuid,
+        id: Cuid,
         permissions: Permissions,
-        inviting_user: Uuid,
-        owner: Uuid,
+        inviting_user: Cuid,
+        owner: Cuid,
     },
     AcceptedJournalInvite {
-        id: Uuid,
+        id: Cuid,
     },
     DeclinedJournalInvite {
-        id: Uuid,
+        id: Cuid,
     },
     RemovedFromJournal {
-        id: Uuid,
+        id: Cuid,
     },
     SelectedJournal {
-        id: Uuid,
+        id: Cuid,
     },
     Deleted,
 }
@@ -71,7 +71,7 @@ impl UserEvent {
             Self::Deleted => Deleted,
         }
     }
-    pub async fn push_db(&self, uuid: &Uuid, pool: &PgPool) -> Result<i64, ServerFnError> {
+    pub async fn push_db(&self, id: &Cuid, pool: &PgPool) -> Result<i64, ServerFnError> {
         let event_type = self.get_type();
         let payload: Vec<u8> = to_allocvec(self)?;
 
@@ -86,7 +86,7 @@ impl UserEvent {
             RETURNING id
             "#,
         )
-        .bind(uuid)
+        .bind(id.to_bytes())
         .bind(event_type)
         .bind(payload)
         .fetch_one(pool)
@@ -98,19 +98,19 @@ impl UserEvent {
 
 #[derive(Default)]
 pub struct UserState {
-    pub id: Uuid,
+    pub id: Cuid,
     pub authenticated_sessions: std::collections::HashSet<String>,
     pub hashed_password: String,
-    pub pending_journal_invites: HashMap<Uuid, JournalTenantInfo>,
-    pub accepted_journal_invites: HashMap<Uuid, JournalTenantInfo>,
-    pub owned_journals: HashSet<Uuid>,
-    pub selected_journal: Uuid,
+    pub pending_journal_invites: HashMap<Cuid, JournalTenantInfo>,
+    pub accepted_journal_invites: HashMap<Cuid, JournalTenantInfo>,
+    pub owned_journals: HashSet<Cuid>,
+    pub selected_journal: Cuid,
     pub deleted: bool,
 }
 
 impl UserState {
     pub async fn build(
-        id: &Uuid,
+        id: &Cuid,
         event_types: Vec<UserEventType>,
         pool: &PgPool,
     ) -> Result<Self, ServerFnError> {
@@ -121,14 +121,14 @@ impl UserState {
             ORDER BY created_at ASC
             "#,
         )
-        .bind(id)
+        .bind(id.to_bytes())
         .bind(&event_types)
         .fetch_all(pool)
         .await?;
 
         let mut aggregate = Self {
             id: *id,
-            selected_journal: Uuid::nil(),
+            selected_journal: Cuid::default(),
             ..Default::default()
         };
 
@@ -185,7 +185,7 @@ impl UserState {
     }
 }
 
-pub async fn get_hashed_pw(user_id: &Uuid, pool: &PgPool) -> Result<String, ServerFnError> {
+pub async fn get_hashed_pw(user_id: &Cuid, pool: &PgPool) -> Result<String, ServerFnError> {
     let user = UserState::build(
         user_id,
         vec![UserEventType::Created, UserEventType::PasswordUpdated],

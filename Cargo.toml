@@ -24,12 +24,12 @@ chrono = {version = "0.4.42", features = ["serde"]}
 bcrypt = {version = "0.17.1", optional = true}
 rand = {version = "0.9.2", optional = true}
 dotenvy = "0.15.7"
-uuid = {version = "1.18.1", features = ["v4", "serde"], optional = true}
 bitflags = {version = "2.10.0", features = ["serde"]}
 chrono-tz = "0.10.4"
 base64 = "0.22.1"
 postcard = {version = "1.1.3", features = ["alloc"]}
 serde_json = "1.0.146"
+cuid = {version = "1.3.3", optional = true}
 
 [features]
 hydrate = [
@@ -48,7 +48,8 @@ ssr = [
     "dep:serde",
     "dep:rand",
     "dep:bcrypt",
-    "dep:uuid",
+    "dep:cuid",
+
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",

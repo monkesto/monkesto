@@ -1,42 +1,40 @@
 use super::layout::Layout;
+use crate::api::return_types::Cuid;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
-use uuid::Uuid;
 
 struct Person {
-    pub id: Uuid,
+    pub id: Cuid,
     pub username: String,
 }
 
 fn people() -> Vec<Person> {
-    use std::str::FromStr;
     vec![
         Person {
-            id: Uuid::from_str("250e8400-e29b-41d4-a716-446655440000").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaab").expect("Invalid CUID"),
             username: "johndoe".to_string(),
         },
         Person {
-            id: Uuid::from_str("250e8400-e29b-41d4-a716-446655440001").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaac").expect("Invalid CUID"),
             username: "janesmith".to_string(),
         },
         Person {
-            id: Uuid::from_str("250e8400-e29b-41d4-a716-446655440002").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaad").expect("Invalid CUID"),
             username: "bobjohnson".to_string(),
         },
     ]
 }
 
 fn journals() -> Vec<super::journal::Journal> {
-    use std::str::FromStr;
     vec![
         super::journal::Journal {
-            id: Uuid::from_str("550e8400-e29b-41d4-a716-446655440000").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaab").expect("Invalid CUID"),
             name: "Personal".to_string(),
             creator_username: "johndoe".to_string(),
             created_at: "2024-01-15 09:30:45".to_string(),
         },
         super::journal::Journal {
-            id: Uuid::from_str("550e8400-e29b-41d4-a716-446655440001").expect("Invalid UUID"),
+            id: Cuid::from_str("aaaaaaaaac").expect("Invalid CUID"),
             name: "Business".to_string(),
             creator_username: "janesmith".to_string(),
             created_at: "2024-01-20 14:22:18".to_string(),

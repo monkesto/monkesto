@@ -14,10 +14,9 @@ use event_sourcing::user;
 use event_sourcing::user::{UserEvent, UserState};
 use leptos::prelude::*;
 use postcard::from_bytes;
-use uuid::Uuid;
 
 #[server]
-pub async fn get_user_id_from_session() -> Result<Uuid, ServerFnError> {
+pub async fn get_user_id_from_session() -> Result<Cuid, ServerFnError> {
     let pool = extensions::get_pool().await?;
     let session_id = extensions::get_session_id().await?;
 
@@ -60,16 +59,16 @@ pub async fn create_user(
     }
 
     if username::get_id(&username, &pool).await?.is_none() {
-        let uuid = Uuid::new_v4();
+        let id = Cuid::new16();
         UserEvent::Created {
             hashed_password: bcrypt::hash(password, bcrypt::DEFAULT_COST)?,
         }
-        .push_db(&uuid, &pool)
+        .push_db(&id, &pool)
         .await?;
 
-        username::update(&uuid, &username, &pool).await?;
+        username::update(&id, &username, &pool).await?;
 
-        AuthEvent::Login.push_db(&uuid, &session_id, &pool).await?;
+        AuthEvent::Login.push_db(&id, &session_id, &pool).await?;
     } else {
         return Err(ServerFnError::ServerError(
             KnownErrors::UserExists { username }.to_string()?,
@@ -134,7 +133,7 @@ pub async fn create_journal(journal_name: String) -> Result<(), ServerFnError> {
         ));
     }
 
-    let journal_id = Uuid::new_v4();
+    let journal_id = Cuid::new10();
 
     JournalEvent::Created {
         name: journal_name,
@@ -154,7 +153,7 @@ pub async fn create_journal(journal_name: String) -> Result<(), ServerFnError> {
 pub async fn select_journal(journal_id: String) -> Result<(), ServerFnError> {
     use user::UserEventType::*;
 
-    let journal_id = Uuid::try_from(journal_id)?;
+    let journal_id = Cuid::from_str(&journal_id)?;
     let session_id = extensions::get_session_id().await?;
     let pool = extensions::get_pool().await?;
     let user_id = auth::get_user_id(&session_id, &pool).await?;
@@ -200,8 +199,7 @@ pub async fn invite_to_journal(
 ) -> Result<(), ServerFnError> {
     use user::UserEventType::*;
 
-    let journal_id = Uuid::try_parse(&journal_id)?;
-
+    let journal_id = Cuid::from_str(&journal_id)?;
     let permissions: Permissions = serde_json::from_str(&permissions)?;
 
     let session_id = extensions::get_session_id().await?;
@@ -331,7 +329,7 @@ pub async fn respond_to_journal_invite(
     journal_id: String,
     accepted: String,
 ) -> Result<(), ServerFnError> {
-    let journal_id = Uuid::try_parse(&journal_id)?;
+    let journal_id = Cuid::from_str(&journal_id)?;
 
     let accepted: bool = serde_json::from_str(&accepted)?;
 
@@ -449,7 +447,7 @@ pub async fn get_associated_journals() -> Result<Journals, ServerFnError> {
 
 #[server]
 pub async fn get_journal_owner(journal_id: String) -> Result<Option<String>, ServerFnError> {
-    let journal_id = Uuid::parse_str(&journal_id)?;
+    let journal_id = Cuid::from_str(&journal_id)?;
     let pool = extensions::get_pool().await?;
 
     let journal_state =
@@ -486,7 +484,7 @@ pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
 
     let journal_id = user_state.selected_journal;
 
-    if journal_id.is_nil() {
+    if journal_id.is_default() {
         return Err(ServerFnError::ServerError(
             KnownErrors::InvalidJournal.to_string()?,
         ));
@@ -520,7 +518,7 @@ pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
 }
 
 #[server]
-pub async fn add_account(journal_id: Uuid, account_name: String) -> Result<(), ServerFnError> {
+pub async fn add_account(journal_id: Cuid, account_name: String) -> Result<(), ServerFnError> {
     use user::UserEventType::*;
 
     let session_id = extensions::get_session_id().await?;
@@ -575,13 +573,12 @@ pub async fn add_account(journal_id: Uuid, account_name: String) -> Result<(), S
 #[server]
 pub async fn transact(
     journal_id: String,
-    account_ids: Vec<Uuid>,
+    account_ids: Vec<String>,
     balance_add_cents: Vec<String>,
     balance_remove_cents: Vec<String>,
 ) -> Result<(), ServerFnError> {
     use user::UserEventType::*;
-
-    let journal_id = Uuid::try_parse(&journal_id)?;
+    let journal_id = Cuid::from_str(&journal_id)?;
 
     let session_id = extensions::get_session_id().await?;
     let pool = extensions::get_pool().await?;
@@ -637,7 +634,7 @@ pub async fn transact(
         if account_sum != 0 {
             total_balance_change += account_sum;
             updates.push(BalanceUpdate {
-                account_id: account_ids[i],
+                account_id: Cuid::from_str(&account_ids[i])?,
                 changed_by: account_sum,
             });
         }
@@ -723,7 +720,7 @@ pub async fn get_transactions(
         ORDER BY created_at ASC
         "#,
     )
-    .bind(journal_id)
+    .bind(journal_id.to_bytes())
     .bind(journal::JournalEventType::AddedEntry)
     .fetch_all(&pool)
     .await?;

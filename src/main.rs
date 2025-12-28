@@ -40,7 +40,7 @@ async fn main() {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS user_events (
             id BIGSERIAL PRIMARY KEY,
-            user_id UUID NOT NULL,
+            user_id BYTEA NOT NULL,
             event_type SMALLINT NOT NULL,
             payload BYTEA NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -53,7 +53,7 @@ async fn main() {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS journal_events (
             id BIGSERIAL PRIMARY KEY,
-            journal_id UUID NOT NULL,
+            journal_id BYTEA NOT NULL,
             event_type SMALLINT NOT NULL,
             payload BYTEA NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -66,7 +66,7 @@ async fn main() {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS auth_events (
             id BIGSERIAL PRIMARY KEY,
-            user_id UUID NOT NULL,
+            user_id BYTEA NOT NULL,
             session_id BYTEA NOT NULL,
             event_type SMALLINT NOT NULL,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -79,7 +79,7 @@ async fn main() {
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS username_events (
                 id BIGSERIAL PRIMARY KEY,
-                user_id UUID NOT NULL,
+                user_id BYTEA NOT NULL,
                 username VARCHAR(64) NOT NULL,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )",
