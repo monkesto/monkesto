@@ -112,7 +112,17 @@ pub fn ClientLogin() -> impl IntoView {
                     }}
                 </Suspense>
                 {move || match login.value().get() {
-                    Some(Err(e)) => view! { <p>{e.to_string()}</p> }.into_any(),
+                    Some(Err(e)) => {
+                        if KnownErrors::parse_error(&e)
+                            .is_some_and(|e| e == KnownErrors::SessionIdNotFound)
+                        {
+                            view! { <p>"Your session id was not found, please try again."</p> }
+                                .into_any()
+                        } else {
+                            view! { <p>"An error occurred while logging in: " {e.to_string()}</p> }
+                                .into_any()
+                        }
+                    }
                     _ => view! { "" }.into_any(),
                 }}
             </div>
@@ -227,8 +237,21 @@ pub fn ClientSignUp() -> impl IntoView {
 
                 </Suspense>
 
-                {move || match signup.value().get() {
-                    Some(Err(e)) => view! { <p>{e.to_string()}</p> }.into_any(),
+                {match signup.value().get() {
+                    Some(Err(e)) => {
+                        if KnownErrors::parse_error(&e)
+                            .is_some_and(|e| e == KnownErrors::SessionIdNotFound)
+                        {
+                            view! { <meta http-equiv="refresh" content="0; url=/login" /> }
+                                .into_any()
+                        } else {
+                            view! {
+                                "An error occurred while signing up: "
+                                {e.to_string()}
+                            }
+                                .into_any()
+                        }
+                    }
                     _ => view! { "" }.into_any(),
                 }}
             </div>
