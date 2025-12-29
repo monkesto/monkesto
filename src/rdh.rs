@@ -46,7 +46,8 @@ pub async fn basic() -> impl IntoResponse {
 }
 
 pub async fn interpolated(Form(form): Form<NameForm>) -> impl IntoResponse {
-    let html = view! { <InterpolatedResponse name=form.name age=form.age awesomeness=form.awesomeness /> }
-    .to_html();
+    let html =
+        view! { <InterpolatedResponse name=form.name age=form.age awesomeness=form.awesomeness /> }
+            .to_html();
     axum::response::Html(html)
 }
