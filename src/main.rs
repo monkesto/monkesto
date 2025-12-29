@@ -2,9 +2,6 @@
 mod site;
 
 #[allow(dead_code)]
-mod event_sourcing;
-
-#[allow(dead_code)]
 mod api;
 
 #[allow(dead_code)]

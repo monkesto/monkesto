@@ -1,8 +1,8 @@
 use super::get_user_id;
 use crate::api::extensions;
 use crate::api::return_types::Cuid;
-use crate::event_sourcing::journal::JournalTenantInfo;
-use crate::event_sourcing::journal::Permissions;
+use crate::journal::JournalTenantInfo;
+use crate::journal::Permissions;
 use leptos::prelude::ServerFnError;
 use leptos::server;
 use postcard::{from_bytes, to_allocvec};

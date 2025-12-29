@@ -1,10 +1,9 @@
 use super::account::AccountListPage;
-use super::auth::ClientLogin;
-use super::auth::ClientSignUp;
 use super::journal::JournalDetail;
 use super::journal::JournalList;
 use super::person::PeopleListPage;
 use super::transaction::TransactionListPage;
+use crate::auth::view::{ClientLogin, ClientSignUp};
 use leptos::prelude::*;
 use leptos_meta::MetaTags;
 use leptos_meta::Stylesheet;

@@ -1,8 +1,8 @@
 use crate::api::return_types::*;
 use leptos::prelude::*;
 
-use crate::api::main_api::{CreateUser, Login};
-use crate::auth::user::get_user_id_from_session;
+use super::user::get_user_id_from_session;
+use super::{CreateUser, Login};
 
 #[component]
 pub fn ClientLogin() -> impl IntoView {

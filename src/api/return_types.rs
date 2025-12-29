@@ -5,10 +5,7 @@ use cuid::{Cuid2Constructor, cuid2_slug, is_cuid2};
 use leptos::prelude::ServerFnError;
 use serde::{Deserialize, Serialize};
 
-use crate::event_sourcing::{
-    journal::JournalTenantInfo,
-    journal::{BalanceUpdate, Permissions},
-};
+use crate::journal::{BalanceUpdate, JournalTenantInfo, Permissions};
 
 #[derive(Serialize, Deserialize, PartialEq)]
 pub enum KnownErrors {

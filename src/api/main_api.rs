@@ -1,104 +1,15 @@
 use super::extensions;
 use super::return_types::*;
 use crate::auth;
-use crate::auth::AuthEvent;
-use crate::event_sourcing;
-use crate::event_sourcing::journal;
-use crate::event_sourcing::journal::JournalEventType;
+use crate::journal;
+use crate::journal::{BalanceUpdate, JournalEvent, JournalState, Permissions, Transaction};
 use auth::user;
 use auth::user::{UserEvent, UserState};
 use auth::username;
 use chrono::Utc;
-use event_sourcing::journal::{
-    BalanceUpdate, JournalEvent, JournalState, Permissions, Transaction,
-};
+use journal::JournalEventType;
 use leptos::prelude::*;
 use postcard::from_bytes;
-
-
-
-#[server]
-pub async fn create_user(
-    username: String,
-    password: String,
-    confirm_password: String,
-) -> Result<(), ServerFnError> {
-    let pool = extensions::get_pool().await?;
-    let session_id = extensions::get_session_id().await?;
-
-    if username.trim().is_empty() {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::InvalidInput.to_string()?,
-        ));
-    }
-
-    if password != confirm_password {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::SignupPasswordMismatch { username }.to_string()?,
-        ));
-    }
-
-    if auth::username::get_id(&username, &pool).await?.is_none() {
-        let id = Cuid::new16();
-        UserEvent::Created {
-            hashed_password: bcrypt::hash(password, bcrypt::DEFAULT_COST)?,
-        }
-        .push_db(&id, &pool)
-        .await?;
-
-        auth::username::update(&id, &username, &pool).await?;
-
-        AuthEvent::Login.push_db(&id, &session_id, &pool).await?;
-    } else {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::UserExists { username }.to_string()?,
-        ));
-    }
-
-    Ok(())
-}
-
-#[server]
-pub async fn login(username: String, password: String) -> Result<(), ServerFnError> {
-    let session_id = extensions::get_session_id().await?;
-    let pool = extensions::get_pool().await?;
-
-    let user_id = match username::get_id(&username, &pool).await? {
-        Some(s) => s,
-        None => {
-            return Err(ServerFnError::ServerError(
-                KnownErrors::UserDoesntExist.to_string()?,
-            ));
-        }
-    };
-
-    let hashed_password = user::get_hashed_pw(&user_id, &pool).await?;
-
-    if bcrypt::verify(&password, &hashed_password)? {
-        AuthEvent::Login
-            .push_db(&user_id, &session_id, &pool)
-            .await?;
-    } else {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::LoginFailed { username }.to_string()?,
-        ));
-    }
-
-    Ok(())
-}
-
-#[server]
-pub async fn log_out() -> Result<(), ServerFnError> {
-    let session_id = extensions::get_session_id().await?;
-    let pool = extensions::get_pool().await?;
-
-    let user_id = auth::get_user_id(&session_id, &pool).await?;
-
-    AuthEvent::Logout
-        .push_db(&user_id, &session_id, &pool)
-        .await?;
-    Ok(())
-}
 
 #[server]
 pub async fn create_journal(journal_name: String) -> Result<(), ServerFnError> {

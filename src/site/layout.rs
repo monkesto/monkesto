@@ -1,4 +1,4 @@
-use crate::api::main_api::LogOut;
+use crate::auth::LogOut;
 use leptos::prelude::*;
 
 #[component]

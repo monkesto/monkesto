@@ -2,7 +2,7 @@ use super::layout::Layout;
 use crate::api::main_api;
 use crate::api::return_types::Cuid;
 use crate::api::return_types::*;
-use crate::event_sourcing::journal::Permissions;
+use crate::journal::Permissions;
 use leptos::prelude::*;
 
 #[component]
