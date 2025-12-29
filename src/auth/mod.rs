@@ -1,3 +1,6 @@
+pub mod user;
+pub mod username;
+
 use crate::api::return_types::Cuid;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use leptos::prelude::ServerFnError;

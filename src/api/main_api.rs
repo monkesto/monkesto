@@ -1,41 +1,21 @@
 use super::extensions;
 use super::return_types::*;
+use crate::auth;
+use crate::auth::AuthEvent;
 use crate::event_sourcing;
-use crate::event_sourcing::auth;
-use crate::event_sourcing::auth::AuthEvent;
 use crate::event_sourcing::journal;
 use crate::event_sourcing::journal::JournalEventType;
-use crate::event_sourcing::username;
+use auth::user;
+use auth::user::{UserEvent, UserState};
+use auth::username;
 use chrono::Utc;
 use event_sourcing::journal::{
     BalanceUpdate, JournalEvent, JournalState, Permissions, Transaction,
 };
-use event_sourcing::user;
-use event_sourcing::user::{UserEvent, UserState};
 use leptos::prelude::*;
 use postcard::from_bytes;
 
-#[server]
-pub async fn get_user_id_from_session() -> Result<Cuid, ServerFnError> {
-    let pool = extensions::get_pool().await?;
-    let session_id = extensions::get_session_id().await?;
 
-    // this returns KnownErrors::NotLoggedIn if the session id
-    // isnt associated with a logged in user
-    auth::get_user_id(&session_id, &pool).await
-}
-
-#[server]
-pub async fn get_username() -> Result<String, ServerFnError> {
-    let pool = extensions::get_pool().await?;
-    let user_id = get_user_id_from_session().await?;
-
-    username::get_username(&user_id, &pool)
-        .await?
-        .ok_or(ServerFnError::ServerError(
-            KnownErrors::UserDoesntExist.to_string()?,
-        ))
-}
 
 #[server]
 pub async fn create_user(
@@ -58,7 +38,7 @@ pub async fn create_user(
         ));
     }
 
-    if username::get_id(&username, &pool).await?.is_none() {
+    if auth::username::get_id(&username, &pool).await?.is_none() {
         let id = Cuid::new16();
         UserEvent::Created {
             hashed_password: bcrypt::hash(password, bcrypt::DEFAULT_COST)?,
@@ -66,7 +46,7 @@ pub async fn create_user(
         .push_db(&id, &pool)
         .await?;
 
-        username::update(&id, &username, &pool).await?;
+        auth::username::update(&id, &username, &pool).await?;
 
         AuthEvent::Login.push_db(&id, &session_id, &pool).await?;
     } else {

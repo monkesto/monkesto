@@ -1,12 +1,14 @@
-use super::journal::JournalTenantInfo;
+use super::get_user_id;
+use crate::api::extensions;
 use crate::api::return_types::Cuid;
+use crate::event_sourcing::journal::JournalTenantInfo;
+use crate::event_sourcing::journal::Permissions;
 use leptos::prelude::ServerFnError;
+use leptos::server;
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, query_as};
 use std::collections::{HashMap, HashSet};
-
-use crate::event_sourcing::journal::Permissions;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum UserEvent {
@@ -194,4 +196,14 @@ pub async fn get_hashed_pw(user_id: &Cuid, pool: &PgPool) -> Result<String, Serv
     .await?;
 
     Ok(user.hashed_password)
+}
+
+#[server]
+pub async fn get_user_id_from_session() -> Result<Cuid, ServerFnError> {
+    let pool = extensions::get_pool().await?;
+    let session_id = extensions::get_session_id().await?;
+
+    // this returns KnownErrors::NotLoggedIn if the session id
+    // isnt associated with a logged in user
+    get_user_id(&session_id, &pool).await
 }

@@ -1,6 +1,10 @@
+use crate::api::extensions;
 use crate::api::return_types::Cuid;
+use crate::api::return_types::KnownErrors;
+use crate::auth::user::get_user_id_from_session;
 use leptos::prelude::ServerFnError;
 use sqlx::PgPool;
+use leptos::server;
 
 pub async fn update(
     user_id: &Cuid,
@@ -59,4 +63,16 @@ pub async fn get_id(username: &String, pool: &PgPool) -> Result<Option<Cuid>, Se
     } else {
         Ok(None)
     }
+}
+
+#[server]
+pub async fn get_username_from_session() -> Result<String, ServerFnError> {
+    let pool = extensions::get_pool().await?;
+    let user_id = get_user_id_from_session().await?;
+
+    get_username(&user_id, &pool)
+        .await?
+        .ok_or(ServerFnError::ServerError(
+            KnownErrors::UserDoesntExist.to_string()?,
+        ))
 }
