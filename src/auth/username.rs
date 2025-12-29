@@ -3,8 +3,8 @@ use crate::api::return_types::Cuid;
 use crate::api::return_types::KnownErrors;
 use crate::auth::user::get_user_id_from_session;
 use leptos::prelude::ServerFnError;
-use sqlx::PgPool;
 use leptos::server;
+use sqlx::PgPool;
 
 pub async fn update(
     user_id: &Cuid,
