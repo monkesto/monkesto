@@ -1,0 +1,25 @@
+volumes:
+  db-data:
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgres://monkesto:monkesto@db:5432/monkesto
+    volumes:
+      - ../..:/workspaces:cached
+    command: sleep infinity
+    network_mode: service:db
+
+  db:
+    image: postgres
+    restart: unless-stopped
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=monkesto
+      - POSTGRES_PASSWORD=monkesto
+      - POSTGRES_DB=monkesto
+      - POSTGRES_PORT=5432
