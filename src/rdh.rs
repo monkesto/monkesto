@@ -33,11 +33,17 @@ fn basic_form() -> impl IntoView {
 }
 
 async fn interpolated_response(name: String, age: i32, awesomeness: f32) -> impl IntoView {
+    let user_id = auth::user::get_user_id_from_session()
+        .await
+        .unwrap_or(Cuid::default());
+
     let name_clone = name.clone();
+
     view! {
         <h1>"Hello, " {name} "!"</h1>
         <p>"Nice to meet you, " {name_clone} ". You are " {age} " years old."</p>
         <p>"I am " {awesomeness} "% confident that you are awesome!"</p>
+        <p>"Your user_id is: " {user_id.to_string()}</p>
         <a href="/rdh">"Start over"</a>
     }
 }
@@ -48,15 +54,10 @@ pub async fn basic() -> impl IntoResponse {
 }
 
 pub async fn interpolated(Form(form): Form<NameForm>) -> impl IntoResponse {
-    // simulate async work
-    let user_id = auth::user::get_user_id_from_session()
-        .await
-        .unwrap_or(Cuid::default());
-
     let encoded_name = urlencoding::encode(&form.name);
     Redirect::to(&format!(
-        "/rdh/result?name={}&age={}&awesomeness={}&user_id={}",
-        encoded_name, form.age, form.awesomeness, user_id
+        "/rdh/result?name={}&age={}&awesomeness={}",
+        encoded_name, form.age, form.awesomeness
     ))
 }
 
