@@ -1,4 +1,3 @@
-use crate::api::return_types::Cuid;
 use crate::auth;
 use axum::extract::Form;
 use axum::extract::Query;
@@ -33,9 +32,10 @@ fn basic_form() -> impl IntoView {
 }
 
 async fn interpolated_response(name: String, age: i32, awesomeness: f32) -> impl IntoView {
-    let user_id = auth::user::get_user_id_from_session()
-        .await
-        .unwrap_or(Cuid::default());
+    let user_id = match auth::user::get_user_id_from_session().await {
+        Ok(s) => s.to_string(),
+        Err(e) => e.to_string(),
+    };
 
     let name_clone = name.clone();
 
@@ -43,7 +43,7 @@ async fn interpolated_response(name: String, age: i32, awesomeness: f32) -> impl
         <h1>"Hello, " {name} "!"</h1>
         <p>"Nice to meet you, " {name_clone} ". You are " {age} " years old."</p>
         <p>"I am " {awesomeness} "% confident that you are awesome!"</p>
-        <p>"Your user_id is: " {user_id.to_string()}</p>
+        <p>"Your user_id is: " {user_id}</p>
         <a href="/rdh">"Start over"</a>
     }
 }
