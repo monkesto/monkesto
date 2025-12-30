@@ -1,5 +1,7 @@
 use axum::extract::Form;
+use axum::extract::Query;
 use axum::response::IntoResponse;
+use axum::response::Redirect;
 use leptos::prelude::*;
 use serde::Deserialize;
 
@@ -46,8 +48,15 @@ pub async fn basic() -> impl IntoResponse {
 }
 
 pub async fn interpolated(Form(form): Form<NameForm>) -> impl IntoResponse {
-    let html =
-        view! { <InterpolatedResponse name=form.name age=form.age awesomeness=form.awesomeness /> }
-            .to_html();
+    let encoded_name = urlencoding::encode(&form.name);
+    Redirect::to(&format!(
+        "/rdh/result?name={}&age={}&awesomeness={}",
+        encoded_name, form.age, form.awesomeness
+    ))
+}
+
+pub async fn show_result(Query(query): Query<NameForm>) -> impl IntoResponse {
+    let html = view! { <InterpolatedResponse name=query.name age=query.age awesomeness=query.awesomeness /> }
+    .to_html();
     axum::response::Html(html)
 }

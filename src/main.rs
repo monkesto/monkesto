@@ -37,7 +37,7 @@ async fn main() {
 
     dotenv().ok();
 
-    let database_url = env::var("DATABASE_URL").expect("failed to get database url from .en");
+    let database_url = env::var("DATABASE_URL").expect("failed to get database url from .env");
 
     let pool: Pool<Postgres> = PgPoolOptions::new()
         .max_connections(5)
@@ -110,6 +110,7 @@ async fn main() {
     let app = Router::new()
         .route("/rdh", get(rdh::basic))
         .route("/rdh", post(rdh::interpolated))
+        .route("/rdh/result", get(rdh::show_result))
         .leptos_routes(&leptos_options, routes, {
             let leptos_options = leptos_options.clone();
             move || shell(leptos_options.clone())

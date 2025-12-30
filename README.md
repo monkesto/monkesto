@@ -33,7 +33,7 @@ cd monkesto
 ```
 touch .env
 
-echo "DATABASE_URL=postgresql://monkesto:monkesto@localhost:5432/monkesto"
+echo "DATABASE_URL=postgresql://monkesto:monkesto@localhost:5432/monkesto" >> .env
 ```
 
 ## Start the server:
