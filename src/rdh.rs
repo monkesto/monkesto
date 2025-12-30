@@ -1,3 +1,5 @@
+use crate::api::return_types::Cuid;
+use crate::auth;
 use axum::extract::Form;
 use axum::extract::Query;
 use axum::response::IntoResponse;
@@ -12,8 +14,7 @@ pub struct NameForm {
     awesomeness: f32,
 }
 
-#[component]
-fn BasicForm() -> impl IntoView {
+fn basic_form() -> impl IntoView {
     view! {
         <h1>"Hello, World!"</h1>
         <form action="/rdh" method="post">
@@ -31,8 +32,7 @@ fn BasicForm() -> impl IntoView {
     }
 }
 
-#[component]
-fn InterpolatedResponse(name: String, age: i32, awesomeness: f32) -> impl IntoView {
+async fn interpolated_response(name: String, age: i32, awesomeness: f32) -> impl IntoView {
     let name_clone = name.clone();
     view! {
         <h1>"Hello, " {name} "!"</h1>
@@ -43,20 +43,26 @@ fn InterpolatedResponse(name: String, age: i32, awesomeness: f32) -> impl IntoVi
 }
 
 pub async fn basic() -> impl IntoResponse {
-    let html = BasicForm().to_html();
+    let html = basic_form().to_html();
     axum::response::Html(html)
 }
 
 pub async fn interpolated(Form(form): Form<NameForm>) -> impl IntoResponse {
+    // simulate async work
+    let user_id = auth::user::get_user_id_from_session()
+        .await
+        .unwrap_or(Cuid::default());
+
     let encoded_name = urlencoding::encode(&form.name);
     Redirect::to(&format!(
-        "/rdh/result?name={}&age={}&awesomeness={}",
-        encoded_name, form.age, form.awesomeness
+        "/rdh/result?name={}&age={}&awesomeness={}&user_id={}",
+        encoded_name, form.age, form.awesomeness, user_id
     ))
 }
 
 pub async fn show_result(Query(query): Query<NameForm>) -> impl IntoResponse {
-    let html = view! { <InterpolatedResponse name=query.name age=query.age awesomeness=query.awesomeness /> }
-    .to_html();
+    let html = interpolated_response(query.name, query.age, query.awesomeness)
+        .await
+        .to_html();
     axum::response::Html(html)
 }
