@@ -55,7 +55,7 @@ jobs:
         run: cargo binstall cargo-leptos -y
 
       - name: Install ldd
-        run: apt-get install libc-bin
+        run: sudo apt-get install libc-bin
 
       - name: Run rust tests
         run: cargo leptos test --release --features=ssr
