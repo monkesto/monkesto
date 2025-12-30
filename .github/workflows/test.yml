@@ -54,8 +54,5 @@ jobs:
       - name: Install cargo-leptos
         run: cargo binstall cargo-leptos -y
 
-      - name: Install ldd
-        run: sudo apt-get install build-essential
-
       - name: Run rust tests
         run: cargo leptos test --release --features=ssr
