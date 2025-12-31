@@ -1,6 +1,7 @@
 use axum::routing::get;
 use axum::routing::post;
 
+mod app;
 mod auth;
 mod cuid;
 mod extensions;
@@ -9,17 +10,16 @@ mod journal;
 mod known_errors;
 mod layout;
 mod rdh;
-mod site;
 
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
+    use app::*;
     use axum::Router;
     use dotenvy::dotenv;
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{LeptosRoutes, generate_route_list};
-    use site::app::*;
     use sqlx::postgres::PgPoolOptions;
     use sqlx::{Pool, Postgres};
     use std::env;
