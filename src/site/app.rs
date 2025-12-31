@@ -1,9 +1,8 @@
-use super::account::AccountListPage;
-use super::journal::JournalDetail;
-use super::journal::JournalList;
-use super::person::PeopleListPage;
-use super::transaction::TransactionListPage;
 use crate::auth::view::{ClientLogin, ClientSignUp};
+use crate::journal::views::account::AccountListPage;
+use crate::journal::views::homepage::{JournalDetail, JournalList};
+use crate::journal::views::person::PeopleListPage;
+use crate::journal::views::transaction::TransactionListPage;
 use leptos::prelude::*;
 use leptos_meta::MetaTags;
 use leptos_meta::Stylesheet;

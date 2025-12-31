@@ -1,4 +1,4 @@
-use super::return_types::KnownErrors;
+use super::known_errors::KnownErrors;
 use axum::Extension;
 use leptos::prelude::ServerFnError;
 use leptos_axum::extract;

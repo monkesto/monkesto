@@ -1,10 +1,12 @@
-use super::handle_error::handle_error;
-use super::layout::Layout;
-use crate::api::main_api;
-use crate::api::return_types::Cuid;
+use crate::cuid::Cuid;
+use crate::handle_error::handle_error;
+use crate::journal::commands::CreateJournal;
+use crate::journal::queries::{get_associated_journals, get_journal_owner};
+use crate::layout::Layout;
 use crate::unwrap_or_handle_error;
 use leptos::prelude::*;
 
+#[allow(dead_code)]
 pub struct Journal {
     pub id: Cuid,
     pub name: String,
@@ -12,31 +14,14 @@ pub struct Journal {
     pub created_at: String,
 }
 
-fn journals() -> Vec<Journal> {
-    vec![
-        Journal {
-            id: Cuid::from_str("aaaaaaaaab").expect("Invalid CUID"),
-            name: "Personal".to_string(),
-            creator_username: "johndoe".to_string(),
-            created_at: "2024-01-15 09:30:45".to_string(),
-        },
-        Journal {
-            id: Cuid::from_str("aaaaaaaaac").expect("Invalid CUID"),
-            name: "Business".to_string(),
-            creator_username: "janesmith".to_string(),
-            created_at: "2024-01-20 14:22:18".to_string(),
-        },
-    ]
-}
-
 #[component]
 pub fn JournalList() -> impl IntoView {
     let journals_resource = Resource::new(
         move || (),
-        |_| async move { main_api::get_associated_journals().await },
+        |_| async move { get_associated_journals().await },
     );
 
-    let create_journal = ServerAction::<main_api::CreateJournal>::new();
+    let create_journal = ServerAction::<CreateJournal>::new();
 
     view! {
         <Layout>
@@ -110,7 +95,7 @@ pub fn JournalDetail() -> impl IntoView {
 
     let journals_resource = Resource::new(
         move || (),
-        |_| async move { main_api::get_associated_journals().await },
+        |_| async move { get_associated_journals().await },
     );
 
     view! {
@@ -128,7 +113,7 @@ pub fn JournalDetail() -> impl IntoView {
                 };
                 let journal_owner_resource = Resource::new(
                     move || (),
-                    move |_| async move { main_api::get_journal_owner(journal_id()).await },
+                    move |_| async move { get_journal_owner(journal_id()).await },
                 );
                 let journal_owner = journal_owner_resource.await;
                 view! {

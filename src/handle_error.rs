@@ -4,7 +4,7 @@ use leptos::{
     view,
 };
 
-use crate::api::return_types::KnownErrors;
+use crate::known_errors::KnownErrors;
 
 pub fn handle_error(err: ServerFnError, context: &str) -> impl IntoView {
     use KnownErrors::*;

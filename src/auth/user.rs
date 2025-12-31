@@ -1,6 +1,6 @@
 use super::get_user_id;
-use crate::api::extensions;
-use crate::api::return_types::Cuid;
+use crate::cuid::Cuid;
+use crate::extensions;
 use crate::journal::JournalTenantInfo;
 use crate::journal::Permissions;
 use leptos::prelude::ServerFnError;
@@ -98,6 +98,7 @@ impl UserEvent {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Default)]
 pub struct UserState {
     pub id: Cuid,

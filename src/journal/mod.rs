@@ -1,4 +1,8 @@
-use crate::api::return_types::Cuid;
+pub mod commands;
+pub mod queries;
+pub mod views;
+
+use crate::cuid::Cuid;
 use bitflags::bitflags;
 use chrono::Utc;
 use leptos::prelude::ServerFnError;
@@ -180,16 +184,99 @@ pub struct JournalTenantInfo {
     pub journal_owner: Cuid,
 }
 
+#[allow(dead_code)]
 pub struct SharedJournal {
     pub id: Cuid,
     pub info: JournalTenantInfo,
 }
 
+#[allow(dead_code)]
 pub struct SharedAndPendingJournals {
     pub shared: HashMap<Cuid, JournalTenantInfo>,
     pub pending: HashMap<Cuid, JournalTenantInfo>,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Account {
+    pub id: Cuid,
+    pub name: String,
+    pub balance: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum AssociatedJournal {
+    Owned {
+        id: Cuid,
+        name: String,
+        created_at: chrono::DateTime<Utc>,
+    },
+    Shared {
+        id: Cuid,
+        name: String,
+        created_at: chrono::DateTime<Utc>,
+        tenant_info: JournalTenantInfo,
+    },
+}
+
+impl AssociatedJournal {
+    #[allow(dead_code)]
+    fn has_permission(&self, permissions: Permissions) -> bool {
+        match self {
+            Self::Owned { .. } => true,
+            Self::Shared { tenant_info, .. } => {
+                tenant_info.tenant_permissions.contains(permissions)
+            }
+        }
+    }
+}
+
+impl AssociatedJournal {
+    pub fn get_id(&self) -> Cuid {
+        match self {
+            Self::Owned { id, .. } => *id,
+            Self::Shared { id, .. } => *id,
+        }
+    }
+    pub fn get_name(&self) -> String {
+        match self {
+            Self::Owned { name, .. } => name.clone(),
+            Self::Shared { name, .. } => name.clone(),
+        }
+    }
+    pub fn get_created_at(&self) -> chrono::DateTime<Utc> {
+        match self {
+            Self::Owned { created_at, .. } => *created_at,
+            Self::Shared { created_at, .. } => *created_at,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Journals {
+    pub associated: Vec<AssociatedJournal>,
+    pub selected: Option<AssociatedJournal>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct JournalInvite {
+    pub id: Cuid,
+    pub name: String,
+    pub tenant_info: JournalTenantInfo,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TransactionWithUsername {
+    pub author: String,
+    pub updates: Vec<BalanceUpdate>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TransactionWithTimeStamp {
+    pub transaction: TransactionWithUsername,
+    pub timestamp: chrono::DateTime<Utc>,
+}
+
+#[allow(dead_code)]
 pub async fn get_name_from_id(id: &Cuid, pool: &PgPool) -> Result<Option<String>, ServerFnError> {
     let journal_state = JournalState::build(
         id,

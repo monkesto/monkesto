@@ -1,15 +1,14 @@
 pub mod user;
 pub mod username;
 pub mod view;
-use crate::api::extensions::{get_pool, get_session_id};
-use crate::api::return_types::Cuid;
+use crate::cuid::Cuid;
+use crate::extensions::{get_pool, get_session_id};
+use crate::known_errors::KnownErrors;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use leptos::prelude::ServerFnError;
 use leptos::server;
 use sqlx::PgPool;
 use user::UserEvent;
-
-use crate::api::return_types::KnownErrors;
 
 #[derive(sqlx::Type, PartialEq)]
 #[sqlx(type_name = "smallint")]

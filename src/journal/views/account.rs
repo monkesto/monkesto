@@ -1,13 +1,12 @@
-use super::layout::Layout;
-use crate::api::main_api;
-use crate::api::return_types::Cuid;
-use crate::api::return_types::*;
-use crate::journal::Permissions;
+use super::homepage::Journal;
+use crate::cuid::Cuid;
+use crate::journal::commands::AddAccount;
+use crate::layout::Layout;
 use leptos::prelude::*;
 
 #[component]
 fn AddAccount(user_id: String, journal_id: String) -> impl IntoView {
-    let add_account = ServerAction::<main_api::AddAccount>::new();
+    let add_account = ServerAction::<AddAccount>::new();
     view! {
         <div class="flex flex-col items-center text-center px-10 py-10">
             <h1>"Create a new account"</h1>
@@ -47,100 +46,6 @@ fn AddAccount(user_id: String, journal_id: String) -> impl IntoView {
     }
 }
 
-#[component]
-pub fn AccountList(mut accounts: Vec<Account>, journals: Journals, user_id: Cuid) -> impl IntoView {
-    let create_journal = ServerAction::<main_api::CreateJournal>::new();
-
-    view! {
-        <div class="mx-auto flex min-w-full flex-col items-center px-4 py-4">
-            <ActionForm action=create_journal>
-                <input type="hidden" name="user_id" value=user_id.to_string() />
-                <input
-                    class="shadow appearance-none border rounded py-2 px-2 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                    name="journal_name"
-                    type="text"
-                    placeholder="journal name"
-                    required
-                />
-                <button
-                    type="submit"
-                    class="mt-3 rounded bg-purple-900 px-2 py-2 font-bold text-white hover:bg-blue-400"
-                >
-                    "Create Journal!"
-                </button>
-            </ActionForm>
-
-            {move || {
-                match create_journal.value().get() {
-                    Some(Err(e)) => {
-                        view! {
-                            <p>"An error occurred while creating the journal: " {e.to_string()}</p>
-                        }
-                            .into_any()
-                    }
-                    _ => {
-
-                        view! { "" }
-                            .into_any()
-                    }
-                }
-            }}
-
-            <h1 class="font-bold text-4xl">"Accounts"</h1>
-        </div>
-        <div class="mx-auto flex min-w-full flex-col items-center">
-            <ul>
-                {
-                    accounts.sort_unstable_by_key(|account| account.name.clone());
-                    accounts
-                        .into_iter()
-                        .map(|account| {
-                            view! {
-                                <li class="px-1 py-1 font-bold text-2xl">
-                                    {account.name}"    "
-                                    {format!(
-                                        "${}.{:02} {}",
-                                        account.balance.abs() / 100,
-                                        account.balance.abs() % 100,
-                                        if account.balance < 0 { "Dr" } else { "Cr" },
-                                    )}
-                                </li>
-                            }
-                        })
-                        .collect_view()
-                }
-            </ul>
-        </div>
-
-        {move || {
-            if let Some(selected) = journals.selected.clone() {
-                match selected {
-                    AssociatedJournal::Owned { id, .. } => {
-                        view! {
-                            <AddAccount user_id=user_id.to_string() journal_id=id.to_string() />
-                        }
-                            .into_any()
-                    }
-                    AssociatedJournal::Shared { id, tenant_info, .. } => {
-                        if tenant_info.tenant_permissions.contains(Permissions::ADDACCOUNT) {
-                            view! {
-                                <AddAccount user_id=user_id.to_string() journal_id=id.to_string() />
-                            }
-                                .into_any()
-                        } else {
-
-                            view! { "" }
-                                .into_any()
-                        }
-                    }
-                }
-            } else {
-                view! { "" }.into_any()
-            }
-        }}
-    }
-}
-
 struct AccountItem {
     pub id: Cuid,
     pub name: String,
@@ -167,15 +72,15 @@ fn accounts() -> Vec<AccountItem> {
     ]
 }
 
-fn journals() -> Vec<super::journal::Journal> {
+fn journals() -> Vec<Journal> {
     vec![
-        super::journal::Journal {
+        Journal {
             id: Cuid::from_str("aaaaaaaaab").expect("Invalid CUID"),
             name: "Personal".to_string(),
             creator_username: "johndoe".to_string(),
             created_at: "2024-01-15 09:30:45".to_string(),
         },
-        super::journal::Journal {
+        Journal {
             id: Cuid::from_str("aaaaaaaaac").expect("Invalid CUID"),
             name: "Business".to_string(),
             creator_username: "janesmith".to_string(),

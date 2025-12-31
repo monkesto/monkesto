@@ -1,19 +1,15 @@
 use axum::routing::get;
 use axum::routing::post;
 
-mod rdh;
-
-#[allow(dead_code)]
-mod site;
-
-#[allow(dead_code)]
-mod api;
-
-#[allow(dead_code)]
 mod auth;
-
-#[allow(dead_code)]
+mod cuid;
+mod extensions;
+mod handle_error;
 mod journal;
+mod known_errors;
+mod layout;
+mod rdh;
+mod site;
 
 #[cfg(feature = "ssr")]
 #[tokio::main]
