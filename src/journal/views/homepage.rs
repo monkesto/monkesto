@@ -1,8 +1,8 @@
 use crate::cuid::Cuid;
-use crate::handle_error::handle_error;
 use crate::journal::commands::CreateJournal;
+use crate::journal::handle_error::handle_error;
+use crate::journal::layout::Layout;
 use crate::journal::queries::{get_associated_journals, get_journal_owner};
-use crate::layout::Layout;
 use crate::unwrap_or_handle_error;
 use leptos::prelude::*;
 

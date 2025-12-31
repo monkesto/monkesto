@@ -1,6 +1,6 @@
 use super::homepage::Journal;
 use crate::cuid::Cuid;
-use crate::layout::Layout;
+use crate::journal::layout::Layout;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 

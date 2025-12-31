@@ -1,4 +1,6 @@
 pub mod commands;
+pub mod handle_error;
+pub mod layout;
 pub mod queries;
 pub mod views;
 

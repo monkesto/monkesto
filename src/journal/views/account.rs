@@ -1,7 +1,7 @@
 use super::homepage::Journal;
 use crate::cuid::Cuid;
 use crate::journal::commands::AddAccount;
-use crate::layout::Layout;
+use crate::journal::layout::Layout;
 use leptos::prelude::*;
 
 #[component]
