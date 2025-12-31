@@ -2,6 +2,7 @@ use super::CreateUser;
 use super::user::get_user_id_from_session;
 use crate::extensions;
 use crate::known_errors::KnownErrors;
+use crate::known_errors::return_error;
 use axum::Extension;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
@@ -15,11 +16,7 @@ pub async fn client_login(
 ) -> impl IntoResponse {
     let session_id = match extensions::intialize_session(&session).await {
         Ok(s) => s,
-        Err(e) => return axum::response::Html(
-            view! { <p>"An error occurred while fetching the session id: " {e.to_string()}</p> }
-                .to_html(),
-        )
-        .into_response(),
+        Err(e) => return return_error(e, "fetching session id"),
     };
 
     let logged_in = super::get_user_id(&session_id, &pool).await; // this throws an error if the database can't find an account associated with the session
