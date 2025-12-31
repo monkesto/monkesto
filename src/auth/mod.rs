@@ -2,12 +2,17 @@ pub mod user;
 pub mod username;
 pub mod view;
 use crate::cuid::Cuid;
-use crate::extensions::{get_pool, get_session_id};
-use crate::known_errors::KnownErrors;
+use crate::extensions::{self, get_pool, get_session_id};
+use crate::known_errors::{KnownErrors, error_message, return_error};
+use axum::Extension;
+use axum::extract::Query;
+use axum::response::{IntoResponse, Redirect};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use leptos::prelude::ServerFnError;
 use leptos::server;
+use serde::Deserialize;
 use sqlx::PgPool;
+use tower_sessions::Session;
 use user::UserEvent;
 
 #[derive(sqlx::Type, PartialEq)]
@@ -124,33 +129,43 @@ pub async fn create_user(
     Ok(())
 }
 
-#[server]
-pub async fn login(username: String, password: String) -> Result<(), ServerFnError> {
-    let session_id = get_session_id().await?;
-    let pool = get_pool().await?;
+#[derive(Deserialize)]
+pub struct LoginForm {
+    username: String,
+    password: String,
+}
 
-    let user_id = match username::get_id(&username, &pool).await? {
-        Some(s) => s,
-        None => {
-            return Err(ServerFnError::ServerError(
-                KnownErrors::UserDoesntExist.to_string()?,
-            ));
-        }
+pub async fn login(
+    Query(form): Query<LoginForm>,
+    Extension(pool): Extension<PgPool>,
+    session: Session,
+) -> impl IntoResponse {
+    let session_id = match extensions::intialize_session(&session).await {
+        Ok(s) => s,
+        Err(e) => return return_error(e, "fetching session id"),
     };
 
-    let hashed_password = user::get_hashed_pw(&user_id, &pool).await?;
+    let user_id = match username::get_id(&form.username, &pool).await {
+        Ok(Some(s)) => s,
+        Ok(None) => return error_message("invalid username!"),
+        Err(e) => return return_error(e, "fetching username"),
+    };
 
-    if bcrypt::verify(&password, &hashed_password)? {
-        AuthEvent::Login
-            .push_db(&user_id, &session_id, &pool)
-            .await?;
+    let hashed_password = match user::get_hashed_pw(&user_id, &pool).await {
+        Ok(s) => s,
+        Err(e) => return return_error(e, "fetching password"),
+    };
+
+    if bcrypt::verify(&form.password, &hashed_password).is_ok_and(|f| f) {
+        let login_res = AuthEvent::Login.push_db(&user_id, &session_id, &pool).await;
+        if let Err(e) = login_res {
+            return return_error(e, "logging in");
+        }
+
+        Redirect::to("/").into_response()
     } else {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::LoginFailed { username }.to_string()?,
-        ));
+        error_message("failed to log in: incorrect password")
     }
-
-    Ok(())
 }
 
 #[server]

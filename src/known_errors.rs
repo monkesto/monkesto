@@ -1,5 +1,6 @@
 use crate::journal::{BalanceUpdate, Permissions};
-use leptos::prelude::ServerFnError;
+use axum::response::{Html, IntoResponse, Response};
+use leptos::prelude::{ElementChild, RenderHtml, ServerFnError, view};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -62,4 +63,16 @@ impl KnownErrors {
         )
         .ok()
     }
+}
+
+pub fn return_error(e: ServerFnError, context: &str) -> Response {
+    Html(
+        view! { <p>"An error occurred while " {context.to_string()} ":" {e.to_string()}</p> }
+            .to_html(),
+    )
+    .into_response()
+}
+
+pub fn error_message(message: &str) -> Response {
+    Html(view! { <p>{message.to_string()}</p> }.to_html()).into_response()
 }

@@ -106,8 +106,13 @@ async fn main() {
         .route("/rdh", post(rdh::interpolated))
         .route("/rdh/result", get(rdh::show_result));
 
+    let auth_routes = Router::new()
+        .route("/login", get(auth::view::client_login))
+        .route("/login", post(auth::login));
+
     let app = Router::new()
         .merge(rdh_routes)
+        .merge(auth_routes)
         .leptos_routes(&leptos_options, routes, {
             let leptos_options = leptos_options.clone();
             move || shell(leptos_options.clone())

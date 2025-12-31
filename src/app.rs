@@ -1,4 +1,4 @@
-use crate::auth::view::{ClientLogin, ClientSignUp};
+use crate::auth::view::ClientSignUp;
 use crate::journal::views::account::AccountListPage;
 use crate::journal::views::homepage::{JournalDetail, JournalList};
 use crate::journal::views::person::PeopleListPage;
@@ -45,7 +45,6 @@ pub fn App() -> impl IntoView {
         <Router>
             <main>
                 <Routes fallback=|| "Page not found.".into_view()>
-                    <Route path=path!("/login") view=ClientLogin />
                     <Route path=path!("/signup") view=ClientSignUp />
                     <Route
                         path=path!("/")
