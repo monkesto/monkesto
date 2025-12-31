@@ -5,7 +5,7 @@ use crate::cuid::Cuid;
 use crate::extensions::{self, get_pool, get_session_id};
 use crate::known_errors::{KnownErrors, error_message, return_error};
 use axum::Extension;
-use axum::extract::Query;
+use axum::extract::Form;
 use axum::response::{IntoResponse, Redirect};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use leptos::prelude::ServerFnError;
@@ -136,9 +136,9 @@ pub struct LoginForm {
 }
 
 pub async fn login(
-    Query(form): Query<LoginForm>,
     Extension(pool): Extension<PgPool>,
     session: Session,
+    Form(form): Form<LoginForm>,
 ) -> impl IntoResponse {
     let session_id = match extensions::intialize_session(&session).await {
         Ok(s) => s,

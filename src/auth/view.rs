@@ -13,13 +13,17 @@ pub async fn client_login(
     session: Session,
 ) -> impl IntoResponse {
     let session_id = match extensions::intialize_session(&session).await {
-      Ok(s) => s,
-      Err(e) => return view! { <p>"An error occurred while fetching the session id: " {e.to_string()}</p> }.to_html()
+        Ok(s) => s,
+        Err(e) => return axum::response::Html(
+            view! { <p>"An error occurred while fetching the session id: " {e.to_string()}</p> }
+                .to_html(),
+        ),
     };
 
     let logged_in = super::get_user_id(&session_id, &pool).await; // this throws an error if the database can't find an account associated with the session
 
-    view! {
+    let html = view! {
+        <link rel="stylesheet" href="/pkg/monkesto.css" />
         <div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8">
             <div class="sm:mx-auto sm:w-full sm:max-w-sm">
                 <img src="/logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto" />
@@ -32,11 +36,11 @@ pub async fn client_login(
                 // redirect to the homepage if the user's session id is already associated with an account
                 {match logged_in {
                     Ok(_) => {
-                        view! { <meta http-equiv="refresh" content="0; url=/journal" /> }.to_html()
+                        view! { <meta http-equiv="refresh" content="0; url=/journal" /> }.into_any()
                     }
                     Err(_) => {
                         view! {
-                            <form action="login" method="post">
+                            <form action="/login" method="post">
                                 <div class="space-y-6">
                                     <div>
                                         <label
@@ -106,12 +110,14 @@ pub async fn client_login(
                                 </a>
                             </p>
                         }
-                            .to_html()
+                            .into_any()
                     }
                 }}
             </div>
         </div>
-    }.to_html()
+    }.to_html();
+
+    axum::response::Html(html)
 }
 
 #[component]
