@@ -109,7 +109,8 @@ async fn main() {
 
     let auth_routes = Router::new()
         .route("/login", get(auth::view::client_login))
-        .route("/login", post(auth::login));
+        .route("/login", post(auth::login))
+        .route("/signup", post(auth::view::client_signup));
 
     let app = Router::new()
         .merge(rdh_routes)
