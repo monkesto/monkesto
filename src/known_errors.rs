@@ -1,18 +1,23 @@
-use std::fmt::Display;
-
 use crate::journal::{BalanceUpdate, Permissions};
-use axum::response::{IntoResponse, Response};
+use axum::response::Redirect;
+use base64::{Engine, engine::general_purpose};
 use leptos::prelude::ServerFnError;
-use maud::html;
+use postcard::to_allocvec;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, PartialEq)]
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum KnownErrors {
-    None,
+    InternalError {
+        context: String,
+    },
 
     SessionIdNotFound,
 
     UsernameNotFound {
+        username: String,
+    },
+
+    InvalidUsername {
         username: String,
     },
 
@@ -51,11 +56,32 @@ pub enum KnownErrors {
     UserCanAccessJournal,
 
     InvalidJournal,
+
+    None,
 }
 
 impl KnownErrors {
     pub fn to_string(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string(self)
+    }
+
+    pub fn encode(&self) -> String {
+        // to_allocvec should be infallible
+        let bytes = to_allocvec(self).expect("postcard error serialization failed");
+
+        general_purpose::URL_SAFE.encode(bytes)
+    }
+
+    pub fn redirect(&self, page: &str) -> Redirect {
+        Redirect::to(&format!("{}?err={}", page, self.encode()))
+    }
+
+    pub fn decode(err: &str) -> Self {
+        general_purpose::URL_SAFE
+            .decode(err)
+            .ok()
+            .and_then(|bytes| postcard::from_bytes(&bytes).ok())
+            .unwrap_or(Self::None)
     }
 
     pub fn parse_error(error: &ServerFnError) -> Option<Self> {
@@ -68,30 +94,17 @@ impl KnownErrors {
     }
 }
 
-pub fn return_error(e: impl Display, context: &str) -> Response {
-    crate::maud_header::header(html! {
-        p {
-            "An error occurred while " (context) ": " (e)
-        }
-    })
-    .into_response()
+pub trait RedirectOnError<T> {
+    fn or_redirect(self, error: KnownErrors, page: &str) -> Result<T, Redirect>;
 }
 
-pub fn error_message(message: &str) -> Response {
-    crate::maud_header::header(html! {
-        p {
-            (message)
-        }
-    })
-    .into_response()
+impl<T, E> RedirectOnError<T> for Result<T, E> {
+    fn or_redirect(self, error: KnownErrors, page: &str) -> Result<T, Redirect> {
+        self.map_err(|_| error.redirect(page))
+    }
 }
 
-#[macro_export]
-macro_rules! ok_or_return_error {
-    ($result: expr, $context: expr) => {
-        match $result {
-            Ok(s) => s,
-            Err(e) => return return_error(e, $context),
-        }
-    };
+#[derive(Deserialize)]
+pub struct UrlError {
+    pub err: Option<String>,
 }

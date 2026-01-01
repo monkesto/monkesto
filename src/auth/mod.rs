@@ -3,11 +3,10 @@ pub mod username;
 pub mod view;
 use crate::cuid::Cuid;
 use crate::extensions;
-use crate::known_errors::{KnownErrors, error_message, return_error};
-use crate::ok_or_return_error;
+use crate::known_errors::{KnownErrors, RedirectOnError};
 use axum::Extension;
 use axum::extract::Form;
-use axum::response::{IntoResponse, Redirect, Response};
+use axum::response::Redirect;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use leptos::prelude::ServerFnError;
 use serde::Deserialize;
@@ -99,57 +98,80 @@ pub async fn create_user(
     Extension(pool): Extension<PgPool>,
     session: Session,
     Form(form): Form<SignupForm>,
-) -> Response {
-    let session_id = ok_or_return_error!(
-        extensions::intialize_session(&session).await,
-        "fetching session id"
-    );
+) -> Result<Redirect, Redirect> {
+    let session_id = extensions::intialize_session(&session)
+        .await
+        .or_redirect(KnownErrors::SessionIdNotFound, "/signup")?;
 
     if form.username.trim().is_empty() {
-        return error_message("your username can not be empty");
+        return Err(KnownErrors::InvalidUsername {
+            username: form.username,
+        }
+        .redirect("/signup"));
     }
 
     if form.password != form.confirm_password {
-        return error_message("your passwords do not match");
+        return Err(KnownErrors::SignupPasswordMismatch {
+            username: form.username,
+        }
+        .redirect("/signup"));
     }
 
-    if ok_or_return_error!(
-        username::get_id(&form.username, &pool).await,
-        "fetching user id"
-    )
-    .is_none()
+    if username::get_id(&form.username, &pool)
+        .await
+        .or_redirect(
+            KnownErrors::InternalError {
+                context: "fetching username from the database".to_string(),
+            },
+            "/signup",
+        )?
+        .is_none()
     {
         let id = Cuid::new16();
 
-        ok_or_return_error!(
-            UserEvent::Created {
-                hashed_password: ok_or_return_error!(
-                    bcrypt::hash(form.password, bcrypt::DEFAULT_COST),
-                    "hashing password"
-                ),
-            }
-            .push_db(&id, &pool)
-            .await,
-            "creating user"
-        );
+        UserEvent::Created {
+            hashed_password: bcrypt::hash(form.password, bcrypt::DEFAULT_COST).or_redirect(
+                KnownErrors::InternalError {
+                    context: "hashing password".to_string(),
+                },
+                "/signup",
+            )?,
+        }
+        .push_db(&id, &pool)
+        .await
+        .or_redirect(
+            KnownErrors::InternalError {
+                context: "pushing user creation event".to_string(),
+            },
+            "/signup",
+        )?;
 
-        ok_or_return_error!(
-            username::update(&id, &form.username, &pool).await,
-            "updating username"
-        );
+        username::update(&id, &form.username, &pool)
+            .await
+            .or_redirect(
+                KnownErrors::InternalError {
+                    context: "pushing username update".to_string(),
+                },
+                "/signup",
+            )?;
 
-        ok_or_return_error!(
-            AuthEvent::Login.push_db(&id, &session_id, &pool).await,
-            "logging in"
-        );
+        AuthEvent::Login
+            .push_db(&id, &session_id, &pool)
+            .await
+            .or_redirect(
+                KnownErrors::LoginFailed {
+                    username: form.username,
+                },
+                "/login",
+            )?;
     } else {
-        return error_message(&format!(
-            "the username \"{}\" is not available ",
-            form.username
-        ));
+        return Err(KnownErrors::UserExists {
+            username: form.username,
+        }
+        .redirect("/signup"));
     }
 
-    Redirect::to("/").into_response()
+    Ok(Redirect::to("/journal"))
 }
 
 #[derive(Deserialize)]
@@ -162,49 +184,71 @@ pub async fn login(
     Extension(pool): Extension<PgPool>,
     session: Session,
     Form(form): Form<LoginForm>,
-) -> impl IntoResponse {
-    let session_id = ok_or_return_error!(
-        extensions::intialize_session(&session).await,
-        "fetching session id"
-    );
+) -> Result<Redirect, Redirect> {
+    let session_id = extensions::intialize_session(&session)
+        .await
+        .or_redirect(KnownErrors::SessionIdNotFound, "/login")?;
 
     let user_id = match username::get_id(&form.username, &pool).await {
         Ok(Some(s)) => s,
-        Ok(None) => return error_message("invalid username!"),
-        Err(e) => return return_error(e, "fetching username"),
+        Ok(None) => return Err(KnownErrors::UserDoesntExist.redirect("/login")),
+        Err(_) => {
+            return Err(KnownErrors::InternalError {
+                context: "fetching username".to_string(),
+            }
+            .redirect("/login"));
+        }
     };
 
-    let hashed_password = ok_or_return_error!(
-        user::get_hashed_pw(&user_id, &pool).await,
-        "fetching the user's password"
-    );
+    let hashed_password = user::get_hashed_pw(&user_id, &pool).await.or_redirect(
+        KnownErrors::InternalError {
+            context: "fetching password".to_string(),
+        },
+        "/login",
+    )?;
 
     if bcrypt::verify(&form.password, &hashed_password).is_ok_and(|f| f) {
-        ok_or_return_error!(
-            AuthEvent::Login.push_db(&user_id, &session_id, &pool).await,
-            "logging in"
-        );
+        AuthEvent::Login
+            .push_db(&user_id, &session_id, &pool)
+            .await
+            .or_redirect(
+                KnownErrors::InternalError {
+                    context: "pushing login event".to_string(),
+                },
+                "/login",
+            )?;
 
-        Redirect::to("/").into_response()
+        Ok(Redirect::to("/journal"))
     } else {
-        error_message("failed to log in: incorrect password")
+        Err(KnownErrors::LoginFailed {
+            username: form.username,
+        }
+        .redirect("/login"))
     }
 }
 
-pub async fn log_out(Extension(pool): Extension<PgPool>, session: Session) -> Response {
-    let session_id = ok_or_return_error!(
-        extensions::intialize_session(&session).await,
-        "fetching session id"
-    );
+pub async fn log_out(
+    Extension(pool): Extension<PgPool>,
+    session: Session,
+) -> Result<Redirect, Redirect> {
+    // if the user tries to enter this page without being logged in, silently redirect to the login page
+    let session_id = extensions::intialize_session(&session)
+        .await
+        .or_redirect(KnownErrors::None, "/login")?;
 
-    let user_id = ok_or_return_error!(get_user_id(&session_id, &pool).await, "fetching user id");
+    let user_id = get_user_id(&session_id, &pool)
+        .await
+        .or_redirect(KnownErrors::NotLoggedIn, "/login")?;
 
-    ok_or_return_error!(
-        AuthEvent::Logout
-            .push_db(&user_id, &session_id, &pool)
-            .await,
-        "logging out"
-    );
+    AuthEvent::Logout
+        .push_db(&user_id, &session_id, &pool)
+        .await
+        .or_redirect(
+            KnownErrors::InternalError {
+                context: "pushing logout evenet".to_string(),
+            },
+            "/journal",
+        )?;
 
-    Redirect::to("/login").into_response()
+    Ok(Redirect::to("/login"))
 }

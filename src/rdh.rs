@@ -7,8 +7,6 @@ use axum::extract::Query;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use leptos::prelude::*;
-use maud::Markup;
-use maud::html;
 use serde::Deserialize;
 use sqlx::PgPool;
 use tower_sessions::Session;

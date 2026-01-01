@@ -1,28 +1,25 @@
-use super::user::get_user_id_from_session;
 use crate::extensions;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::return_error;
+use crate::known_errors::UrlError;
 use crate::maud_header;
+use crate::{auth::get_user_id, known_errors::KnownErrors};
 use axum::Extension;
-use axum::response::IntoResponse;
+use axum::extract::Query;
 use axum::response::Redirect;
-use axum::response::Response;
-use maud::html;
+use maud::{Markup, html};
 use sqlx::PgPool;
 use tower_sessions::Session;
 
 // Redirect and the html macro return different types, so they have to be converted into a response
 // In the case that redirect isn't needed, Markup can be returned directly as it implements IntoResponse
-pub async fn client_login(Extension(pool): Extension<PgPool>, session: Session) -> Response {
-    let session_id = match extensions::intialize_session(&session).await {
-        Ok(s) => s,
-        Err(e) => return return_error(e, "fetching session id"),
-    };
-
-    let logged_in = super::get_user_id(&session_id, &pool).await; // this throws an error if the database can't find an account associated with the session
-
-    if logged_in.is_ok() {
-        return Redirect::to("/").into_response();
+pub async fn client_login(
+    Extension(pool): Extension<PgPool>,
+    session: Session,
+    Query(err): Query<UrlError>,
+) -> Result<Markup, Redirect> {
+    if let Ok(session_id) = extensions::intialize_session(&session).await
+        && super::get_user_id(&session_id, &pool).await.is_ok()
+    {
+        return Err(Redirect::to("/"));
     }
 
     let content = html! {
@@ -101,20 +98,28 @@ pub async fn client_login(Extension(pool): Extension<PgPool>, session: Session) 
                         "Register"
                     }
                 }
+
+                @if let Some(e) = err.err {
+                    p class="mt-10 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
+                        (format! ("error: {:?}", KnownErrors::decode(&e)))
+                    }
+                }
             }
         }
     };
-    maud_header::header(content).into_response()
+
+    Ok(maud_header::header(content))
 }
 
-pub async fn client_signup() -> Response {
-    if get_user_id_from_session().await.is_err_and(|e| {
-        matches!(
-            KnownErrors::parse_error(&e),
-            Some(KnownErrors::NotLoggedIn | KnownErrors::SessionIdNotFound)
-        )
-    }) {
-        return Redirect::to("/").into_response();
+pub async fn client_signup(
+    Extension(pool): Extension<PgPool>,
+    session: Session,
+    Query(err): Query<UrlError>,
+) -> Result<Markup, Redirect> {
+    if let Ok(session_id) = extensions::intialize_session(&session).await
+        && get_user_id(&session_id, &pool).await.is_ok()
+    {
+        return Err(Redirect::to("/journal"));
     }
 
     let content = html! {
@@ -199,9 +204,15 @@ pub async fn client_signup() -> Response {
                         "Sign In"
                     }
                 }
+
+                @if let Some(e) = err.err {
+                    p class="mt-10 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
+                        (format! ("error: {:?}", KnownErrors::decode(&e)))
+                    }
+                }
             }
         }
     };
 
-    maud_header::header(content).into_response()
+    Ok(maud_header::header(content))
 }
