@@ -91,24 +91,3 @@ pub async fn show_result(
     .to_html();
     axum::response::Html(html)
 }
-
-pub async fn maud_test() -> Markup {
-    let v = vec![12, 23, 34, 45, 56];
-
-    html! {
-        (maud::DOCTYPE)
-        link rel="stylesheet" href="/pkg/monkesto.css";
-
-        div class="bg-white dark:bg-gray-800 border-b border-gray-200
-            dark:border-gray-700 h-screen" {
-
-            p class="text-gray-900 dark:text-white" {"test"}
-
-            ul {
-                @for item in v {
-                    li class="text-gray-900 dark:text-white" {(item)}
-                }
-            }
-        }
-    }
-}
