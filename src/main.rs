@@ -7,6 +7,7 @@ mod cuid;
 mod extensions;
 mod journal;
 mod known_errors;
+mod maud_header;
 mod rdh;
 
 #[cfg(feature = "ssr")]
