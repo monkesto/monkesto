@@ -108,7 +108,7 @@ async fn main() {
         .route("/maud", get(rdh::maud_test));
 
     let auth_routes = Router::new()
-        .route("/login", get(auth::view::client_login))
+        .route("/login", get(auth::view::client_login_maud))
         .route("/login", post(auth::login));
 
     let app = Router::new()
