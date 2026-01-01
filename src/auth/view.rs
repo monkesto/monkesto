@@ -153,7 +153,7 @@ pub async fn client_login_maud(Extension(pool): Extension<PgPool>, session: Sess
 
                             label
                             for="username"
-                            class="block text-sm/6 fono-medium text-gray-900 dark:text-gray-100" {
+                            class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100" {
                                 "Username"
                             }
 
