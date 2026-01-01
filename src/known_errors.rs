@@ -67,7 +67,7 @@ impl KnownErrors {
 
 pub fn return_error(e: ServerFnError, context: &str) -> Response {
     Html(
-        view! { <p>"An error occurred while " {context.to_string()} ":" {e.to_string()}</p> }
+        view! { <p>"An error occurred while " {context.to_string()} ": " {e.to_string()}</p> }
             .to_html(),
     )
     .into_response()

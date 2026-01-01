@@ -7,6 +7,8 @@ use axum::extract::Query;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use leptos::prelude::*;
+use maud::Markup;
+use maud::html;
 use serde::Deserialize;
 use sqlx::PgPool;
 use tower_sessions::Session;
@@ -88,4 +90,24 @@ pub async fn show_result(
     .await
     .to_html();
     axum::response::Html(html)
+}
+
+pub async fn maud_test() -> Markup {
+    let v = vec![12, 23, 34, 45, 56];
+
+    html! {
+        (maud::DOCTYPE)
+        link rel="stylesheet" href="/pkg/monkesto.css";
+
+        div class="bg-white dark:bg-gray-800 border-b border-gray-200
+            dark:border-gray-700" {
+            p {"test"}
+
+            ul{
+                @for item in v {
+                    li {(item)}
+                }
+            }
+        }
+    }
 }
