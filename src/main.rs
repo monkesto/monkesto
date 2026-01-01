@@ -1,6 +1,3 @@
-use axum::routing::get;
-use axum::routing::post;
-
 mod app;
 mod auth;
 mod cuid;
@@ -9,25 +6,26 @@ mod journal;
 mod known_errors;
 mod rdh;
 
+use app::{App, shell};
+use axum::Router;
+use axum::routing::get;
+use axum::routing::post;
+use dotenvy::dotenv;
+use leptos::logging::log;
+use leptos::prelude::*;
+use leptos_axum::{LeptosRoutes, generate_route_list};
+use sqlx::postgres::PgPoolOptions;
+use sqlx::{Pool, Postgres};
+use std::env;
+use tower_sessions::{Expiry, SessionManagerLayer, cookie::time::Duration};
+use tower_sessions_sqlx_store::PostgresStore;
+
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
-    use app::*;
-    use axum::Router;
-    use dotenvy::dotenv;
-    use leptos::logging::log;
-    use leptos::prelude::*;
-    use leptos_axum::{LeptosRoutes, generate_route_list};
-    use sqlx::postgres::PgPoolOptions;
-    use sqlx::{Pool, Postgres};
-    use std::env;
-    use tower_sessions::{Expiry, SessionManagerLayer, cookie::time::Duration};
-    use tower_sessions_sqlx_store::PostgresStore;
-
     let conf = get_configuration(None).expect("invalid configuration");
     let addr = conf.leptos_options.site_addr;
     let leptos_options = conf.leptos_options;
-    // Generate the list of routes in your Leptos App
 
     dotenv().ok();
 
