@@ -22,6 +22,15 @@ pub async fn client_login(
         return Err(Redirect::to("/"));
     }
 
+    let username = err
+        .err
+        .as_ref()
+        .and_then(|e| match KnownErrors::decode(e) {
+            KnownErrors::LoginFailed { username } => Some(username),
+            _ => None,
+        })
+        .unwrap_or_default();
+
     let content = html! {
 
         div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
@@ -53,6 +62,7 @@ pub async fn client_login(
                                 name="username"
                                 required
                                 autocomplete="username"
+                                value=(username)
                                 class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                                 ;
                             }

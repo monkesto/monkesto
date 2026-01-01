@@ -238,7 +238,7 @@ pub async fn log_out(
 
     let user_id = get_user_id(&session_id, &pool)
         .await
-        .or_redirect(KnownErrors::NotLoggedIn, "/login")?;
+        .or_redirect(KnownErrors::None, "/login")?;
 
     AuthEvent::Logout
         .push_db(&user_id, &session_id, &pool)
