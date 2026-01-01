@@ -100,12 +100,13 @@ pub async fn maud_test() -> Markup {
         link rel="stylesheet" href="/pkg/monkesto.css";
 
         div class="bg-white dark:bg-gray-800 border-b border-gray-200
-            dark:border-gray-700" {
-            p {"test"}
+            dark:border-gray-700 h-screen" {
 
-            ul{
+            p class="text-gray-900 dark:text-white" {"test"}
+
+            ul {
                 @for item in v {
-                    li {(item)}
+                    li class="text-gray-900 dark:text-white" {(item)}
                 }
             }
         }
