@@ -104,7 +104,7 @@ pub async fn client_login(Extension(pool): Extension<PgPool>, session: Session) 
             }
         }
     };
-    maud_header::header(content).await.into_response()
+    maud_header::header(content).into_response()
 }
 
 pub async fn client_signup() -> Response {
@@ -203,5 +203,5 @@ pub async fn client_signup() -> Response {
         }
     };
 
-    maud_header::header(content).await.into_response()
+    maud_header::header(content).into_response()
 }

@@ -62,7 +62,7 @@ pub fn Layout(
                                     .into_any()
                             } else {
                                 view! { <div></div> }.into_any()
-                            }} <form action="/logout" method="post">
+                            }} <form action="/logout" method="get">
                                 <button
                                     class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-2 py-1"
                                     type="submit"
@@ -87,7 +87,8 @@ pub fn Layout(
     }
 }
 
-pub async fn maud_layout(
+#[allow(dead_code)]
+pub fn maud_layout(
     page_title: Option<String>,
     show_switch_link: bool,
     journal_id: Option<String>,
@@ -108,7 +109,7 @@ pub async fn maud_layout(
                         div class="flex items-center gap-4" {
                             @if let Some(title) = page_title {
                                 div class="flex flex-col items-end justify-center" {
-                                    @if let Some(id) = journal_id.clone() {
+                                    @if let Some(id) = journal_id {
                                         a
                                             href=(format!("/journal/{}", id))
                                             class="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white" {
@@ -128,7 +129,7 @@ pub async fn maud_layout(
                                     }
                                 }
                             }
-                            form action="/logout" method="post" {
+                            form action="/logout" method="get" {
                                 button
                                     class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-2 py-1"
                                     type="submit" {
@@ -151,5 +152,5 @@ pub async fn maud_layout(
         }
     };
 
-    maud_header::header(main_html).await
+    maud_header::header(main_html)
 }

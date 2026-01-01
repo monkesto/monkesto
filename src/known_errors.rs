@@ -1,6 +1,9 @@
+use std::fmt::Display;
+
 use crate::journal::{BalanceUpdate, Permissions};
-use axum::response::{Html, IntoResponse, Response};
-use leptos::prelude::{ElementChild, RenderHtml, ServerFnError, view};
+use axum::response::{IntoResponse, Response};
+use leptos::prelude::ServerFnError;
+use maud::html;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq)]
@@ -65,14 +68,30 @@ impl KnownErrors {
     }
 }
 
-pub fn return_error(e: ServerFnError, context: &str) -> Response {
-    Html(
-        view! { <p>"An error occurred while " {context.to_string()} ": " {e.to_string()}</p> }
-            .to_html(),
-    )
+pub fn return_error(e: impl Display, context: &str) -> Response {
+    crate::maud_header::header(html! {
+        p {
+            "An error occurred while " (context) ": " (e)
+        }
+    })
     .into_response()
 }
 
 pub fn error_message(message: &str) -> Response {
-    Html(view! { <p>{message.to_string()}</p> }.to_html()).into_response()
+    crate::maud_header::header(html! {
+        p {
+            (message)
+        }
+    })
+    .into_response()
+}
+
+#[macro_export]
+macro_rules! ok_or_return_error {
+    ($result: expr, $context: expr) => {
+        match $result {
+            Ok(s) => s,
+            Err(e) => return return_error(e, $context),
+        }
+    };
 }

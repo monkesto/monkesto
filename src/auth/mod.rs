@@ -2,14 +2,14 @@ pub mod user;
 pub mod username;
 pub mod view;
 use crate::cuid::Cuid;
-use crate::extensions::{self, get_pool, get_session_id};
+use crate::extensions;
 use crate::known_errors::{KnownErrors, error_message, return_error};
+use crate::ok_or_return_error;
 use axum::Extension;
 use axum::extract::Form;
-use axum::response::{IntoResponse, Redirect};
+use axum::response::{IntoResponse, Redirect, Response};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use leptos::prelude::ServerFnError;
-use leptos::server;
 use serde::Deserialize;
 use sqlx::PgPool;
 use tower_sessions::Session;
@@ -88,45 +88,68 @@ pub async fn get_user_id(session_id: &String, pool: &PgPool) -> Result<Cuid, Ser
     ))
 }
 
-#[server]
-pub async fn create_user(
+#[derive(Deserialize)]
+pub struct SignupForm {
     username: String,
     password: String,
     confirm_password: String,
-) -> Result<(), ServerFnError> {
-    let pool = get_pool().await?;
-    let session_id = get_session_id().await?;
+}
 
-    if username.trim().is_empty() {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::InvalidInput.to_string()?,
-        ));
+pub async fn create_user(
+    Extension(pool): Extension<PgPool>,
+    session: Session,
+    Form(form): Form<SignupForm>,
+) -> Response {
+    let session_id = ok_or_return_error!(
+        extensions::intialize_session(&session).await,
+        "fetching session id"
+    );
+
+    if form.username.trim().is_empty() {
+        return error_message("your username can not be empty");
     }
 
-    if password != confirm_password {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::SignupPasswordMismatch { username }.to_string()?,
-        ));
+    if form.password != form.confirm_password {
+        return error_message("your passwords do not match");
     }
 
-    if username::get_id(&username, &pool).await?.is_none() {
+    if ok_or_return_error!(
+        username::get_id(&form.username, &pool).await,
+        "fetching user id"
+    )
+    .is_none()
+    {
         let id = Cuid::new16();
-        UserEvent::Created {
-            hashed_password: bcrypt::hash(password, bcrypt::DEFAULT_COST)?,
-        }
-        .push_db(&id, &pool)
-        .await?;
 
-        username::update(&id, &username, &pool).await?;
+        ok_or_return_error!(
+            UserEvent::Created {
+                hashed_password: ok_or_return_error!(
+                    bcrypt::hash(form.password, bcrypt::DEFAULT_COST),
+                    "hashing password"
+                ),
+            }
+            .push_db(&id, &pool)
+            .await,
+            "creating user"
+        );
 
-        AuthEvent::Login.push_db(&id, &session_id, &pool).await?;
+        ok_or_return_error!(
+            username::update(&id, &form.username, &pool).await,
+            "updating username"
+        );
+
+        ok_or_return_error!(
+            AuthEvent::Login.push_db(&id, &session_id, &pool).await,
+            "logging in"
+        );
     } else {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::UserExists { username }.to_string()?,
+        return error_message(&format!(
+            "the username \"{}\" is not available ",
+            form.username
         ));
     }
 
-    Ok(())
+    Redirect::to("/").into_response()
 }
 
 #[derive(Deserialize)]
@@ -140,10 +163,10 @@ pub async fn login(
     session: Session,
     Form(form): Form<LoginForm>,
 ) -> impl IntoResponse {
-    let session_id = match extensions::intialize_session(&session).await {
-        Ok(s) => s,
-        Err(e) => return return_error(e, "fetching session id"),
-    };
+    let session_id = ok_or_return_error!(
+        extensions::intialize_session(&session).await,
+        "fetching session id"
+    );
 
     let user_id = match username::get_id(&form.username, &pool).await {
         Ok(Some(s)) => s,
@@ -151,16 +174,16 @@ pub async fn login(
         Err(e) => return return_error(e, "fetching username"),
     };
 
-    let hashed_password = match user::get_hashed_pw(&user_id, &pool).await {
-        Ok(s) => s,
-        Err(e) => return return_error(e, "fetching password"),
-    };
+    let hashed_password = ok_or_return_error!(
+        user::get_hashed_pw(&user_id, &pool).await,
+        "fetching the user's password"
+    );
 
     if bcrypt::verify(&form.password, &hashed_password).is_ok_and(|f| f) {
-        let login_res = AuthEvent::Login.push_db(&user_id, &session_id, &pool).await;
-        if let Err(e) = login_res {
-            return return_error(e, "logging in");
-        }
+        ok_or_return_error!(
+            AuthEvent::Login.push_db(&user_id, &session_id, &pool).await,
+            "logging in"
+        );
 
         Redirect::to("/").into_response()
     } else {
@@ -168,15 +191,20 @@ pub async fn login(
     }
 }
 
-#[server]
-pub async fn log_out() -> Result<(), ServerFnError> {
-    let session_id = get_session_id().await?;
-    let pool = get_pool().await?;
+pub async fn log_out(Extension(pool): Extension<PgPool>, session: Session) -> Response {
+    let session_id = ok_or_return_error!(
+        extensions::intialize_session(&session).await,
+        "fetching session id"
+    );
 
-    let user_id = get_user_id(&session_id, &pool).await?;
+    let user_id = ok_or_return_error!(get_user_id(&session_id, &pool).await, "fetching user id");
 
-    AuthEvent::Logout
-        .push_db(&user_id, &session_id, &pool)
-        .await?;
-    Ok(())
+    ok_or_return_error!(
+        AuthEvent::Logout
+            .push_db(&user_id, &session_id, &pool)
+            .await,
+        "logging out"
+    );
+
+    Redirect::to("/login").into_response()
 }
