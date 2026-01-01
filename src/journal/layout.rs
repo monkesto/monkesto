@@ -26,13 +26,13 @@ pub fn Layout(
                             {if let Some(title) = page_title {
                                 view! {
                                     <div class="flex flex-col items-end justify-center">
-                                        {if let Some(id) = journal_id.clone() {
+                                        {if let Some(id) = journal_id {
                                             view! {
                                                 <a
                                                     href=format!("/journal/{}", id)
                                                     class="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white"
                                                 >
-                                                    {title.clone()}
+                                                    {title}
                                                 </a>
                                             }
                                                 .into_any()
@@ -47,7 +47,7 @@ pub fn Layout(
                                         {if show_switch_link {
                                             view! {
                                                 <a
-                                                    href="/"
+                                                    href="/journal"
                                                     class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                                                 >
                                                     "Switch"
@@ -113,7 +113,7 @@ pub fn maud_layout(
                                         a
                                             href=(format!("/journal/{}", id))
                                             class="text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white" {
-                                            (title.clone())
+                                            (title)
                                         }
                                     } @else {
                                         span class="text-sm font-medium text-gray-700 dark:text-gray-300" {
@@ -122,7 +122,7 @@ pub fn maud_layout(
                                     }
                                     @if show_switch_link {
                                         a
-                                            href="/"
+                                            href="/journal"
                                             class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200" {
                                             "Switch"
                                         }
