@@ -4,6 +4,7 @@ mod cuid;
 mod extensions;
 mod journal;
 mod known_errors;
+mod maud_header;
 mod rdh;
 
 use app::{App, shell};
@@ -104,8 +105,16 @@ async fn main() {
         .route("/rdh", post(rdh::interpolated))
         .route("/rdh/result", get(rdh::show_result));
 
+    let auth_routes = Router::new()
+        .route("/login", get(auth::view::client_login))
+        .route("/login", post(auth::login))
+        .route("/logout", get(auth::log_out))
+        .route("/signup", get(auth::view::client_signup))
+        .route("/signup", post(auth::create_user));
+
     let app = Router::new()
         .merge(rdh_routes)
+        .merge(auth_routes)
         .leptos_routes(&leptos_options, routes, {
             let leptos_options = leptos_options.clone();
             move || shell(leptos_options.clone())

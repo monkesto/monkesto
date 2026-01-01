@@ -34,3 +34,22 @@ pub async fn get_session_id() -> Result<String, ServerFnError> {
         KnownErrors::SessionIdNotFound.to_string()?,
     ))
 }
+
+pub async fn intialize_session(session: &Session) -> Result<String, ServerFnError> {
+    if session
+        .get::<bool>("initialized")
+        .await
+        .ok()
+        .flatten()
+        .is_none()
+    {
+        _ = session.insert("initialized", true).await;
+    }
+
+    if let Some(s) = session.id() {
+        return Ok(s.to_string());
+    }
+    Err(ServerFnError::ServerError(
+        KnownErrors::SessionIdNotFound.to_string()?,
+    ))
+}

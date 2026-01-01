@@ -1,10 +1,15 @@
 use crate::auth;
+use crate::cuid::Cuid;
+use crate::extensions;
+use axum::Extension;
 use axum::extract::Form;
 use axum::extract::Query;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use leptos::prelude::*;
 use serde::Deserialize;
+use sqlx::PgPool;
+use tower_sessions::Session;
 
 #[derive(Deserialize)]
 pub struct NameForm {
@@ -31,19 +36,19 @@ fn basic_form() -> impl IntoView {
     }
 }
 
-async fn interpolated_response(name: String, age: i32, awesomeness: f32) -> impl IntoView {
-    let user_id = match auth::user::get_user_id_from_session().await {
-        Ok(s) => s.to_string(),
-        Err(e) => e.to_string(),
-    };
-
+async fn interpolated_response(
+    name: String,
+    age: i32,
+    awesomeness: f32,
+    user_id: Cuid,
+) -> impl IntoView {
     let name_clone = name.clone();
 
     view! {
         <h1>"Hello, " {name} "!"</h1>
         <p>"Nice to meet you, " {name_clone} ". You are " {age} " years old."</p>
         <p>"I am " {awesomeness} "% confident that you are awesome!"</p>
-        <p>"Your user_id is: " {user_id}</p>
+        <p>"Your user_id is: " {user_id.to_string()}</p>
         <a href="/rdh">"Start over"</a>
     }
 }
@@ -61,9 +66,26 @@ pub async fn interpolated(Form(form): Form<NameForm>) -> impl IntoResponse {
     ))
 }
 
-pub async fn show_result(Query(query): Query<NameForm>) -> impl IntoResponse {
-    let html = interpolated_response(query.name, query.age, query.awesomeness)
-        .await
-        .to_html();
+pub async fn show_result(
+    Query(query): Query<NameForm>,
+    Extension(db_pool): Extension<PgPool>,
+    session: Session,
+) -> impl IntoResponse {
+    let user_id = auth::get_user_id(
+        &extensions::intialize_session(&session)
+            .await
+            .expect("failed to get session")
+            .to_string(),
+        &db_pool,
+    )
+    .await;
+    let html = interpolated_response(
+        query.name,
+        query.age,
+        query.awesomeness,
+        user_id.expect("failed to get user_id"),
+    )
+    .await
+    .to_html();
     axum::response::Html(html)
 }
