@@ -8,7 +8,7 @@ use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
 use leptos::prelude::*;
-use maud::html;
+use maud::{DOCTYPE, html};
 use sqlx::PgPool;
 use tower_sessions::Session;
 
@@ -132,6 +132,8 @@ pub async fn client_login_maud(Extension(pool): Extension<PgPool>, session: Sess
     }
 
     html! {
+        (DOCTYPE)
+
         html class="h-full bg-white dark:bg-gray-900 text-gray-900 dark:text-white"{
 
             link rel="stylesheet" href="/pkg/monkesto.css";
