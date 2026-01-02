@@ -6,6 +6,7 @@ mod journal;
 mod known_errors;
 mod maud_header;
 mod rdh;
+mod webauthn;
 
 use app::{App, shell};
 use axum::Router;
@@ -21,9 +22,22 @@ use std::env;
 use tower_sessions::{Expiry, SessionManagerLayer, cookie::time::Duration};
 use tower_sessions_sqlx_store::PostgresStore;
 
+// Allow using tracing macros anywhere without needing to import them
+#[macro_use]
+extern crate tracing;
+
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
+    if std::env::var("RUST_LOG").is_err() {
+        unsafe {
+            // Concurrent writing of set_var is not permitted,
+            // but we're in main, so that shouldn't be a problem.
+            std::env::set_var("RUST_LOG", "INFO");
+        }
+    }
+    tracing_subscriber::fmt::init();
+
     let conf = get_configuration(None).expect("invalid configuration");
     let addr = conf.leptos_options.site_addr;
     let leptos_options = conf.leptos_options;
@@ -112,6 +126,8 @@ async fn main() {
         .route("/signup", get(auth::view::client_signup))
         .route("/signup", post(auth::create_user));
 
+    let webauthn_routes = webauthn::router();
+
     let journal_routes = Router::new()
         .route("/journal", get(journal::views::homepage::journal_list))
         .route("/createjournal", post(journal::commands::create_journal))
@@ -128,6 +144,7 @@ async fn main() {
         .merge(rdh_routes)
         .merge(auth_routes)
         .merge(journal_routes)
+        .nest("/webauthn/", webauthn_routes)
         .leptos_routes(&leptos_options, routes, {
             let leptos_options = leptos_options.clone();
             move || shell(leptos_options.clone())
