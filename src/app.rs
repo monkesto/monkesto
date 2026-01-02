@@ -1,5 +1,4 @@
 use crate::journal::views::account::AccountListPage;
-use crate::journal::views::homepage::{JournalDetail, JournalList};
 use crate::journal::views::person::PeopleListPage;
 use crate::journal::views::transaction::TransactionListPage;
 use leptos::prelude::*;
@@ -51,8 +50,6 @@ pub fn App() -> impl IntoView {
                                 .into_view()
                         }
                     />
-                    <Route path=path!("/journal") view=JournalList />
-                    <Route path=path!("/journal/:id") view=JournalDetail />
                     <Route path=path!("/journal/:id/transaction") view=TransactionListPage />
                     <Route path=path!("/journal/:id/account") view=AccountListPage />
                     <Route path=path!("/journal/:id/person") view=PeopleListPage />

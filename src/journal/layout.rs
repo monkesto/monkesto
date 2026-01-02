@@ -89,9 +89,9 @@ pub fn Layout(
 
 #[allow(dead_code)]
 pub fn maud_layout(
-    page_title: Option<String>,
+    page_title: Option<&str>,
     show_switch_link: bool,
-    journal_id: Option<String>,
+    journal_id: Option<&str>,
     content: Markup,
 ) -> Markup {
     let main_html = html! {

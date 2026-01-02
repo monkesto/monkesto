@@ -1,7 +1,6 @@
 use crate::journal::{BalanceUpdate, Permissions};
 use axum::response::Redirect;
 use base64::{Engine, engine::general_purpose};
-use leptos::prelude::ServerFnError;
 use postcard::to_allocvec;
 use serde::{Deserialize, Serialize};
 
@@ -82,15 +81,6 @@ impl KnownErrors {
             .ok()
             .and_then(|bytes| postcard::from_bytes(&bytes).ok())
             .unwrap_or(Self::None)
-    }
-
-    pub fn parse_error(error: &ServerFnError) -> Option<Self> {
-        serde_json::from_str(
-            error
-                .to_string()
-                .trim_start_matches("error running server function: "),
-        )
-        .ok()
     }
 }
 

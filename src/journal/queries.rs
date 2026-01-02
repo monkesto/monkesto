@@ -11,6 +11,7 @@ use auth::username;
 use chrono::Utc;
 use leptos::prelude::{ServerFnError, server};
 use postcard::from_bytes;
+use sqlx::PgPool;
 
 #[server]
 pub async fn get_journal_invites() -> Result<Vec<JournalInvite>, ServerFnError> {
@@ -49,21 +50,18 @@ pub async fn get_journal_invites() -> Result<Vec<JournalInvite>, ServerFnError> 
     Ok(invites)
 }
 
-#[server]
-pub async fn get_associated_journals() -> Result<Journals, ServerFnError> {
+pub async fn get_associated_journals(
+    user_id: &Cuid,
+    pool: &PgPool,
+) -> Result<Journals, ServerFnError> {
     use JournalEventType::{Created, Deleted};
     use UserEventType::*;
     let mut journals = Vec::new();
 
     let mut selected: Option<AssociatedJournal> = None;
 
-    let session_id = extensions::get_session_id().await?;
-    let pool = extensions::get_pool().await?;
-
-    let user_id = auth::get_user_id(&session_id, &pool).await?;
-
     let user = UserState::build(
-        &user_id,
+        user_id,
         vec![
             CreatedJournal,
             InvitedToJournal,
@@ -72,12 +70,12 @@ pub async fn get_associated_journals() -> Result<Journals, ServerFnError> {
             RemovedFromJournal,
             SelectedJournal,
         ],
-        &pool,
+        pool,
     )
     .await?;
 
     for journal_id in user.owned_journals {
-        let journal_state = JournalState::build(&journal_id, vec![Created, Deleted], &pool).await?;
+        let journal_state = JournalState::build(&journal_id, vec![Created, Deleted], pool).await?;
         if !journal_state.deleted {
             journals.push(AssociatedJournal::Owned {
                 id: journal_id,
@@ -97,7 +95,7 @@ pub async fn get_associated_journals() -> Result<Journals, ServerFnError> {
 
     for shared_journal in user.accepted_journal_invites {
         let journal_state =
-            JournalState::build(&shared_journal.0, vec![Created, Deleted], &pool).await?;
+            JournalState::build(&shared_journal.0, vec![Created, Deleted], pool).await?;
         if !journal_state.deleted {
             journals.push(AssociatedJournal::Shared {
                 id: shared_journal.0,
@@ -123,15 +121,16 @@ pub async fn get_associated_journals() -> Result<Journals, ServerFnError> {
     })
 }
 
-#[server]
-pub async fn get_journal_owner(journal_id: String) -> Result<Option<String>, ServerFnError> {
-    let journal_id = Cuid::from_str(&journal_id)?;
-    let pool = extensions::get_pool().await?;
+pub async fn get_journal_owner(
+    journal_id: &str,
+    pool: &PgPool,
+) -> Result<Option<String>, ServerFnError> {
+    let journal_id = Cuid::from_str(journal_id)?;
 
     let journal_state =
-        JournalState::build(&journal_id, vec![JournalEventType::Created], &pool).await?;
+        JournalState::build(&journal_id, vec![JournalEventType::Created], pool).await?;
 
-    username::get_username(&journal_state.owner, &pool).await
+    username::get_username(&journal_state.owner, pool).await
 }
 
 #[server]

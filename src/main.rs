@@ -112,9 +112,18 @@ async fn main() {
         .route("/signup", get(auth::view::client_signup))
         .route("/signup", post(auth::create_user));
 
+    let journal_routes = Router::new()
+        .route("/journal", get(journal::views::homepage::journal_list))
+        .route("/createjournal", post(journal::commands::create_journal))
+        .route(
+            "/journal/{id}",
+            get(journal::views::homepage::journal_detail),
+        );
+
     let app = Router::new()
         .merge(rdh_routes)
         .merge(auth_routes)
+        .merge(journal_routes)
         .leptos_routes(&leptos_options, routes, {
             let leptos_options = leptos_options.clone();
             move || shell(leptos_options.clone())

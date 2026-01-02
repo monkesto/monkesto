@@ -52,7 +52,7 @@ impl AuthEvent {
     }
 }
 
-pub async fn get_user_id(session_id: &String, pool: &PgPool) -> Result<Cuid, ServerFnError> {
+pub async fn get_user_id(session_id: &str, pool: &PgPool) -> Result<Cuid, ServerFnError> {
     let session_bytes = URL_SAFE_NO_PAD.decode(session_id)?;
 
     let event: Vec<(Vec<u8>, AuthEvent)> = sqlx::query_as(

@@ -2,38 +2,65 @@ use super::{BalanceUpdate, JournalEvent, Permissions, Transaction};
 use crate::auth;
 use crate::cuid::Cuid;
 use crate::extensions;
-use crate::known_errors::KnownErrors;
+use crate::known_errors::{KnownErrors, RedirectOnError};
 use auth::user::{UserEvent, UserEventType, UserState};
 use auth::username;
+use axum::Extension;
+use axum::Form;
+use axum::response::Redirect;
 use leptos::prelude::{ServerFnError, server};
+use serde::Deserialize;
+use sqlx::PgPool;
+use tower_sessions::Session;
 
-#[server]
-pub async fn create_journal(journal_name: String) -> Result<(), ServerFnError> {
-    let session_id = extensions::get_session_id().await?;
-    let pool = extensions::get_pool().await?;
+#[derive(Deserialize)]
+pub struct CreateJournalForm {
+    journal_name: String,
+}
 
-    let user_id = auth::get_user_id(&session_id, &pool).await?;
+pub async fn create_journal(
+    Extension(pool): Extension<PgPool>,
+    session: Session,
+    Form(form): Form<CreateJournalForm>,
+) -> Result<Redirect, Redirect> {
+    let session_id = extensions::intialize_session(&session)
+        .await
+        .or_redirect(KnownErrors::SessionIdNotFound, "/login")?;
 
-    if journal_name.trim().is_empty() {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::InvalidInput.to_string()?,
-        ));
+    let user_id = auth::get_user_id(&session_id, &pool)
+        .await
+        .or_redirect(KnownErrors::NotLoggedIn, "/login")?;
+
+    if form.journal_name.trim().is_empty() {
+        return Err(KnownErrors::InvalidInput.redirect("/journal"));
     }
 
     let journal_id = Cuid::new10();
 
     JournalEvent::Created {
-        name: journal_name,
+        name: form.journal_name,
         owner: user_id,
     }
     .push_db(&journal_id, &pool)
-    .await?;
+    .await
+    .or_redirect(
+        KnownErrors::InternalError {
+            context: "pushing journal creation".to_string(),
+        },
+        "/journal",
+    )?;
 
     UserEvent::CreatedJournal { id: journal_id }
         .push_db(&user_id, &pool)
-        .await?;
+        .await
+        .or_redirect(
+            KnownErrors::InternalError {
+                context: "pushing user_journal creation".to_string(),
+            },
+            "/journal",
+        )?;
 
-    Ok(())
+    Ok(Redirect::to("/journal"))
 }
 
 #[server]
