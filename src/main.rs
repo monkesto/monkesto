@@ -118,6 +118,10 @@ async fn main() {
         .route(
             "/journal/{id}",
             get(journal::views::homepage::journal_detail),
+        )
+        .route(
+            "/journal/{id}/transaction",
+            get(journal::views::transaction::transaction_list_page),
         );
 
     let app = Router::new()
