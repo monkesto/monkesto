@@ -197,6 +197,7 @@ pub struct SharedAndPendingJournals {
     pub pending: HashMap<Cuid, JournalTenantInfo>,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Account {
     pub id: Cuid,
@@ -258,6 +259,7 @@ pub struct Journals {
     pub selected: Option<AssociatedJournal>,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct JournalInvite {
     pub id: Cuid,
@@ -265,12 +267,14 @@ pub struct JournalInvite {
     pub tenant_info: JournalTenantInfo,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TransactionWithUsername {
     pub author: String,
     pub updates: Vec<BalanceUpdate>,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TransactionWithTimeStamp {
     pub transaction: TransactionWithUsername,

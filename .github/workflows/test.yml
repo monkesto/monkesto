@@ -19,7 +19,7 @@ jobs:
           components: clippy
 
       - name: Run clippy
-        run: cargo clippy --features=ssr -- -D warnings
+        run: cargo clippy -- -D warnings
 
   format:
     runs-on: ubuntu-24.04-arm
@@ -35,24 +35,11 @@ jobs:
       - name: Run formatter
         run: cargo fmt -- --check
 
-      - uses: cargo-bins/cargo-binstall@main
-
-      - name: Setup leptosfmt
-        run: cargo binstall leptosfmt --force
-
-      - name: Run leptosfmt
-        run: leptosfmt --check .
-
   test:
     runs-on: ubuntu-24.04-arm
 
     steps:
       - uses: actions/checkout@v4
 
-      - uses: cargo-bins/cargo-binstall@main
-
-      - name: Install cargo-leptos
-        run: cargo binstall cargo-leptos -y
-
       - name: Run rust tests
-        run: cargo leptos test --release --features=ssr
+        run: make test

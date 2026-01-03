@@ -56,6 +56,8 @@ impl Cuid {
             Cuid::Cuid16(id) => Vec::from(id),
         }
     }
+
+    #[allow(dead_code)]
     pub fn is_default(&self) -> bool {
         *self == Self::default()
     }

@@ -1,16 +1,12 @@
 use super::{
-    Account, AssociatedJournal, JournalEvent, JournalEventType, JournalInvite, JournalState,
-    Journals, Permissions, TransactionWithTimeStamp, TransactionWithUsername,
+    Account, AssociatedJournal, JournalEventType, JournalInvite, JournalState,
+    Journals,
 };
 use crate::auth;
 use crate::cuid::Cuid;
-use crate::extensions;
-use crate::known_errors::KnownErrors;
 use auth::user::{UserEventType, UserState};
 use auth::username;
-use chrono::Utc;
 use leptos::prelude::{ServerFnError, server};
-use postcard::from_bytes;
 use sqlx::PgPool;
 
 #[server]
@@ -194,7 +190,9 @@ pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
     Ok(accounts)
 }
 
-#[allow(dead_code)]
+/*
+This is unused. It is kept to serve as a guide for a future implementation.
+
 pub async fn get_transactions(
     journals: Result<Journals, ServerFnError>,
 ) -> Result<Vec<TransactionWithTimeStamp>, ServerFnError> {
@@ -286,3 +284,4 @@ pub async fn get_transactions(
     }
     Ok(bundled_transactions)
 }
+*/
