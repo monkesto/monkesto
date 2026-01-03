@@ -10,6 +10,8 @@ mod webauthn;
 
 use app::{App, shell};
 use axum::Router;
+use axum::http::{StatusCode, header};
+use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::routing::post;
 use dotenvy::dotenv;
@@ -139,10 +141,18 @@ async fn main() {
             "/journal/{id}/transaction",
             get(journal::views::transaction::transaction_list_page),
         )
-        .route("/journal/{id}/account", get(journal::views::account::account_list_page))
-        .route("/journal/{id}/person", get(journal::views::person::people_list_page));
+        .route(
+            "/journal/{id}/account",
+            get(journal::views::account::account_list_page),
+        )
+        .route(
+            "/journal/{id}/person",
+            get(journal::views::person::people_list_page),
+        );
 
     let app = Router::new()
+        .route("/favicon.ico", get(serve_favicon))
+        .route("/logo.svg", get(serve_logo))
         .merge(rdh_routes)
         .merge(auth_routes)
         .merge(journal_routes)
@@ -165,6 +175,24 @@ async fn main() {
     axum::serve(listener, app.into_make_service())
         .await
         .expect("failed to serve on the address");
+}
+
+async fn serve_favicon() -> impl IntoResponse {
+    const FAVICON_BYTES: &[u8] = include_bytes!("favicon.ico");
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "image/x-icon")],
+        FAVICON_BYTES,
+    )
+}
+
+async fn serve_logo() -> impl IntoResponse {
+    const LOGO_SVG: &str = include_str!("logo.svg");
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "image/svg+xml")],
+        LOGO_SVG,
+    )
 }
 
 #[cfg(not(feature = "ssr"))]
