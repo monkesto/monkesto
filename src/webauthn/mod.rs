@@ -5,6 +5,7 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
+use maud::{DOCTYPE, Markup, html};
 use tower_sessions::{
     Expiry, MemoryStore, SessionManagerLayer,
     cookie::{SameSite, time::Duration},
@@ -65,12 +66,45 @@ async fn handler_404() -> impl IntoResponse {
     (StatusCode::NOT_FOUND, "nothing to see here")
 }
 
+fn auth_page() -> Markup {
+    html! {
+        (DOCTYPE)
+        html lang="en" {
+            head {
+                meta charset="UTF-8";
+                meta name="viewport" content="width=device-width, initial-scale=1";
+                title { "WebAuthn-rs Tutorial" }
+                script
+                    src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
+                    crossorigin="anonymous" {}
+                script src="auth.js" async {}
+            }
+            body {
+                p { "Welcome to the WebAuthn Server!" }
+
+                div {
+                    input
+                        type="text"
+                        id="username"
+                        placeholder="Enter your username here";
+                    button onclick="register()" { "Register" }
+                    button onclick="login()" { "Login" }
+                }
+
+                div {
+                    p id="flash_message" {}
+                }
+            }
+        }
+    }
+}
+
 async fn serve_auth_html() -> impl IntoResponse {
-    const HTML_CONTENT: &str = include_str!("auth.html");
+    let markup = auth_page();
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/html")],
-        HTML_CONTENT,
+        markup,
     )
 }
 
