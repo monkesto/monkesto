@@ -78,6 +78,7 @@ fn auth_page() -> Markup {
                     src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
                     crossorigin="anonymous" {}
                 script src="auth.js" async {}
+                meta name="webauthn_url" content="http://localhost:3000/webauthn/";
             }
             body {
                 p { "Welcome to the WebAuthn Server!" }

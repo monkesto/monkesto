@@ -5,13 +5,13 @@ function register() {
     return;
   }
 
-  fetch(
-    "http://localhost:3000/webauthn/register_start/" +
-      encodeURIComponent(username),
-    {
-      method: "POST",
-    },
-  )
+  const baseUrl = document
+    .querySelector('meta[name="webauthn_url"]')
+    .getAttribute("content");
+
+  fetch(baseUrl + "register_start/" + encodeURIComponent(username), {
+    method: "POST",
+  })
     .then((response) => response.json())
     .then((credentialCreationOptions) => {
       credentialCreationOptions.publicKey.challenge = Base64.toUint8Array(
@@ -31,7 +31,7 @@ function register() {
       });
     })
     .then((credential) => {
-      fetch("http://localhost:3000/webauthn/register_finish", {
+      fetch(baseUrl + "register_finish", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -69,13 +69,13 @@ function login() {
     return;
   }
 
-  fetch(
-    "http://localhost:3000/webauthn/login_start/" +
-      encodeURIComponent(username),
-    {
-      method: "POST",
-    },
-  )
+  const baseUrl = document
+    .querySelector('meta[name="webauthn_url"]')
+    .getAttribute("content");
+
+  fetch(baseUrl + "login_start/" + encodeURIComponent(username), {
+    method: "POST",
+  })
     .then((response) => response.json())
     .then((credentialRequestOptions) => {
       credentialRequestOptions.publicKey.challenge = Base64.toUint8Array(
@@ -92,7 +92,7 @@ function login() {
       });
     })
     .then((assertion) => {
-      fetch("http://localhost:3000/webauthn/login_finish", {
+      fetch(baseUrl + "login_finish", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
