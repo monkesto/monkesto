@@ -48,7 +48,7 @@ pub async fn journal_list(
         }
         @else if let Err(e) = journals_result {
             p {
-                "An error occurred while fetching journals: " (e)
+                 (format!("An error occurred while fetching journals: {:?}", e))
             }
         }
 
@@ -146,7 +146,7 @@ pub async fn journal_detail(
                     div class="text-sm text-gray-600 dark:text-gray-400" {
                         "Created by "
                         @match get_journal_owner(&id, &pool).await {
-                            Err(e) => (format!("error: {}", e)),
+                            Err(e) => (format!("error: {:?}", e)),
                             Ok(None) => "unknown user",
                             Ok(Some(s)) => (s),
                         }

@@ -8,7 +8,6 @@ use axum::Extension;
 use axum::extract::Form;
 use axum::response::Redirect;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use leptos::prelude::ServerFnError;
 use serde::Deserialize;
 use sqlx::PgPool;
 use tower_sessions::Session;
@@ -28,7 +27,7 @@ impl AuthEvent {
         user_id: &Cuid,
         session_id: &String,
         pool: &PgPool,
-    ) -> Result<i64, ServerFnError> {
+    ) -> Result<i64, KnownErrors> {
         let session_bytes = URL_SAFE_NO_PAD.decode(session_id)?;
 
         let id: i64 = sqlx::query_scalar(
@@ -52,7 +51,7 @@ impl AuthEvent {
     }
 }
 
-pub async fn get_user_id(session_id: &str, pool: &PgPool) -> Result<Cuid, ServerFnError> {
+pub async fn get_user_id(session_id: &str, pool: &PgPool) -> Result<Cuid, KnownErrors> {
     let session_bytes = URL_SAFE_NO_PAD.decode(session_id)?;
 
     let event: Vec<(Vec<u8>, AuthEvent)> = sqlx::query_as(
@@ -71,9 +70,7 @@ pub async fn get_user_id(session_id: &str, pool: &PgPool) -> Result<Cuid, Server
     let (id, auth_type) = match event.first() {
         Some(s) => s,
         None => {
-            return Err(ServerFnError::ServerError(
-                KnownErrors::NotLoggedIn.to_string()?,
-            ));
+            return Err(KnownErrors::NotLoggedIn);
         }
     };
 
@@ -82,9 +79,7 @@ pub async fn get_user_id(session_id: &str, pool: &PgPool) -> Result<Cuid, Server
         return Cuid::from_bytes(id);
     }
 
-    Err(ServerFnError::ServerError(
-        KnownErrors::NotLoggedIn.to_string()?,
-    ))
+    Err(KnownErrors::NotLoggedIn)
 }
 
 #[derive(Deserialize)]

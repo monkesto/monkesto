@@ -1,26 +1,23 @@
-mod app;
 mod auth;
 mod cuid;
 mod extensions;
 mod journal;
 mod known_errors;
 mod maud_header;
-mod rdh;
+mod notfoundpage;
 mod webauthn;
 
-use app::{App, shell};
 use axum::Router;
 use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
+use axum::response::Redirect;
 use axum::routing::get;
 use axum::routing::post;
 use dotenvy::dotenv;
-use leptos::logging::log;
-use leptos::prelude::*;
-use leptos_axum::{LeptosRoutes, generate_route_list};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
 use std::env;
+use tower_http::services::ServeFile;
 use tower_sessions::{Expiry, SessionManagerLayer, cookie::time::Duration};
 use tower_sessions_sqlx_store::PostgresStore;
 
@@ -28,23 +25,20 @@ use tower_sessions_sqlx_store::PostgresStore;
 #[macro_use]
 extern crate tracing;
 
-#[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
-    if std::env::var("RUST_LOG").is_err() {
+    dotenv().ok();
+
+    if env::var("RUST_LOG").is_err() {
         unsafe {
             // Concurrent writing of set_var is not permitted,
             // but we're in main, so that shouldn't be a problem.
-            std::env::set_var("RUST_LOG", "INFO");
+            env::set_var("RUST_LOG", "INFO");
         }
     }
     tracing_subscriber::fmt::init();
 
-    let conf = get_configuration(None).expect("invalid configuration");
-    let addr = conf.leptos_options.site_addr;
-    let leptos_options = conf.leptos_options;
-
-    dotenv().ok();
+    let addr = env::var("SITE_ADDR").unwrap_or("0.0.0.0:3000".to_string());
 
     let database_url = env::var("DATABASE_URL").expect("failed to get database url from .env");
 
@@ -114,13 +108,6 @@ async fn main() {
     let session_layer = SessionManagerLayer::new(session_store)
         .with_expiry(Expiry::OnInactivity(Duration::hours(48)));
 
-    let routes = generate_route_list(App);
-
-    let rdh_routes = Router::new()
-        .route("/rdh", get(rdh::basic))
-        .route("/rdh", post(rdh::interpolated))
-        .route("/rdh/result", get(rdh::show_result));
-
     let auth_routes = Router::new()
         .route("/login", get(auth::view::client_login))
         .route("/login", post(auth::login))
@@ -150,25 +137,27 @@ async fn main() {
             get(journal::views::person::people_list_page),
         );
 
+    // the dockerfile defines this for production deployments
+    let site_root = std::env::var("SITE_ROOT").unwrap_or_else(|_| "target/site".to_string());
+
     let app = Router::new()
         .route("/favicon.ico", get(serve_favicon))
         .route("/logo.svg", get(serve_logo))
-        .merge(rdh_routes)
+        .route_service(
+            "/monkesto.css",
+            ServeFile::new(format!("{}/pkg/monkesto.css", site_root)),
+        )
+        .route("/", get(Redirect::to("/journal")))
         .merge(auth_routes)
         .merge(journal_routes)
         .nest("/webauthn/", webauthn_routes)
-        .leptos_routes(&leptos_options, routes, {
-            let leptos_options = leptos_options.clone();
-            move || shell(leptos_options.clone())
-        })
-        .fallback(leptos_axum::file_and_error_handler(shell))
+        .fallback(notfoundpage::not_found_page)
         .layer(axum::Extension(pool))
-        .layer(session_layer)
-        .with_state(leptos_options);
+        .layer(session_layer);
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
-    log!("listening on http://{}", &addr);
+    println!("listening on http://{}", &addr);
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .expect("failed to bind the tcp address");
@@ -193,11 +182,4 @@ async fn serve_logo() -> impl IntoResponse {
         [(header::CONTENT_TYPE, "image/svg+xml")],
         LOGO_SVG,
     )
-}
-
-#[cfg(not(feature = "ssr"))]
-pub fn main() {
-    // no client-side main function
-    // unless we want this to work with e.g., Trunk for pure client-side testing
-    // see lib.rs for hydration function instead
 }

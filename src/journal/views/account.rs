@@ -1,15 +1,15 @@
 use super::homepage::Journal;
 use crate::cuid::Cuid;
+use crate::journal::layout::maud_layout;
+use crate::journal::queries::get_associated_journals;
+use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
 use crate::{auth, extensions};
 use axum::Extension;
-use sqlx::PgPool;
-use tower_sessions::Session;
-use axum::extract::{Query, Path};
-use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
-use crate::journal::layout::maud_layout;
+use axum::extract::{Path, Query};
 use axum::response::Redirect;
 use maud::{Markup, html};
-use crate::journal::queries::get_associated_journals;
+use sqlx::PgPool;
+use tower_sessions::Session;
 
 struct AccountItem {
     pub id: Cuid,
@@ -58,10 +58,14 @@ pub async fn account_list_page(
     Extension(pool): Extension<PgPool>,
     session: Session,
     Path(id): Path<String>,
-    Query(err): Query<UrlError>) -> Result<Markup, Redirect> {
-
-    let session_id = extensions::intialize_session(&session).await.or_redirect(KnownErrors::SessionIdNotFound, "/login")?;
-    let user_id = auth::get_user_id(&session_id, &pool).await.or_redirect(KnownErrors::NotLoggedIn, "/login")?;
+    Query(err): Query<UrlError>,
+) -> Result<Markup, Redirect> {
+    let session_id = extensions::intialize_session(&session)
+        .await
+        .or_redirect(KnownErrors::SessionIdNotFound, "/login")?;
+    let user_id = auth::get_user_id(&session_id, &pool)
+        .await
+        .or_redirect(KnownErrors::NotLoggedIn, "/login")?;
     let journals = get_associated_journals(&user_id, &pool).await;
     let journal_name = journals
         .ok()
@@ -87,7 +91,7 @@ pub async fn account_list_page(
                     }
                     div class="text-right" {
                         div class="text-lg font-medium text-gray-900 dark:text-white" {
-                            (format!("${}/{:02}", account.balance / 100, account.balance % 100))
+                            (format!("${}.{:02}", account.balance / 100, account.balance % 100))
                         }
                     }
                 }

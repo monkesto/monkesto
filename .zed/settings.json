@@ -3,25 +3,15 @@
   "languages": {
     "Rust": {
       "format_on_save": "on",
-      "formatter": {
-        "external": {
-          "command": "bash",
-          "arguments": [".zed/format.sh"]
-        }
-      }
-    }
+    },
   },
   "lsp": {
     "rust-analyzer": {
       "initialization_options": {
         "check": {
           "command": "clippy",
-          "arguments": ["--features=ssr"]
         },
-        "cargo": {
-          "features": ["ssr"]
-        }
-      }
-    }
-  }
+      },
+    },
+  },
 }

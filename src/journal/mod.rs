@@ -3,10 +3,9 @@ pub mod layout;
 pub mod queries;
 pub mod views;
 
-use crate::cuid::Cuid;
+use crate::{cuid::Cuid, known_errors::KnownErrors};
 use bitflags::bitflags;
 use chrono::Utc;
-use leptos::prelude::ServerFnError;
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, query_as, query_scalar};
@@ -70,7 +69,7 @@ impl JournalEvent {
         }
     }
 
-    pub async fn push_db(&self, id: &Cuid, pool: &PgPool) -> Result<i64, ServerFnError> {
+    pub async fn push_db(&self, id: &Cuid, pool: &PgPool) -> Result<i64, KnownErrors> {
         let payload: Vec<u8> = to_allocvec(self)?;
 
         let id: i64 = sqlx::query_scalar(
@@ -110,7 +109,7 @@ impl JournalState {
         id: &Cuid,
         event_types: Vec<JournalEventType>,
         pool: &PgPool,
-    ) -> Result<Self, ServerFnError> {
+    ) -> Result<Self, KnownErrors> {
         let journal_events = query_as::<_, (Vec<u8>,)>(
             r#"
                 SELECT payload FROM journal_events
@@ -142,7 +141,7 @@ impl JournalState {
 
         journal_events
             .into_iter()
-            .try_for_each(|(payload,)| -> Result<(), ServerFnError> {
+            .try_for_each(|(payload,)| -> Result<(), KnownErrors> {
                 aggregate.apply(from_bytes::<JournalEvent>(&payload)?);
                 Ok(())
             })?;
@@ -197,6 +196,7 @@ pub struct SharedAndPendingJournals {
     pub pending: HashMap<Cuid, JournalTenantInfo>,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Account {
     pub id: Cuid,
@@ -258,6 +258,7 @@ pub struct Journals {
     pub selected: Option<AssociatedJournal>,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct JournalInvite {
     pub id: Cuid,
@@ -265,12 +266,14 @@ pub struct JournalInvite {
     pub tenant_info: JournalTenantInfo,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TransactionWithUsername {
     pub author: String,
     pub updates: Vec<BalanceUpdate>,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TransactionWithTimeStamp {
     pub transaction: TransactionWithUsername,
@@ -278,7 +281,7 @@ pub struct TransactionWithTimeStamp {
 }
 
 #[allow(dead_code)]
-pub async fn get_name_from_id(id: &Cuid, pool: &PgPool) -> Result<Option<String>, ServerFnError> {
+pub async fn get_name_from_id(id: &Cuid, pool: &PgPool) -> Result<Option<String>, KnownErrors> {
     let journal_state = JournalState::build(
         id,
         vec![JournalEventType::Created, JournalEventType::Renamed],

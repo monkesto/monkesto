@@ -1,14 +1,12 @@
-use super::{BalanceUpdate, JournalEvent, Permissions, Transaction};
+use super::JournalEvent;
 use crate::auth;
 use crate::cuid::Cuid;
 use crate::extensions;
 use crate::known_errors::{KnownErrors, RedirectOnError};
-use auth::user::{UserEvent, UserEventType, UserState};
-use auth::username;
+use auth::user::UserEvent;
 use axum::Extension;
 use axum::Form;
 use axum::response::Redirect;
-use leptos::prelude::{ServerFnError, server};
 use serde::Deserialize;
 use sqlx::PgPool;
 use tower_sessions::Session;
@@ -63,54 +61,15 @@ pub async fn create_journal(
     Ok(Redirect::to("/journal"))
 }
 
-#[server]
-pub async fn select_journal(journal_id: String) -> Result<(), ServerFnError> {
-    use UserEventType::*;
+/*
+These functions are unused. They are kept to serve as a guide
+for future implementations.
 
-    let journal_id = Cuid::from_str(&journal_id)?;
-    let session_id = extensions::get_session_id().await?;
-    let pool = extensions::get_pool().await?;
-    let user_id = auth::get_user_id(&session_id, &pool).await?;
-
-    let user_state = UserState::build(
-        &user_id,
-        vec![
-            CreatedJournal,
-            InvitedToJournal,
-            AcceptedJournalInvite,
-            DeclinedJournalInvite,
-            RemovedFromJournal,
-        ],
-        &pool,
-    )
-    .await?;
-
-    if !user_state.owned_journals.contains(&journal_id) {
-        let journal = user_state.accepted_journal_invites.get(&journal_id);
-
-        if !journal.is_some_and(|j| j.tenant_permissions.contains(Permissions::READ)) {
-            return Err(ServerFnError::ServerError(
-                KnownErrors::PermissionError {
-                    required_permissions: Permissions::READ,
-                }
-                .to_string()?,
-            ));
-        }
-    }
-
-    UserEvent::SelectedJournal { id: journal_id }
-        .push_db(&user_id, &pool)
-        .await?;
-
-    Ok(())
-}
-
-#[server]
 pub async fn invite_to_journal(
     journal_id: String,
     invitee_username: String,
     permissions: String,
-) -> Result<(), ServerFnError> {
+) -> Result<(), KnownErrors> {
     use UserEventType::*;
 
     let journal_id = Cuid::from_str(&journal_id)?;
@@ -201,7 +160,6 @@ pub async fn invite_to_journal(
     }
 }
 
-#[server]
 pub async fn respond_to_journal_invite(
     journal_id: String,
     accepted: String,
@@ -248,7 +206,6 @@ pub async fn respond_to_journal_invite(
     Ok(())
 }
 
-#[server]
 pub async fn add_account(journal_id: Cuid, account_name: String) -> Result<(), ServerFnError> {
     use UserEventType::*;
 
@@ -301,7 +258,6 @@ pub async fn add_account(journal_id: Cuid, account_name: String) -> Result<(), S
     Ok(())
 }
 
-#[server]
 pub async fn transact(
     journal_id: String,
     account_ids: Vec<String>,
@@ -397,3 +353,4 @@ pub async fn transact(
 
     Ok(())
 }
+*/

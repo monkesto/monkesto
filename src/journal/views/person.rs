@@ -1,13 +1,13 @@
-use crate::{extensions, auth};
 use crate::cuid::Cuid;
-use sqlx::PgPool;
-use axum::extract::{Query, Path};
-use axum::Extension;
-use crate::known_errors::{KnownErrors, UrlError, RedirectOnError};
-use tower_sessions::Session;
 use crate::journal::layout::maud_layout;
+use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
+use crate::{auth, extensions};
+use axum::Extension;
+use axum::extract::{Path, Query};
 use axum::response::Redirect;
 use maud::{Markup, html};
+use sqlx::PgPool;
+use tower_sessions::Session;
 
 struct Person {
     pub id: Cuid,
@@ -31,14 +31,15 @@ fn people() -> Vec<Person> {
     ]
 }
 
-pub async fn people_list_page(Extension(pool): Extension<PgPool>,
+pub async fn people_list_page(
+    Extension(pool): Extension<PgPool>,
     session: Session,
     Path(id): Path<String>,
-    Query(err): Query<UrlError>) -> Result<Markup, Redirect> {
-
+    Query(err): Query<UrlError>,
+) -> Result<Markup, Redirect> {
     let session_id = extensions::intialize_session(&session)
-            .await
-            .or_redirect(KnownErrors::SessionIdNotFound, "/login")?;
+        .await
+        .or_redirect(KnownErrors::SessionIdNotFound, "/login")?;
 
     let user_id = auth::get_user_id(&session_id, &pool)
         .await

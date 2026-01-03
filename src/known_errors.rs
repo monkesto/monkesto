@@ -1,3 +1,5 @@
+use std::{array::TryFromSliceError, str::Utf8Error};
+
 use crate::journal::{BalanceUpdate, Permissions};
 use axum::response::Redirect;
 use base64::{Engine, engine::general_purpose};
@@ -7,6 +9,14 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub enum KnownErrors {
     InternalError {
+        context: String,
+    },
+
+    DatabaseError {
+        context: String,
+    },
+
+    PostcardError {
         context: String,
     },
 
@@ -60,10 +70,6 @@ pub enum KnownErrors {
 }
 
 impl KnownErrors {
-    pub fn to_string(&self) -> Result<String, serde_json::Error> {
-        serde_json::to_string(self)
-    }
-
     pub fn encode(&self) -> String {
         // to_allocvec should be infallible
         let bytes = to_allocvec(self).expect("postcard error serialization failed");
@@ -81,6 +87,54 @@ impl KnownErrors {
             .ok()
             .and_then(|bytes| postcard::from_bytes(&bytes).ok())
             .unwrap_or(Self::None)
+    }
+}
+
+impl From<sqlx::Error> for KnownErrors {
+    fn from(err: sqlx::Error) -> Self {
+        Self::DatabaseError {
+            context: err.to_string(),
+        }
+    }
+}
+
+impl From<postcard::Error> for KnownErrors {
+    fn from(err: postcard::Error) -> Self {
+        Self::InternalError {
+            context: err.to_string(),
+        }
+    }
+}
+
+impl From<base64::DecodeError> for KnownErrors {
+    fn from(err: base64::DecodeError) -> Self {
+        Self::InternalError {
+            context: err.to_string(),
+        }
+    }
+}
+
+impl From<bcrypt::BcryptError> for KnownErrors {
+    fn from(err: bcrypt::BcryptError) -> Self {
+        Self::InternalError {
+            context: err.to_string(),
+        }
+    }
+}
+
+impl From<Utf8Error> for KnownErrors {
+    fn from(err: Utf8Error) -> Self {
+        Self::InternalError {
+            context: err.to_string(),
+        }
+    }
+}
+
+impl From<TryFromSliceError> for KnownErrors {
+    fn from(err: TryFromSliceError) -> Self {
+        Self::InternalError {
+            context: err.to_string(),
+        }
     }
 }
 

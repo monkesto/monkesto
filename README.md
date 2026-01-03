@@ -36,14 +36,16 @@ touch .env
 echo "DATABASE_URL=postgresql://monkesto:monkesto@localhost:5432/monkesto" >> .env
 ```
 
+## install build dependencies:
+
+```
+cargo install cargo-watch
+cargo install cargo-make
+npm install
+```
+
 ## Start the server:
 
 ```
-cargo leptos watch
-```
-
-## If you do not have cargo-leptos already:
-
-```
-cargo install --locked cargo-leptos
+cargo make
 ```
