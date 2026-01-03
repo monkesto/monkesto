@@ -12,9 +12,6 @@ css:
 build: css
 	cargo build --release
 
-test:
-	cargo test --release
-
 clean:
 	rm -rf target/site
 	cargo clean
