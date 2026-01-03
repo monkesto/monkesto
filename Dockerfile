@@ -3,7 +3,11 @@ FROM rustlang/rust:nightly-bookworm as builder
 
 # Install required tools
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends clang npm
+  && apt-get install -y --no-install-recommends clang
+
+
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs
 
 RUN npm install tailwindcss @tailwindcss/cli
 
