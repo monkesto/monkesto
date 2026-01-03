@@ -91,7 +91,7 @@ pub async fn account_list_page(
                     }
                     div class="text-right" {
                         div class="text-lg font-medium text-gray-900 dark:text-white" {
-                            (format!("${}/{:02}", account.balance / 100, account.balance % 100))
+                            (format!("${}.{:02}", account.balance / 100, account.balance % 100))
                         }
                     }
                 }
