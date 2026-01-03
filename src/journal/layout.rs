@@ -42,7 +42,7 @@ pub fn maud_layout(
                                     }
                                 }
                             }
-                            form action="/logout" method="get" {
+                            form action="/logout" method="post" {
                                 button
                                     class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-2 py-1"
                                     type="submit" {
