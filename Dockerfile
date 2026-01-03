@@ -5,7 +5,7 @@ FROM rustlang/rust:nightly-bookworm as builder
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends clang npm
 
-RUN npm install
+RUN npm install tailwindcss @tailwindcss/cli
 
 # Make an /app dir, which everything will eventually live in
 RUN mkdir -p /app
