@@ -3,7 +3,7 @@ FROM rustlang/rust:nightly-bookworm as builder
 
 # Install required tools
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends clang nodejs
+  && apt-get install -y --no-install-recommends clang npm
 
 # Make an /app dir, which everything will eventually live in
 RUN mkdir -p /app
