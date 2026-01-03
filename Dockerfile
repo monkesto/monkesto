@@ -1,19 +1,19 @@
 # Get started with a build env with Rust nightly
 FROM rustlang/rust:nightly-bookworm as builder
 
-# Install required tools
-RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends clang
-
-
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs
 
-RUN npm install tailwindcss @tailwindcss/cli
+# Install required tools
+RUN apt-get update -y \
+  && apt-get install -y --no-install-recommends clang \
+  && apt-get clean
 
 # Make an /app dir, which everything will eventually live in
 RUN mkdir -p /app
 WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm install
 COPY . .
 
 # Build the app
