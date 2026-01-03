@@ -1,52 +1,15 @@
-use super::{Account, AssociatedJournal, JournalEventType, JournalInvite, JournalState, Journals};
+use super::{AssociatedJournal, JournalEventType, JournalState, Journals};
 use crate::auth;
 use crate::cuid::Cuid;
+use crate::known_errors::KnownErrors;
 use auth::user::{UserEventType, UserState};
 use auth::username;
-use leptos::prelude::{ServerFnError, server};
 use sqlx::PgPool;
-
-#[server]
-pub async fn get_journal_invites() -> Result<Vec<JournalInvite>, ServerFnError> {
-    use JournalEventType::{Created, *};
-    use UserEventType::*;
-
-    let mut invites = Vec::new();
-
-    let session_id = extensions::get_session_id().await?;
-    let pool = extensions::get_pool().await?;
-
-    let user_id = auth::get_user_id(&session_id, &pool).await?;
-
-    let user_state = UserState::build(
-        &user_id,
-        vec![
-            InvitedToJournal,
-            AcceptedJournalInvite,
-            DeclinedJournalInvite,
-            RemovedFromJournal,
-        ],
-        &pool,
-    )
-    .await?;
-
-    for (id, tenant_info) in user_state.pending_journal_invites {
-        let journal_state = JournalState::build(&id, vec![Created, Renamed], &pool).await?;
-
-        invites.push(JournalInvite {
-            id,
-            name: journal_state.name,
-            tenant_info,
-        })
-    }
-
-    Ok(invites)
-}
 
 pub async fn get_associated_journals(
     user_id: &Cuid,
     pool: &PgPool,
-) -> Result<Journals, ServerFnError> {
+) -> Result<Journals, KnownErrors> {
     use JournalEventType::{Created, Deleted};
     use UserEventType::*;
     let mut journals = Vec::new();
@@ -117,7 +80,7 @@ pub async fn get_associated_journals(
 pub async fn get_journal_owner(
     journal_id: &str,
     pool: &PgPool,
-) -> Result<Option<String>, ServerFnError> {
+) -> Result<Option<String>, KnownErrors> {
     let journal_id = Cuid::from_str(journal_id)?;
 
     let journal_state =
@@ -126,7 +89,46 @@ pub async fn get_journal_owner(
     username::get_username(&journal_state.owner, pool).await
 }
 
-#[server]
+/*
+These functions are unused. They are kept to serve as a guide for
+future implementations
+
+pub async fn get_journal_invites() -> Result<Vec<JournalInvite>, KnownError> {
+    use JournalEventType::{Created, *};
+    use UserEventType::*;
+
+    let mut invites = Vec::new();
+
+    let session_id = extensions::get_session_id().await?;
+    let pool = extensions::get_pool().await?;
+
+    let user_id = auth::get_user_id(&session_id, &pool).await?;
+
+    let user_state = UserState::build(
+        &user_id,
+        vec![
+            InvitedToJournal,
+            AcceptedJournalInvite,
+            DeclinedJournalInvite,
+            RemovedFromJournal,
+        ],
+        &pool,
+    )
+    .await?;
+
+    for (id, tenant_info) in user_state.pending_journal_invites {
+        let journal_state = JournalState::build(&id, vec![Created, Renamed], &pool).await?;
+
+        invites.push(JournalInvite {
+            id,
+            name: journal_state.name,
+            tenant_info,
+        })
+    }
+
+    Ok(invites)
+}
+
 pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
     use JournalEventType::{Created, *};
     use UserEventType::*;
@@ -186,9 +188,6 @@ pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
 
     Ok(accounts)
 }
-
-/*
-This is unused. It is kept to serve as a guide for a future implementation.
 
 pub async fn get_transactions(
     journals: Result<Journals, ServerFnError>,

@@ -1,8 +1,7 @@
 use super::known_errors::KnownErrors;
-use leptos::prelude::ServerFnError;
 use tower_sessions::Session;
 
-pub async fn intialize_session(session: &Session) -> Result<String, ServerFnError> {
+pub async fn intialize_session(session: &Session) -> Result<String, KnownErrors> {
     if session
         .get::<bool>("initialized")
         .await
@@ -16,7 +15,5 @@ pub async fn intialize_session(session: &Session) -> Result<String, ServerFnErro
     if let Some(s) = session.id() {
         return Ok(s.to_string());
     }
-    Err(ServerFnError::ServerError(
-        KnownErrors::SessionIdNotFound.to_string()?,
-    ))
+    Err(KnownErrors::SessionIdNotFound)
 }

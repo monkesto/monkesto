@@ -5,7 +5,6 @@ mod journal;
 mod known_errors;
 mod maud_header;
 mod notfoundpage;
-mod rdh;
 mod webauthn;
 
 use axum::Router;
@@ -15,7 +14,6 @@ use axum::response::Redirect;
 use axum::routing::get;
 use axum::routing::post;
 use dotenvy::dotenv;
-use leptos::logging::log;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
 use std::env;
@@ -110,11 +108,6 @@ async fn main() {
     let session_layer = SessionManagerLayer::new(session_store)
         .with_expiry(Expiry::OnInactivity(Duration::hours(48)));
 
-    let rdh_routes = Router::new()
-        .route("/rdh", get(rdh::basic))
-        .route("/rdh", post(rdh::interpolated))
-        .route("/rdh/result", get(rdh::show_result));
-
     let auth_routes = Router::new()
         .route("/login", get(auth::view::client_login))
         .route("/login", post(auth::login))
@@ -155,7 +148,6 @@ async fn main() {
             ServeFile::new(format!("{}/pkg/monkesto.css", site_root)),
         )
         .route("/", get(Redirect::to("/journal")))
-        .merge(rdh_routes)
         .merge(auth_routes)
         .merge(journal_routes)
         .nest("/webauthn/", webauthn_routes)
@@ -165,7 +157,7 @@ async fn main() {
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
-    log!("listening on http://{}", &addr);
+    println!("listening on http://{}", &addr);
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .expect("failed to bind the tcp address");

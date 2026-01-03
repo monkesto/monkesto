@@ -1,13 +1,8 @@
 use crate::cuid::Cuid;
-use leptos::prelude::ServerFnError;
-use leptos::server;
+use crate::known_errors::KnownErrors;
 use sqlx::PgPool;
 
-pub async fn update(
-    user_id: &Cuid,
-    username: &String,
-    pool: &PgPool,
-) -> Result<i64, ServerFnError> {
+pub async fn update(user_id: &Cuid, username: &String, pool: &PgPool) -> Result<i64, KnownErrors> {
     let id: i64 = sqlx::query_scalar(
         r#"
         INSERT INTO username_events (
@@ -26,7 +21,7 @@ pub async fn update(
     Ok(id)
 }
 
-pub async fn get_username(user_id: &Cuid, pool: &PgPool) -> Result<Option<String>, ServerFnError> {
+pub async fn get_username(user_id: &Cuid, pool: &PgPool) -> Result<Option<String>, KnownErrors> {
     let username: Option<String> = sqlx::query_scalar(
         r#"
         SELECT username FROM username_events
@@ -42,7 +37,7 @@ pub async fn get_username(user_id: &Cuid, pool: &PgPool) -> Result<Option<String
     Ok(username)
 }
 
-pub async fn get_id(username: &String, pool: &PgPool) -> Result<Option<Cuid>, ServerFnError> {
+pub async fn get_id(username: &String, pool: &PgPool) -> Result<Option<Cuid>, KnownErrors> {
     let id: Option<Vec<u8>> = sqlx::query_scalar(
         r#"
         SELECT user_id FROM username_events
@@ -60,16 +55,4 @@ pub async fn get_id(username: &String, pool: &PgPool) -> Result<Option<Cuid>, Se
     } else {
         Ok(None)
     }
-}
-
-#[server]
-pub async fn get_username_from_session() -> Result<String, ServerFnError> {
-    let pool = extensions::get_pool().await?;
-    let user_id = get_user_id_from_session().await?;
-
-    get_username(&user_id, &pool)
-        .await?
-        .ok_or(ServerFnError::ServerError(
-            KnownErrors::UserDoesntExist.to_string()?,
-        ))
 }

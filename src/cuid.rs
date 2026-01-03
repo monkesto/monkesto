@@ -1,6 +1,5 @@
 use super::known_errors::KnownErrors;
 use cuid::{Cuid2Constructor, cuid2_slug, is_cuid2};
-use leptos::prelude::ServerFnError;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -30,23 +29,19 @@ impl Cuid {
         )
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, ServerFnError> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, KnownErrors> {
         let str = str::from_utf8(bytes)?;
         Self::from_str(str)
     }
 
-    pub fn from_str(str: &str) -> Result<Self, ServerFnError> {
+    pub fn from_str(str: &str) -> Result<Self, KnownErrors> {
         if !is_cuid2(str) {
-            return Err(ServerFnError::ServerError(
-                KnownErrors::InvalidId.to_string()?,
-            ));
+            return Err(KnownErrors::InvalidId);
         }
         match str.len() {
             10 => Ok(Self::Cuid10(str.as_bytes().try_into()?)),
             16 => Ok(Self::Cuid16(str.as_bytes().try_into()?)),
-            _ => Err(ServerFnError::ServerError(
-                KnownErrors::InvalidId.to_string()?,
-            )),
+            _ => Err(KnownErrors::InvalidId),
         }
     }
 

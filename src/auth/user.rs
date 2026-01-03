@@ -1,8 +1,7 @@
 use crate::cuid::Cuid;
 use crate::journal::JournalTenantInfo;
 use crate::journal::Permissions;
-use leptos::prelude::ServerFnError;
-use leptos::server;
+use crate::known_errors::KnownErrors;
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, query_as};
@@ -71,7 +70,7 @@ impl UserEvent {
             Self::Deleted => Deleted,
         }
     }
-    pub async fn push_db(&self, id: &Cuid, pool: &PgPool) -> Result<i64, ServerFnError> {
+    pub async fn push_db(&self, id: &Cuid, pool: &PgPool) -> Result<i64, KnownErrors> {
         let event_type = self.get_type();
         let payload: Vec<u8> = to_allocvec(self)?;
 
@@ -114,7 +113,7 @@ impl UserState {
         id: &Cuid,
         event_types: Vec<UserEventType>,
         pool: &PgPool,
-    ) -> Result<Self, ServerFnError> {
+    ) -> Result<Self, KnownErrors> {
         let user_events = query_as::<_, (Vec<u8>,)>(
             r#"
             SELECT payload FROM user_events
@@ -135,7 +134,7 @@ impl UserState {
 
         user_events
             .into_iter()
-            .try_for_each(|(payload,)| -> Result<(), ServerFnError> {
+            .try_for_each(|(payload,)| -> Result<(), KnownErrors> {
                 aggregate.apply(from_bytes::<UserEvent>(&payload)?);
                 Ok(())
             })?;
@@ -186,7 +185,7 @@ impl UserState {
     }
 }
 
-pub async fn get_hashed_pw(user_id: &Cuid, pool: &PgPool) -> Result<String, ServerFnError> {
+pub async fn get_hashed_pw(user_id: &Cuid, pool: &PgPool) -> Result<String, KnownErrors> {
     let user = UserState::build(
         user_id,
         vec![UserEventType::Created, UserEventType::PasswordUpdated],
@@ -195,14 +194,4 @@ pub async fn get_hashed_pw(user_id: &Cuid, pool: &PgPool) -> Result<String, Serv
     .await?;
 
     Ok(user.hashed_password)
-}
-
-#[server]
-pub async fn get_user_id_from_session() -> Result<Cuid, ServerFnError> {
-    let pool = extensions::get_pool().await?;
-    let session_id = extensions::get_session_id().await?;
-
-    // this returns KnownErrors::NotLoggedIn if the session id
-    // isnt associated with a logged in user
-    get_user_id(&session_id, &pool).await
 }
