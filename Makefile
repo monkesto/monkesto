@@ -1,5 +1,7 @@
 .PHONY: dev build css test clean
 
+all: dev
+
 dev:
 	npx tailwindcss -i ./style/input.css -o ./target/site/pkg/monkesto.css --watch &
 	cargo watch -x run
