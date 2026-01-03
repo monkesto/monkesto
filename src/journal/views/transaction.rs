@@ -137,7 +137,7 @@ pub async fn transaction_list_page(
     Extension(pool): Extension<PgPool>,
     session: Session,
     Path(id): Path<String>,
-    Query(err): Query<UrlError>
+    Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
     let session_id = extensions::intialize_session(&session)
         .await

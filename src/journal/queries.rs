@@ -1,7 +1,4 @@
-use super::{
-    Account, AssociatedJournal, JournalEventType, JournalInvite, JournalState,
-    Journals,
-};
+use super::{Account, AssociatedJournal, JournalEventType, JournalInvite, JournalState, Journals};
 use crate::auth;
 use crate::cuid::Cuid;
 use auth::user::{UserEventType, UserState};

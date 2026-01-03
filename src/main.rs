@@ -4,13 +4,14 @@ mod extensions;
 mod journal;
 mod known_errors;
 mod maud_header;
+mod notfoundpage;
 mod rdh;
 mod webauthn;
-mod notfoundpage;
 
 use axum::Router;
 use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
+use axum::response::Redirect;
 use axum::routing::get;
 use axum::routing::post;
 use dotenvy::dotenv;
@@ -18,10 +19,9 @@ use leptos::logging::log;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
 use std::env;
+use tower_http::services::ServeFile;
 use tower_sessions::{Expiry, SessionManagerLayer, cookie::time::Duration};
 use tower_sessions_sqlx_store::PostgresStore;
-use axum::response::Redirect;
-use tower_http::services::ServeFile;
 
 // Allow using tracing macros anywhere without needing to import them
 #[macro_use]
@@ -145,13 +145,15 @@ async fn main() {
         );
 
     // the dockerfile defines this for production deployments
-    let site_root = std::env::var("SITE_ROOT")
-        .unwrap_or_else(|_| "target/site".to_string());
+    let site_root = std::env::var("SITE_ROOT").unwrap_or_else(|_| "target/site".to_string());
 
     let app = Router::new()
         .route("/favicon.ico", get(serve_favicon))
         .route("/logo.svg", get(serve_logo))
-        .route_service("/monkesto.css", ServeFile::new(format!("{}/pkg/monkesto.css", site_root)))
+        .route_service(
+            "/monkesto.css",
+            ServeFile::new(format!("{}/pkg/monkesto.css", site_root)),
+        )
         .route("/", get(Redirect::to("/journal")))
         .merge(rdh_routes)
         .merge(auth_routes)

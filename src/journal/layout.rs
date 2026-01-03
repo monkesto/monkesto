@@ -1,5 +1,5 @@
-use maud::{Markup, html};
 use crate::maud_header;
+use maud::{Markup, html};
 
 pub fn maud_layout(
     page_title: Option<&str>,
