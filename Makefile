@@ -8,7 +8,7 @@ css:
 	npx tailwindcss -i ./style/input.css -o ./target/site/pkg/monkesto.css --minify
 
 build: css
-	cargo build --release -vv
+	cargo build --release
 
 test:
 	cargo test --release
