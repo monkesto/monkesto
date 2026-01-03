@@ -6,8 +6,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 # Install required tools
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends clang \
-  && apt-get clean
+    && apt-get install -y --no-install-recommends clang \
+    && apt-get clean
 
 # Make an /app dir, which everything will eventually live in
 RUN mkdir -p /app
@@ -17,15 +17,16 @@ RUN npm install
 COPY . .
 
 # Build the app
-RUN make build
+RUN npx tailwindcss -i ./style/input.css -o ./target/site/pkg/monkesto.css --minify
+RUN cargo build --release
 
 FROM debian:bookworm-slim as runtime
 WORKDIR /app
 RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends openssl ca-certificates \
-  && apt-get autoremove -y \
-  && apt-get clean -y \
-  && rm -rf /var/lib/apt/lists/*
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && apt-get autoremove -y \
+    && apt-get clean -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy the server binary to the /app directory
 COPY --from=builder /app/target/release/monkesto /app/
