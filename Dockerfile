@@ -5,6 +5,8 @@ FROM rustlang/rust:nightly-bookworm as builder
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends clang npm
 
+RUN npm install
+
 # Make an /app dir, which everything will eventually live in
 RUN mkdir -p /app
 WORKDIR /app
