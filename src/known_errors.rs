@@ -139,12 +139,29 @@ impl From<TryFromSliceError> for KnownErrors {
 }
 
 pub trait RedirectOnError<T> {
-    fn or_redirect(self, error: KnownErrors, page: &str) -> Result<T, Redirect>;
+    /// redirects to the given page, passing E
+    fn or_redirect(self, page: &str) -> Result<T, Redirect>;
+
+    /// redirects to the given page without passing E
+    fn or_redirect_clean(self, page: &str) -> Result<T, Redirect>;
+
+    #[allow(dead_code)]
+    /// redirects to the given page, passing the given err
+    fn or_redirect_override(self, err: KnownErrors, page: &str) -> Result<T, Redirect>;
 }
 
-impl<T, E> RedirectOnError<T> for Result<T, E> {
-    fn or_redirect(self, error: KnownErrors, page: &str) -> Result<T, Redirect> {
-        self.map_err(|_| error.redirect(page))
+impl<T, E> RedirectOnError<T> for Result<T, E>
+where
+    E: Into<KnownErrors>,
+{
+    fn or_redirect(self, page: &str) -> Result<T, Redirect> {
+        self.map_err(|e| e.into().redirect(page))
+    }
+    fn or_redirect_clean(self, page: &str) -> Result<T, Redirect> {
+        self.map_err(|_| Redirect::to(page))
+    }
+    fn or_redirect_override(self, err: KnownErrors, page: &str) -> Result<T, Redirect> {
+        self.map_err(|_| err.redirect(page))
     }
 }
 

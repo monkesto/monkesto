@@ -26,11 +26,11 @@ pub async fn journal_list(
 ) -> Result<Markup, Redirect> {
     let session_id = extensions::intialize_session(&session)
         .await
-        .or_redirect(KnownErrors::SessionIdNotFound, "/login")?;
+        .or_redirect_clean("/login")?;
 
     let user_id = auth::get_user_id(&session_id, &pool)
         .await
-        .or_redirect(KnownErrors::NotLoggedIn, "/login")?;
+        .or_redirect_clean("/login")?;
 
     let journals_result = get_associated_journals(&user_id, &pool).await;
 
@@ -99,11 +99,11 @@ pub async fn journal_detail(
 ) -> Result<Markup, Redirect> {
     let session_id = extensions::intialize_session(&session)
         .await
-        .or_redirect(KnownErrors::SessionIdNotFound, "/login")?;
+        .or_redirect_clean("/login")?;
 
     let user_id = auth::get_user_id(&session_id, &pool)
         .await
-        .or_redirect(KnownErrors::NotLoggedIn, "/login")?;
+        .or_redirect_clean("/login")?;
 
     let journal_result = get_associated_journals(&user_id, &pool)
         .await

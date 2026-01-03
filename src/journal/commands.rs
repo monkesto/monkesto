@@ -23,11 +23,11 @@ pub async fn create_journal(
 ) -> Result<Redirect, Redirect> {
     let session_id = extensions::intialize_session(&session)
         .await
-        .or_redirect(KnownErrors::SessionIdNotFound, "/login")?;
+        .or_redirect_clean("/login")?;
 
     let user_id = auth::get_user_id(&session_id, &pool)
         .await
-        .or_redirect(KnownErrors::NotLoggedIn, "/login")?;
+        .or_redirect_clean("/login")?;
 
     if form.journal_name.trim().is_empty() {
         return Err(KnownErrors::InvalidInput.redirect("/journal"));
@@ -41,22 +41,12 @@ pub async fn create_journal(
     }
     .push_db(&journal_id, &pool)
     .await
-    .or_redirect(
-        KnownErrors::InternalError {
-            context: "pushing journal creation".to_string(),
-        },
-        "/journal",
-    )?;
+    .or_redirect("/journal")?;
 
     UserEvent::CreatedJournal { id: journal_id }
         .push_db(&user_id, &pool)
         .await
-        .or_redirect(
-            KnownErrors::InternalError {
-                context: "pushing user_journal creation".to_string(),
-            },
-            "/journal",
-        )?;
+        .or_redirect("/journal")?;
 
     Ok(Redirect::to("/journal"))
 }

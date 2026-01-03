@@ -62,10 +62,10 @@ pub async fn account_list_page(
 ) -> Result<Markup, Redirect> {
     let session_id = extensions::intialize_session(&session)
         .await
-        .or_redirect(KnownErrors::SessionIdNotFound, "/login")?;
+        .or_redirect_clean("/login")?;
     let user_id = auth::get_user_id(&session_id, &pool)
         .await
-        .or_redirect(KnownErrors::NotLoggedIn, "/login")?;
+        .or_redirect_clean("/login")?;
     let journals = get_associated_journals(&user_id, &pool).await;
     let journal_name = journals
         .ok()

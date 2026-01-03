@@ -96,7 +96,7 @@ pub async fn create_user(
 ) -> Result<Redirect, Redirect> {
     let session_id = extensions::intialize_session(&session)
         .await
-        .or_redirect(KnownErrors::SessionIdNotFound, "/signup")?;
+        .or_redirect_clean("/signup")?;
 
     if form.username.trim().is_empty() {
         return Err(KnownErrors::InvalidUsername {
@@ -114,51 +114,27 @@ pub async fn create_user(
 
     if username::get_id(&form.username, &pool)
         .await
-        .or_redirect(
-            KnownErrors::InternalError {
-                context: "fetching username from the database".to_string(),
-            },
-            "/signup",
-        )?
+        .or_redirect("/signup")?
         .is_none()
     {
         let id = Cuid::new16();
 
         UserEvent::Created {
-            hashed_password: bcrypt::hash(form.password, bcrypt::DEFAULT_COST).or_redirect(
-                KnownErrors::InternalError {
-                    context: "hashing password".to_string(),
-                },
-                "/signup",
-            )?,
+            hashed_password: bcrypt::hash(form.password, bcrypt::DEFAULT_COST)
+                .or_redirect("/signup")?,
         }
         .push_db(&id, &pool)
         .await
-        .or_redirect(
-            KnownErrors::InternalError {
-                context: "pushing user creation event".to_string(),
-            },
-            "/signup",
-        )?;
+        .or_redirect("/signup")?;
 
         username::update(&id, &form.username, &pool)
             .await
-            .or_redirect(
-                KnownErrors::InternalError {
-                    context: "pushing username update".to_string(),
-                },
-                "/signup",
-            )?;
+            .or_redirect("/signup")?;
 
         AuthEvent::Login
             .push_db(&id, &session_id, &pool)
             .await
-            .or_redirect(
-                KnownErrors::LoginFailed {
-                    username: form.username,
-                },
-                "/login",
-            )?;
+            .or_redirect("/login")?;
     } else {
         return Err(KnownErrors::UserExists {
             username: form.username,
@@ -182,7 +158,7 @@ pub async fn login(
 ) -> Result<Redirect, Redirect> {
     let session_id = extensions::intialize_session(&session)
         .await
-        .or_redirect(KnownErrors::SessionIdNotFound, "/login")?;
+        .or_redirect_clean("/login")?;
 
     let user_id = match username::get_id(&form.username, &pool).await {
         Ok(Some(s)) => s,
@@ -195,23 +171,15 @@ pub async fn login(
         }
     };
 
-    let hashed_password = user::get_hashed_pw(&user_id, &pool).await.or_redirect(
-        KnownErrors::InternalError {
-            context: "fetching password".to_string(),
-        },
-        "/login",
-    )?;
+    let hashed_password = user::get_hashed_pw(&user_id, &pool)
+        .await
+        .or_redirect("/login")?;
 
     if bcrypt::verify(&form.password, &hashed_password).is_ok_and(|f| f) {
         AuthEvent::Login
             .push_db(&user_id, &session_id, &pool)
             .await
-            .or_redirect(
-                KnownErrors::InternalError {
-                    context: "pushing login event".to_string(),
-                },
-                "/login",
-            )?;
+            .or_redirect("/login")?;
 
         Ok(Redirect::to("/journal"))
     } else {
@@ -229,21 +197,16 @@ pub async fn log_out(
     // if the user tries to enter this page without being logged in, silently redirect to the login page
     let session_id = extensions::intialize_session(&session)
         .await
-        .or_redirect(KnownErrors::None, "/login")?;
+        .or_redirect_clean("/login")?;
 
     let user_id = get_user_id(&session_id, &pool)
         .await
-        .or_redirect(KnownErrors::None, "/login")?;
+        .or_redirect_clean("/login")?;
 
     AuthEvent::Logout
         .push_db(&user_id, &session_id, &pool)
         .await
-        .or_redirect(
-            KnownErrors::InternalError {
-                context: "pushing logout evenet".to_string(),
-            },
-            "/journal",
-        )?;
+        .or_redirect("/journal")?;
 
     Ok(Redirect::to("/login"))
 }
