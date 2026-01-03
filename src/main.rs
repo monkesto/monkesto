@@ -139,7 +139,8 @@ async fn main() {
             "/journal/{id}/transaction",
             get(journal::views::transaction::transaction_list_page),
         )
-        .route("/journal/{id}/account", get(journal::views::account::account_list_page));
+        .route("/journal/{id}/account", get(journal::views::account::account_list_page))
+        .route("/journal/{id}/person", get(journal::views::person::people_list_page));
 
     let app = Router::new()
         .merge(rdh_routes)
