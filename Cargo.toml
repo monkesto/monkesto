@@ -91,6 +91,9 @@ site-root = "target/site"
 # Defaults to pkg
 site-pkg-dir = "pkg"
 
+# [Optional] The source CSS file. If it ends with .sass or .scss then it will be compiled by dart-sass into CSS. The CSS is optimized by Lightning CSS before being written to <site-root>/<site-pkg>/app.css
+tailwind-input-file = "style/input.css"
+
 # The IP and port (ex: 127.0.0.1:3000) where the server serves the content. Use it in your server setup.
 site-addr = "0.0.0.0:3000"
 
