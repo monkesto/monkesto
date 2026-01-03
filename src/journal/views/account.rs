@@ -1,50 +1,15 @@
 use super::homepage::Journal;
 use crate::cuid::Cuid;
-use crate::journal::commands::AddAccount;
-use crate::journal::layout::Layout;
-use leptos::prelude::*;
-
-#[component]
-fn AddAccount(user_id: String, journal_id: String) -> impl IntoView {
-    let add_account = ServerAction::<AddAccount>::new();
-    view! {
-        <div class="flex flex-col items-center text-center px-10 py-10">
-            <h1>"Create a new account"</h1>
-            <ActionForm action=add_account>
-                <input
-                    class="shadow appearance-none border rounded py-2 px-2 text-gray-700 leading-tight focus:outline-none focus:shadow-outline"
-                    type="text"
-                    name="account_name"
-                    required
-                />
-
-                <input type="hidden" name="user_id" value=user_id />
-                <input type="hidden" name="journal_id" value=journal_id />
-
-                <button
-                    class="mt-3 rounded bg-purple-900 px-2 py-2 font-bold text-white hover:bg-blue-400"
-                    type="submit"
-                >
-                    "Add"
-                </button>
-            </ActionForm>
-
-            {move || {
-                match add_account.value().get() {
-                    Some(Err(e)) => {
-
-                        view! {
-                            <p>"An error occurred while creating the account: " {e.to_string()}</p>
-                        }
-                            .into_any()
-                    }
-                    _ => view! { "" }.into_any(),
-                }
-            }}
-
-        </div>
-    }
-}
+use crate::{auth, extensions};
+use axum::Extension;
+use sqlx::PgPool;
+use tower_sessions::Session;
+use axum::extract::{Query, Path};
+use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
+use crate::journal::layout::maud_layout;
+use axum::response::Redirect;
+use maud::{Markup, html};
+use crate::journal::queries::get_associated_journals;
 
 struct AccountItem {
     pub id: Cuid,
@@ -89,79 +54,84 @@ fn journals() -> Vec<Journal> {
     ]
 }
 
-#[component]
-pub fn AccountListPage() -> impl IntoView {
-    use leptos_router::hooks::use_params_map;
+pub async fn account_list_page(
+    Extension(pool): Extension<PgPool>,
+    session: Session,
+    Path(id): Path<String>,
+    Query(err): Query<UrlError>) -> Result<Markup, Redirect> {
 
-    let params = use_params_map();
-    let journal_id = move || params.get().get("id").unwrap_or_default().to_string();
+    let session_id = extensions::intialize_session(&session).await.or_redirect(KnownErrors::SessionIdNotFound, "/login")?;
+    let user_id = auth::get_user_id(&session_id, &pool).await.or_redirect(KnownErrors::NotLoggedIn, "/login")?;
+    let journals = get_associated_journals(&user_id, &pool).await;
+    let journal_name = journals
+        .ok()
+        .map(|journals| {
+            journals
+                .associated
+                .into_iter()
+                .find(|j| j.get_id().to_string() == id)
+                .map(|j| j.get_name())
+                .unwrap_or("unknown journal".to_string())
+        })
+        .unwrap_or("unknown journal".to_string());
 
-    let journal_name = move || {
-        journals()
-            .into_iter()
-            .find(|j| j.id.to_string() == journal_id())
-            .map(|j| j.name)
-            .unwrap_or_else(|| "Unknown Journal".to_string())
+    let content = html! {
+        @for account in accounts() {
+            a
+            href=(format!("/journal/{}/account/{}", id, account.id.to_string()))
+            class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
+                div
+                class="flex justify-between items-center" {
+                    h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                        (account.name)
+                    }
+                    div class="text-right" {
+                        div class="text-lg font-medium text-gray-900 dark:text-white" {
+                            (format!("${}/{:02}", account.balance / 100, account.balance % 100))
+                        }
+                    }
+                }
+            }
+        }
+
+        hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600";
+
+        div class="mt-10" {
+            form class="space-y-6" {
+                div {
+                    label
+                    for="account_name"
+                    class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100" {
+                        "Create New Account"
+                    }
+
+                    div class="mt-2" {
+                        input
+                        id="account_name"
+                        type="text"
+                        name="account_name"
+                        required
+                        class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
+                        ;
+                    }
+                }
+
+                div {
+                    button
+                    type="submit"
+                    class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500" {
+                        "Create Account"
+                    }
+                }
+            }
+
+            @if let Some(e) = err.err {
+                p {
+                    (format!("An error occurred: {:?}", KnownErrors::decode(&e)))
+                }
+            }
+        }
     };
 
-    view! {
-        <Layout page_title=journal_name() show_switch_link=true journal_id=journal_id()>
-            {accounts()
-                .into_iter()
-                .map(|account| {
-                    view! {
-                        <a
-                            href=format!("/journal/{}/account/{}", journal_id(), account.id)
-                            class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                        >
-                            <div class="flex justify-between items-center">
-                                <h3 class="text-lg font-semibold text-gray-900 dark:text-white">
-                                    {account.name}
-                                </h3>
-                                <div class="text-right">
-                                    <div class="text-lg font-medium text-gray-900 dark:text-white">
-                                        {format!(
-                                            "${}.{:02}",
-                                            account.balance / 100,
-                                            account.balance % 100,
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-                        </a>
-                    }
-                })
-                .collect_view()}
-            <hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600" />
-            <div class="mt-10">
-                <form class="space-y-6">
-                    <div>
-                        <label
-                            for="account_name"
-                            class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100"
-                        >
-                            "Create New Account"
-                        </label>
-                        <div class="mt-2">
-                            <input
-                                id="account_name"
-                                type="text"
-                                name="account_name"
-                                required
-                                class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
-                            />
-                        </div>
-                    </div>
-                    <div>
-                        <button
-                            type="submit"
-                            class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500"
-                        >
-                            "Create Account"
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </Layout>
-    }
+    Ok(maud_layout(Some(&journal_name), true, Some(&id), content))
 }

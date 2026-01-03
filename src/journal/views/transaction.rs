@@ -1,9 +1,9 @@
 use crate::cuid::Cuid;
 use crate::journal::layout;
-use crate::known_errors::{KnownErrors, RedirectOnError};
+use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
 use crate::{auth, extensions};
 use axum::Extension;
-use axum::extract::Path;
+use axum::extract::{Path, Query};
 use axum::response::Redirect;
 use maud::{Markup, html};
 use sqlx::PgPool;
@@ -137,6 +137,7 @@ pub async fn transaction_list_page(
     Extension(pool): Extension<PgPool>,
     session: Session,
     Path(id): Path<String>,
+    Query(err): Query<UrlError>
 ) -> Result<Markup, Redirect> {
     let session_id = extensions::intialize_session(&session)
         .await
@@ -344,6 +345,11 @@ pub async fn transaction_list_page(
                             "Create Transaction"
                         }
                     }
+                }
+            }
+            @if let Some(e) = err.err {
+                p {
+                    (format!("An error occurred: {:?}", KnownErrors::decode(&e)))
                 }
             }
         }
