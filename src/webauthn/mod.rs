@@ -6,6 +6,7 @@ use axum::{
     routing::{get, post},
 };
 use maud::{DOCTYPE, Markup, html};
+use std::env;
 use tower_sessions::{
     Expiry, MemoryStore, SessionManagerLayer,
     cookie::{SameSite, time::Duration},
@@ -78,7 +79,7 @@ fn auth_page() -> Markup {
                     src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
                     crossorigin="anonymous" {}
                 script src="auth.js" async {}
-                meta name="webauthn_url" content="http://localhost:3000/webauthn/";
+                meta name="webauthn_url" content=(format!("{}/webauthn/", env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".to_string())));
             }
             body {
                 p { "Welcome to the WebAuthn Server!" }

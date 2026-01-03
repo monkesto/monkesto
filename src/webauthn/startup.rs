@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::env;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use webauthn_rs::prelude::*;
@@ -30,11 +31,15 @@ pub struct AppState {
 
 impl AppState {
     pub fn new() -> Self {
-        // Effective domain name.
-        let rp_id = "localhost";
-        // Url containing the effective domain name
-        // MUST include the port number!
-        let rp_origin = Url::parse("http://localhost:3000").expect("Invalid URL");
+        // Get base URL from environment variable, defaulting to localhost:3000
+        let base_url = env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
+
+        // Parse the base URL to extract the host for rp_id
+        let rp_origin = Url::parse(&base_url).expect("Invalid BASE_URL");
+        let rp_id = rp_origin
+            .host_str()
+            .expect("BASE_URL must have a valid host");
+
         let builder = WebauthnBuilder::new(rp_id, &rp_origin).expect("Invalid configuration");
 
         // Now, with the builder you can define other options.
