@@ -1,8 +1,8 @@
 mod auth;
 mod error;
 mod startup;
-mod login;
-mod register;
+//mod login;
+//mod register;
 
 use axum::{
     Router,
@@ -25,8 +25,8 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Router<S> {
         .route("/register_finish", post(finish_register))
         .route("/login_start/{username}", post(start_authentication))
         .route("/login_finish", post(finish_authentication))
-        .route("/login", get(login::login))
-        .route("/register", get(register::register))
+        //.route("/login", get(login::login))
+        //.route("/register", get(register::register))
         .route("/auth.js", get(serve_auth_js))
         .layer(Extension(AppState::new()))
         .layer(

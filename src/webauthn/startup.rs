@@ -32,7 +32,8 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         // Get base URL from environment variable, defaulting to localhost:3000
-        let base_url = env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
+        let base_url = env::var("RAILWAY_PUBLIC_DOMAIN")
+            .unwrap_or_else(|_| "http://localhost:3000".to_string());
 
         // Parse the base URL to extract the host for rp_id
         let rp_origin = Url::parse(&base_url).expect("Invalid BASE_URL");
