@@ -1,4 +1,5 @@
 use crate::auth::axum_login::AuthSession;
+use crate::auth::user;
 use crate::cuid::Cuid;
 use crate::journal::layout::maud_layout;
 use crate::journal::queries::{get_associated_journals, get_journal_owner};
@@ -22,11 +23,7 @@ pub async fn journal_list(
     session: AuthSession,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let user_id = session
-        .user
-        .ok_or(KnownErrors::NotLoggedIn)
-        .or_redirect("/login")?
-        .id;
+    let user_id = user::get_id(session)?;
 
     let journals_result = get_associated_journals(&user_id, &pool).await;
 

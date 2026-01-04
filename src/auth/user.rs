@@ -1,7 +1,10 @@
+use crate::auth::axum_login::AuthSession;
 use crate::cuid::Cuid;
 use crate::journal::JournalTenantInfo;
 use crate::journal::Permissions;
 use crate::known_errors::KnownErrors;
+use crate::known_errors::RedirectOnError;
+use axum::response::Redirect;
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, query_as};
@@ -149,4 +152,12 @@ impl UserState {
             UserEvent::Deleted => self.deleted = true,
         }
     }
+}
+
+pub fn get_id(session: AuthSession) -> Result<Cuid, Redirect> {
+    Ok(session
+        .user
+        .ok_or(KnownErrors::NotLoggedIn)
+        .or_redirect("/login")?
+        .id)
 }

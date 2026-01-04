@@ -1,9 +1,10 @@
 use super::homepage::Journal;
 use crate::auth;
+use crate::auth::user;
 use crate::cuid::Cuid;
 use crate::journal::layout::maud_layout;
 use crate::journal::queries::get_associated_journals;
-use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
+use crate::known_errors::{KnownErrors, UrlError};
 use auth::axum_login::AuthSession;
 use axum::Extension;
 use axum::extract::{Path, Query};
@@ -60,11 +61,7 @@ pub async fn account_list_page(
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let user_id = session
-        .user
-        .ok_or(KnownErrors::NotLoggedIn)
-        .or_redirect("/login")?
-        .id;
+    let user_id = user::get_id(session)?;
 
     let journal_id = Cuid::from_str(&id);
 
