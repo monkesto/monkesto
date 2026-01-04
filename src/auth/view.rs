@@ -1,25 +1,19 @@
-use crate::extensions;
+use crate::auth::axum_login::AuthSession;
+use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
 use crate::maud_header;
-use crate::{auth::get_user_id, known_errors::KnownErrors};
-use axum::Extension;
 use axum::extract::Query;
 use axum::response::Redirect;
 use maud::{Markup, html};
-use sqlx::PgPool;
-use tower_sessions::Session;
 
 // Redirect and the html macro return different types, so they have to be converted into a response
 // In the case that redirect isn't needed, Markup can be returned directly as it implements IntoResponse
 pub async fn client_login(
-    Extension(pool): Extension<PgPool>,
-    session: Session,
+    session: AuthSession,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    if let Ok(session_id) = extensions::intialize_session(&session).await
-        && super::get_user_id(&session_id, &pool).await.is_ok()
-    {
-        return Err(Redirect::to("/"));
+    if session.user.is_some() {
+        return Err(Redirect::to(&err.next.unwrap_or("/".to_string())));
     }
 
     let username = err
@@ -97,6 +91,13 @@ pub async fn client_login(
                             }
                         }
                     }
+                    @if let Some(url) = err.next {
+                        input
+                        id="next"
+                        type="hidden"
+                        value=(url)
+                        ;
+                    }
                 }
 
                 p class="mt-10 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
@@ -122,14 +123,11 @@ pub async fn client_login(
 }
 
 pub async fn client_signup(
-    Extension(pool): Extension<PgPool>,
-    session: Session,
+    session: AuthSession,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    if let Ok(session_id) = extensions::intialize_session(&session).await
-        && get_user_id(&session_id, &pool).await.is_ok()
-    {
-        return Err(Redirect::to("/journal"));
+    if session.user.is_some() {
+        return Err(Redirect::to(&err.next.unwrap_or("/".to_string())));
     }
 
     let content = html! {
@@ -203,6 +201,14 @@ pub async fn client_signup(
                                 "Register"
                             }
                         }
+                    }
+
+                    @if let Some(url) = err.next {
+                        input
+                        id="next"
+                        type="hidden"
+                        value=(url)
+                        ;
                     }
                 }
 

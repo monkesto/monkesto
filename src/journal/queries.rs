@@ -1,4 +1,6 @@
-use super::{AssociatedJournal, JournalEventType, JournalState, Journals};
+use std::collections::HashMap;
+
+use super::{AssociatedJournal, JournalEventType, JournalState};
 use crate::auth;
 use crate::cuid::Cuid;
 use crate::known_errors::KnownErrors;
@@ -9,12 +11,10 @@ use sqlx::PgPool;
 pub async fn get_associated_journals(
     user_id: &Cuid,
     pool: &PgPool,
-) -> Result<Journals, KnownErrors> {
+) -> Result<HashMap<Cuid, AssociatedJournal>, KnownErrors> {
     use JournalEventType::{Created, Deleted};
     use UserEventType::*;
-    let mut journals = Vec::new();
-
-    let mut selected: Option<AssociatedJournal> = None;
+    let mut journals = HashMap::new();
 
     let user = UserState::build(
         user_id,
@@ -24,7 +24,6 @@ pub async fn get_associated_journals(
             AcceptedJournalInvite,
             DeclinedJournalInvite,
             RemovedFromJournal,
-            SelectedJournal,
         ],
         pool,
     )
@@ -33,48 +32,31 @@ pub async fn get_associated_journals(
     for journal_id in user.owned_journals {
         let journal_state = JournalState::build(&journal_id, vec![Created, Deleted], pool).await?;
         if !journal_state.deleted {
-            journals.push(AssociatedJournal::Owned {
-                id: journal_id,
-                name: journal_state.name,
-                created_at: journal_state.created_at,
-            });
-            if journal_id == user.selected_journal {
-                selected = Some(
-                    journals
-                        .last()
-                        .expect("the value was just added, it should exist.")
-                        .clone(),
-                )
-            }
+            journals.insert(
+                journal_id,
+                AssociatedJournal::Owned {
+                    name: journal_state.name,
+                    created_at: journal_state.created_at,
+                },
+            );
         }
     }
 
-    for shared_journal in user.accepted_journal_invites {
-        let journal_state =
-            JournalState::build(&shared_journal.0, vec![Created, Deleted], pool).await?;
+    for (journal_id, tenant_info) in user.accepted_journal_invites {
+        let journal_state = JournalState::build(&journal_id, vec![Created, Deleted], pool).await?;
         if !journal_state.deleted {
-            journals.push(AssociatedJournal::Shared {
-                id: shared_journal.0,
-                name: journal_state.name,
-                created_at: journal_state.created_at,
-                tenant_info: shared_journal.1,
-            });
-
-            if shared_journal.0 == user.selected_journal {
-                selected = Some(
-                    journals
-                        .last()
-                        .expect("the value was just added, it should exist.")
-                        .clone(),
-                );
-            }
+            journals.insert(
+                journal_id,
+                AssociatedJournal::Shared {
+                    name: journal_state.name,
+                    created_at: journal_state.created_at,
+                    tenant_info,
+                },
+            );
         }
     }
 
-    Ok(Journals {
-        associated: journals,
-        selected,
-    })
+    Ok(journals)
 }
 
 pub async fn get_journal_owner(

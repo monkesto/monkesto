@@ -207,12 +207,10 @@ pub struct Account {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum AssociatedJournal {
     Owned {
-        id: Cuid,
         name: String,
         created_at: chrono::DateTime<Utc>,
     },
     Shared {
-        id: Cuid,
         name: String,
         created_at: chrono::DateTime<Utc>,
         tenant_info: JournalTenantInfo,
@@ -232,12 +230,6 @@ impl AssociatedJournal {
 }
 
 impl AssociatedJournal {
-    pub fn get_id(&self) -> Cuid {
-        match self {
-            Self::Owned { id, .. } => *id,
-            Self::Shared { id, .. } => *id,
-        }
-    }
     pub fn get_name(&self) -> String {
         match self {
             Self::Owned { name, .. } => name.clone(),
@@ -250,12 +242,6 @@ impl AssociatedJournal {
             Self::Shared { created_at, .. } => *created_at,
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Journals {
-    pub associated: Vec<AssociatedJournal>,
-    pub selected: Option<AssociatedJournal>,
 }
 
 #[allow(dead_code)]

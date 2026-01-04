@@ -1,15 +1,15 @@
 use super::homepage::Journal;
+use crate::auth;
 use crate::cuid::Cuid;
 use crate::journal::layout::maud_layout;
 use crate::journal::queries::get_associated_journals;
 use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
-use crate::{auth, extensions};
+use auth::axum_login::AuthSession;
 use axum::Extension;
 use axum::extract::{Path, Query};
 use axum::response::Redirect;
 use maud::{Markup, html};
 use sqlx::PgPool;
-use tower_sessions::Session;
 
 struct AccountItem {
     pub id: Cuid,
@@ -56,28 +56,23 @@ fn journals() -> Vec<Journal> {
 
 pub async fn account_list_page(
     Extension(pool): Extension<PgPool>,
-    session: Session,
+    session: AuthSession,
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let session_id = extensions::intialize_session(&session)
-        .await
-        .or_redirect_clean("/login")?;
-    let user_id = auth::get_user_id(&session_id, &pool)
-        .await
-        .or_redirect_clean("/login")?;
+    let user_id = session
+        .user
+        .ok_or(KnownErrors::NotLoggedIn)
+        .or_redirect("/login")?
+        .id;
+
+    let journal_id = Cuid::from_str(&id);
+
     let journals = get_associated_journals(&user_id, &pool).await;
-    let journal_name = journals
+
+    let journal_res = journals
         .ok()
-        .map(|journals| {
-            journals
-                .associated
-                .into_iter()
-                .find(|j| j.get_id().to_string() == id)
-                .map(|j| j.get_name())
-                .unwrap_or("unknown journal".to_string())
-        })
-        .unwrap_or("unknown journal".to_string());
+        .and_then(|journals| journals.get(&journal_id.unwrap_or_default()).cloned());
 
     let content = html! {
         @for account in accounts() {
@@ -137,5 +132,10 @@ pub async fn account_list_page(
         }
     };
 
-    Ok(maud_layout(Some(&journal_name), true, Some(&id), content))
+    Ok(maud_layout(
+        Some(&journal_res.map_or_else(|| "unknown journal".to_string(), |j| j.get_name())),
+        true,
+        Some(&id),
+        content,
+    ))
 }

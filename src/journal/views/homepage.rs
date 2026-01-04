@@ -1,6 +1,5 @@
-use crate::auth;
+use crate::auth::axum_login::AuthSession;
 use crate::cuid::Cuid;
-use crate::extensions;
 use crate::journal::layout::maud_layout;
 use crate::journal::queries::{get_associated_journals, get_journal_owner};
 use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
@@ -9,7 +8,6 @@ use axum::extract::{Path, Query};
 use axum::response::Redirect;
 use maud::{Markup, html};
 use sqlx::PgPool;
-use tower_sessions::Session;
 
 #[allow(dead_code)]
 pub struct Journal {
@@ -21,24 +19,22 @@ pub struct Journal {
 
 pub async fn journal_list(
     Extension(pool): Extension<PgPool>,
-    session: Session,
+    session: AuthSession,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let session_id = extensions::intialize_session(&session)
-        .await
-        .or_redirect_clean("/login")?;
-
-    let user_id = auth::get_user_id(&session_id, &pool)
-        .await
-        .or_redirect_clean("/login")?;
+    let user_id = session
+        .user
+        .ok_or(KnownErrors::NotLoggedIn)
+        .or_redirect("/login")?
+        .id;
 
     let journals_result = get_associated_journals(&user_id, &pool).await;
 
     let content = html! {
         @if let Ok(journals) = journals_result {
-            @for journal in journals.associated {
+            @for (id, journal) in journals {
                 a
-                href=(format! ("/journal/{}", journal.get_id()))
+                href=(format! ("/journal/{}", id))
                 class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
                     h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
                         (journal.get_name())
@@ -94,29 +90,25 @@ pub async fn journal_list(
 
 pub async fn journal_detail(
     Extension(pool): Extension<PgPool>,
-    session: Session,
+    session: AuthSession,
     Path(id): Path<String>,
 ) -> Result<Markup, Redirect> {
-    let session_id = extensions::intialize_session(&session)
-        .await
-        .or_redirect_clean("/login")?;
+    let user_id = session
+        .user
+        .ok_or(KnownErrors::NotLoggedIn)
+        .or_redirect("/login")?
+        .id;
 
-    let user_id = auth::get_user_id(&session_id, &pool)
-        .await
-        .or_redirect_clean("/login")?;
+    let journal_id = Cuid::from_str(&id);
 
-    let journal_result = get_associated_journals(&user_id, &pool)
-        .await
+    let journals = get_associated_journals(&user_id, &pool).await;
+
+    let journal_res = journals
         .ok()
-        .and_then(|journals| {
-            journals
-                .associated
-                .into_iter()
-                .find(|journal| journal.get_id().to_string() == id)
-        });
+        .and_then(|journals| journals.get(&journal_id.unwrap_or_default()).cloned());
 
     let content = html! {
-        @if let Some(journal) = &journal_result {
+        @if let Some(journal) = &journal_res {
             a
             href=(format!("/journal/{}/transaction", &id))
             class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
@@ -162,9 +154,10 @@ pub async fn journal_detail(
         }
     };
 
-    let page_title = journal_result
-        .map(|j| j.get_name())
-        .unwrap_or("unknown journal".to_string());
-
-    Ok(maud_layout(Some(&page_title), true, Some(&id), content))
+    Ok(maud_layout(
+        Some(&journal_res.map_or_else(|| "unknown journal".to_string(), |j| j.get_name())),
+        true,
+        Some(&id),
+        content,
+    ))
 }

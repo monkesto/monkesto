@@ -1,103 +1,30 @@
+pub mod axum_login;
 pub mod user;
 pub mod username;
 pub mod view;
+
+use crate::auth::axum_login::{AuthSession, Credentials};
 use crate::cuid::Cuid;
-use crate::extensions;
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use axum::Extension;
 use axum::extract::Form;
 use axum::response::Redirect;
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::Deserialize;
 use sqlx::PgPool;
-use tower_sessions::Session;
-use user::UserEvent;
-
-#[derive(sqlx::Type, PartialEq)]
-#[sqlx(type_name = "smallint")]
-#[repr(i16)]
-pub enum AuthEvent {
-    Login = 1,
-    Logout = 2,
-}
-
-impl AuthEvent {
-    pub async fn push_db(
-        &self,
-        user_id: &Cuid,
-        session_id: &String,
-        pool: &PgPool,
-    ) -> Result<i64, KnownErrors> {
-        let session_bytes = URL_SAFE_NO_PAD.decode(session_id)?;
-
-        let id: i64 = sqlx::query_scalar(
-            r#"
-            INSERT INTO auth_events (
-                user_id,
-                session_id,
-                event_type
-            )
-            VALUES ($1, $2, $3)
-            RETURNING id
-            "#,
-        )
-        .bind(user_id.to_bytes())
-        .bind(session_bytes)
-        .bind(self)
-        .fetch_one(pool)
-        .await?;
-
-        Ok(id)
-    }
-}
-
-pub async fn get_user_id(session_id: &str, pool: &PgPool) -> Result<Cuid, KnownErrors> {
-    let session_bytes = URL_SAFE_NO_PAD.decode(session_id)?;
-
-    let event: Vec<(Vec<u8>, AuthEvent)> = sqlx::query_as(
-        r#"
-        SELECT user_id, event_type FROM auth_events
-        WHERE session_id = $1
-        ORDER BY created_at DESC
-        LIMIT 1
-        "#,
-    )
-    .bind(session_bytes)
-    .fetch_all(pool)
-    .await?;
-
-    // check that a row with the session id exists
-    let (id, auth_type) = match event.first() {
-        Some(s) => s,
-        None => {
-            return Err(KnownErrors::NotLoggedIn);
-        }
-    };
-
-    // if the latest event was a login, return the user id
-    if *auth_type == AuthEvent::Login {
-        return Cuid::from_bytes(id);
-    }
-
-    Err(KnownErrors::NotLoggedIn)
-}
 
 #[derive(Deserialize)]
 pub struct SignupForm {
     username: String,
     password: String,
     confirm_password: String,
+    next: Option<String>,
 }
 
 pub async fn create_user(
     Extension(pool): Extension<PgPool>,
-    session: Session,
+    mut session: AuthSession,
     Form(form): Form<SignupForm>,
 ) -> Result<Redirect, Redirect> {
-    let session_id = extensions::intialize_session(&session)
-        .await
-        .or_redirect_clean("/signup")?;
-
     if form.username.trim().is_empty() {
         return Err(KnownErrors::InvalidUsername {
             username: form.username,
@@ -118,70 +45,77 @@ pub async fn create_user(
         .is_none()
     {
         let id = Cuid::new16();
+        let password_clone = form.password.clone();
 
-        UserEvent::Created {
-            hashed_password: bcrypt::hash(form.password, bcrypt::DEFAULT_COST)
-                .or_redirect("/signup")?,
-        }
-        .push_db(&id, &pool)
-        .await
-        .or_redirect("/signup")?;
+        let pw_hash =
+            tokio::task::spawn_blocking(|| bcrypt::hash(password_clone, bcrypt::DEFAULT_COST))
+                .await
+                .or_redirect("/signup")?
+                .or_redirect("/signup")?;
+
+        session
+            .backend
+            .create_auth_user(id, form.username.clone(), pw_hash)
+            .await
+            .or_redirect("/signup")?;
 
         username::update(&id, &form.username, &pool)
             .await
             .or_redirect("/signup")?;
 
-        AuthEvent::Login
-            .push_db(&id, &session_id, &pool)
+        if let Ok(Some(user)) = session
+            .authenticate(Credentials {
+                username: form.username.clone(),
+                password: form.password,
+            })
             .await
-            .or_redirect("/login")?;
+        {
+            if let Err(e) = session.login(&user).await {
+                return Err(KnownErrors::InternalError {
+                    context: e.to_string(),
+                }
+                .redirect("/login"));
+            }
+            Ok(Redirect::to(&form.next.unwrap_or("/journal".to_string())))
+        } else {
+            Err(KnownErrors::LoginFailed {
+                username: form.username,
+            }
+            .redirect("/login"))
+        }
     } else {
-        return Err(KnownErrors::UserExists {
+        Err(KnownErrors::UserExists {
             username: form.username,
         }
-        .redirect("/signup"));
+        .redirect("/signup"))
     }
-
-    Ok(Redirect::to("/journal"))
 }
 
 #[derive(Deserialize)]
 pub struct LoginForm {
     username: String,
     password: String,
+    next: Option<String>,
 }
 
 pub async fn login(
-    Extension(pool): Extension<PgPool>,
-    session: Session,
+    mut session: AuthSession,
     Form(form): Form<LoginForm>,
 ) -> Result<Redirect, Redirect> {
-    let session_id = extensions::intialize_session(&session)
+    if let Ok(Some(user)) = session
+        .authenticate(Credentials {
+            username: form.username.clone(),
+            password: form.password,
+        })
         .await
-        .or_redirect_clean("/login")?;
-
-    let user_id = match username::get_id(&form.username, &pool).await {
-        Ok(Some(s)) => s,
-        Ok(None) => return Err(KnownErrors::UserDoesntExist.redirect("/login")),
-        Err(_) => {
+    {
+        if let Err(e) = session.login(&user).await {
             return Err(KnownErrors::InternalError {
-                context: "fetching username".to_string(),
+                context: e.to_string(),
             }
             .redirect("/login"));
         }
-    };
-
-    let hashed_password = user::get_hashed_pw(&user_id, &pool)
-        .await
-        .or_redirect("/login")?;
-
-    if bcrypt::verify(&form.password, &hashed_password).is_ok_and(|f| f) {
-        AuthEvent::Login
-            .push_db(&user_id, &session_id, &pool)
-            .await
-            .or_redirect("/login")?;
-
-        Ok(Redirect::to("/journal"))
+        Ok(Redirect::to(&form.next.unwrap_or("/journal".to_string())))
     } else {
         Err(KnownErrors::LoginFailed {
             username: form.username,
@@ -190,23 +124,13 @@ pub async fn login(
     }
 }
 
-pub async fn log_out(
-    Extension(pool): Extension<PgPool>,
-    session: Session,
-) -> Result<Redirect, Redirect> {
-    // if the user tries to enter this page without being logged in, silently redirect to the login page
-    let session_id = extensions::intialize_session(&session)
-        .await
-        .or_redirect_clean("/login")?;
-
-    let user_id = get_user_id(&session_id, &pool)
-        .await
-        .or_redirect_clean("/login")?;
-
-    AuthEvent::Logout
-        .push_db(&user_id, &session_id, &pool)
-        .await
-        .or_redirect("/journal")?;
-
-    Ok(Redirect::to("/login"))
+pub async fn log_out(mut session: AuthSession) -> Result<Redirect, Redirect> {
+    if let Err(e) = session.logout().await {
+        Err(KnownErrors::InternalError {
+            context: e.to_string(),
+        }
+        .redirect("/journal"))
+    } else {
+        Ok(Redirect::to("/login"))
+    }
 }

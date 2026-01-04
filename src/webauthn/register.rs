@@ -7,6 +7,7 @@ use std::env;
 
 use crate::maud_header::header;
 
+#[allow(dead_code)]
 fn auth_page() -> Markup {
     header(html! {
         (DOCTYPE)
@@ -81,6 +82,7 @@ fn auth_page() -> Markup {
     })
 }
 
+#[allow(dead_code)]
 pub async fn register() -> impl IntoResponse {
     let markup = auth_page();
     (

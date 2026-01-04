@@ -1,3 +1,4 @@
+use core::fmt;
 use std::{array::TryFromSliceError, str::Utf8Error};
 
 use crate::journal::{BalanceUpdate, Permissions};
@@ -17,7 +18,7 @@ pub enum KnownErrors {
     },
 
     PostcardError {
-        context: String,
+        context: Box<postcard::Error>,
     },
 
     SessionIdNotFound,
@@ -90,6 +91,22 @@ impl KnownErrors {
     }
 }
 
+impl fmt::Display for KnownErrors {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl std::error::Error for KnownErrors {}
+
+impl From<tokio::task::JoinError> for KnownErrors {
+    fn from(err: tokio::task::JoinError) -> Self {
+        Self::InternalError {
+            context: err.to_string(),
+        }
+    }
+}
+
 impl From<sqlx::Error> for KnownErrors {
     fn from(err: sqlx::Error) -> Self {
         Self::DatabaseError {
@@ -100,8 +117,8 @@ impl From<sqlx::Error> for KnownErrors {
 
 impl From<postcard::Error> for KnownErrors {
     fn from(err: postcard::Error) -> Self {
-        Self::InternalError {
-            context: err.to_string(),
+        Self::PostcardError {
+            context: Box::new(err),
         }
     }
 }
@@ -143,6 +160,7 @@ pub trait RedirectOnError<T> {
     fn or_redirect(self, page: &str) -> Result<T, Redirect>;
 
     /// redirects to the given page without passing E
+    #[allow(dead_code)]
     fn or_redirect_clean(self, page: &str) -> Result<T, Redirect>;
 
     #[allow(dead_code)]
@@ -168,4 +186,5 @@ where
 #[derive(Deserialize)]
 pub struct UrlError {
     pub err: Option<String>,
+    pub next: Option<String>,
 }

@@ -1,6 +1,5 @@
 mod auth;
 mod cuid;
-mod extensions;
 mod journal;
 mod known_errors;
 mod maud_header;
@@ -13,13 +12,16 @@ use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::routing::get;
 use axum::routing::post;
+use axum_login::{AuthManagerLayerBuilder, login_required};
 use dotenvy::dotenv;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{Pool, Postgres};
 use std::env;
 use tower_http::services::ServeFile;
-use tower_sessions::{Expiry, SessionManagerLayer, cookie::time::Duration};
+use tower_sessions::SessionManagerLayer;
 use tower_sessions_sqlx_store::PostgresStore;
+
+use crate::auth::axum_login::Backend;
 
 // Allow using tracing macros anywhere without needing to import them
 #[macro_use]
@@ -48,6 +50,16 @@ async fn main() {
         .await
         .expect("failed to connect to the postgres pool");
 
+    let session_store = PostgresStore::new(pool.clone());
+    session_store
+        .migrate()
+        .await
+        .expect("faild to migrate session store");
+
+    let session_layer = SessionManagerLayer::new(session_store);
+    let auth_backend = auth::axum_login::Backend::new(pool.clone());
+    let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
+
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS user_events (
             id BIGSERIAL PRIMARY KEY,
@@ -75,17 +87,15 @@ async fn main() {
     .expect("failed to create the journal events table");
 
     sqlx::query(
-        "CREATE TABLE IF NOT EXISTS auth_events (
-            id BIGSERIAL PRIMARY KEY,
+        "CREATE TABLE IF NOT EXISTS auth_users (
             user_id BYTEA NOT NULL,
-            session_id BYTEA NOT NULL,
-            event_type SMALLINT NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+            username TEXT NOT NULL,
+            password TEXT NOT NULL
             )",
     )
     .execute(&pool)
     .await
-    .expect("failed to create the auth events table");
+    .expect("failed to create the auth user table");
 
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS username_events (
@@ -97,16 +107,7 @@ async fn main() {
     )
     .execute(&pool)
     .await
-    .expect("failed to create the auth events table");
-
-    let session_store = PostgresStore::new(pool.clone());
-    session_store
-        .migrate()
-        .await
-        .expect("failed to migrate the session store");
-
-    let session_layer = SessionManagerLayer::new(session_store)
-        .with_expiry(Expiry::OnInactivity(Duration::hours(48)));
+    .expect("failed to create the username events table");
 
     let auth_routes = Router::new()
         .route("/login", get(auth::view::client_login))
@@ -135,7 +136,8 @@ async fn main() {
         .route(
             "/journal/{id}/person",
             get(journal::views::person::people_list_page),
-        );
+        )
+        .route_layer(login_required!(Backend, login_url = "/login"));
 
     // the dockerfile defines this for production deployments
     let site_root = std::env::var("SITE_ROOT").unwrap_or_else(|_| "target/site".to_string());
@@ -153,7 +155,7 @@ async fn main() {
         .nest("/webauthn/", webauthn_routes)
         .fallback(notfoundpage::not_found_page)
         .layer(axum::Extension(pool))
-        .layer(session_layer);
+        .layer(auth_layer);
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`

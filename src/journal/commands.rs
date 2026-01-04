@@ -1,7 +1,7 @@
 use super::JournalEvent;
 use crate::auth;
+use crate::auth::axum_login::AuthSession;
 use crate::cuid::Cuid;
-use crate::extensions;
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use auth::user::UserEvent;
 use axum::Extension;
@@ -9,7 +9,6 @@ use axum::Form;
 use axum::response::Redirect;
 use serde::Deserialize;
 use sqlx::PgPool;
-use tower_sessions::Session;
 
 #[derive(Deserialize)]
 pub struct CreateJournalForm {
@@ -18,16 +17,14 @@ pub struct CreateJournalForm {
 
 pub async fn create_journal(
     Extension(pool): Extension<PgPool>,
-    session: Session,
+    session: AuthSession,
     Form(form): Form<CreateJournalForm>,
 ) -> Result<Redirect, Redirect> {
-    let session_id = extensions::intialize_session(&session)
-        .await
-        .or_redirect_clean("/login")?;
-
-    let user_id = auth::get_user_id(&session_id, &pool)
-        .await
-        .or_redirect_clean("/login")?;
+    let user_id = session
+        .user
+        .ok_or(KnownErrors::NotLoggedIn)
+        .or_redirect("/login")?
+        .id;
 
     if form.journal_name.trim().is_empty() {
         return Err(KnownErrors::InvalidInput.redirect("/journal"));

@@ -9,12 +9,6 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum UserEvent {
-    Created {
-        hashed_password: String,
-    },
-    PasswordUpdated {
-        hashed_password: String,
-    },
     CreatedJournal {
         id: Cuid,
     },
@@ -33,9 +27,6 @@ pub enum UserEvent {
     RemovedFromJournal {
         id: Cuid,
     },
-    SelectedJournal {
-        id: Cuid,
-    },
     Deleted,
 }
 
@@ -43,30 +34,23 @@ pub enum UserEvent {
 #[sqlx(type_name = "smallint")]
 #[repr(i16)]
 pub enum UserEventType {
-    Created = 1,
-    UsernameUpdated = 2,
-    PasswordUpdated = 3,
-    CreatedJournal = 4,
-    InvitedToJournal = 5,
-    AcceptedJournalInvite = 6,
-    DeclinedJournalInvite = 7,
-    RemovedFromJournal = 8,
-    SelectedJournal = 9,
-    Deleted = 10,
+    CreatedJournal = 1,
+    InvitedToJournal = 2,
+    AcceptedJournalInvite = 3,
+    DeclinedJournalInvite = 4,
+    RemovedFromJournal = 5,
+    Deleted = 6,
 }
 
 impl UserEvent {
     pub fn get_type(&self) -> UserEventType {
         use UserEventType::*;
         match self {
-            Self::Created { .. } => Created,
-            Self::PasswordUpdated { .. } => PasswordUpdated,
             Self::CreatedJournal { .. } => CreatedJournal,
             Self::InvitedToJournal { .. } => InvitedToJournal,
             Self::AcceptedJournalInvite { .. } => AcceptedJournalInvite,
             Self::DeclinedJournalInvite { .. } => DeclinedJournalInvite,
             Self::RemovedFromJournal { .. } => RemovedFromJournal,
-            Self::SelectedJournal { .. } => SelectedJournal,
             Self::Deleted => Deleted,
         }
     }
@@ -95,16 +79,11 @@ impl UserEvent {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Default)]
 pub struct UserState {
-    pub id: Cuid,
-    pub authenticated_sessions: std::collections::HashSet<String>,
-    pub hashed_password: String,
     pub pending_journal_invites: HashMap<Cuid, JournalTenantInfo>,
     pub accepted_journal_invites: HashMap<Cuid, JournalTenantInfo>,
     pub owned_journals: HashSet<Cuid>,
-    pub selected_journal: Cuid,
     pub deleted: bool,
 }
 
@@ -126,11 +105,7 @@ impl UserState {
         .fetch_all(pool)
         .await?;
 
-        let mut aggregate = Self {
-            id: *id,
-            selected_journal: Cuid::default(),
-            ..Default::default()
-        };
+        let mut aggregate = Self::default();
 
         user_events
             .into_iter()
@@ -144,14 +119,6 @@ impl UserState {
 
     pub fn apply(&mut self, event: UserEvent) {
         match event {
-            UserEvent::Created {
-                hashed_password: password,
-            } => {
-                self.hashed_password = password;
-            }
-            UserEvent::PasswordUpdated {
-                hashed_password: password,
-            } => self.hashed_password = password,
             UserEvent::CreatedJournal { id } => _ = self.owned_journals.insert(id),
             UserEvent::InvitedToJournal {
                 id,
@@ -179,19 +146,7 @@ impl UserState {
                 }
             }
             UserEvent::RemovedFromJournal { id } => _ = self.accepted_journal_invites.remove(&id),
-            UserEvent::SelectedJournal { id } => self.selected_journal = id,
             UserEvent::Deleted => self.deleted = true,
         }
     }
-}
-
-pub async fn get_hashed_pw(user_id: &Cuid, pool: &PgPool) -> Result<String, KnownErrors> {
-    let user = UserState::build(
-        user_id,
-        vec![UserEventType::Created, UserEventType::PasswordUpdated],
-        pool,
-    )
-    .await?;
-
-    Ok(user.hashed_password)
 }
