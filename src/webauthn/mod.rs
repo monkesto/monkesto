@@ -33,8 +33,8 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Router<S> {
         .layer(
             SessionManagerLayer::new(MemoryStore::default())
                 .with_name("webauthnrs")
-                .with_same_site(SameSite::Strict)
-                .with_secure(false) // TODO: change this to true when running on an HTTPS/production server instead of locally
+                .with_same_site(SameSite::Lax)
+                .with_secure(true)
                 .with_expiry(Expiry::OnInactivity(Duration::seconds(360))),
         )
 }
