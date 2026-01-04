@@ -9,11 +9,25 @@ function register() {
     .querySelector('meta[name="webauthn_url"]')
     .getAttribute("content");
 
+  console.log("Starting registration for username:", username);
+  console.log("Base URL:", baseUrl);
+
   fetch(baseUrl + "register_start/" + encodeURIComponent(username), {
     method: "POST",
   })
-    .then((response) => response.json())
+    .then((response) => {
+      console.log("Register start response status:", response.status);
+      if (!response.ok) {
+        throw new Error(`Register start failed: ${response.status}`);
+      }
+      return response.json();
+    })
     .then((credentialCreationOptions) => {
+      console.log(
+        "Received credential creation options:",
+        credentialCreationOptions,
+      );
+
       credentialCreationOptions.publicKey.challenge = Base64.toUint8Array(
         credentialCreationOptions.publicKey.challenge,
       );
@@ -26,11 +40,14 @@ function register() {
         },
       );
 
+      console.log("Calling navigator.credentials.create...");
       return navigator.credentials.create({
         publicKey: credentialCreationOptions.publicKey,
       });
     })
     .then((credential) => {
+      console.log("Credential created successfully:", credential);
+
       fetch(baseUrl + "register_finish", {
         method: "POST",
         headers: {
@@ -52,6 +69,7 @@ function register() {
           },
         }),
       }).then((response) => {
+        console.log("Register finish response status:", response.status);
         const flash_message = document.getElementById("flash_message");
         if (response.ok) {
           flash_message.innerHTML = "Successfully registered!";
@@ -59,21 +77,20 @@ function register() {
           flash_message.innerHTML = "Error whilst registering!";
         }
       });
+    })
+    .catch((error) => {
+      console.error("Registration error:", error);
+      const flash_message = document.getElementById("flash_message");
+      flash_message.innerHTML = `Registration failed: ${error.message}`;
     });
 }
 
 function login() {
-  let username = document.getElementById("username").value;
-  if (username === "") {
-    alert("Please enter a username");
-    return;
-  }
-
   const baseUrl = document
     .querySelector('meta[name="webauthn_url"]')
     .getAttribute("content");
 
-  fetch(baseUrl + "login_start/" + encodeURIComponent(username), {
+  fetch(baseUrl + "login_start", {
     method: "POST",
   })
     .then((response) => response.json())

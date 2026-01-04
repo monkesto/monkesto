@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use base64::Engine;
 use tower_sessions::Session;
 
 /*
@@ -143,10 +144,29 @@ pub async fn finish_register(
             users_guard
                 .keys
                 .entry(user_unique_id)
-                .and_modify(|keys| keys.push(sk.clone()))
-                .or_insert_with(|| vec![sk.clone()]);
+                .and_modify(|keys| {
+                    info!(
+                        "Adding credential to existing user {:?}, now has {} credentials",
+                        user_unique_id,
+                        keys.len() + 1
+                    );
+                    keys.push(sk.clone());
+                })
+                .or_insert_with(|| {
+                    info!(
+                        "Creating new user {:?} with first credential",
+                        user_unique_id
+                    );
+                    vec![sk.clone()]
+                });
 
             users_guard.name_to_id.insert(username, user_unique_id);
+
+            info!(
+                "Registration complete - total users: {}, total credentials: {}",
+                users_guard.name_to_id.len(),
+                users_guard.keys.values().map(|v| v.len()).sum::<usize>()
+            );
 
             StatusCode::OK
         }
@@ -250,40 +270,179 @@ pub async fn finish_authentication(
     session: Session,
     Json(auth): Json<PublicKeyCredential>,
 ) -> Result<impl IntoResponse, WebauthnError> {
-    let (user_unique_id, auth_state): (Uuid, PasskeyAuthentication) = session
-        .get("auth_state")
-        .await?
-        .ok_or(WebauthnError::CorruptSession)?;
+    // Debug: log the credential ID from the authentication response
+    info!("Authentication response credential ID: {:?}", auth.id);
+    // First try to get regular auth state, then try usernameless auth state
+    let (user_unique_id, auth_state): (Uuid, PasskeyAuthentication) =
+        if let Some((user_unique_id, auth_state)) = session
+            .get::<(Uuid, PasskeyAuthentication)>("auth_state")
+            .await?
+        {
+            let _ = session.remove_value("auth_state").await;
+            (user_unique_id, auth_state)
+        } else if let Some(auth_state) = session
+            .get::<PasskeyAuthentication>("usernameless_auth_state")
+            .await?
+        {
+            let _ = session.remove_value("usernameless_auth_state").await;
+            // For usernameless auth, we need to determine the user_unique_id from the credential
+            // We'll do this after the webauthn verification
+            (Uuid::nil(), auth_state)
+        } else {
+            return Err(WebauthnError::CorruptSession);
+        };
 
-    let _ = session.remove_value("auth_state").await;
+    // For usernameless auth, use the auth_state that contains all credentials
+    if user_unique_id == Uuid::nil() {
+        info!("Usernameless auth: verifying credential ID: {}", auth.id);
 
-    let res = match app_state
+        match app_state
+            .webauthn
+            .finish_passkey_authentication(&auth, &auth_state)
+        {
+            Ok(auth_result) => {
+                info!("Usernameless authentication successful, identifying user...");
+
+                // Find which user owns this credential after successful verification
+                let users_guard = app_state.users.lock().await;
+                let found_user_id = users_guard.keys.iter().find_map(|(uid, keys)| {
+                    keys.iter()
+                        .any(|sk| {
+                            let stored_cred_id_b64 =
+                                base64::engine::general_purpose::URL_SAFE_NO_PAD
+                                    .encode(sk.cred_id().as_ref());
+                            stored_cred_id_b64 == auth.id
+                        })
+                        .then_some(*uid)
+                });
+
+                if let Some(user_id) = found_user_id {
+                    info!("Identified user: {:?}", user_id);
+                    drop(users_guard);
+                    let mut users_guard = app_state.users.lock().await;
+
+                    // Update the credential counter
+                    users_guard
+                        .keys
+                        .get_mut(&user_id)
+                        .map(|keys| {
+                            keys.iter_mut().for_each(|sk| {
+                                sk.update_credential(&auth_result);
+                            })
+                        })
+                        .ok_or(WebauthnError::UserHasNoCredentials)?;
+
+                    info!("Authentication Successful!");
+                    return Ok(StatusCode::OK);
+                } else {
+                    error!("Could not identify user for verified credential");
+                    return Err(WebauthnError::UserNotFound);
+                }
+            }
+            Err(e) => {
+                error!("usernameless authentication verification failed: {:?}", e);
+                return Ok(StatusCode::BAD_REQUEST);
+            }
+        }
+    }
+
+    // Regular authentication with known user
+    match app_state
         .webauthn
         .finish_passkey_authentication(&auth, &auth_state)
     {
         Ok(auth_result) => {
             let mut users_guard = app_state.users.lock().await;
 
-            // Update the credential counter, if possible.
             users_guard
                 .keys
                 .get_mut(&user_unique_id)
                 .map(|keys| {
                     keys.iter_mut().for_each(|sk| {
-                        // This will update the credential if it's the matching
-                        // one. Otherwise it's ignored. That is why it is safe to
-                        // iterate this over the full list.
                         sk.update_credential(&auth_result);
                     })
                 })
                 .ok_or(WebauthnError::UserHasNoCredentials)?;
-            StatusCode::OK
+            info!("Authentication Successful!");
+            Ok(StatusCode::OK)
         }
         Err(e) => {
-            info!("challenge_register -> {:?}", e);
-            StatusCode::BAD_REQUEST
+            error!("challenge_authenticate -> {:?}", e);
+            Ok(StatusCode::BAD_REQUEST)
+        }
+    }
+}
+
+// Usernameless authentication start - allows login without specifying a username
+// Uses discoverable/resident keys where the authenticator presents available credentials
+pub async fn start_usernameless_authentication(
+    Extension(app_state): Extension<AppState>,
+    session: Session,
+) -> Result<impl IntoResponse, WebauthnError> {
+    info!("Start Usernameless Authentication");
+
+    // Remove any previous authentication that may have occured from the session.
+    let _ = session.remove_value("auth_state").await;
+    info!("Removed previous auth_state from session");
+
+    // Due to webauthn-rs limitations, we need credentials for verification
+    // Load all credentials but ensure client receives empty allowCredentials for privacy
+    let users_guard = app_state.users.lock().await;
+    info!(
+        "Loading credentials for usernameless auth - users: {}, credential entries: {}",
+        users_guard.name_to_id.len(),
+        users_guard.keys.len()
+    );
+
+    for (uid, keys) in &users_guard.keys {
+        info!("User {:?} has {} credentials", uid, keys.len());
+    }
+
+    let all_credentials: Vec<_> = users_guard.keys.values().flatten().cloned().collect();
+    drop(users_guard);
+
+    if all_credentials.is_empty() {
+        let users_guard = app_state.users.lock().await;
+        info!(
+            "No credentials found - total users: {}, credential entries: {}",
+            users_guard.name_to_id.len(),
+            users_guard.keys.len()
+        );
+        drop(users_guard);
+        return Err(WebauthnError::UserHasNoCredentials);
+    }
+
+    info!(
+        "Creating usernameless auth challenge with {} credentials for verification",
+        all_credentials.len()
+    );
+    let res = match app_state
+        .webauthn
+        .start_passkey_authentication(&all_credentials)
+    {
+        Ok((mut rcr, auth_state)) => {
+            info!("Successfully created usernameless authentication challenge");
+
+            // Clear allowCredentials to ensure true usernameless experience
+            // Client won't see any credential hints, maintaining privacy
+            rcr.public_key.allow_credentials.clear();
+
+            // Store the auth state - we'll identify the user from their credential response
+            match session.insert("usernameless_auth_state", auth_state).await {
+                Ok(_) => {
+                    info!("Successfully stored auth state in session");
+                    Json(rcr)
+                }
+                Err(e) => {
+                    error!("Failed to insert auth state into session: {:?}", e);
+                    return Err(WebauthnError::Unknown);
+                }
+            }
+        }
+        Err(e) => {
+            error!("start_usernameless_authentication -> {:?}", e);
+            return Err(WebauthnError::Unknown);
         }
     };
-    info!("Authentication Successful!");
     Ok(res)
 }
