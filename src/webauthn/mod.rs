@@ -43,7 +43,10 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
         .route("/register_start/{username}", post(start_register))
         .route("/register_finish", post(finish_register))
         .route("/login", get(login::login_get).post(login::login_post))
-        .route("/register", get(register::register))
+        .route(
+            "/register",
+            get(register::register_get).post(register::register_post),
+        )
         .route("/auth.js", get(serve_auth_js))
         .layer(Extension(webauthn_url))
         .layer(Extension(app_state))

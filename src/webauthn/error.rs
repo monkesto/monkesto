@@ -13,8 +13,6 @@ pub enum WebauthnError {
     CorruptSession,
     #[error("User Not Found")]
     UserNotFound,
-    #[error("User Has No Credentials")]
-    UserHasNoCredentials,
     #[error("Authentication session expired")]
     SessionExpired,
     #[error("Invalid input data")]
@@ -43,7 +41,6 @@ impl IntoResponse for WebauthnError {
                     WebauthnError::CorruptSession => "Corrupt Session",
                     WebauthnError::UserNotFound => "User Not Found",
                     WebauthnError::Unknown => "Unknown Error",
-                    WebauthnError::UserHasNoCredentials => "User Has No Credentials",
                     WebauthnError::InvalidSessionState(_) => "Deserialising Session failed",
                     WebauthnError::WebauthnInit(_) => "WebAuthn initialization failed",
                     WebauthnError::InvalidUrl(_) => "Invalid URL for WebAuthn origin",
