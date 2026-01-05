@@ -7,14 +7,9 @@ use axum::{
 };
 use base64::Engine;
 use tower_sessions::Session;
-
-/*
- * Webauthn RS auth handlers.
- * These files use webauthn to process the data received from each route, and are closely tied to axum
- */
-
-// 1. Import the prelude - this contains everything needed for the server to function.
-use webauthn_rs::prelude::*;
+use webauthn_rs::prelude::{
+    PasskeyAuthentication, PublicKeyCredential, RegisterPublicKeyCredential, Uuid,
+};
 
 // 2. The first step a client (user) will carry out is requesting a credential to be
 // registered. We need to provide a challenge for this. The work flow will be:

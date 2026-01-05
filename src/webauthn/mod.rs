@@ -17,10 +17,7 @@ use tower_sessions::{
     cookie::{SameSite, time::Duration},
 };
 
-use auth::{
-    finish_authentication, finish_register, start_authentication, start_register,
-    start_usernameless_authentication,
-};
+use auth::{finish_register, start_register};
 use error::WebauthnError;
 use startup::AppState;
 
@@ -45,10 +42,7 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
         .route("/", get(redirect_to_login))
         .route("/register_start/{username}", post(start_register))
         .route("/register_finish", post(finish_register))
-        .route("/login_start/{username}", post(start_authentication))
-        .route("/login_start", post(start_usernameless_authentication))
-        .route("/login_finish", post(finish_authentication))
-        .route("/login", get(login::login))
+        .route("/login", get(login::login_get).post(login::login_post))
         .route("/register", get(register::register))
         .route("/auth.js", get(serve_auth_js))
         .layer(Extension(webauthn_url))

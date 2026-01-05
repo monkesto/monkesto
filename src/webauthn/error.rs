@@ -15,6 +15,10 @@ pub enum WebauthnError {
     UserNotFound,
     #[error("User Has No Credentials")]
     UserHasNoCredentials,
+    #[error("Authentication session expired")]
+    SessionExpired,
+    #[error("Invalid input data")]
+    InvalidInput,
     #[error("Deserialising Session failed: {0}")]
     InvalidSessionState(#[from] tower_sessions::session::Error),
     #[error("WebAuthn initialization failed: {0}")]
@@ -26,18 +30,30 @@ pub enum WebauthnError {
 }
 impl IntoResponse for WebauthnError {
     fn into_response(self) -> Response {
-        let body = match self {
-            WebauthnError::CorruptSession => "Corrupt Session",
-            WebauthnError::UserNotFound => "User Not Found",
-            WebauthnError::Unknown => "Unknown Error",
-            WebauthnError::UserHasNoCredentials => "User Has No Credentials",
-            WebauthnError::InvalidSessionState(_) => "Deserialising Session failed",
-            WebauthnError::WebauthnInit(_) => "WebAuthn initialization failed",
-            WebauthnError::InvalidUrl(_) => "Invalid URL for WebAuthn origin",
-            WebauthnError::InvalidHost => "BASE_URL must have a valid host for WebAuthn rp_id",
-        };
-
-        // its often easiest to implement `IntoResponse` by calling other implementations
-        (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
+        match self {
+            WebauthnError::SessionExpired => {
+                axum::response::Redirect::to("/webauthn/login?error=session_expired")
+                    .into_response()
+            }
+            WebauthnError::InvalidInput => {
+                (StatusCode::BAD_REQUEST, "Invalid Input").into_response()
+            }
+            _ => {
+                let body = match self {
+                    WebauthnError::CorruptSession => "Corrupt Session",
+                    WebauthnError::UserNotFound => "User Not Found",
+                    WebauthnError::Unknown => "Unknown Error",
+                    WebauthnError::UserHasNoCredentials => "User Has No Credentials",
+                    WebauthnError::InvalidSessionState(_) => "Deserialising Session failed",
+                    WebauthnError::WebauthnInit(_) => "WebAuthn initialization failed",
+                    WebauthnError::InvalidUrl(_) => "Invalid URL for WebAuthn origin",
+                    WebauthnError::InvalidHost => {
+                        "BASE_URL must have a valid host for WebAuthn rp_id"
+                    }
+                    _ => unreachable!(),
+                };
+                (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
+            }
+        }
     }
 }
