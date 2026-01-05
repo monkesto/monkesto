@@ -1,14 +1,13 @@
 use axum::{
+    extract::Extension,
     http::{StatusCode, header},
     response::IntoResponse,
 };
 use maud::{DOCTYPE, Markup, html};
-use std::env;
 
 use crate::maud_header::header;
 
-#[allow(dead_code)]
-fn auth_page() -> Markup {
+fn auth_page(webauthn_url: &str) -> Markup {
     header(html! {
         (DOCTYPE)
         html lang="en" {
@@ -20,7 +19,7 @@ fn auth_page() -> Markup {
                     src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
                     crossorigin="anonymous" {}
                 script src="auth.js" async {}
-                meta name="webauthn_url" content=(format!("{}/webauthn/", env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".to_string())));
+                meta name="webauthn_url" content=(webauthn_url);
             }
             body {
                 div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
@@ -64,9 +63,8 @@ fn auth_page() -> Markup {
     })
 }
 
-#[allow(dead_code)]
-pub async fn login() -> impl IntoResponse {
-    let markup = auth_page();
+pub async fn login(Extension(webauthn_url): Extension<String>) -> impl IntoResponse {
+    let markup = auth_page(&webauthn_url);
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/html")],

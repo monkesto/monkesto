@@ -3,6 +3,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use thiserror::Error;
+use webauthn_rs::prelude::WebauthnError as WebauthnCoreError;
 
 #[derive(Error, Debug)]
 pub enum WebauthnError {
@@ -16,6 +17,12 @@ pub enum WebauthnError {
     UserHasNoCredentials,
     #[error("Deserialising Session failed: {0}")]
     InvalidSessionState(#[from] tower_sessions::session::Error),
+    #[error("WebAuthn initialization failed: {0}")]
+    WebauthnInit(#[from] WebauthnCoreError),
+    #[error("Invalid URL for WebAuthn origin: {0}")]
+    InvalidUrl(#[from] url::ParseError),
+    #[error("BASE_URL must have a valid host for WebAuthn rp_id")]
+    InvalidHost,
 }
 impl IntoResponse for WebauthnError {
     fn into_response(self) -> Response {
@@ -25,6 +32,9 @@ impl IntoResponse for WebauthnError {
             WebauthnError::Unknown => "Unknown Error",
             WebauthnError::UserHasNoCredentials => "User Has No Credentials",
             WebauthnError::InvalidSessionState(_) => "Deserialising Session failed",
+            WebauthnError::WebauthnInit(_) => "WebAuthn initialization failed",
+            WebauthnError::InvalidUrl(_) => "Invalid URL for WebAuthn origin",
+            WebauthnError::InvalidHost => "BASE_URL must have a valid host for WebAuthn rp_id",
         };
 
         // its often easiest to implement `IntoResponse` by calling other implementations

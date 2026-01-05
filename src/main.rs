@@ -116,7 +116,7 @@ async fn main() {
         .route("/signup", get(auth::view::client_signup))
         .route("/signup", post(auth::create_user));
 
-    let webauthn_routes = webauthn::router();
+    let webauthn_routes = webauthn::router().expect("Failed to initialize WebAuthn router");
 
     let journal_routes = Router::new()
         .route("/journal", get(journal::views::homepage::journal_list))
