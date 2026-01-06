@@ -9,8 +9,6 @@ use webauthn_rs::prelude::WebauthnError as WebauthnCoreError;
 pub enum WebauthnError {
     #[error("unknown webauthn error")]
     Unknown,
-    #[error("Corrupt Session")]
-    CorruptSession,
     #[error("User Not Found")]
     UserNotFound,
     #[error("Authentication session expired")]
@@ -38,7 +36,6 @@ impl IntoResponse for WebauthnError {
             }
             _ => {
                 let body = match self {
-                    WebauthnError::CorruptSession => "Corrupt Session",
                     WebauthnError::UserNotFound => "User Not Found",
                     WebauthnError::Unknown => "Unknown Error",
                     WebauthnError::InvalidSessionState(_) => "Deserialising Session failed",

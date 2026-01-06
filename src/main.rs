@@ -23,10 +23,6 @@ use tower_sessions_sqlx_store::PostgresStore;
 
 use crate::auth::axum_login::Backend;
 
-// Allow using tracing macros anywhere without needing to import them
-#[macro_use]
-extern crate tracing;
-
 #[tokio::main]
 async fn main() {
     dotenv().ok();

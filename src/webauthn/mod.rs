@@ -1,4 +1,3 @@
-mod auth;
 mod error;
 mod login;
 mod register;
@@ -7,9 +6,8 @@ mod startup;
 use axum::{
     Router,
     extract::Extension,
-    http::{StatusCode, header},
     response::{IntoResponse, Redirect},
-    routing::{get, post},
+    routing::get,
 };
 use std::env;
 use tower_sessions::{
@@ -17,7 +15,6 @@ use tower_sessions::{
     cookie::{SameSite, time::Duration},
 };
 
-use auth::{finish_register, start_register};
 use error::WebauthnError;
 use startup::AppState;
 
@@ -40,14 +37,11 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
 
     Ok(Router::new()
         .route("/", get(redirect_to_login))
-        .route("/register_start/{username}", post(start_register))
-        .route("/register_finish", post(finish_register))
         .route("/login", get(login::login_get).post(login::login_post))
         .route(
             "/register",
             get(register::register_get).post(register::register_post),
         )
-        .route("/auth.js", get(serve_auth_js))
         .layer(Extension(webauthn_url))
         .layer(Extension(app_state))
         .layer(
@@ -57,15 +51,6 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
                 .with_secure(true)
                 .with_expiry(Expiry::OnInactivity(Duration::seconds(360))),
         ))
-}
-
-async fn serve_auth_js() -> impl IntoResponse {
-    const JS_CONTENT: &str = include_str!("auth.js");
-    (
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "application/javascript")],
-        JS_CONTENT,
-    )
 }
 
 async fn redirect_to_login() -> impl IntoResponse {
