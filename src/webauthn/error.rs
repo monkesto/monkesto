@@ -28,7 +28,7 @@ impl IntoResponse for WebauthnError {
     fn into_response(self) -> Response {
         match self {
             WebauthnError::SessionExpired => {
-                axum::response::Redirect::to("/webauthn/login?error=session_expired")
+                axum::response::Redirect::to("/webauthn/signin?error=session_expired")
                     .into_response()
             }
             WebauthnError::InvalidInput => {

@@ -13,7 +13,7 @@ use super::{error::WebauthnError, startup::AppState};
 use crate::maud_header::header;
 
 #[derive(Deserialize)]
-pub struct LoginQuery {
+pub struct SigninQuery {
     error: Option<String>,
 }
 
@@ -40,7 +40,7 @@ fn auth_page(
                 }
                 script {
                     r#"
-                    function login() {
+                    function signin() {
                         const challengeDataElement = document.getElementById('challenge-data');
                         if (!challengeDataElement) {
                             document.getElementById('flash_message').innerHTML = 'No challenge data available. Please refresh the page.';
@@ -106,7 +106,7 @@ fn auth_page(
                         div class="space-y-6" {
                             div {
                                 button
-                                onclick="login()"
+                                onclick="signin()"
                                 class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500" {
                                     "Sign in with Passkey"
                                 }
@@ -114,14 +114,14 @@ fn auth_page(
                         }
 
                         // Hidden form for credential submission
-                        form id="auth-form" method="POST" action="login" style="display: none;" {
+                        form id="auth-form" method="POST" action="signin" style="display: none;" {
                             input type="hidden" id="credential-field" name="credential" value="";
                         }
 
                         p class="mt-10 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
                             "Don't have an account? "
                             a
-                            href="register"
+                            href="signup"
                             class="font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300" {
                                 "Sign up here"
                             }
@@ -143,17 +143,17 @@ fn auth_page(
     })
 }
 
-async fn handle_login_page(
+async fn handle_signin_page(
     app_state: AppState,
     session: Session,
     webauthn_url: String,
-    query: Query<LoginQuery>,
+    query: Query<SigninQuery>,
 ) -> impl IntoResponse {
     // Clear any previous auth state
     let _ = session.remove_value("auth_state").await;
     let _ = session.remove_value("usernameless_auth_state").await;
 
-    // For usernameless authentication, load all credentials
+    // For identifier-less authentication (WebAuthn terminology: "usernameless"), load all credentials
     let users_guard = app_state.users.lock().await;
     let all_credentials: Vec<_> = users_guard.keys.values().flatten().cloned().collect();
     drop(users_guard);
@@ -165,17 +165,20 @@ async fn handle_login_page(
             Some("No registered users found. Please register first."),
         )
     } else {
-        // Generate challenge for usernameless authentication
+        // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
         match app_state
             .webauthn
             .start_passkey_authentication(&all_credentials)
         {
             Ok((mut rcr, auth_state)) => {
-                // Clear allowCredentials for true usernameless experience
+                // Clear allowCredentials for true identifier-less experience
                 rcr.public_key.allow_credentials.clear();
 
                 // Store auth state in session
-                match session.insert("usernameless_auth_state", auth_state).await {
+                match session
+                    .insert("identifierless_auth_state", auth_state)
+                    .await
+                {
                     Ok(_) => {
                         // Serialize challenge to JSON
                         match serde_json::to_string(&rcr) {
@@ -213,11 +216,11 @@ async fn handle_login_page(
     )
 }
 
-async fn handle_login_completion(
+async fn handle_signin_completion(
     app_state: AppState,
     session: Session,
     form_data: Form<HashMap<String, String>>,
-) -> Result<impl IntoResponse, WebauthnError> {
+) -> Result<axum::response::Response, WebauthnError> {
     // Extract credential from form
     let credential_json = form_data
         .get("credential")
@@ -229,12 +232,12 @@ async fn handle_login_completion(
 
     // Get auth state from session (checking both possible keys for compatibility)
     let auth_state = session
-        .get::<PasskeyAuthentication>("usernameless_auth_state")
+        .get::<PasskeyAuthentication>("identifierless_auth_state")
         .await
         .map_err(|_| WebauthnError::Unknown)?
         .or_else(|| {
             // Try the regular auth_state key as fallback - this is sync so we can't await here
-            // For now, just use the usernameless_auth_state
+            // For now, just use the identifierless_auth_state
             None
         })
         .ok_or(WebauthnError::SessionExpired)?;
@@ -246,7 +249,7 @@ async fn handle_login_completion(
     {
         Ok(auth_result) => {
             // Clear the auth state
-            let _ = session.remove_value("usernameless_auth_state").await;
+            let _ = session.remove_value("identifierless_auth_state").await;
             let _ = session.remove_value("auth_state").await;
 
             // Find which user this credential belongs to
@@ -279,30 +282,30 @@ async fn handle_login_completion(
         }
         Err(_) => {
             // Clear the auth state on failure
-            let _ = session.remove_value("usernameless_auth_state").await;
+            let _ = session.remove_value("identifierless_auth_state").await;
             let _ = session.remove_value("auth_state").await;
 
             // Redirect back to login with error
-            Ok(Redirect::to("/webauthn/login?error=auth_failed").into_response())
+            Ok(Redirect::to("/webauthn/signin?error=auth_failed").into_response())
         }
     }
 }
 
-pub async fn login_get(
+pub async fn signin_get(
     Extension(app_state): Extension<AppState>,
     Extension(webauthn_url): Extension<String>,
     session: Session,
-    query: Query<LoginQuery>,
+    query: Query<SigninQuery>,
 ) -> impl IntoResponse {
-    handle_login_page(app_state, session, webauthn_url, query).await
+    handle_signin_page(app_state, session, webauthn_url, query).await
 }
 
-pub async fn login_post(
+pub async fn signin_post(
     Extension(app_state): Extension<AppState>,
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    match handle_login_completion(app_state, session, form).await {
+    match handle_signin_completion(app_state, session, form).await {
         Ok(response) => response.into_response(),
         Err(error) => error.into_response(),
     }

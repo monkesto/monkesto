@@ -20,7 +20,7 @@ use webauthn_rs::prelude::*;
 // Both parameters are passed explicitly to prevent accidental misconfiguration.
 
 pub struct Data {
-    pub name_to_id: HashMap<String, Uuid>,
+    pub email_to_id: HashMap<String, Uuid>,
     pub keys: HashMap<Uuid, Vec<Passkey>>,
 }
 
@@ -47,7 +47,7 @@ impl AppState {
         let builder = WebauthnBuilder::new(rp_id, &rp_origin)?.rp_name("Monkesto");
         let webauthn = Arc::new(builder.build()?);
         let users = Arc::new(Mutex::new(Data {
-            name_to_id: HashMap::new(),
+            email_to_id: HashMap::new(),
             keys: HashMap::new(),
         }));
         Ok(AppState { webauthn, users })

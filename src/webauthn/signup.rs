@@ -13,18 +13,18 @@ use super::{error::WebauthnError, startup::AppState};
 use crate::maud_header::header;
 
 #[derive(Deserialize)]
-pub struct RegisterQuery {
+pub struct SignupQuery {
     error: Option<String>,
 }
 
-fn username_form_page(webauthn_url: &str, error_message: Option<&str>) -> Markup {
+fn email_form_page(webauthn_url: &str, error_message: Option<&str>) -> Markup {
     header(html! {
         (DOCTYPE)
         html lang="en" {
             head {
                 meta charset="UTF-8";
                 meta name="viewport" content="width=device-width, initial-scale=1";
-                title { "Register - Monkesto" }
+                title { "Sign up - Monkesto" }
                 meta name="webauthn_url" content=(webauthn_url);
             }
             body {
@@ -32,24 +32,23 @@ fn username_form_page(webauthn_url: &str, error_message: Option<&str>) -> Markup
                     div class="sm:mx-auto sm:w-full sm:max-w-sm" {
                         img src="/logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto";
                         h2 class="mt-10 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white" {
-                            "Register"
+                            "Sign up"
                         }
                     }
 
                     div class="mt-10 sm:mx-auto sm:w-full sm:max-w-sm" {
-                        form method="POST" action="register" class="space-y-6" {
+                        form method="POST" action="signup" class="space-y-6" {
                             div {
                                 label
-                                for="username"
+                                for="email"
                                 class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100" {
-                                    "Username"
+                                    "Email"
                                 }
                                 div class="mt-2" {
                                     input
-                                    id="username"
-                                    name="username"
-                                    type="text"
-                                    placeholder="Enter your username"
+                                    id="email"
+                                    name="email"
+                                    type="email"
                                     required
                                     class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500";
                                 }
@@ -67,7 +66,7 @@ fn username_form_page(webauthn_url: &str, error_message: Option<&str>) -> Markup
                         p class="mt-10 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
                             "Already have an account? "
                             a
-                            href="login"
+                            href="signin"
                             class="font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300" {
                                 "Sign in here"
                             }
@@ -87,7 +86,7 @@ fn username_form_page(webauthn_url: &str, error_message: Option<&str>) -> Markup
     })
 }
 
-fn challenge_page(webauthn_url: &str, username: &str, challenge_data: &str) -> Markup {
+fn challenge_page(webauthn_url: &str, email: &str, challenge_data: &str) -> Markup {
     header(html! {
         (DOCTYPE)
         html lang="en" {
@@ -170,14 +169,14 @@ fn challenge_page(webauthn_url: &str, username: &str, challenge_data: &str) -> M
                             "Create Your Passkey"
                         }
                         p class="mt-2 text-center text-sm/6 text-gray-600 dark:text-gray-400" {
-                            "Username: " strong { (username) }
+                            "Email: " strong { (email) }
                         }
                     }
 
                     div class="mt-10 sm:mx-auto sm:w-full sm:max-w-sm" {
                         // Hidden form for credential submission
-                        form id="registration-form" method="POST" action="register" style="display: none;" {
-                            input type="hidden" name="username" value=(username);
+                        form id="registration-form" method="POST" action="signup" style="display: none;" {
+                            input type="hidden" name="email" value=(email);
                             input type="hidden" id="credential-field" name="credential" value="";
                         }
 
@@ -197,22 +196,19 @@ fn challenge_page(webauthn_url: &str, username: &str, challenge_data: &str) -> M
     })
 }
 
-async fn handle_register_get(
-    webauthn_url: String,
-    query: Query<RegisterQuery>,
-) -> impl IntoResponse {
+async fn handle_signup_get(webauthn_url: String, query: Query<SignupQuery>) -> impl IntoResponse {
     // Handle error messages from query parameters
     let error_message = match query.error.as_deref() {
-        Some("username_taken") => Some("Username is already taken. Please choose another."),
-        Some("invalid_username") => {
-            Some("Invalid username. Please use only letters, numbers, and underscores.")
+        Some("email_taken") => {
+            Some("Email is already registered. Please use another email address.")
         }
-        Some("session_expired") => Some("Your registration session has expired. Please try again."),
-        Some("registration_failed") => Some("Registration failed. Please try again."),
+        Some("invalid_email") => Some("Invalid email format. Please enter a valid email address."),
+        Some("session_expired") => Some("Your sign up session has expired. Please try again."),
+        Some("registration_failed") => Some("Sign up failed. Please try again."),
         _ => None,
     };
 
-    let markup = username_form_page(&webauthn_url, error_message);
+    let markup = email_form_page(&webauthn_url, error_message);
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/html")],
@@ -220,43 +216,40 @@ async fn handle_register_get(
     )
 }
 
-async fn handle_register_post(
+async fn handle_signup_post(
     app_state: AppState,
     session: Session,
     webauthn_url: String,
     form_data: Form<HashMap<String, String>>,
 ) -> Result<axum::response::Response, WebauthnError> {
-    // Check if this is a username submission or credential submission
+    // Check if this is an email submission or credential submission
     if let Some(_credential_json) = form_data.get("credential") {
         // This is step 2: credential submission
         handle_credential_submission(app_state, session, form_data).await
-    } else if let Some(username) = form_data.get("username") {
-        // This is step 1: username submission
-        handle_username_submission(app_state, session, webauthn_url, username.clone()).await
+    } else if let Some(email) = form_data.get("email") {
+        // This is step 1: email submission
+        handle_email_submission(app_state, session, webauthn_url, email.clone()).await
     } else {
         Err(WebauthnError::InvalidInput)
     }
 }
 
-async fn handle_username_submission(
+async fn handle_email_submission(
     app_state: AppState,
     session: Session,
     webauthn_url: String,
-    username: String,
+    email: String,
 ) -> Result<axum::response::Response, WebauthnError> {
-    // Validate username format (basic validation)
-    if username.is_empty()
-        || username.len() > 50
-        || !username.chars().all(|c| c.is_alphanumeric() || c == '_')
-    {
-        return Ok(Redirect::to("/webauthn/register?error=invalid_username").into_response());
+    // Validate email format (basic validation)
+    if email.is_empty() || email.len() > 254 || !email.contains('@') || !email.contains('.') {
+        return Ok(Redirect::to("/webauthn/signup?error=invalid_email").into_response());
     }
 
-    // Check if username is already taken
+    // Check if email is already taken
     let users_guard = app_state.users.lock().await;
-    if users_guard.name_to_id.contains_key(&username) {
+    if users_guard.email_to_id.contains_key(&email) {
         drop(users_guard);
-        return Ok(Redirect::to("/webauthn/register?error=username_taken").into_response());
+        return Ok(Redirect::to("/webauthn/signup?error=email_taken").into_response());
     }
 
     // Get existing credentials for exclusion
@@ -272,14 +265,14 @@ async fn handle_username_submission(
     // Start passkey registration
     match app_state.webauthn.start_passkey_registration(
         user_unique_id,
-        &username,
-        &username,
+        &email,
+        &email,
         exclude_credentials,
     ) {
         Ok((ccr, reg_state)) => {
             // Store registration state in session
             session
-                .insert("reg_state", (username.clone(), user_unique_id, reg_state))
+                .insert("reg_state", (email.clone(), user_unique_id, reg_state))
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
 
@@ -287,7 +280,7 @@ async fn handle_username_submission(
             let challenge_json = serde_json::to_string(&ccr).map_err(|_| WebauthnError::Unknown)?;
 
             // Return challenge page
-            let markup = challenge_page(&webauthn_url, &username, &challenge_json);
+            let markup = challenge_page(&webauthn_url, &email, &challenge_json);
             Ok((
                 StatusCode::OK,
                 [(header::CONTENT_TYPE, "text/html")],
@@ -295,7 +288,7 @@ async fn handle_username_submission(
             )
                 .into_response())
         }
-        Err(_) => Ok(Redirect::to("/webauthn/register?error=registration_failed").into_response()),
+        Err(_) => Ok(Redirect::to("/webauthn/signup?error=registration_failed").into_response()),
     }
 }
 
@@ -313,7 +306,7 @@ async fn handle_credential_submission(
         serde_json::from_str(credential_json).map_err(|_| WebauthnError::InvalidInput)?;
 
     // Get registration state from session
-    let (username, user_unique_id, reg_state) = session
+    let (email, user_unique_id, reg_state) = session
         .get::<(String, Uuid, PasskeyRegistration)>("reg_state")
         .await
         .map_err(|_| WebauthnError::Unknown)?
@@ -331,8 +324,8 @@ async fn handle_credential_submission(
             // Store the new user and their passkey
             let mut users_guard = app_state.users.lock().await;
             users_guard
-                .name_to_id
-                .insert(username.clone(), user_unique_id);
+                .email_to_id
+                .insert(email.clone(), user_unique_id);
             users_guard.keys.insert(user_unique_id, vec![passkey]);
             drop(users_guard);
 
@@ -345,10 +338,10 @@ async fn handle_credential_submission(
                     <html><head><title>Registration Success</title></head>
                     <body>
                         <h1>Registration Successful!</h1>
-                        <p>Welcome, {}! Your account has been created.</p>
-                        <a href="/webauthn/login">Sign in</a>
+                        <p>Welcome! Your account has been created for {}.</p>
+                        <a href="/webauthn/signin">Sign in</a>
                     </body></html>"#,
-                    username
+                    email
                 ),
             )
                 .into_response())
@@ -357,25 +350,25 @@ async fn handle_credential_submission(
             // Clear the registration state on failure
             let _ = session.remove_value("reg_state").await;
 
-            Ok(Redirect::to("/webauthn/register?error=registration_failed").into_response())
+            Ok(Redirect::to("/webauthn/signup?error=registration_failed").into_response())
         }
     }
 }
 
-pub async fn register_get(
+pub async fn signup_get(
     Extension(webauthn_url): Extension<String>,
-    query: Query<RegisterQuery>,
+    query: Query<SignupQuery>,
 ) -> impl IntoResponse {
-    handle_register_get(webauthn_url, query).await
+    handle_signup_get(webauthn_url, query).await
 }
 
-pub async fn register_post(
+pub async fn signup_post(
     Extension(app_state): Extension<AppState>,
     Extension(webauthn_url): Extension<String>,
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    match handle_register_post(app_state, session, webauthn_url, form).await {
+    match handle_signup_post(app_state, session, webauthn_url, form).await {
         Ok(response) => response,
         Err(error) => error.into_response(),
     }

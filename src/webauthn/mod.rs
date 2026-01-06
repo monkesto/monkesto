@@ -1,6 +1,6 @@
 mod error;
-mod login;
-mod register;
+mod signin;
+mod signup;
 mod startup;
 
 use axum::{
@@ -36,12 +36,9 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
     let app_state = AppState::new(rp_id, rp_origin.clone())?;
 
     Ok(Router::new()
-        .route("/", get(redirect_to_login))
-        .route("/login", get(login::login_get).post(login::login_post))
-        .route(
-            "/register",
-            get(register::register_get).post(register::register_post),
-        )
+        .route("/", get(redirect_to_signin))
+        .route("/signin", get(signin::signin_get).post(signin::signin_post))
+        .route("/signup", get(signup::signup_get).post(signup::signup_post))
         .layer(Extension(webauthn_url))
         .layer(Extension(app_state))
         .layer(
@@ -53,6 +50,6 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
         ))
 }
 
-async fn redirect_to_login() -> impl IntoResponse {
-    Redirect::permanent("/webauthn/login")
+async fn redirect_to_signin() -> impl IntoResponse {
+    Redirect::temporary("/webauthn/signin")
 }
