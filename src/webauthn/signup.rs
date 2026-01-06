@@ -329,22 +329,14 @@ async fn handle_credential_submission(
             users_guard.keys.insert(user_unique_id, vec![passkey]);
             drop(users_guard);
 
-            // Return success page
-            Ok((
-                StatusCode::OK,
-                [(header::CONTENT_TYPE, "text/html")],
-                format!(
-                    r#"<!DOCTYPE html>
-                    <html><head><title>Registration Success</title></head>
-                    <body>
-                        <h1>Registration Successful!</h1>
-                        <p>Welcome! Your account has been created for {}.</p>
-                        <a href="/webauthn/signin">Sign in</a>
-                    </body></html>"#,
-                    email
-                ),
-            )
-                .into_response())
+            // Set authenticated session for the newly registered user
+            session
+                .insert("user_id", user_unique_id)
+                .await
+                .map_err(|_| WebauthnError::Unknown)?;
+
+            // Redirect to whoami page
+            Ok(Redirect::to("/webauthn/whoami").into_response())
         }
         Err(_) => {
             // Clear the registration state on failure

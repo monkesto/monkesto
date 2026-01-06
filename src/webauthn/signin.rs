@@ -270,15 +270,14 @@ async fn handle_signin_completion(
                 .ok_or(WebauthnError::UserNotFound)?;
             drop(users_guard);
 
-            // Set authenticated session (you'll need to implement your session management)
-            // session.insert("user_id", user_unique_id).await?;
+            // Set authenticated session
+            session
+                .insert("user_id", _user_unique_id)
+                .await
+                .map_err(|_| WebauthnError::Unknown)?;
 
-            // Return simple success page
-            Ok((
-                StatusCode::OK,
-                [(header::CONTENT_TYPE, "text/html")],
-                "<!DOCTYPE html><html><head><title>Success</title></head><body><h1>Successfully logged in!</h1></body></html>",
-            ).into_response())
+            // Redirect to whoami page
+            Ok(Redirect::to("/webauthn/whoami").into_response())
         }
         Err(_) => {
             // Clear the auth state on failure
