@@ -1,9 +1,9 @@
 mod error;
+mod passkey;
 mod signin;
 mod signout;
 mod signup;
 mod startup;
-mod whoami;
 
 use axum::{
     Router,
@@ -41,7 +41,14 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
         .route("/", get(redirect_to_signin))
         .route("/signin", get(signin::signin_get).post(signin::signin_post))
         .route("/signup", get(signup::signup_get).post(signup::signup_post))
-        .route("/whoami", get(whoami::whoami_get))
+        .route(
+            "/passkey",
+            get(passkey::passkey_get).post(passkey::create_passkey_post),
+        )
+        .route(
+            "/passkey/{id}/delete",
+            axum::routing::post(passkey::delete_passkey_post),
+        )
         .route("/signout", get(signout::signout_get))
         .route("/signout", axum::routing::post(signout::signout_post))
         .layer(Extension(webauthn_url))

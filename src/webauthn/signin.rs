@@ -276,8 +276,8 @@ async fn handle_signin_completion(
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
 
-            // Redirect to whoami page
-            Ok(Redirect::to("/webauthn/whoami").into_response())
+            // Redirect to passkey page
+            Ok(Redirect::to("/webauthn/passkey").into_response())
         }
         Err(_) => {
             // Clear the auth state on failure

@@ -51,7 +51,7 @@ fn signout_page(message: Option<&str>) -> Markup {
                             }
 
                             a
-                            href="whoami"
+                            href="passkey"
                             class="flex w-full justify-center rounded-md bg-gray-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-gray-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-600 dark:bg-gray-500 dark:shadow-none dark:hover:bg-gray-400 dark:focus-visible:outline-gray-500" {
                                 "Cancel"
                             }
