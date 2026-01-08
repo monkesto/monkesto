@@ -153,28 +153,20 @@ async fn handle_signin_page(
     let _ = session.remove_value("auth_state").await;
     let _ = session.remove_value("usernameless_auth_state").await;
 
-    // For identifier-less authentication (WebAuthn terminology: "usernameless"), load all credentials
-    let all_credentials = app_state
-        .storage
-        .get_all_credentials()
-        .await
-        .unwrap_or_default();
+    // Check if any users exist for discoverable credential authentication
+    let has_users = app_state.storage.has_any_users().await.unwrap_or(false);
 
-    let (challenge_data, error_message) = if all_credentials.is_empty() {
-        // No credentials available
+    let (challenge_data, error_message) = if !has_users {
+        // No users available
         (
             None,
             Some("No registered users found. Please register first."),
         )
     } else {
-        // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
-        match app_state
-            .webauthn
-            .start_passkey_authentication(&all_credentials)
-        {
-            Ok((mut rcr, auth_state)) => {
-                // Clear allowCredentials for true identifier-less experience
-                rcr.public_key.allow_credentials.clear();
+        // Generate challenge for discoverable credential authentication
+        // Pass empty credentials array since we want discoverable credentials only
+        match app_state.webauthn.start_passkey_authentication(&[]) {
+            Ok((rcr, auth_state)) => {
 
                 // Store auth state in session
                 match session
