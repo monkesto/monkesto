@@ -13,11 +13,7 @@ use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uui
 use super::{error::WebauthnError, startup::AppState};
 use crate::maud_header::header;
 
-fn passkeys_page(
-    email: &str,
-    passkeys: &[webauthn_rs::prelude::Passkey],
-    all_users: &[(String, Uuid, Vec<webauthn_rs::prelude::Passkey>)],
-) -> Markup {
+fn passkeys_page(email: &str, passkeys: &[webauthn_rs::prelude::Passkey]) -> Markup {
     header(html! {
         (DOCTYPE)
         html lang="en" {
@@ -90,73 +86,20 @@ fn passkeys_page(
                                                             }
                                                         }
                                                     }
-
-                                                    // Add new passkey button
-                                                    div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600" {
-                                                        form method="POST" action="passkey" {
-                                                            button
-                                                            type="submit"
-                                                            class="flex w-full justify-center rounded-md bg-green-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-green-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 dark:bg-green-500 dark:shadow-none dark:hover:bg-green-400 dark:focus-visible:outline-green-500" {
-                                                                "Add New Passkey"
-                                                            }
-                                                        }
-                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        // Admin section - show all users
-                        div class="mt-8 bg-gray-50 dark:bg-gray-900 rounded-lg shadow p-6" {
-                            h3 class="text-lg font-medium text-gray-900 dark:text-white mb-4" {
-                                "Admin: All Registered Users"
-                            }
-
-                            @if all_users.is_empty() {
-                                p class="text-sm text-gray-500 dark:text-gray-400" {
-                                    "No users registered"
-                                }
-                            } @else {
-                                div class="space-y-4" {
-                                    @for (user_email, user_uuid, user_passkeys) in all_users {
-                                        div class="border border-gray-200 dark:border-gray-600 rounded p-4" {
-                                            div class="mb-3" {
-                                                h4 class="text-md font-semibold text-gray-900 dark:text-white" {
-                                                    (user_email)
-                                                }
-                                                p class="text-xs text-gray-500 dark:text-gray-400 font-mono" {
-                                                    "ID: " (user_uuid)
-                                                }
-                                            }
-
-                                            div {
-                                                h5 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                                    "Passkeys (" (user_passkeys.len()) ")"
-                                                }
-
-                                                @if user_passkeys.is_empty() {
-                                                    p class="text-xs text-gray-500 dark:text-gray-400 ml-2" {
-                                                        "No passkeys"
-                                                    }
-                                                } @else {
-                                                    div class="space-y-1 ml-2" {
-                                                        @for (index, passkey) in user_passkeys.iter().enumerate() {
-                                                            div class="text-xs" {
-                                                                span class="text-gray-700 dark:text-gray-300" {
-                                                                    "Passkey " (index + 1) ": "
-                                                                }
-                                                                span class="text-gray-500 dark:text-gray-400 font-mono" {
-                                                                    (format!("{:x}", passkey.cred_id().as_slice().iter().take(8).fold(0u64, |acc, &x| (acc << 8) | x as u64)))
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
+                            // Add new passkey button (below all passkeys)
+                            div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600" {
+                                form method="POST" action="passkey" {
+                                    button
+                                    type="submit"
+                                    class="flex w-full justify-center rounded-md bg-green-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-green-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-600 dark:bg-green-500 dark:shadow-none dark:hover:bg-green-400 dark:focus-visible:outline-green-500" {
+                                        "Add New Passkey"
                                     }
                                 }
                             }
@@ -221,33 +164,21 @@ pub async fn passkey_get(
         }
     };
 
-    // Get user information and passkeys
-    let users_guard = app_state.users.lock().await;
+    // Get user passkeys
+    let passkeys = app_state
+        .storage
+        .get_user_passkeys(&user_id)
+        .await
+        .unwrap_or_default();
 
-    // Find the email for this user
-    let email = users_guard
-        .email_to_id
-        .iter()
-        .find_map(|(email, id)| if *id == user_id { Some(email) } else { None })
-        .cloned()
-        .unwrap_or_else(|| "unknown@example.com".to_string());
+    // Get the email for this user
+    let email = app_state
+        .storage
+        .get_user_email(&user_id)
+        .await
+        .unwrap_or_else(|_| "unknown@example.com".to_string());
 
-    // Get passkeys for this user
-    let passkeys = users_guard.keys.get(&user_id).cloned().unwrap_or_default();
-
-    // Get all users and their passkeys for admin section
-    let all_users: Vec<(String, Uuid, Vec<webauthn_rs::prelude::Passkey>)> = users_guard
-        .email_to_id
-        .iter()
-        .map(|(email, uuid)| {
-            let user_passkeys = users_guard.keys.get(uuid).cloned().unwrap_or_default();
-            (email.clone(), *uuid, user_passkeys)
-        })
-        .collect();
-
-    drop(users_guard);
-
-    let markup = passkeys_page(&email, &passkeys, &all_users);
+    let markup = passkeys_page(&email, &passkeys);
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/html")],
@@ -273,25 +204,23 @@ pub async fn delete_passkey_post(
         .map_err(|_| WebauthnError::InvalidInput)?;
 
     // Remove the passkey from the user's passkeys (only if it belongs to them)
-    let mut users_guard = app_state.users.lock().await;
-
-    if let Some(user_passkeys) = users_guard.keys.get_mut(&user_id) {
-        // Check if the passkey belongs to this user before deleting
-        let passkey_exists = user_passkeys
-            .iter()
-            .any(|passkey| passkey.cred_id().as_slice() == cred_id_bytes.as_slice());
-
-        if passkey_exists {
-            user_passkeys
-                .retain(|passkey| passkey.cred_id().as_slice() != cred_id_bytes.as_slice());
-        } else {
-            // Passkey doesn't belong to this user, return error
-            drop(users_guard);
+    match app_state
+        .storage
+        .remove_passkey(&user_id, &cred_id_bytes)
+        .await
+    {
+        Ok(true) => {
+            // Passkey was successfully removed
+        }
+        Ok(false) => {
+            // Passkey wasn't found for this user
             return Err(WebauthnError::UserNotFound);
         }
+        Err(_) => {
+            // Storage error
+            return Err(WebauthnError::Unknown);
+        }
     }
-
-    drop(users_guard);
 
     // Redirect back to passkey page
     Ok(Redirect::to("/webauthn/passkey").into_response())
@@ -332,13 +261,18 @@ pub async fn create_passkey_post(
                 let _ = session.remove_value("add_passkey_reg_state").await;
 
                 // Add the new passkey to the user's existing passkeys
-                let mut users_guard = app_state.users.lock().await;
-                if let Some(user_passkeys) = users_guard.keys.get_mut(&user_id) {
-                    user_passkeys.push(passkey);
+                if app_state
+                    .storage
+                    .add_passkey(&user_id, passkey)
+                    .await
+                    .is_err()
+                {
+                    return Ok(
+                        Redirect::to("/webauthn/passkey?error=storage_error").into_response()
+                    );
                 }
-                drop(users_guard);
 
-                // Redirect back to passkey page
+                // Redirect back to passkey management page
                 Ok(Redirect::to("/webauthn/passkey").into_response())
             }
             Err(_) => {
@@ -349,21 +283,24 @@ pub async fn create_passkey_post(
         }
     } else {
         // This is initial request - start registration
-        let users_guard = app_state.users.lock().await;
+        // Get user's existing passkeys
+        let existing_passkeys = app_state
+            .storage
+            .get_user_passkeys(&user_id)
+            .await
+            .unwrap_or_default();
 
-        // Get user's email and existing passkeys
-        let email = users_guard
-            .email_to_id
+        // Get user's email
+        let email = app_state
+            .storage
+            .get_user_email(&user_id)
+            .await
+            .unwrap_or_else(|_| "unknown@example.com".to_string());
+
+        let exclude_credentials: Vec<_> = existing_passkeys
             .iter()
-            .find_map(|(email, id)| if *id == user_id { Some(email) } else { None })
-            .cloned()
-            .unwrap_or_else(|| "unknown@example.com".to_string());
-
-        let exclude_credentials = users_guard
-            .keys
-            .get(&user_id)
-            .map(|passkeys| passkeys.iter().map(|pk| pk.cred_id().clone()).collect());
-        drop(users_guard);
+            .map(|sk| sk.cred_id().clone())
+            .collect();
 
         // Clear any previous registration state
         let _ = session.remove_value("add_passkey_reg_state").await;
@@ -373,7 +310,7 @@ pub async fn create_passkey_post(
             user_id,
             &email,
             &email,
-            exclude_credentials,
+            Some(exclude_credentials),
         ) {
             Ok((ccr, reg_state)) => {
                 // Store registration state in session

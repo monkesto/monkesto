@@ -246,15 +246,17 @@ async fn handle_email_submission(
     }
 
     // Check if email is already taken
-    let users_guard = app_state.users.lock().await;
-    if users_guard.email_to_id.contains_key(&email) {
-        drop(users_guard);
+    if app_state
+        .storage
+        .email_exists(&email)
+        .await
+        .unwrap_or(false)
+    {
         return Ok(Redirect::to("/webauthn/signup?error=email_taken").into_response());
     }
 
     // Get existing credentials for exclusion
     let exclude_credentials = None; // New user, no existing credentials to exclude
-    drop(users_guard);
 
     // Generate new user ID
     let user_unique_id = Uuid::new_v4();
@@ -322,12 +324,14 @@ async fn handle_credential_submission(
             let _ = session.remove_value("reg_state").await;
 
             // Store the new user and their passkey
-            let mut users_guard = app_state.users.lock().await;
-            users_guard
-                .email_to_id
-                .insert(email.clone(), user_unique_id);
-            users_guard.keys.insert(user_unique_id, vec![passkey]);
-            drop(users_guard);
+            if app_state
+                .storage
+                .create_user(email.clone(), user_unique_id, passkey)
+                .await
+                .is_err()
+            {
+                return Ok(Redirect::to("/webauthn/signup?error=storage_error").into_response());
+            }
 
             // Set authenticated session for the newly registered user
             session

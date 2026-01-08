@@ -4,6 +4,7 @@ mod signin;
 mod signout;
 mod signup;
 mod startup;
+mod storage;
 
 use axum::{
     Router,
@@ -11,14 +12,16 @@ use axum::{
     response::{IntoResponse, Redirect},
     routing::get,
 };
-use std::env;
+use std::{env, sync::Arc};
 use tower_sessions::{
     Expiry, MemoryStore, SessionManagerLayer,
     cookie::{SameSite, time::Duration},
 };
+use webauthn_rs::prelude::Url;
 
 use error::WebauthnError;
 use startup::AppState;
+use storage::{UserStorage, memory::MemoryStorage};
 
 pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnError> {
     // Get base URL from environment variable, defaulting to localhost:3000
@@ -32,10 +35,15 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
     let webauthn_url = format!("{}/webauthn/", base_url);
 
     // Parse the base URL to extract rp_id and rp_origin for WebAuthn security
-    let rp_origin = webauthn_rs::prelude::Url::parse(&base_url)?;
+    let rp_origin = Url::parse(&base_url)?;
     let rp_id = rp_origin.host_str().ok_or(WebauthnError::InvalidHost)?;
 
-    let app_state = AppState::new(rp_id, rp_origin.clone())?;
+    // Create WebAuthn instance and default storage
+    let webauthn = AppState::build_webauthn(rp_id, &rp_origin)?;
+    let storage = Arc::new(MemoryStorage::new()) as Arc<dyn UserStorage>;
+
+    // Create AppState with components
+    let app_state = AppState::new(webauthn, storage);
 
     Ok(Router::new()
         .route("/", get(redirect_to_signin))

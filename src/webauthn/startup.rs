@@ -1,8 +1,7 @@
 use crate::webauthn::error::WebauthnError;
-use std::collections::HashMap;
+use crate::webauthn::storage::UserStorage;
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use webauthn_rs::prelude::*;
+use webauthn_rs::prelude::{Url, Webauthn, WebauthnBuilder};
 
 /*
  * Webauthn RS server side app state and setup code.
@@ -19,23 +18,23 @@ use webauthn_rs::prelude::*;
 //
 // Both parameters are passed explicitly to prevent accidental misconfiguration.
 
-pub struct Data {
-    pub email_to_id: HashMap<String, Uuid>,
-    pub keys: HashMap<Uuid, Vec<Passkey>>,
-}
-
 #[derive(Clone)]
 pub struct AppState {
     // Webauthn has no mutable inner state, so Arc and read only is sufficent.
     // Alternately, you could use a reference here provided you can work out
     // lifetimes.
     pub webauthn: Arc<Webauthn>,
-    // This needs mutability, so does require a mutex.
-    pub users: Arc<Mutex<Data>>,
+    // Storage abstraction for users and passkeys
+    pub storage: Arc<dyn UserStorage>,
 }
 
 impl AppState {
-    /// Creates a new AppState with explicit WebAuthn security parameters.
+    /// Creates a new AppState with the provided WebAuthn instance and storage implementation
+    pub fn new(webauthn: Arc<Webauthn>, storage: Arc<dyn UserStorage>) -> Self {
+        Self { webauthn, storage }
+    }
+
+    /// Helper function to build a WebAuthn instance with standard configuration
     ///
     /// # Security Critical Parameters
     /// - `rp_id`: Relying Party ID - CANNOT be changed without invalidating all credentials
@@ -43,13 +42,8 @@ impl AppState {
     ///
     /// # Errors
     /// Returns error if the WebAuthn configuration is invalid (mismatched rp_id/origin)
-    pub fn new(rp_id: &str, rp_origin: Url) -> Result<Self, WebauthnError> {
-        let builder = WebauthnBuilder::new(rp_id, &rp_origin)?.rp_name("Monkesto");
-        let webauthn = Arc::new(builder.build()?);
-        let users = Arc::new(Mutex::new(Data {
-            email_to_id: HashMap::new(),
-            keys: HashMap::new(),
-        }));
-        Ok(AppState { webauthn, users })
+    pub fn build_webauthn(rp_id: &str, rp_origin: &Url) -> Result<Arc<Webauthn>, WebauthnError> {
+        let builder = WebauthnBuilder::new(rp_id, rp_origin)?.rp_name("Monkesto");
+        Ok(Arc::new(builder.build()?))
     }
 }

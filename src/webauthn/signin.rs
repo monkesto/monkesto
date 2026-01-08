@@ -154,9 +154,11 @@ async fn handle_signin_page(
     let _ = session.remove_value("usernameless_auth_state").await;
 
     // For identifier-less authentication (WebAuthn terminology: "usernameless"), load all credentials
-    let users_guard = app_state.users.lock().await;
-    let all_credentials: Vec<_> = users_guard.keys.values().flatten().cloned().collect();
-    drop(users_guard);
+    let all_credentials = app_state
+        .storage
+        .get_all_credentials()
+        .await
+        .unwrap_or_default();
 
     let (challenge_data, error_message) = if all_credentials.is_empty() {
         // No credentials available
@@ -253,22 +255,12 @@ async fn handle_signin_completion(
             let _ = session.remove_value("auth_state").await;
 
             // Find which user this credential belongs to
-            let users_guard = app_state.users.lock().await;
-            let _user_unique_id = users_guard
-                .keys
-                .iter()
-                .find_map(|(uid, keys)| {
-                    if keys
-                        .iter()
-                        .any(|key| key.cred_id() == auth_result.cred_id())
-                    {
-                        Some(*uid)
-                    } else {
-                        None
-                    }
-                })
+            let _user_unique_id = app_state
+                .storage
+                .find_user_by_credential(auth_result.cred_id().as_slice())
+                .await
+                .map_err(|_| WebauthnError::Unknown)?
                 .ok_or(WebauthnError::UserNotFound)?;
-            drop(users_guard);
 
             // Set authenticated session
             session
