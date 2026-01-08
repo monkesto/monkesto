@@ -46,10 +46,10 @@ impl Cuid {
         }
     }
 
-    pub fn to_bytes(self) -> Vec<u8> {
+    pub fn as_bytes(&self) -> &[u8] {
         match self {
-            Cuid::Cuid10(id) => Vec::from(id),
-            Cuid::Cuid16(id) => Vec::from(id),
+            Cuid::Cuid10(id) => id.as_ref(),
+            Cuid::Cuid16(id) => id.as_ref(),
         }
     }
 

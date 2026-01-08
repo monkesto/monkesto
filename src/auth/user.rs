@@ -72,7 +72,7 @@ impl UserEvent {
             RETURNING id
             "#,
         )
-        .bind(id.to_bytes())
+        .bind(id.as_bytes())
         .bind(event_type)
         .bind(payload)
         .fetch_one(pool)
@@ -103,7 +103,7 @@ impl UserState {
             ORDER BY created_at ASC
             "#,
         )
-        .bind(id.to_bytes())
+        .bind(id.as_bytes())
         .bind(&event_types)
         .fetch_all(pool)
         .await?;

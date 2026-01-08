@@ -61,7 +61,7 @@ impl Backend {
         VALUES ($1, $2, $3)
         "#,
         )
-        .bind(id.to_bytes())
+        .bind(id.as_bytes())
         .bind(username)
         .bind(pw_hash)
         .execute(&self.db)
@@ -107,7 +107,7 @@ impl AuthnBackend for Backend {
     async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
         let user_info: Option<(String, String)> =
             sqlx::query_scalar(r#"SELECT (username, password) FROM auth_users WHERE user_id = $1"#)
-                .bind(user_id.to_bytes())
+                .bind(user_id.as_bytes())
                 .fetch_optional(&self.db)
                 .await?;
         if let Some((username, pw_hash)) = user_info {

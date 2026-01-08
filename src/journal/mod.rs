@@ -83,7 +83,7 @@ impl JournalEvent {
             RETURNING id
             "#,
         )
-        .bind(id.to_bytes())
+        .bind(id.as_bytes())
         .bind(self.get_type())
         .bind(payload)
         .fetch_one(pool)
@@ -117,7 +117,7 @@ impl JournalState {
                 ORDER BY created_at ASC
                 "#,
         )
-        .bind(id.to_bytes())
+        .bind(id.as_bytes())
         .bind(event_types)
         .fetch_all(pool)
         .await?;
@@ -128,7 +128,7 @@ impl JournalState {
                 WHERE journal_id = $1 AND event_type = $2
             "#,
         )
-        .bind(id.to_bytes())
+        .bind(id.as_bytes())
         .bind(JournalEventType::Created)
         .fetch_optional(pool)
         .await?;

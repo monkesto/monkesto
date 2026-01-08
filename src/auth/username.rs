@@ -13,7 +13,7 @@ pub async fn update(user_id: &Cuid, username: &String, pool: &PgPool) -> Result<
         RETURNING id
         "#,
     )
-    .bind(user_id.to_bytes())
+    .bind(user_id.as_bytes())
     .bind(username)
     .fetch_one(pool)
     .await?;
@@ -30,7 +30,7 @@ pub async fn get_username(user_id: &Cuid, pool: &PgPool) -> Result<Option<String
         LIMIT 1
         "#,
     )
-    .bind(user_id.to_bytes())
+    .bind(user_id.as_bytes())
     .fetch_optional(pool)
     .await?;
 
