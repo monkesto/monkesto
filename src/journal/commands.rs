@@ -1,14 +1,22 @@
 use super::JournalEvent;
+use super::JournalState;
 use crate::auth::axum_login::AuthSession;
+use crate::auth::user::UserEventType;
+use crate::auth::user::UserState;
 use crate::auth::{self, user};
 use crate::cuid::Cuid;
+use crate::journal::JournalEventType;
+use crate::journal::JournalTenantInfo;
+use crate::journal::Permissions;
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use auth::user::UserEvent;
 use axum::Extension;
 use axum::Form;
+use axum::extract::Path;
 use axum::response::Redirect;
 use serde::Deserialize;
 use sqlx::PgPool;
+use std::str::FromStr;
 
 #[derive(Deserialize)]
 pub struct CreateJournalForm {
@@ -42,6 +50,108 @@ pub async fn create_journal(
         .or_redirect("/journal")?;
 
     Ok(Redirect::to("/journal"))
+}
+
+#[derive(Deserialize)]
+pub struct InviteUserForm {
+    username: String,
+}
+
+pub async fn invite_user(
+    Extension(pool): Extension<PgPool>,
+    session: AuthSession,
+    Path(id): Path<String>,
+    Form(form): Form<InviteUserForm>,
+) -> Result<Redirect, Redirect> {
+    let callback_url = format!("/journal/{}/person", id);
+
+    let user_id = user::get_id(session)?;
+
+    let journal_id = Cuid::from_str(&id).or_redirect(&callback_url)?;
+
+    let journal_state = JournalState::build(
+        &journal_id,
+        vec![
+            JournalEventType::Created,
+            JournalEventType::Deleted,
+            JournalEventType::AddedTenant,
+        ],
+        &pool,
+    )
+    .await
+    .or_redirect("/journal")?;
+
+    if !journal_state.deleted {
+        if journal_state
+            .get_user_permissions(&user_id)
+            .contains(Permissions::INVITE)
+        {
+            if form.username.trim().is_empty() {
+                return Err(KnownErrors::InvalidInput.redirect(&callback_url));
+            }
+
+            // TODO: add a selector for permissions
+            let invitee_permissions = Permissions::all();
+
+            let tenant_info = JournalTenantInfo {
+                tenant_permissions: invitee_permissions,
+                inviting_user: user_id,
+            };
+
+            let invitee_id = auth::username::get_id(&form.username, &pool)
+                .await
+                .or_redirect(&callback_url)?
+                .ok_or(KnownErrors::UserDoesntExist)
+                .or_redirect(&callback_url)?;
+
+            let invitee_state = UserState::build(
+                &invitee_id,
+                vec![
+                    UserEventType::InvitedToJournal,
+                    UserEventType::AcceptedJournalInvite,
+                    UserEventType::DeclinedJournalInvite,
+                ],
+                &pool,
+            )
+            .await
+            .or_redirect(&callback_url)?;
+
+            if invitee_state.pending_journal_invites.contains(&journal_id)
+                || invitee_state.accepted_journal_invites.contains(&journal_id)
+                || invitee_state.owned_journals.contains(&journal_id)
+            {
+                return Err(KnownErrors::UserCanAccessJournal.redirect(&callback_url));
+            }
+
+            JournalEvent::AddedTenant {
+                id: invitee_id,
+                tenant_info,
+            }
+            .push_db(&journal_id, &pool)
+            .await
+            .or_redirect(&callback_url)?;
+
+            UserEvent::InvitedToJournal { journal_id }
+                .push_db(&invitee_id, &pool)
+                .await
+                .or_redirect(&callback_url)?;
+
+            //TODO: add a menu for the user to accept or decline the invitation
+            UserEvent::AcceptedJournalInvite { journal_id }
+                .push_db(&invitee_id, &pool)
+                .await
+                .or_redirect(&callback_url)?;
+        } else {
+            return Err(KnownErrors::PermissionError {
+                required_permissions: Permissions::INVITE,
+            }
+            .redirect(&callback_url));
+        }
+    } else {
+        return Err(KnownErrors::InvalidJournal.redirect(&callback_url));
+    }
+
+    Ok(Redirect::to(&callback_url))
 }
 
 /*

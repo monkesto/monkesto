@@ -34,13 +34,34 @@ pub struct Transaction {
     pub updates: Vec<BalanceUpdate>,
 }
 
+#[derive(Default, Serialize, Deserialize, Clone, Debug, Copy)]
+pub struct JournalTenantInfo {
+    pub tenant_permissions: Permissions,
+    pub inviting_user: Cuid,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum JournalEvent {
-    Created { name: String, owner: Cuid },
-    Renamed { name: String },
-    CreatedAccount { account_name: String },
-    DeletedAccount { account_id: Cuid },
-    AddedEntry { transaction: Transaction },
+    Created {
+        name: String,
+        owner: Cuid,
+    },
+    Renamed {
+        name: String,
+    },
+    AddedTenant {
+        id: Cuid,
+        tenant_info: JournalTenantInfo,
+    },
+    CreatedAccount {
+        account_name: String,
+    },
+    DeletedAccount {
+        account_id: Cuid,
+    },
+    AddedEntry {
+        transaction: Transaction,
+    },
     Deleted,
 }
 
@@ -50,10 +71,11 @@ pub enum JournalEvent {
 pub enum JournalEventType {
     Created = 1,
     Renamed = 2,
-    CreatedAccount = 3,
-    DeletedAccount = 4,
-    AddedEntry = 5,
-    Deleted = 6,
+    AddedTenant = 3,
+    CreatedAccount = 4,
+    DeletedAccount = 5,
+    AddedEntry = 6,
+    Deleted = 7,
 }
 
 impl JournalEvent {
@@ -62,6 +84,7 @@ impl JournalEvent {
         match self {
             Self::Created { .. } => Created,
             Self::Renamed { .. } => Renamed,
+            Self::AddedTenant { .. } => AddedTenant,
             Self::CreatedAccount { .. } => CreatedAccount,
             Self::DeletedAccount { .. } => DeletedAccount,
             Self::AddedEntry { .. } => AddedEntry,
@@ -99,6 +122,7 @@ pub struct JournalState {
     pub name: String,
     pub created_at: chrono::DateTime<Utc>,
     pub owner: Cuid,
+    pub tenants: HashMap<Cuid, JournalTenantInfo>,
     pub accounts: HashMap<Cuid, (String, i64)>,
     pub transactions: Vec<Transaction>,
     pub deleted: bool,
@@ -158,6 +182,10 @@ impl JournalState {
 
             JournalEvent::Renamed { name } => self.name = name,
 
+            JournalEvent::AddedTenant { id, tenant_info } => {
+                _ = self.tenants.insert(id, tenant_info);
+            }
+
             JournalEvent::CreatedAccount { account_name } => {
                 _ = self.accounts.insert(Cuid::new10(), (account_name, 0))
             }
@@ -175,13 +203,16 @@ impl JournalState {
             JournalEvent::Deleted => self.deleted = true,
         }
     }
-}
 
-#[derive(Default, Serialize, Deserialize, Clone, Debug)]
-pub struct JournalTenantInfo {
-    pub tenant_permissions: Permissions,
-    pub inviting_user: Cuid,
-    pub journal_owner: Cuid,
+    pub fn get_user_permissions(&self, user_id: &Cuid) -> Permissions {
+        if self.owner == *user_id {
+            Permissions::all()
+        } else if let Some(tenant_info) = self.tenants.get(user_id) {
+            tenant_info.tenant_permissions
+        } else {
+            Permissions::empty()
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -264,18 +295,4 @@ pub struct TransactionWithUsername {
 pub struct TransactionWithTimeStamp {
     pub transaction: TransactionWithUsername,
     pub timestamp: chrono::DateTime<Utc>,
-}
-
-#[allow(dead_code)]
-pub async fn get_name_from_id(id: &Cuid, pool: &PgPool) -> Result<Option<String>, KnownErrors> {
-    let journal_state = JournalState::build(
-        id,
-        vec![JournalEventType::Created, JournalEventType::Renamed],
-        pool,
-    )
-    .await?;
-    if journal_state.name.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(journal_state.name))
 }

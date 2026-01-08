@@ -133,6 +133,7 @@ async fn main() {
             "/journal/{id}/person",
             get(journal::views::person::people_list_page),
         )
+        .route("/journal/{id}/invite", post(journal::commands::invite_user))
         .route_layer(login_required!(Backend, login_url = "/login"));
 
     // the dockerfile defines this for production deployments

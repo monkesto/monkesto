@@ -13,7 +13,7 @@ pub async fn get_associated_journals(
     user_id: &Cuid,
     pool: &PgPool,
 ) -> Result<HashMap<Cuid, AssociatedJournal>, KnownErrors> {
-    use JournalEventType::{Created, Deleted};
+    use JournalEventType::{AddedTenant, Created, Deleted};
     use UserEventType::*;
     let mut journals = HashMap::new();
 
@@ -43,15 +43,19 @@ pub async fn get_associated_journals(
         }
     }
 
-    for (journal_id, tenant_info) in user.accepted_journal_invites {
-        let journal_state = JournalState::build(&journal_id, vec![Created, Deleted], pool).await?;
+    for journal_id in user.accepted_journal_invites {
+        let journal_state =
+            JournalState::build(&journal_id, vec![Created, Deleted, AddedTenant], pool).await?;
         if !journal_state.deleted {
             journals.insert(
                 journal_id,
                 AssociatedJournal::Shared {
                     name: journal_state.name,
                     created_at: journal_state.created_at,
-                    tenant_info,
+                    tenant_info: *journal_state
+                        .tenants
+                        .get(user_id)
+                        .ok_or(KnownErrors::TenantDoesntExist)?,
                 },
             );
         }

@@ -63,7 +63,7 @@ pub async fn people_list_page(
         hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600";
 
         div class="mt-10" {
-            form class="space-y-6" {
+            form method="post" action=(format!("/journal/{}/invite", id)) class="space-y-6"  {
                 div {
                     label
                     for="username"

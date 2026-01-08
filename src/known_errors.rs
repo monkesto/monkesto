@@ -55,6 +55,8 @@ pub enum KnownErrors {
         required_permissions: Permissions,
     },
 
+    TenantDoesntExist,
+
     InvalidInput,
 
     InvalidId,
