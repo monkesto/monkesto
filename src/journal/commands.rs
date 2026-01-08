@@ -1,6 +1,6 @@
 use super::JournalEvent;
-use crate::auth;
 use crate::auth::axum_login::AuthSession;
+use crate::auth::{self, user};
 use crate::cuid::Cuid;
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use auth::user::UserEvent;
@@ -20,11 +20,7 @@ pub async fn create_journal(
     session: AuthSession,
     Form(form): Form<CreateJournalForm>,
 ) -> Result<Redirect, Redirect> {
-    let user_id = session
-        .user
-        .ok_or(KnownErrors::NotLoggedIn)
-        .or_redirect("/login")?
-        .id;
+    let user_id = user::get_id(session)?;
 
     if form.journal_name.trim().is_empty() {
         return Err(KnownErrors::InvalidInput.redirect("/journal"));
