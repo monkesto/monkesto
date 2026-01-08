@@ -11,6 +11,7 @@ use axum::extract::{Path, Query};
 use axum::response::Redirect;
 use maud::{Markup, html};
 use sqlx::PgPool;
+use std::str::FromStr;
 
 struct AccountItem {
     pub id: Cuid,

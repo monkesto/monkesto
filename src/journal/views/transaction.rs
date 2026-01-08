@@ -10,6 +10,7 @@ use axum::response::Redirect;
 use maud::{Markup, html};
 use sqlx::PgPool;
 use std::fmt::{self, Display};
+use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 enum EntryType {

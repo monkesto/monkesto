@@ -9,6 +9,7 @@ use axum::extract::{Path, Query};
 use axum::response::Redirect;
 use maud::{Markup, html};
 use sqlx::PgPool;
+use std::str::FromStr;
 
 #[allow(dead_code)]
 pub struct Journal {

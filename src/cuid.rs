@@ -1,7 +1,7 @@
 use super::known_errors::KnownErrors;
 use cuid::{Cuid2Constructor, cuid2_slug, is_cuid2};
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{fmt, str::FromStr};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Cuid {
@@ -34,18 +34,6 @@ impl Cuid {
         Self::from_str(str)
     }
 
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(str: &str) -> Result<Self, KnownErrors> {
-        if !is_cuid2(str) {
-            return Err(KnownErrors::InvalidId);
-        }
-        match str.len() {
-            10 => Ok(Self::Cuid10(str.as_bytes().try_into()?)),
-            16 => Ok(Self::Cuid16(str.as_bytes().try_into()?)),
-            _ => Err(KnownErrors::InvalidId),
-        }
-    }
-
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             Cuid::Cuid10(id) => id.as_ref(),
@@ -62,6 +50,20 @@ impl Cuid {
 impl Default for Cuid {
     fn default() -> Self {
         Self::from_str("aaaaaaaaaa").expect("failed to generate default Cuid")
+    }
+}
+
+impl FromStr for Cuid {
+    type Err = KnownErrors;
+    fn from_str(s: &str) -> Result<Self, KnownErrors> {
+        if !is_cuid2(s) {
+            return Err(KnownErrors::InvalidId);
+        }
+        match s.len() {
+            10 => Ok(Self::Cuid10(s.as_bytes().try_into()?)),
+            16 => Ok(Self::Cuid16(s.as_bytes().try_into()?)),
+            _ => Err(KnownErrors::InvalidId),
+        }
     }
 }
 

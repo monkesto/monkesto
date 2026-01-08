@@ -7,6 +7,7 @@ use crate::known_errors::KnownErrors;
 use auth::user::{UserEventType, UserState};
 use auth::username;
 use sqlx::PgPool;
+use std::str::FromStr;
 
 pub async fn get_associated_journals(
     user_id: &Cuid,
