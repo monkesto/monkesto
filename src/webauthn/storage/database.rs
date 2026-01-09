@@ -49,14 +49,13 @@ impl DatabaseStorage {
 #[async_trait::async_trait]
 impl UserStorage for DatabaseStorage {
     async fn email_exists(&self, email: &str) -> Result<bool, StorageError> {
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)")
-                .bind(email)
-                .fetch_one(&*self.pool)
-                .await
-                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE email = $1")
+            .bind(email)
+            .fetch_one(&*self.pool)
+            .await
+            .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
-        Ok(exists)
+        Ok(count > 0)
     }
 
     async fn get_user_email(&self, user_id: &Uuid) -> Result<String, StorageError> {
@@ -140,14 +139,13 @@ impl UserStorage for DatabaseStorage {
 
     async fn add_passkey(&self, user_id: &Uuid, passkey: Passkey) -> Result<(), StorageError> {
         // Check if user exists
-        let user_exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
-                .bind(user_id)
-                .fetch_one(&*self.pool)
-                .await
-                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
+        let user_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE id = $1")
+            .bind(user_id)
+            .fetch_one(&*self.pool)
+            .await
+            .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
-        if !user_exists {
+        if user_exists == 0 {
             return Err(StorageError::UserNotFound);
         }
 
@@ -183,14 +181,13 @@ impl UserStorage for DatabaseStorage {
 
         if result.rows_affected() == 0 {
             // Check if user exists at all
-            let user_exists: bool =
-                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE id = $1)")
-                    .bind(user_id)
-                    .fetch_one(&*self.pool)
-                    .await
-                    .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
+            let user_exists: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_one(&*self.pool)
+                .await
+                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
-            if !user_exists {
+            if user_exists == 0 {
                 return Err(StorageError::UserNotFound);
             }
 
@@ -198,6 +195,23 @@ impl UserStorage for DatabaseStorage {
         } else {
             Ok(true) // Passkey was removed
         }
+    }
+
+    async fn get_all_credentials(&self) -> Result<Vec<Passkey>, StorageError> {
+        let rows = sqlx::query("SELECT passkey_data FROM passkeys")
+            .fetch_all(&*self.pool)
+            .await
+            .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
+
+        let mut passkeys = Vec::new();
+        for row in rows {
+            let passkey_data: Vec<u8> = row.get("passkey_data");
+            let passkey: Passkey = postcard::from_bytes(&passkey_data)
+                .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
+            passkeys.push(passkey);
+        }
+
+        Ok(passkeys)
     }
 
     async fn find_user_by_credential(
@@ -211,14 +225,5 @@ impl UserStorage for DatabaseStorage {
             .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
 
         Ok(row.map(|r| r.get("user_id")))
-    }
-
-    async fn has_any_users(&self) -> Result<bool, StorageError> {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users)")
-            .fetch_one(&*self.pool)
-            .await
-            .map_err(|e| StorageError::OperationFailed(e.to_string()))?;
-
-        Ok(exists)
     }
 }

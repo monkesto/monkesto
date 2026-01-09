@@ -42,12 +42,12 @@ pub trait UserStorage: Send + Sync {
     async fn remove_passkey(&self, user_id: &Uuid, passkey_id: &[u8])
     -> Result<bool, StorageError>;
 
+    /// Get all credentials from all users (for usernameless authentication)
+    async fn get_all_credentials(&self) -> Result<Vec<Passkey>, StorageError>;
+
     /// Find user ID by passkey credential ID
     async fn find_user_by_credential(
         &self,
         credential_id: &[u8],
     ) -> Result<Option<Uuid>, StorageError>;
-
-    /// Check if any users exist in the system (for discoverable credential authentication)
-    async fn has_any_users(&self) -> Result<bool, StorageError>;
 }

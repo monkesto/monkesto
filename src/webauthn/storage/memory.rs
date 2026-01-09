@@ -118,6 +118,12 @@ impl UserStorage for MemoryStorage {
         }
     }
 
+    async fn get_all_credentials(&self) -> Result<Vec<Passkey>, StorageError> {
+        let data = self.data.lock().await;
+        let credentials = data.keys.values().flatten().cloned().collect();
+        Ok(credentials)
+    }
+
     async fn find_user_by_credential(
         &self,
         credential_id: &[u8],
@@ -133,10 +139,5 @@ impl UserStorage for MemoryStorage {
         }
 
         Ok(None)
-    }
-
-    async fn has_any_users(&self) -> Result<bool, StorageError> {
-        let data = self.data.lock().await;
-        Ok(!data.email_to_id.is_empty())
     }
 }
