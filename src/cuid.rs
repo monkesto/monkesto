@@ -150,7 +150,7 @@ mod test_cuid {
 
         let id_wrapper: WrapperType = sqlx::query_as(
             r#"
-            SELECT id FROM test_cuid
+            SELECT id FROM test_cuid_table
             LIMIT 1
             "#,
         )
