@@ -12,28 +12,6 @@ use maud::{Markup, html};
 use sqlx::PgPool;
 use std::str::FromStr;
 
-struct Person {
-    pub id: Cuid,
-    pub username: String,
-}
-
-fn people() -> Vec<Person> {
-    vec![
-        Person {
-            id: Cuid::from_str("aaaaaaaaab").expect("Invalid CUID"),
-            username: "johndoe".to_string(),
-        },
-        Person {
-            id: Cuid::from_str("aaaaaaaaac").expect("Invalid CUID"),
-            username: "janesmith".to_string(),
-        },
-        Person {
-            id: Cuid::from_str("aaaaaaaaad").expect("Invalid CUID"),
-            username: "bobjohnson".to_string(),
-        },
-    ]
-}
-
 pub async fn people_list_page(
     Extension(pool): Extension<PgPool>,
     session: AuthSession,
