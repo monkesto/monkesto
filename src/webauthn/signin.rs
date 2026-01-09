@@ -167,7 +167,6 @@ async fn handle_signin_page(
         // Pass empty credentials array since we want discoverable credentials only
         match app_state.webauthn.start_passkey_authentication(&[]) {
             Ok((rcr, auth_state)) => {
-
                 // Store auth state in session
                 match session
                     .insert("identifierless_auth_state", auth_state)
