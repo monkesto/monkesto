@@ -5,10 +5,14 @@ use crate::known_errors::RedirectOnError;
 use axum::response::Redirect;
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
+use sqlx::Decode;
+use sqlx::Encode;
+use sqlx::Type;
+use sqlx::postgres::PgValueRef;
 use sqlx::{PgPool, query_as};
 use std::collections::HashSet;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum UserEvent {
     CreatedJournal { id: Cuid },
     InvitedToJournal { journal_id: Cuid },
@@ -64,6 +68,29 @@ impl UserEvent {
         .await?;
 
         Ok(id)
+    }
+}
+
+impl Type<sqlx::Postgres> for UserEvent {
+    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
+        <&[u8] as Type<sqlx::Postgres>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, sqlx::Postgres> for UserEvent {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'q>,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        let bytes: Vec<u8> = postcard::to_allocvec(self)?;
+        <&[u8] as Encode<sqlx::Postgres>>::encode(&bytes, buf)
+    }
+}
+
+impl<'r> Decode<'r, sqlx::Postgres> for UserEvent {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let bytes = <&[u8] as Decode<sqlx::Postgres>>::decode(value)?;
+        Ok(postcard::from_bytes::<UserEvent>(bytes)?)
     }
 }
 
@@ -131,4 +158,58 @@ pub fn get_id(session: AuthSession) -> Result<Cuid, Redirect> {
         .ok_or(KnownErrors::NotLoggedIn)
         .or_redirect("/login")?
         .id)
+}
+
+#[cfg(test)]
+mod test_user {
+    use crate::cuid::Cuid;
+    use sqlx::{PgPool, prelude::FromRow};
+
+    use super::UserEvent;
+
+    #[sqlx::test]
+    async fn test_encode_decode_cuid(pool: PgPool) {
+        let original_event = UserEvent::CreatedJournal { id: Cuid::new10() };
+
+        sqlx::query(
+            r#"
+            CREATE TABLE test_user_table (
+            event BYTEA
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("failed to create mock user table");
+
+        sqlx::query(
+            r#"
+            INSERT INTO test_user_table(
+            event
+            )
+            VALUES ($1)
+            "#,
+        )
+        .bind(&original_event)
+        .execute(&pool)
+        .await
+        .expect("failed to insert user into mock table");
+
+        #[derive(FromRow)]
+        struct WrapperType {
+            event: UserEvent,
+        }
+
+        let event_wrapper: WrapperType = sqlx::query_as(
+            r#"
+            SELECT event FROM test_user_table
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("failed to fetch user from mock table");
+
+        assert_eq!(event_wrapper.event, original_event)
+    }
 }
