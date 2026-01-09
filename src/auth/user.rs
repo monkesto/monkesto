@@ -195,6 +195,18 @@ mod test_user {
         .await
         .expect("failed to insert user into mock table");
 
+        let event: UserEvent = sqlx::query_scalar(
+            r#"
+            SELECT event FROM test_user_table
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("failed to fetch user from mock table");
+
+        assert_eq!(event, original_event);
+
         #[derive(FromRow)]
         struct WrapperType {
             event: UserEvent,

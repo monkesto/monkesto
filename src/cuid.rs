@@ -143,6 +143,18 @@ mod test_cuid {
         .await
         .expect("failed to insert cuid into mock table");
 
+        let id: Cuid = sqlx::query_scalar(
+            r#"
+            SELECT id FROM test_cuid_table
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("failed to fetch cuid from mock table");
+
+        assert_eq!(id, original_id);
+
         #[derive(FromRow)]
         struct WrapperType {
             id: Cuid,
