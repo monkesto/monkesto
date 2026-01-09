@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use super::{AssociatedJournal, JournalEventType, JournalState};
 use crate::auth;
 use crate::cuid::Cuid;
+use crate::journal::Account;
 use crate::known_errors::KnownErrors;
 use auth::user::{UserEventType, UserState};
 use auth::username;
@@ -76,6 +77,26 @@ pub async fn get_journal_owner(
     username::get_username(&journal_state.owner, pool).await
 }
 
+pub async fn get_accounts(
+    journal_id: &Cuid,
+    pool: &PgPool,
+) -> Result<HashMap<Cuid, Account>, KnownErrors> {
+    use JournalEventType::*;
+
+    let journal_state = JournalState::build(
+        journal_id,
+        vec![Created, CreatedAccount, DeletedAccount, AddedEntry, Deleted],
+        pool,
+    )
+    .await?;
+
+    if !journal_state.deleted {
+        Ok(journal_state.accounts)
+    } else {
+        Err(KnownErrors::InvalidJournal)
+    }
+}
+
 /*
 These functions are unused. They are kept to serve as a guide for
 future implementations
@@ -114,66 +135,6 @@ pub async fn get_journal_invites() -> Result<Vec<JournalInvite>, KnownError> {
     }
 
     Ok(invites)
-}
-
-pub async fn get_accounts() -> Result<Vec<Account>, ServerFnError> {
-    use JournalEventType::{Created, *};
-    use UserEventType::*;
-
-    let mut accounts = Vec::new();
-
-    let session_id = extensions::get_session_id().await?;
-    let pool = extensions::get_pool().await?;
-
-    let user_id = auth::get_user_id(&session_id, &pool).await?;
-
-    let user_state = UserState::build(
-        &user_id,
-        vec![
-            CreatedJournal,
-            InvitedToJournal,
-            AcceptedJournalInvite,
-            DeclinedJournalInvite,
-            RemovedFromJournal,
-            SelectedJournal,
-        ],
-        &pool,
-    )
-    .await?;
-
-    let journal_id = user_state.selected_journal;
-
-    if journal_id.is_default() {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::InvalidJournal.to_string()?,
-        ));
-    }
-
-    if !user_state.owned_journals.contains(&journal_id) {
-        let journal_perms = user_state.accepted_journal_invites.get(&journal_id);
-
-        if !journal_perms.is_some_and(|j| j.tenant_permissions.contains(Permissions::READ)) {
-            return Err(ServerFnError::ServerError(
-                KnownErrors::PermissionError {
-                    required_permissions: Permissions::READ,
-                }
-                .to_string()?,
-            ));
-        }
-    }
-
-    let journal_state = JournalState::build(
-        &journal_id,
-        vec![Created, CreatedAccount, DeletedAccount, AddedEntry],
-        &pool,
-    )
-    .await?;
-
-    for (id, (name, balance)) in journal_state.accounts {
-        accounts.push(Account { id, name, balance });
-    }
-
-    Ok(accounts)
 }
 
 pub async fn get_transactions(

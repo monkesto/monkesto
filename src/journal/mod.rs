@@ -5,7 +5,7 @@ pub mod views;
 
 use crate::{cuid::Cuid, known_errors::KnownErrors};
 use bitflags::bitflags;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, query_as, query_scalar};
@@ -54,7 +54,10 @@ pub enum JournalEvent {
         tenant_info: JournalTenantInfo,
     },
     CreatedAccount {
-        account_name: String,
+        name: String,
+        id: Cuid,
+        created_by: Cuid,
+        created_at: DateTime<Utc>,
     },
     DeletedAccount {
         account_id: Cuid,
@@ -123,7 +126,7 @@ pub struct JournalState {
     pub created_at: chrono::DateTime<Utc>,
     pub owner: Cuid,
     pub tenants: HashMap<Cuid, JournalTenantInfo>,
-    pub accounts: HashMap<Cuid, (String, i64)>,
+    pub accounts: HashMap<Cuid, Account>,
     pub transactions: Vec<Transaction>,
     pub deleted: bool,
 }
@@ -186,8 +189,21 @@ impl JournalState {
                 _ = self.tenants.insert(id, tenant_info);
             }
 
-            JournalEvent::CreatedAccount { account_name } => {
-                _ = self.accounts.insert(Cuid::new10(), (account_name, 0))
+            JournalEvent::CreatedAccount {
+                name,
+                id,
+                created_at,
+                created_by,
+            } => {
+                _ = self.accounts.insert(
+                    id,
+                    Account {
+                        name,
+                        created_by,
+                        created_at,
+                        balance: 0,
+                    },
+                )
             }
             JournalEvent::DeletedAccount { account_id } => {
                 _ = self.accounts.remove(&account_id);
@@ -196,7 +212,7 @@ impl JournalState {
                 for balance_update in &transaction.updates {
                     self.accounts
                         .entry(balance_update.account_id)
-                        .and_modify(|(_, balance)| *balance += balance_update.changed_by);
+                        .and_modify(|account| account.balance += balance_update.changed_by);
                 }
                 self.transactions.push(transaction);
             }
@@ -230,8 +246,9 @@ pub struct SharedAndPendingJournals {
 #[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Account {
-    pub id: Cuid,
     pub name: String,
+    pub created_by: Cuid,
+    pub created_at: chrono::DateTime<Utc>,
     pub balance: i64,
 }
 
