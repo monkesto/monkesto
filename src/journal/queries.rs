@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::{AssociatedJournal, JournalEventType, JournalState};
 use crate::auth;
 use crate::cuid::Cuid;
-use crate::journal::Account;
+use crate::journal::{Account, JournalTenantInfo};
 use crate::known_errors::KnownErrors;
 use auth::user::{UserEventType, UserState};
 use auth::username;
@@ -95,6 +95,21 @@ pub async fn get_accounts(
     } else {
         Err(KnownErrors::InvalidJournal)
     }
+}
+
+pub async fn get_tenants(
+    journal_id: &Cuid,
+    pool: &PgPool,
+) -> Result<HashMap<Cuid, JournalTenantInfo>, KnownErrors> {
+    use JournalEventType::*;
+
+    let journal_state = JournalState::build(journal_id, vec![AddedTenant, Deleted], pool).await?;
+
+    if journal_state.deleted {
+        return Err(KnownErrors::InvalidJournal);
+    }
+
+    Ok(journal_state.tenants)
 }
 
 /*

@@ -1,8 +1,9 @@
 use crate::auth::axum_login::AuthSession;
 use crate::auth::user;
+use crate::auth::username;
 use crate::cuid::Cuid;
 use crate::journal::layout::maud_layout;
-use crate::journal::queries::get_associated_journals;
+use crate::journal::queries::{get_associated_journals, get_tenants};
 use crate::known_errors::{KnownErrors, UrlError};
 use axum::Extension;
 use axum::extract::{Path, Query};
@@ -41,21 +42,46 @@ pub async fn people_list_page(
 ) -> Result<Markup, Redirect> {
     let user_id = user::get_id(session)?;
 
-    let journal_id = Cuid::from_str(&id);
+    let journal_id_res = Cuid::from_str(&id);
 
     let journals = get_associated_journals(&user_id, &pool).await;
 
     let journal_res = journals
         .ok()
-        .and_then(|journals| journals.get(&journal_id.unwrap_or_default()).cloned());
+        .and_then(|journals| journals.get(&journal_id_res.unwrap_or_default()).cloned());
 
     let content = html! {
-        @for person in people() {
-            a
-            href=(format!("/journal/{}/person/{}", id, person.id))
-            class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
-                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                    (person.username)
+        @if let Ok(journal_id) = Cuid::from_str(&id) {
+            @match get_tenants(&journal_id, &pool).await {
+                Ok(tenants) => {
+                    @for (tenant_id, _) in tenants {
+                                a
+                                href=(format!("/journal/{}/person/{}", id, tenant_id))
+                                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
+                                    h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                        @match username::get_username(&tenant_id, &pool).await {
+                                            Ok(Some(username)) => (username),
+                                            Ok(None) => "Unknown User",
+                                            Err(e) => (format!("An error occurred while fetching username: {}", e))
+                                        }
+                                    }
+                                }
+                            }
+                }
+                Err(e) => {
+                    div class="flex justify-center items-center h-full" {
+                        p class="text-gray-500 dark:text-gray-400" {
+                            "An error occurred while fetching tenants: "
+                            (e)
+                        }
+                    }
+                }
+            }
+        }
+        @else {
+            div class="flex justify-center items-center h-full" {
+                p class="text-gray-500 dark:text-gray-400" {
+                    "Invalid journal id"
                 }
             }
         }
