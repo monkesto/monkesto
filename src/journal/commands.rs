@@ -178,24 +178,33 @@ pub async fn create_account(
         return Err(KnownErrors::InvalidInput).or_redirect(callback_url)?;
     }
 
-    let journal_state = JournalState::build(&journal_id, vec![AddedTenant, Deleted], &pool)
-        .await
-        .or_redirect(callback_url)?;
+    let journal_state =
+        JournalState::build(&journal_id, vec![Created, AddedTenant, Deleted], &pool)
+            .await
+            .or_redirect(callback_url)?;
 
-    if !journal_state.deleted
-        && journal_state
+    if !journal_state.deleted {
+        if journal_state
             .get_user_permissions(&user_id)
             .contains(Permissions::ADDACCOUNT)
-    {
-        JournalEvent::CreatedAccount {
-            id: Cuid::new10(),
-            name: form.account_name,
-            created_by: user_id,
-            created_at: Utc::now(),
+        {
+            JournalEvent::CreatedAccount {
+                id: Cuid::new10(),
+                name: form.account_name,
+                created_by: user_id,
+                created_at: Utc::now(),
+            }
+            .push_db(&journal_id, &pool)
+            .await
+            .or_redirect(callback_url)?;
+        } else {
+            return Err(KnownErrors::PermissionError {
+                required_permissions: Permissions::ADDACCOUNT,
+            }
+            .redirect(callback_url));
         }
-        .push_db(&journal_id, &pool)
-        .await
-        .or_redirect(callback_url)?;
+    } else {
+        return Err(KnownErrors::InvalidJournal.redirect(callback_url));
     }
 
     Ok(Redirect::to(callback_url))
