@@ -168,7 +168,7 @@ mod test_user {
     use super::UserEvent;
 
     #[sqlx::test]
-    async fn test_encode_decode_cuid(pool: PgPool) {
+    async fn test_encode_decode_userevent(pool: PgPool) {
         let original_event = UserEvent::CreatedJournal { id: Cuid::new10() };
 
         sqlx::query(
