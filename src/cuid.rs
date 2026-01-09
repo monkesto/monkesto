@@ -1,6 +1,7 @@
 use super::known_errors::KnownErrors;
 use cuid::{Cuid2Constructor, cuid2_slug, is_cuid2};
 use serde::{Deserialize, Serialize};
+use sqlx::{Decode, Encode, Type, postgres::PgValueRef};
 use std::{fmt, str::FromStr};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -82,5 +83,81 @@ impl fmt::Display for Cuid {
                 str::from_utf8(id).expect("failed to convert Cuid16 to string")
             ),
         }
+    }
+}
+
+impl Type<sqlx::Postgres> for Cuid {
+    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
+        <&[u8] as Type<sqlx::Postgres>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, sqlx::Postgres> for Cuid {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'q>,
+    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        let bytes = self.as_bytes();
+        <&[u8] as Encode<sqlx::Postgres>>::encode(bytes, buf)
+    }
+}
+
+impl<'r> Decode<'r, sqlx::Postgres> for Cuid {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let bytes = <&[u8] as Decode<sqlx::Postgres>>::decode(value)?;
+        Ok(Self::from_bytes(bytes)?)
+    }
+}
+
+#[cfg(test)]
+mod test_cuid {
+    use sqlx::{PgPool, prelude::FromRow};
+
+    use super::Cuid;
+
+    #[sqlx::test]
+    async fn test_encode_decode_cuid(pool: PgPool) {
+        let original_id = Cuid::new10();
+
+        sqlx::query(
+            r#"
+            CREATE TABLE test_cuid_table (
+            id BYTEA
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("failed to create mock cuid table");
+
+        sqlx::query(
+            r#"
+            INSERT INTO test_cuid_table(
+            id
+            )
+            VALUES ($1)
+            "#,
+        )
+        .bind(original_id)
+        .execute(&pool)
+        .await
+        .expect("failed to insert cuid into mock table");
+
+        #[derive(FromRow)]
+        struct WrapperType {
+            id: Cuid,
+        }
+
+        let id_wrapper: WrapperType = sqlx::query_as(
+            r#"
+            SELECT id FROM test_cuid
+            LIMIT 1
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("failed to fetch cuid from mock table");
+
+        assert_eq!(id_wrapper.id, original_id)
     }
 }
