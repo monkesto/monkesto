@@ -5,12 +5,31 @@ pub mod view;
 
 use crate::auth::axum_login::{AuthSession, Credentials};
 use crate::cuid::Cuid;
+use crate::known_errors::MonkestoResult;
 use crate::known_errors::{KnownErrors, RedirectOnError};
+use async_trait::async_trait;
 use axum::Extension;
 use axum::extract::Form;
 use axum::response::Redirect;
 use serde::Deserialize;
 use sqlx::PgPool;
+use user::{UserEvent, UserState};
+
+#[async_trait]
+#[allow(dead_code)]
+pub trait UserStore {
+    /// adds a UserEvent to the event store and updates the cached state
+    async fn push_event(&self, user_id: &Cuid, event: UserEvent) -> MonkestoResult<()>;
+
+    async fn get_user(&self, user_id: &Cuid) -> MonkestoResult<UserState>;
+
+    async fn lookup_user(&self, username: &str) -> MonkestoResult<UserState>;
+}
+
+#[allow(dead_code)]
+pub struct Users {
+    store: dyn UserStore,
+}
 
 #[derive(Deserialize)]
 pub struct SignupForm {

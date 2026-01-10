@@ -3,13 +3,31 @@ pub mod layout;
 pub mod queries;
 pub mod views;
 
-use crate::{cuid::Cuid, known_errors::KnownErrors};
+use crate::{
+    cuid::Cuid,
+    known_errors::{KnownErrors, MonkestoResult},
+};
+use async_trait::async_trait;
 use bitflags::bitflags;
 use chrono::{DateTime, Utc};
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use sqlx::{Decode, Encode, PgPool, Type, postgres::PgValueRef, query_as, query_scalar};
 use std::collections::HashMap;
+
+#[async_trait]
+#[allow(dead_code)]
+pub trait JournalStore {
+    /// adds a UserEvent to the event store and updates the cached state
+    async fn push_event(&self, user_id: &Cuid, event: JournalEvent) -> MonkestoResult<()>;
+
+    async fn get_journal(&self, user_id: &Cuid) -> MonkestoResult<JournalState>;
+}
+
+#[allow(dead_code)]
+pub struct Journals {
+    store: dyn JournalStore,
+}
 
 bitflags! {
     #[derive(Serialize, Deserialize, Hash, Default, Debug, Clone, Copy, PartialEq)]

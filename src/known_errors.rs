@@ -72,6 +72,8 @@ pub enum KnownErrors {
     None,
 }
 
+pub type MonkestoResult<T> = Result<T, KnownErrors>;
+
 impl KnownErrors {
     pub fn encode(&self) -> String {
         // to_allocvec should be infallible
