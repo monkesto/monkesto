@@ -10,29 +10,132 @@ use crate::{
 use async_trait::async_trait;
 use bitflags::bitflags;
 use chrono::{DateTime, Utc};
+use dashmap::DashMap;
 use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use sqlx::{Decode, Encode, PgPool, Type, postgres::PgValueRef, query_as, query_scalar};
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 #[async_trait]
 #[allow(dead_code)]
-pub trait JournalStore {
+pub trait JournalStore: Send + Sync {
     /// creates a new journal state in the event store with the data from the creation event
     ///
     /// it should return an error if the event passed in is not a creation event
-    async fn create_journal(&self, creation_event: JournalState) -> MonkestoResult<()>;
+    async fn create_journal(&self, creation_event: JournalEvent) -> MonkestoResult<()>;
 
     /// adds a UserEvent to the event store and updates the cached state
     async fn push_event(&self, journal_id: &Cuid, event: JournalEvent) -> MonkestoResult<()>;
 
     /// returns the cached state of the user
     async fn get_journal(&self, journal_id: &Cuid) -> MonkestoResult<JournalState>;
+
+    async fn get_permissions(
+        &self,
+        journal_id: &Cuid,
+        user_id: &Cuid,
+    ) -> MonkestoResult<Permissions> {
+        let state = self.get_journal(journal_id).await?;
+        if state.owner == *user_id {
+            return Ok(Permissions::all());
+        }
+        Ok(state
+            .tenants
+            .get(user_id)
+            .map(|t| t.tenant_permissions)
+            .unwrap_or(Permissions::empty()))
+    }
+
+    async fn get_name(&self, journal_id: &Cuid) -> MonkestoResult<String> {
+        Ok(self.get_journal(journal_id).await?.name)
+    }
+
+    async fn get_creator(&self, journal_id: &Cuid) -> MonkestoResult<Cuid> {
+        Ok(self.get_journal(journal_id).await?.creator)
+    }
+
+    async fn get_created_at(&self, journal_id: &Cuid) -> MonkestoResult<DateTime<Utc>> {
+        Ok(self.get_journal(journal_id).await?.created_at)
+    }
+
+    async fn get_accounts(&self, journal_id: &Cuid) -> MonkestoResult<HashMap<Cuid, Account>> {
+        Ok(self.get_journal(journal_id).await?.accounts)
+    }
+
+    async fn get_transactions(&self, journal_id: &Cuid) -> MonkestoResult<Vec<Cuid>> {
+        Ok(self.get_journal(journal_id).await?.transactions)
+    }
+
+    async fn get_deleted(&self, journal_id: &Cuid) -> MonkestoResult<bool> {
+        Ok(self.get_journal(journal_id).await?.deleted)
+    }
 }
 
 #[allow(dead_code)]
-pub struct Journals {
-    store: dyn JournalStore,
+pub struct JournalMemoryStore {
+    events: Arc<DashMap<Cuid, Vec<JournalEvent>>>,
+    journal_table: Arc<DashMap<Cuid, JournalState>>,
+}
+
+#[allow(dead_code)]
+impl JournalMemoryStore {
+    pub fn new() -> Self {
+        Self {
+            events: Arc::new(DashMap::new()),
+            journal_table: Arc::new(DashMap::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl JournalStore for JournalMemoryStore {
+    async fn create_journal(&self, creation_event: JournalEvent) -> MonkestoResult<()> {
+        if let JournalEvent::Created {
+            id,
+            name,
+            created_at,
+            creator,
+        } = creation_event.clone()
+        {
+            self.events.insert(id, vec![creation_event]);
+
+            let state = JournalState {
+                id,
+                name,
+                created_at,
+                creator,
+                owner: creator,
+                tenants: HashMap::new(),
+                accounts: HashMap::new(),
+                transactions: Vec::new(),
+                deleted: false,
+            };
+            self.journal_table.insert(id, state);
+            Ok(())
+        } else {
+            Err(KnownErrors::InvalidInput)
+        }
+    }
+
+    async fn push_event(&self, journal_id: &Cuid, event: JournalEvent) -> MonkestoResult<()> {
+        if let Some(mut events) = self.events.get_mut(journal_id)
+            && let Some(mut state) = self.journal_table.get_mut(journal_id)
+        {
+            state.apply(event.clone());
+            events.push(event);
+
+            Ok(())
+        } else {
+            Err(KnownErrors::InvalidJournal)
+        }
+    }
+
+    async fn get_journal(&self, journal_id: &Cuid) -> MonkestoResult<JournalState> {
+        self.journal_table
+            .get(journal_id)
+            .map(|state| (*state).clone())
+            .ok_or(KnownErrors::InvalidJournal)
+    }
 }
 
 bitflags! {
@@ -43,6 +146,7 @@ bitflags! {
         const APPENDTRANSACTION = 1 << 2;
         const INVITE = 1 << 3;
         const DELETE = 1 << 4;
+        const OWNER = 1 << 5;
     }
 }
 
@@ -58,7 +162,7 @@ pub enum JournalEvent {
         id: Cuid,
         name: String,
         created_at: chrono::DateTime<Utc>,
-        owner: Cuid,
+        creator: Cuid,
     },
     Renamed {
         name: String,
@@ -66,6 +170,9 @@ pub enum JournalEvent {
     AddedTenant {
         id: Cuid,
         tenant_info: JournalTenantInfo,
+    },
+    TransferredOwnership {
+        new_owner: Cuid,
     },
     CreatedAccount {
         name: String,
@@ -89,10 +196,11 @@ pub enum JournalEventType {
     Created = 1,
     Renamed = 2,
     AddedTenant = 3,
-    CreatedAccount = 4,
-    DeletedAccount = 5,
-    AddedEntry = 6,
-    Deleted = 7,
+    TransferredOwnership = 4,
+    CreatedAccount = 5,
+    DeletedAccount = 6,
+    AddedEntry = 7,
+    Deleted = 8,
 }
 
 impl JournalEvent {
@@ -102,6 +210,7 @@ impl JournalEvent {
             Self::Created { .. } => Created,
             Self::Renamed { .. } => Renamed,
             Self::AddedTenant { .. } => AddedTenant,
+            Self::TransferredOwnership { .. } => TransferredOwnership,
             Self::CreatedAccount { .. } => CreatedAccount,
             Self::DeletedAccount { .. } => DeletedAccount,
             Self::AddedEntry { .. } => AddedEntry,
@@ -156,10 +265,11 @@ impl<'r> Decode<'r, sqlx::Postgres> for JournalEvent {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, Clone)]
 pub struct JournalState {
     pub id: Cuid,
     pub name: String,
+    pub creator: Cuid,
     pub created_at: chrono::DateTime<Utc>,
     pub owner: Cuid,
     pub tenants: HashMap<Cuid, JournalTenantInfo>,
@@ -218,13 +328,14 @@ impl JournalState {
             JournalEvent::Created {
                 id,
                 name,
-                owner,
+                creator,
                 created_at,
             } => {
                 self.id = id;
                 self.name = name;
                 self.created_at = created_at;
-                self.owner = owner;
+                self.creator = creator;
+                self.owner = creator;
             }
 
             JournalEvent::Renamed { name } => self.name = name,
@@ -232,6 +343,8 @@ impl JournalState {
             JournalEvent::AddedTenant { id, tenant_info } => {
                 _ = self.tenants.insert(id, tenant_info);
             }
+
+            JournalEvent::TransferredOwnership { new_owner } => self.owner = new_owner,
 
             JournalEvent::CreatedAccount {
                 name,

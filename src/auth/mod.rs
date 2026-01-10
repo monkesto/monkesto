@@ -21,7 +21,7 @@ use user::{UserEvent, UserState};
 
 #[async_trait]
 #[allow(dead_code)]
-pub trait UserStore {
+pub trait UserStore: Send + Sync {
     /// creates a new user state in the event store with the data from the creation event
     ///
     /// it should return an error if the event passed in is not a creation event
@@ -102,6 +102,8 @@ impl UserStore for UserMemoryStore {
             }
             state.apply(event.clone());
             events.push(event);
+        } else {
+            return Err(KnownErrors::UserDoesntExist);
         }
 
         Ok(())

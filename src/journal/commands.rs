@@ -40,7 +40,7 @@ pub async fn create_journal(
     JournalEvent::Created {
         id: journal_id,
         name: form.journal_name,
-        owner: user_id,
+        creator: user_id,
         created_at: Utc::now(),
     }
     .push_db(&journal_id, &pool)
