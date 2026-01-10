@@ -5,6 +5,7 @@ mod signout;
 mod signup;
 mod startup;
 mod storage;
+mod user;
 
 use axum::{
     Router,
