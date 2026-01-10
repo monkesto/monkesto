@@ -38,14 +38,16 @@ pub async fn create_journal(
     let journal_id = Cuid::new10();
 
     JournalEvent::Created {
+        id: journal_id,
         name: form.journal_name,
         owner: user_id,
+        created_at: Utc::now(),
     }
     .push_db(&journal_id, &pool)
     .await
     .or_redirect("/journal")?;
 
-    UserEvent::CreatedJournal { id: journal_id }
+    UserEvent::CreatedJournal { journal_id }
         .push_db(&user_id, &pool)
         .await
         .or_redirect("/journal")?;

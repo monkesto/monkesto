@@ -18,6 +18,11 @@ use user::{UserEvent, UserState};
 #[async_trait]
 #[allow(dead_code)]
 pub trait UserStore {
+    /// creates a new user state in the event store with the data from the creation event
+    ///
+    /// it should return an error if the event passed in is not a creation event
+    async fn create_user(&self, creation_event: UserEvent) -> MonkestoResult<()>;
+
     /// adds a UserEvent to the event store and updates the cached state
     async fn push_event(&self, user_id: &Cuid, event: UserEvent) -> MonkestoResult<()>;
 

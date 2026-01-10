@@ -14,7 +14,8 @@ use std::collections::HashSet;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum UserEvent {
-    CreatedJournal { id: Cuid },
+    Created { id: Cuid },
+    CreatedJournal { journal_id: Cuid },
     InvitedToJournal { journal_id: Cuid },
     AcceptedJournalInvite { journal_id: Cuid },
     DeclinedJournalInvite { journal_id: Cuid },
@@ -26,18 +27,20 @@ pub enum UserEvent {
 #[sqlx(type_name = "smallint")]
 #[repr(i16)]
 pub enum UserEventType {
-    CreatedJournal = 1,
-    InvitedToJournal = 2,
-    AcceptedJournalInvite = 3,
-    DeclinedJournalInvite = 4,
-    RemovedFromJournal = 5,
-    Deleted = 6,
+    Created = 1,
+    CreatedJournal = 2,
+    InvitedToJournal = 3,
+    AcceptedJournalInvite = 4,
+    DeclinedJournalInvite = 5,
+    RemovedFromJournal = 6,
+    Deleted = 7,
 }
 
 impl UserEvent {
     pub fn get_type(&self) -> UserEventType {
         use UserEventType::*;
         match self {
+            Self::Created { .. } => Created,
             Self::CreatedJournal { .. } => CreatedJournal,
             Self::InvitedToJournal { .. } => InvitedToJournal,
             Self::AcceptedJournalInvite { .. } => AcceptedJournalInvite,
@@ -96,6 +99,7 @@ impl<'r> Decode<'r, sqlx::Postgres> for UserEvent {
 
 #[derive(Default)]
 pub struct UserState {
+    pub id: Cuid,
     pub pending_journal_invites: HashSet<Cuid>,
     pub accepted_journal_invites: HashSet<Cuid>,
     pub owned_journals: HashSet<Cuid>,
@@ -134,7 +138,8 @@ impl UserState {
 
     pub fn apply(&mut self, event: UserEvent) {
         match event {
-            UserEvent::CreatedJournal { id } => _ = self.owned_journals.insert(id),
+            UserEvent::Created { id } => self.id = id,
+            UserEvent::CreatedJournal { journal_id } => _ = self.owned_journals.insert(journal_id),
             UserEvent::InvitedToJournal { journal_id } => {
                 _ = self.pending_journal_invites.insert(journal_id)
             }
@@ -169,7 +174,9 @@ mod test_user {
 
     #[sqlx::test]
     async fn test_encode_decode_userevent(pool: PgPool) {
-        let original_event = UserEvent::CreatedJournal { id: Cuid::new10() };
+        let original_event = UserEvent::CreatedJournal {
+            journal_id: Cuid::new10(),
+        };
 
         sqlx::query(
             r#"

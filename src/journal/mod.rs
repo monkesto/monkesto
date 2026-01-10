@@ -18,6 +18,11 @@ use std::collections::HashMap;
 #[async_trait]
 #[allow(dead_code)]
 pub trait JournalStore {
+    /// creates a new journal state in the event store with the data from the creation event
+    ///
+    /// it should return an error if the event passed in is not a creation event
+    async fn create_journal(&self, creation_event: JournalState) -> MonkestoResult<()>;
+
     /// adds a UserEvent to the event store and updates the cached state
     async fn push_event(&self, journal_id: &Cuid, event: JournalEvent) -> MonkestoResult<()>;
 
@@ -49,7 +54,9 @@ pub struct JournalTenantInfo {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum JournalEvent {
     Created {
+        id: Cuid,
         name: String,
+        created_at: chrono::DateTime<Utc>,
         owner: Cuid,
     },
     Renamed {
@@ -207,8 +214,15 @@ impl JournalState {
 
     pub fn apply(&mut self, event: JournalEvent) {
         match event {
-            JournalEvent::Created { name, owner } => {
+            JournalEvent::Created {
+                id,
+                name,
+                owner,
+                created_at,
+            } => {
+                self.id = id;
                 self.name = name;
+                self.created_at = created_at;
                 self.owner = owner;
             }
 

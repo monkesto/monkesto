@@ -1,14 +1,19 @@
 use crate::{cuid::Cuid, known_errors::MonkestoResult};
 
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Decode, Encode, Type, postgres::PgValueRef};
 
 #[async_trait]
 #[allow(dead_code)]
 pub trait TransactionStore {
-    /// adds a UserEvent to the event store and updates the cached state
+    /// creates a new transaction state in the event store with the data from the creation event
+    ///
+    /// it should return an error if the event passed in is not a creation event
+    async fn create_transaction(&self, creation_event: TransactionEvent) -> MonkestoResult<()>;
+
+    /// applies a TransactionEvent to the event store and updates the cached state
     async fn push_event(&self, transction_id: &Cuid, event: TransactionEvent)
     -> MonkestoResult<()>;
 
@@ -30,9 +35,11 @@ pub struct BalanceUpdate {
 #[allow(dead_code)]
 pub enum TransactionEvent {
     Created {
+        id: Cuid,
         author: Cuid,
         description: String,
         updates: Vec<BalanceUpdate>,
+        created_at: DateTime<Utc>,
     },
     UpdatedDescription {
         new_desc: String,
@@ -99,6 +106,7 @@ pub struct TransactiionState {
 #[cfg(test)]
 mod test_transaction {
     use crate::{cuid::Cuid, journal::transaction::BalanceUpdate};
+    use chrono::Utc;
     use sqlx::{PgPool, prelude::FromRow};
 
     use super::TransactionEvent;
@@ -106,12 +114,14 @@ mod test_transaction {
     #[sqlx::test]
     async fn test_encode_decode_transactionevent(pool: PgPool) {
         let original_event = TransactionEvent::Created {
+            id: Cuid::new10(),
             author: Cuid::new10(),
             description: "test".to_string(),
             updates: vec![BalanceUpdate {
                 account_id: Cuid::new10(),
                 changed_by: -45,
             }],
+            created_at: Utc::now(),
         };
 
         sqlx::query(
