@@ -15,7 +15,7 @@ use nutype::nutype;
         TryFrom
     ),
     sanitize(trim, lowercase),
-    validate(predicate = |email| email.contains('@'))
+    validate(regex = r"^[\w\-\.]+@([\w-]+\.)+[\w-]{2,}$")
 )]
 pub struct Email(String);
 
@@ -66,5 +66,35 @@ mod tests {
         let id1 = UserId::new();
         let id2 = UserId::new();
         assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn test_email_validation() {
+        // test a basic, valid email
+        assert!(Email::try_new("test@example.com").is_ok());
+
+        // test sanitization
+        assert!(
+            Email::try_new("   test.test2@EXamPle.Com   ")
+                .is_ok_and(|f| f.to_string() == "test.test2@example.com")
+        );
+
+        // test an email without a TLD
+        assert_eq!(
+            Email::try_new("test@example"),
+            Err(EmailError::RegexViolated)
+        );
+
+        // test an email without a name
+        assert_eq!(
+            Email::try_new("@example.com"),
+            Err(EmailError::RegexViolated)
+        );
+
+        // test an email without an "@"
+        assert_eq!(
+            Email::try_new("testexample.com"),
+            Err(EmailError::RegexViolated)
+        );
     }
 }
