@@ -30,9 +30,24 @@ pub trait UserStore {
     /// adds a UserEvent to the event store and updates the cached state
     async fn push_event(&self, user_id: &Cuid, event: UserEvent) -> MonkestoResult<()>;
 
-    async fn get_user(&self, user_id: &Cuid) -> MonkestoResult<UserState>;
+    async fn get_user_state(&self, user_id: &Cuid) -> MonkestoResult<UserState>;
 
-    async fn lookup_user(&self, username: &str) -> MonkestoResult<Cuid>;
+    async fn lookup_user_id(&self, username: &str) -> MonkestoResult<Cuid>;
+
+    async fn lookup_user_state(&self, username: &str) -> MonkestoResult<UserState> {
+        self.get_user_state(&self.lookup_user_id(username).await?)
+            .await
+    }
+
+    async fn get_pending_journals(&self, user_id: &Cuid) -> MonkestoResult<Vec<Cuid>> {
+        let state = self.get_user_state(user_id).await?;
+        Ok(state.associated_journals.into_iter().collect())
+    }
+
+    async fn get_associated_journals(&self, user_id: &Cuid) -> MonkestoResult<Vec<Cuid>> {
+        let state = self.get_user_state(user_id).await?;
+        Ok(state.pending_journal_invites.into_iter().collect())
+    }
 }
 
 #[allow(dead_code)]
@@ -99,14 +114,14 @@ impl UserStore for UserMemoryStore {
         Ok(())
     }
 
-    async fn get_user(&self, user_id: &Cuid) -> MonkestoResult<UserState> {
+    async fn get_user_state(&self, user_id: &Cuid) -> MonkestoResult<UserState> {
         self.user_table
             .get(user_id)
             .map(|state| (*state).clone())
             .ok_or(KnownErrors::UserDoesntExist)
     }
 
-    async fn lookup_user(&self, username: &str) -> MonkestoResult<Cuid> {
+    async fn lookup_user_id(&self, username: &str) -> MonkestoResult<Cuid> {
         self.username_lookup_table
             .get(username)
             .map(|id| *id)
@@ -117,51 +132,6 @@ impl UserStore for UserMemoryStore {
 #[allow(dead_code)]
 pub struct Users {
     store: dyn UserStore,
-}
-
-#[allow(dead_code)]
-impl Users {
-    #[inline]
-    async fn create(&self, username: String) -> MonkestoResult<()> {
-        self.store
-            .create_user(UserEvent::Created {
-                id: Cuid::new16(),
-                username,
-            })
-            .await
-    }
-
-    #[inline]
-    async fn get(&self, user_id: &Cuid) -> MonkestoResult<UserState> {
-        self.store.get_user(user_id).await
-    }
-
-    #[inline]
-    async fn get_username(&self, user_id: &Cuid) -> MonkestoResult<String> {
-        Ok(self.store.get_user(user_id).await?.username)
-    }
-
-    #[inline]
-    async fn lookup_id(&self, username: &str) -> MonkestoResult<Cuid> {
-        self.store.lookup_user(username).await
-    }
-
-    #[inline]
-    async fn push_event(&self, user_id: &Cuid, event: UserEvent) -> MonkestoResult<()> {
-        self.store.push_event(user_id, event).await
-    }
-
-    #[inline]
-    async fn get_pending_journals(&self, user_id: &Cuid) -> MonkestoResult<Vec<Cuid>> {
-        let state = self.store.get_user(user_id).await?;
-        Ok(state.pending_journal_invites.into_iter().collect())
-    }
-
-    #[inline]
-    async fn get_associated_journals(&self, user_id: &Cuid) -> MonkestoResult<Vec<Cuid>> {
-        let state = self.store.get_user(user_id).await?;
-        Ok(state.associated_journals.into_iter().collect())
-    }
 }
 
 #[derive(Deserialize)]
