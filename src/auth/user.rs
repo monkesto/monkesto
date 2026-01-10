@@ -14,7 +14,8 @@ use std::collections::HashSet;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum UserEvent {
-    Created { id: Cuid },
+    Created { id: Cuid, username: String },
+    Renamed { name: String },
     CreatedJournal { journal_id: Cuid },
     InvitedToJournal { journal_id: Cuid },
     AcceptedJournalInvite { journal_id: Cuid },
@@ -28,12 +29,13 @@ pub enum UserEvent {
 #[repr(i16)]
 pub enum UserEventType {
     Created = 1,
-    CreatedJournal = 2,
-    InvitedToJournal = 3,
-    AcceptedJournalInvite = 4,
-    DeclinedJournalInvite = 5,
-    RemovedFromJournal = 6,
-    Deleted = 7,
+    Renamed = 2,
+    CreatedJournal = 3,
+    InvitedToJournal = 4,
+    AcceptedJournalInvite = 5,
+    DeclinedJournalInvite = 6,
+    RemovedFromJournal = 7,
+    Deleted = 8,
 }
 
 impl UserEvent {
@@ -41,6 +43,7 @@ impl UserEvent {
         use UserEventType::*;
         match self {
             Self::Created { .. } => Created,
+            Self::Renamed { .. } => Renamed,
             Self::CreatedJournal { .. } => CreatedJournal,
             Self::InvitedToJournal { .. } => InvitedToJournal,
             Self::AcceptedJournalInvite { .. } => AcceptedJournalInvite,
@@ -97,9 +100,10 @@ impl<'r> Decode<'r, sqlx::Postgres> for UserEvent {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct UserState {
     pub id: Cuid,
+    pub username: String,
     pub pending_journal_invites: HashSet<Cuid>,
     pub accepted_journal_invites: HashSet<Cuid>,
     pub owned_journals: HashSet<Cuid>,
@@ -138,7 +142,11 @@ impl UserState {
 
     pub fn apply(&mut self, event: UserEvent) {
         match event {
-            UserEvent::Created { id } => self.id = id,
+            UserEvent::Created { id, username } => {
+                self.id = id;
+                self.username = username
+            }
+            UserEvent::Renamed { name } => self.username = name,
             UserEvent::CreatedJournal { journal_id } => _ = self.owned_journals.insert(journal_id),
             UserEvent::InvitedToJournal { journal_id } => {
                 _ = self.pending_journal_invites.insert(journal_id)

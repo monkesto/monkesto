@@ -70,6 +70,8 @@ pub enum KnownErrors {
 
     InvalidJournal,
 
+    IncorrectEventType,
+
     None,
 }
 
