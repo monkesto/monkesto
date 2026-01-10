@@ -31,34 +31,31 @@ pub async fn get_associated_journals(
     )
     .await?;
 
-    for journal_id in user.owned_journals {
-        let journal_state = JournalState::build(&journal_id, vec![Created, Deleted], pool).await?;
-        if !journal_state.deleted {
-            journals.insert(
-                journal_id,
-                AssociatedJournal::Owned {
-                    name: journal_state.name,
-                    created_at: journal_state.created_at,
-                },
-            );
-        }
-    }
-
-    for journal_id in user.accepted_journal_invites {
+    for journal_id in user.associated_journals {
         let journal_state =
             JournalState::build(&journal_id, vec![Created, Deleted, AddedTenant], pool).await?;
         if !journal_state.deleted {
-            journals.insert(
-                journal_id,
-                AssociatedJournal::Shared {
-                    name: journal_state.name,
-                    created_at: journal_state.created_at,
-                    tenant_info: *journal_state
-                        .tenants
-                        .get(user_id)
-                        .ok_or(KnownErrors::TenantDoesntExist)?,
-                },
-            );
+            if journal_state.owner == *user_id {
+                journals.insert(
+                    journal_id,
+                    AssociatedJournal::Owned {
+                        name: journal_state.name,
+                        created_at: journal_state.created_at,
+                    },
+                );
+            } else {
+                journals.insert(
+                    journal_id,
+                    AssociatedJournal::Shared {
+                        name: journal_state.name,
+                        created_at: journal_state.created_at,
+                        tenant_info: *journal_state
+                            .tenants
+                            .get(user_id)
+                            .ok_or(KnownErrors::TenantDoesntExist)?,
+                    },
+                );
+            }
         }
     }
 

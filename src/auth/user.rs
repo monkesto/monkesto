@@ -105,8 +105,7 @@ pub struct UserState {
     pub id: Cuid,
     pub username: String,
     pub pending_journal_invites: HashSet<Cuid>,
-    pub accepted_journal_invites: HashSet<Cuid>,
-    pub owned_journals: HashSet<Cuid>,
+    pub associated_journals: HashSet<Cuid>,
     pub deleted: bool,
 }
 
@@ -147,7 +146,9 @@ impl UserState {
                 self.username = username
             }
             UserEvent::Renamed { name } => self.username = name,
-            UserEvent::CreatedJournal { journal_id } => _ = self.owned_journals.insert(journal_id),
+            UserEvent::CreatedJournal { journal_id } => {
+                _ = self.associated_journals.insert(journal_id)
+            }
             UserEvent::InvitedToJournal { journal_id } => {
                 _ = self.pending_journal_invites.insert(journal_id)
             }
@@ -156,10 +157,10 @@ impl UserState {
             }
             UserEvent::AcceptedJournalInvite { journal_id } => {
                 if self.pending_journal_invites.contains(&journal_id) {
-                    _ = self.accepted_journal_invites.insert(journal_id);
+                    _ = self.associated_journals.insert(journal_id);
                 }
             }
-            UserEvent::RemovedFromJournal { id } => _ = self.accepted_journal_invites.remove(&id),
+            UserEvent::RemovedFromJournal { id } => _ = self.associated_journals.remove(&id),
             UserEvent::Deleted => self.deleted = true,
         }
     }

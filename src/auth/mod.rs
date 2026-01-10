@@ -61,8 +61,7 @@ impl UserStore for UserMemoryStore {
                 id,
                 username: username.clone(),
                 pending_journal_invites: HashSet::new(),
-                accepted_journal_invites: HashSet::new(),
-                owned_journals: HashSet::new(),
+                associated_journals: HashSet::new(),
                 deleted: false,
             };
 
@@ -118,6 +117,51 @@ impl UserStore for UserMemoryStore {
 #[allow(dead_code)]
 pub struct Users {
     store: dyn UserStore,
+}
+
+#[allow(dead_code)]
+impl Users {
+    #[inline]
+    async fn create(&self, username: String) -> MonkestoResult<()> {
+        self.store
+            .create_user(UserEvent::Created {
+                id: Cuid::new16(),
+                username,
+            })
+            .await
+    }
+
+    #[inline]
+    async fn get(&self, user_id: &Cuid) -> MonkestoResult<UserState> {
+        self.store.get_user(user_id).await
+    }
+
+    #[inline]
+    async fn get_username(&self, user_id: &Cuid) -> MonkestoResult<String> {
+        Ok(self.store.get_user(user_id).await?.username)
+    }
+
+    #[inline]
+    async fn lookup_id(&self, username: &str) -> MonkestoResult<Cuid> {
+        self.store.lookup_user(username).await
+    }
+
+    #[inline]
+    async fn push_event(&self, user_id: &Cuid, event: UserEvent) -> MonkestoResult<()> {
+        self.store.push_event(user_id, event).await
+    }
+
+    #[inline]
+    async fn get_pending_journals(&self, user_id: &Cuid) -> MonkestoResult<Vec<Cuid>> {
+        let state = self.store.get_user(user_id).await?;
+        Ok(state.pending_journal_invites.into_iter().collect())
+    }
+
+    #[inline]
+    async fn get_associated_journals(&self, user_id: &Cuid) -> MonkestoResult<Vec<Cuid>> {
+        let state = self.store.get_user(user_id).await?;
+        Ok(state.associated_journals.into_iter().collect())
+    }
 }
 
 #[derive(Deserialize)]

@@ -120,8 +120,7 @@ pub async fn invite_user(
             .or_redirect(callback_url)?;
 
             if invitee_state.pending_journal_invites.contains(&journal_id)
-                || invitee_state.accepted_journal_invites.contains(&journal_id)
-                || invitee_state.owned_journals.contains(&journal_id)
+                || invitee_state.associated_journals.contains(&journal_id)
             {
                 return Err(KnownErrors::UserCanAccessJournal.redirect(callback_url));
             }

@@ -26,6 +26,7 @@ pub trait JournalStore {
     /// adds a UserEvent to the event store and updates the cached state
     async fn push_event(&self, journal_id: &Cuid, event: JournalEvent) -> MonkestoResult<()>;
 
+    /// returns the cached state of the user
     async fn get_journal(&self, journal_id: &Cuid) -> MonkestoResult<JournalState>;
 }
 
