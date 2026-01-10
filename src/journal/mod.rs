@@ -1,8 +1,8 @@
 pub mod commands;
 pub mod layout;
 pub mod queries;
+pub mod transaction;
 pub mod views;
-
 use crate::{
     cuid::Cuid,
     known_errors::{KnownErrors, MonkestoResult},
@@ -19,9 +19,9 @@ use std::collections::HashMap;
 #[allow(dead_code)]
 pub trait JournalStore {
     /// adds a UserEvent to the event store and updates the cached state
-    async fn push_event(&self, user_id: &Cuid, event: JournalEvent) -> MonkestoResult<()>;
+    async fn push_event(&self, journal_id: &Cuid, event: JournalEvent) -> MonkestoResult<()>;
 
-    async fn get_journal(&self, user_id: &Cuid) -> MonkestoResult<JournalState>;
+    async fn get_journal(&self, journal_id: &Cuid) -> MonkestoResult<JournalState>;
 }
 
 #[allow(dead_code)]
@@ -38,18 +38,6 @@ bitflags! {
         const INVITE = 1 << 3;
         const DELETE = 1 << 4;
     }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct BalanceUpdate {
-    pub account_id: Cuid,
-    pub changed_by: i64,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Transaction {
-    pub author: Cuid,
-    pub updates: Vec<BalanceUpdate>,
 }
 
 #[derive(Default, Serialize, Deserialize, Clone, Debug, Copy, PartialEq)]
@@ -81,7 +69,7 @@ pub enum JournalEvent {
         account_id: Cuid,
     },
     AddedEntry {
-        transaction: Transaction,
+        transaction_id: Cuid,
     },
     Deleted,
 }
@@ -168,7 +156,7 @@ pub struct JournalState {
     pub owner: Cuid,
     pub tenants: HashMap<Cuid, JournalTenantInfo>,
     pub accounts: HashMap<Cuid, Account>,
-    pub transactions: Vec<Transaction>,
+    pub transactions: Vec<Cuid>,
     pub deleted: bool,
 }
 
@@ -249,13 +237,8 @@ impl JournalState {
             JournalEvent::DeletedAccount { account_id } => {
                 _ = self.accounts.remove(&account_id);
             }
-            JournalEvent::AddedEntry { transaction } => {
-                for balance_update in &transaction.updates {
-                    self.accounts
-                        .entry(balance_update.account_id)
-                        .and_modify(|account| account.balance += balance_update.changed_by);
-                }
-                self.transactions.push(transaction);
+            JournalEvent::AddedEntry { transaction_id } => {
+                self.transactions.push(transaction_id);
             }
             JournalEvent::Deleted => self.deleted = true,
         }
@@ -339,20 +322,6 @@ pub struct JournalInvite {
     pub id: Cuid,
     pub name: String,
     pub tenant_info: JournalTenantInfo,
-}
-
-#[allow(dead_code)]
-#[derive(Serialize, Deserialize, Clone)]
-pub struct TransactionWithUsername {
-    pub author: String,
-    pub updates: Vec<BalanceUpdate>,
-}
-
-#[allow(dead_code)]
-#[derive(Serialize, Deserialize, Clone)]
-pub struct TransactionWithTimeStamp {
-    pub transaction: TransactionWithUsername,
-    pub timestamp: chrono::DateTime<Utc>,
 }
 
 #[cfg(test)]

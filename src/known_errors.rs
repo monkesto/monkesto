@@ -1,7 +1,7 @@
 use core::fmt;
 use std::{array::TryFromSliceError, str::Utf8Error};
 
-use crate::journal::{BalanceUpdate, Permissions};
+use crate::journal::{Permissions, transaction::BalanceUpdate};
 use axum::response::Redirect;
 use base64::{Engine, engine::general_purpose};
 use postcard::to_allocvec;
@@ -49,6 +49,7 @@ pub enum KnownErrors {
 
     BalanceMismatch {
         attempted_transaction: Vec<BalanceUpdate>,
+        desc: String,
     },
 
     PermissionError {
