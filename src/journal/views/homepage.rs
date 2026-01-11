@@ -1,7 +1,9 @@
 use crate::AppState;
-use crate::auth::axum_login::AuthSession;
+use crate::AuthSession;
+use crate::auth::UserStore;
 use crate::auth::user;
 use crate::cuid::Cuid;
+use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::journal::layout::maud_layout;
 use crate::known_errors::{KnownErrors, UrlError};
@@ -23,27 +25,21 @@ pub async fn journal_list(
     session: AuthSession,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let user_id = user::get_id(session)?;
+    let user = user::get_user(session)?;
 
-    let journals_result = state.user_store.get_associated_journals(&user_id).await;
+    let journals = user.associated_journals;
 
     let content = html! {
-        @if let Ok(journals) = journals_result {
-            @for journal_id in journals {
-                a
-                href=(format! ("/journal/{}", journal_id))
-                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
-                    h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                        (state.journal_store.get_name(&journal_id).await.unwrap_or_else(|_| "unknown journal".to_string()))
-                    }
+        @for journal_id in journals {
+            a
+            href=(format! ("/journal/{}", journal_id))
+            class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
+                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                    (state.journal_store.get_name(&journal_id).await.unwrap_or_else(|_| "unknown journal".to_string()))
                 }
             }
         }
-        @else if let Err(e) = journals_result {
-            p {
-                 (format!("An error occurred while fetching journals: {:?}", e))
-            }
-        }
+
 
         div class="mt-10" {
             form action="/createjournal" method="post" class="space-y-6" {
@@ -90,7 +86,7 @@ pub async fn journal_detail(
     session: AuthSession,
     Path(id): Path<String>,
 ) -> Result<Markup, Redirect> {
-    let user_id = user::get_id(session)?;
+    let user = user::get_user(session)?;
 
     let journal_state_res = match Cuid::from_str(&id) {
         Ok(s) => state.journal_store.get_journal(&s).await,
@@ -98,7 +94,7 @@ pub async fn journal_detail(
     };
 
     let content = html! {
-        @if let Ok(journal_state) = &journal_state_res && journal_state.get_user_permissions(&user_id).contains(Permissions::READ) {
+        @if let Ok(journal_state) = &journal_state_res && journal_state.get_user_permissions(&user.id).contains(Permissions::READ) {
 
             a
             href=(format!("/journal/{}/transaction", &id))

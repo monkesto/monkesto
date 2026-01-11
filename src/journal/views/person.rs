@@ -1,7 +1,9 @@
 use crate::AppState;
-use crate::auth::axum_login::AuthSession;
+use crate::AuthSession;
+use crate::auth::UserStore;
 use crate::auth::user;
 use crate::cuid::Cuid;
+use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::journal::layout::maud_layout;
 use crate::known_errors::{KnownErrors, UrlError};
@@ -16,7 +18,7 @@ pub async fn people_list_page(
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let user_id = user::get_id(session)?;
+    let user = user::get_user(session)?;
 
     let journal_state_res = match Cuid::from_str(&id) {
         Ok(s) => state.journal_store.get_journal(&s).await,
@@ -24,7 +26,7 @@ pub async fn people_list_page(
     };
 
     let content = html! {
-        @if let Ok(journal_state) = &journal_state_res && journal_state.get_user_permissions(&user_id).contains(Permissions::READ) {
+        @if let Ok(journal_state) = &journal_state_res && journal_state.get_user_permissions(&user.id).contains(Permissions::READ) {
             @for (tenant_id, _) in journal_state.tenants.clone() {
                 a
                 href=(format!("/journal/{}/person/{}", id, tenant_id))

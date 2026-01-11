@@ -1,10 +1,10 @@
+use crate::AppState;
+use crate::AuthSession;
 use crate::auth::user;
 use crate::cuid::Cuid;
-use crate::journal::Permissions;
 use crate::journal::layout::maud_layout;
+use crate::journal::{JournalStore, Permissions};
 use crate::known_errors::{KnownErrors, UrlError};
-use crate::{AppState, auth};
-use auth::axum_login::AuthSession;
 use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use maud::{Markup, html};
@@ -22,7 +22,7 @@ pub async fn account_list_page(
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let user_id = user::get_id(session)?;
+    let user = user::get_user(session)?;
 
     let journal_state_res = match Cuid::from_str(&id) {
         Ok(s) => state.journal_store.get_journal(&s).await,
@@ -30,7 +30,7 @@ pub async fn account_list_page(
     };
 
     let content = html! {
-        @if let Ok(journal_state) = &journal_state_res && journal_state.get_user_permissions(&user_id).contains(Permissions::READ) {
+        @if let Ok(journal_state) = &journal_state_res && journal_state.get_user_permissions(&user.id).contains(Permissions::READ) {
             @for (acc_id, acc) in journal_state.accounts.clone() {
                 a
                 href=(format!("/journal/{}/account/{}", id, acc_id.to_string()))

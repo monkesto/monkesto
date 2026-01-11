@@ -17,7 +17,7 @@ use std::{collections::HashMap, sync::Arc};
 
 #[async_trait]
 #[allow(dead_code)]
-pub trait JournalStore: Send + Sync + 'static {
+pub trait JournalStore: Clone + Send + Sync + 'static {
     /// creates a new journal state in the event store with the data from the creation event
     ///
     /// it should return an error if the event passed in is not a creation event
@@ -71,6 +71,7 @@ pub trait JournalStore: Send + Sync + 'static {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct JournalMemoryStore {
     events: Arc<DashMap<Cuid, Vec<JournalEvent>>>,
     journal_table: Arc<DashMap<Cuid, JournalState>>,

@@ -13,7 +13,7 @@ use sqlx::{Decode, Encode, Type, postgres::PgValueRef};
 
 #[async_trait]
 #[allow(dead_code)]
-pub trait TransactionStore: Send + Sync + 'static {
+pub trait TransactionStore: Clone + Send + Sync + 'static {
     /// creates a new transaction state in the event store with the data from the creation event
     ///
     /// it should return an error if the event passed in is not a creation event
@@ -27,6 +27,7 @@ pub trait TransactionStore: Send + Sync + 'static {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct TransasctionMemoryStore {
     events: Arc<DashMap<Cuid, Vec<TransactionEvent>>>,
     transaction_table: Arc<DashMap<Cuid, TransactionState>>,

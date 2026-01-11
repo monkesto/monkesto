@@ -1,4 +1,3 @@
-pub mod axum_login;
 pub mod user;
 pub mod view;
 
@@ -6,21 +5,27 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::AppState;
-use crate::auth::axum_login::{AuthSession, Credentials, User};
+use crate::AuthSession;
 use crate::cuid::Cuid;
 use crate::known_errors::MonkestoResult;
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use crate::webauthn::user::Email;
+use ::axum_login::AuthnBackend;
 use async_trait::async_trait;
 use axum::extract::{Form, State};
 use axum::response::Redirect;
+use bcrypt::DEFAULT_COST;
 use dashmap::DashMap;
+use rand::TryRngCore;
+use rand::rngs::OsRng;
 use serde::Deserialize;
+use tokio::task;
+use tokio::task::spawn_blocking;
 use user::{UserEvent, UserState};
 
 #[async_trait]
 #[allow(dead_code)]
-pub trait UserStore: Send + Sync {
+pub trait UserStore: Clone + Send + Sync + AuthnBackend {
     /// creates a new user state in the event store with the data from the creation event
     ///
     /// it should return an error if the event passed in is not a creation event
@@ -47,10 +52,11 @@ pub trait UserStore: Send + Sync {
 }
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct UserMemoryStore {
     events: Arc<DashMap<Cuid, Vec<UserEvent>>>,
     user_table: Arc<DashMap<Cuid, UserState>>,
-    username_lookup_table: Arc<DashMap<Email, Cuid>>,
+    email_lookup_table: Arc<DashMap<Email, Cuid>>,
 }
 
 #[allow(dead_code)]
@@ -59,18 +65,65 @@ impl UserMemoryStore {
         Self {
             events: Arc::new(DashMap::new()),
             user_table: Arc::new(DashMap::new()),
-            username_lookup_table: Arc::new(DashMap::new()),
+            email_lookup_table: Arc::new(DashMap::new()),
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct Credentials {
+    pub email: Email,
+    pub password: String,
+}
+
+impl AuthnBackend for UserMemoryStore {
+    type User = UserState;
+    type Credentials = Credentials;
+    type Error = KnownErrors;
+    async fn authenticate(
+        &self,
+        creds: Self::Credentials,
+    ) -> Result<Option<Self::User>, Self::Error> {
+        if let Some(id) = self.email_lookup_table.get(&creds.email)
+            && let Some(state) = self.user_table.get(&id)
+        {
+            let state_clone = state.value().clone();
+            return task::spawn_blocking(move || {
+                if bcrypt::verify(creds.password, &state_clone.pw_hash).is_ok_and(|p| p) {
+                    Ok(Some(state_clone))
+                } else {
+                    Ok(None)
+                }
+            })
+            .await?;
+        }
+        Ok(None)
+    }
+
+    async fn get_user(
+        &self,
+        user_id: &::axum_login::UserId<Self>,
+    ) -> Result<Option<Self::User>, Self::Error> {
+        Ok(self.user_table.get(user_id).map(|s| (*s).clone()))
     }
 }
 
 #[async_trait]
 impl UserStore for UserMemoryStore {
     async fn create_user(&self, creation_event: UserEvent) -> MonkestoResult<()> {
-        if let UserEvent::Created { id, email } = creation_event.clone() {
+        if let UserEvent::Created { id, email, pw_hash } = creation_event.clone() {
+            let mut session_hash = [0u8; 16];
+            OsRng
+                .try_fill_bytes(&mut session_hash)
+                .map_err(|e| KnownErrors::OsError {
+                    context: e.to_string(),
+                })?;
+
             let state = UserState {
                 id,
                 email: email.clone(),
+                pw_hash,
+                session_hash,
                 pending_journal_invites: HashSet::new(),
                 associated_journals: HashSet::new(),
                 deleted: false,
@@ -83,7 +136,7 @@ impl UserStore for UserMemoryStore {
             self.events.insert(id, vec![creation_event]);
 
             // insert the username and id into the username lookup table
-            self.username_lookup_table.insert(email, id);
+            self.email_lookup_table.insert(email, id);
 
             Ok(())
         } else {
@@ -96,9 +149,9 @@ impl UserStore for UserMemoryStore {
             && let Some(mut state) = self.user_table.get_mut(user_id)
         {
             if let UserEvent::UpdatedEmail { email } = event.clone() {
-                if self.username_lookup_table.get(&state.email).is_some() {
-                    self.username_lookup_table.remove(&state.email);
-                    self.username_lookup_table.insert(email, *user_id);
+                if self.email_lookup_table.get(&state.email).is_some() {
+                    self.email_lookup_table.remove(&state.email);
+                    self.email_lookup_table.insert(email, *user_id);
                 } else {
                     return Err(KnownErrors::UserDoesntExist);
                 }
@@ -120,7 +173,7 @@ impl UserStore for UserMemoryStore {
     }
 
     async fn lookup_user_id(&self, email: &Email) -> MonkestoResult<Option<Cuid>> {
-        Ok(self.username_lookup_table.get(email).map(|id| *id))
+        Ok(self.email_lookup_table.get(email).map(|id| *id))
     }
 }
 
@@ -156,17 +209,17 @@ pub async fn create_user(
     {
         let id = Cuid::new16();
 
-        session.backend.add_user(
-            User::new(email.clone(), form.password.clone(), &id)
-                .await
-                .or_redirect(CALLBACK_URL)?,
-        );
+        let pw_clone = form.password.clone();
 
         state
             .user_store
             .create_user(UserEvent::Created {
                 id,
                 email: email.clone(),
+                pw_hash: spawn_blocking(move || bcrypt::hash(pw_clone, DEFAULT_COST))
+                    .await
+                    .or_redirect(CALLBACK_URL)?
+                    .or_redirect(CALLBACK_URL)?,
             })
             .await
             .or_redirect(CALLBACK_URL)?;

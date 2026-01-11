@@ -1,4 +1,4 @@
-use crate::auth::axum_login::AuthSession;
+use crate::auth::AuthSession;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
 use crate::maud_header;

@@ -1,10 +1,11 @@
 use super::JournalEvent;
 use crate::AppState;
-use crate::auth::axum_login::AuthSession;
+use crate::AuthSession;
+use crate::auth::UserStore;
 use crate::auth::{self, user};
 use crate::cuid::Cuid;
-use crate::journal::JournalTenantInfo;
 use crate::journal::Permissions;
+use crate::journal::{JournalStore, JournalTenantInfo};
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use crate::webauthn::user::Email;
 use auth::user::UserEvent;
@@ -28,7 +29,7 @@ pub async fn create_journal(
 ) -> Result<Redirect, Redirect> {
     const CALLBACK_URL: &str = "/journal";
 
-    let user_id = user::get_id(session)?;
+    let user = user::get_user(session)?;
 
     if form.journal_name.trim().is_empty() {
         return Err(KnownErrors::InvalidInput.redirect("/journal"));
@@ -41,7 +42,7 @@ pub async fn create_journal(
         .create_journal(JournalEvent::Created {
             id: journal_id,
             name: form.journal_name,
-            creator: user_id,
+            creator: user.id,
             created_at: Utc::now(),
         })
         .await
@@ -49,7 +50,7 @@ pub async fn create_journal(
 
     state
         .user_store
-        .push_event(&user_id, UserEvent::CreatedJournal { journal_id })
+        .push_event(&user.id, UserEvent::CreatedJournal { journal_id })
         .await
         .or_redirect(CALLBACK_URL)?;
 
@@ -73,7 +74,7 @@ pub async fn invite_user(
         .map_err(|_| KnownErrors::UserDoesntExist)
         .or_redirect(callback_url)?;
 
-    let user_id = user::get_id(session)?;
+    let user = user::get_user(session)?;
 
     let journal_id = Cuid::from_str(&id).or_redirect(callback_url)?;
 
@@ -85,7 +86,7 @@ pub async fn invite_user(
 
     if !journal_state.deleted {
         if journal_state
-            .get_user_permissions(&user_id)
+            .get_user_permissions(&user.id)
             .contains(Permissions::INVITE)
         {
             // TODO: add a selector for permissions
@@ -93,7 +94,7 @@ pub async fn invite_user(
 
             let tenant_info = JournalTenantInfo {
                 tenant_permissions: invitee_permissions,
-                inviting_user: user_id,
+                inviting_user: user.id,
                 invited_at: Utc::now(),
             };
 
@@ -161,7 +162,7 @@ pub async fn create_account(
 
     let journal_id = Cuid::from_str(&id).or_redirect(callback_url)?;
 
-    let user_id = user::get_id(session)?;
+    let user = user::get_user(session)?;
 
     if form.account_name.trim().is_empty() {
         return Err(KnownErrors::InvalidInput).or_redirect(callback_url)?;
@@ -175,7 +176,7 @@ pub async fn create_account(
 
     if !journal_state.deleted {
         if journal_state
-            .get_user_permissions(&user_id)
+            .get_user_permissions(&user.id)
             .contains(Permissions::ADDACCOUNT)
         {
             state
@@ -185,7 +186,7 @@ pub async fn create_account(
                     JournalEvent::CreatedAccount {
                         id: Cuid::new10(),
                         name: form.account_name,
-                        created_by: user_id,
+                        created_by: user.id,
                         created_at: Utc::now(),
                     },
                 )

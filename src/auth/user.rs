@@ -1,9 +1,10 @@
-use crate::auth::axum_login::AuthSession;
+use crate::AuthSession;
 use crate::cuid::Cuid;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::RedirectOnError;
 use crate::webauthn::user::Email;
 use axum::response::Redirect;
+use axum_login::AuthUser;
 use serde::{Deserialize, Serialize};
 use sqlx::Decode;
 use sqlx::Encode;
@@ -13,13 +14,29 @@ use std::collections::HashSet;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum UserEvent {
-    Created { id: Cuid, email: Email },
-    UpdatedEmail { email: Email },
-    CreatedJournal { journal_id: Cuid },
-    InvitedToJournal { journal_id: Cuid },
-    AcceptedJournalInvite { journal_id: Cuid },
-    DeclinedJournalInvite { journal_id: Cuid },
-    RemovedFromJournal { id: Cuid },
+    Created {
+        id: Cuid,
+        email: Email,
+        pw_hash: String,
+    },
+    UpdatedEmail {
+        email: Email,
+    },
+    CreatedJournal {
+        journal_id: Cuid,
+    },
+    InvitedToJournal {
+        journal_id: Cuid,
+    },
+    AcceptedJournalInvite {
+        journal_id: Cuid,
+    },
+    DeclinedJournalInvite {
+        journal_id: Cuid,
+    },
+    RemovedFromJournal {
+        id: Cuid,
+    },
     Deleted,
 }
 
@@ -46,21 +63,36 @@ impl<'r> Decode<'r, sqlx::Postgres> for UserEvent {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct UserState {
     pub id: Cuid,
     pub email: Email,
+    pub pw_hash: String,
+    pub session_hash: [u8; 16],
     pub pending_journal_invites: HashSet<Cuid>,
     pub associated_journals: HashSet<Cuid>,
     pub deleted: bool,
 }
 
+impl AuthUser for UserState {
+    type Id = Cuid;
+
+    fn id(&self) -> Self::Id {
+        self.id
+    }
+
+    fn session_auth_hash(&self) -> &[u8] {
+        &self.session_hash
+    }
+}
+
 impl UserState {
     pub fn apply(&mut self, event: UserEvent) {
         match event {
-            UserEvent::Created { id, email } => {
+            UserEvent::Created { id, email, pw_hash } => {
                 self.id = id;
-                self.email = email
+                self.email = email;
+                self.pw_hash = pw_hash;
             }
             UserEvent::UpdatedEmail { email } => self.email = email,
             UserEvent::CreatedJournal { journal_id } => {
@@ -83,12 +115,11 @@ impl UserState {
     }
 }
 
-pub fn get_id(session: AuthSession) -> Result<Cuid, Redirect> {
-    Ok(session
+pub fn get_user(session: AuthSession) -> Result<UserState, Redirect> {
+    session
         .user
         .ok_or(KnownErrors::NotLoggedIn)
-        .or_redirect("/login")?
-        .id)
+        .or_redirect("/login")
 }
 
 #[cfg(test)]

@@ -15,21 +15,23 @@ use axum::routing::post;
 use axum_login::{AuthManagerLayerBuilder, login_required};
 use dotenvy::dotenv;
 use std::env;
-use std::sync::Arc;
 use tower_http::services::ServeFile;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
 
-use crate::auth::axum_login::MemoryBackend;
-use crate::auth::{UserMemoryStore, UserStore};
-use crate::journal::transaction::{TransactionStore, TransasctionMemoryStore};
-use crate::journal::{JournalMemoryStore, JournalStore};
+use crate::auth::UserMemoryStore;
+use crate::journal::JournalMemoryStore;
+use crate::journal::transaction::TransasctionMemoryStore;
+
+pub type AuthSession = axum_login::AuthSession<UserMemoryStore>;
 
 #[derive(Clone)]
 pub struct AppState {
-    user_store: Arc<dyn UserStore>,
-    journal_store: Arc<dyn JournalStore>,
+    // userstore is not dyn compatible
+    // because it implements AuthnBackend
+    user_store: UserMemoryStore,
+    journal_store: JournalMemoryStore,
     #[allow(dead_code)]
-    transaction_store: Arc<dyn TransactionStore>,
+    transaction_store: TransasctionMemoryStore,
 }
 
 #[tokio::main]
@@ -64,11 +66,13 @@ async fn main() {
         .expect("faild to migrate session store");
     // */
 
+    let user_store = UserMemoryStore::new();
+
     let session_store = MemoryStore::default();
 
     let session_layer = SessionManagerLayer::new(session_store);
-    let auth_backend = MemoryBackend::new();
-    let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
+
+    let auth_layer = AuthManagerLayerBuilder::new(user_store.clone(), session_layer).build();
 
     /*
     sqlx::query(
@@ -154,7 +158,7 @@ async fn main() {
             "/journal/{id}/createaccount",
             post(journal::commands::create_account),
         )
-        .route_layer(login_required!(MemoryBackend, login_url = "/login"));
+        .route_layer(login_required!(UserMemoryStore, login_url = "/login"));
 
     // the dockerfile defines this for production deployments
     let site_root = std::env::var("SITE_ROOT").unwrap_or_else(|_| "target/site".to_string());
@@ -174,9 +178,9 @@ async fn main() {
         //.layer(axum::Extension(pool))
         .layer(auth_layer)
         .with_state(AppState {
-            user_store: Arc::new(UserMemoryStore::new()),
-            journal_store: Arc::new(JournalMemoryStore::new()),
-            transaction_store: Arc::new(TransasctionMemoryStore::new()),
+            user_store,
+            journal_store: JournalMemoryStore::new(),
+            transaction_store: TransasctionMemoryStore::new(),
         });
 
     // run our app with hyper
