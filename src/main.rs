@@ -19,27 +19,17 @@ use std::sync::Arc;
 use tower_http::services::ServeFile;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
 
-use crate::auth::UserMemoryStore;
 use crate::auth::axum_login::MemoryBackend;
-use crate::journal::JournalMemoryStore;
-use crate::journal::transaction::TransasctionMemoryStore;
+use crate::auth::{UserMemoryStore, UserStore};
+use crate::journal::transaction::{TransactionStore, TransasctionMemoryStore};
+use crate::journal::{JournalMemoryStore, JournalStore};
 
 #[derive(Clone)]
 pub struct AppState {
-    user_store: Arc<UserMemoryStore>,
-    journal_store: Arc<JournalMemoryStore>,
+    user_store: Arc<dyn UserStore>,
+    journal_store: Arc<dyn JournalStore>,
     #[allow(dead_code)]
-    transaction_store: Arc<TransasctionMemoryStore>,
-}
-
-impl AppState {
-    fn new() -> Self {
-        Self {
-            user_store: Arc::new(UserMemoryStore::new()),
-            journal_store: Arc::new(JournalMemoryStore::new()),
-            transaction_store: Arc::new(TransasctionMemoryStore::new()),
-        }
-    }
+    transaction_store: Arc<dyn TransactionStore>,
 }
 
 #[tokio::main]
@@ -183,7 +173,11 @@ async fn main() {
         .fallback(notfoundpage::not_found_page)
         //.layer(axum::Extension(pool))
         .layer(auth_layer)
-        .with_state(AppState::new());
+        .with_state(AppState {
+            user_store: Arc::new(UserMemoryStore::new()),
+            journal_store: Arc::new(JournalMemoryStore::new()),
+            transaction_store: Arc::new(TransasctionMemoryStore::new()),
+        });
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`

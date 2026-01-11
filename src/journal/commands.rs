@@ -1,10 +1,8 @@
 use super::JournalEvent;
 use crate::AppState;
-use crate::auth::UserStore;
 use crate::auth::axum_login::AuthSession;
 use crate::auth::{self, user};
 use crate::cuid::Cuid;
-use crate::journal::JournalStore;
 use crate::journal::JournalTenantInfo;
 use crate::journal::Permissions;
 use crate::known_errors::{KnownErrors, RedirectOnError};

@@ -1,7 +1,7 @@
 use crate::auth::user;
 use crate::cuid::Cuid;
+use crate::journal::Permissions;
 use crate::journal::layout::maud_layout;
-use crate::journal::{JournalStore, Permissions};
 use crate::known_errors::{KnownErrors, UrlError};
 use crate::{AppState, auth};
 use auth::axum_login::AuthSession;
