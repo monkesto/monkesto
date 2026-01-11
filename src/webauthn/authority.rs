@@ -37,27 +37,10 @@ pub enum Actor {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Authority {
-    pub authorizer: Actor,
-    pub executor: Actor,
-}
-
-impl Authority {
-    #[allow(unused)]
-    pub fn direct(actor: &Actor) -> Self {
-        Self {
-            authorizer: actor.clone(),
-            executor: actor.clone(),
-        }
-    }
-
-    #[allow(unused)]
-    pub fn delegated(authorizer: &Actor, executor: &Actor) -> Self {
-        Self {
-            authorizer: authorizer.clone(),
-            executor: executor.clone(),
-        }
-    }
+pub enum Authority {
+    #[expect(unused)]
+    Direct(Actor),
+    // Delegated { authorizer: Actor, executor: Actor },
 }
 
 #[cfg(test)]
@@ -75,22 +58,5 @@ mod tests {
         let id1 = UserId::new();
         let id2 = UserId::new();
         assert_ne!(id1, id2);
-    }
-
-    #[test]
-    fn test_authority_new() {
-        let actor = Actor::User(UserId::new());
-        let authority = Authority::direct(&actor);
-        assert_eq!(authority.authorizer, actor);
-        assert_eq!(authority.executor, actor);
-    }
-
-    #[test]
-    fn test_authority_delegated() {
-        let actor = Actor::User(UserId::new());
-        let system = Actor::System;
-        let authority = Authority::delegated(&system, &actor);
-        assert_eq!(authority.authorizer, system);
-        assert_eq!(authority.executor, actor);
     }
 }
