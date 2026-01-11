@@ -126,7 +126,7 @@ impl UserStore for UserMemoryStore {
 
 #[derive(Deserialize)]
 pub struct SignupForm {
-    email: Email,
+    email: String,
     password: String,
     confirm_password: String,
     next: Option<String>,
@@ -140,15 +140,17 @@ pub async fn create_user(
 ) -> Result<Redirect, Redirect> {
     const CALLBACK_URL: &str = "/signup";
 
+    let email = Email::try_new(&form.email)
+        .map_err(|_| KnownErrors::InvalidEmail { email: form.email })
+        .or_redirect(CALLBACK_URL)?;
+
     if form.password != form.confirm_password {
-        return Err(
-            KnownErrors::SignupPasswordMismatch { email: form.email }.redirect(CALLBACK_URL)
-        );
+        return Err(KnownErrors::SignupPasswordMismatch { email }.redirect(CALLBACK_URL));
     }
 
     if state
         .user_store
-        .lookup_user_id(&form.email)
+        .lookup_user_id(&email)
         .await
         .or_redirect(CALLBACK_URL)?
         .is_none()
@@ -156,7 +158,7 @@ pub async fn create_user(
         let id = Cuid::new16();
 
         session.backend.add_user(
-            User::new(form.email.clone(), form.password.clone())
+            User::new(email.clone(), form.password.clone())
                 .await
                 .or_redirect(CALLBACK_URL)?,
         );
@@ -165,14 +167,14 @@ pub async fn create_user(
             .user_store
             .create_user(UserEvent::Created {
                 id,
-                email: form.email.clone(),
+                email: email.clone(),
             })
             .await
             .or_redirect(CALLBACK_URL)?;
 
         if let Ok(Some(user)) = session
             .authenticate(Credentials {
-                email: form.email.clone(),
+                email: email.clone(),
                 password: form.password,
             })
             .await
@@ -185,16 +187,16 @@ pub async fn create_user(
             }
             Ok(Redirect::to(&form.next.unwrap_or(CALLBACK_URL.to_string())))
         } else {
-            Err(KnownErrors::LoginFailed { email: form.email }.redirect("/login"))
+            Err(KnownErrors::LoginFailed { email }.redirect("/login"))
         }
     } else {
-        Err(KnownErrors::UserExists { email: form.email }.redirect("/signup"))
+        Err(KnownErrors::UserExists { email }.redirect("/signup"))
     }
 }
 
 #[derive(Deserialize)]
 pub struct LoginForm {
-    email: Email,
+    email: String,
     password: String,
     next: Option<String>,
 }
@@ -203,9 +205,15 @@ pub async fn login(
     mut session: AuthSession,
     Form(form): Form<LoginForm>,
 ) -> Result<Redirect, Redirect> {
+    const CALLBACK_URL: &str = "/login";
+
+    let email = Email::try_new(form.email)
+        .map_err(|_| KnownErrors::UserDoesntExist)
+        .or_redirect(CALLBACK_URL)?;
+
     if let Ok(Some(user)) = session
         .authenticate(Credentials {
-            email: form.email.clone(),
+            email: email.clone(),
             password: form.password,
         })
         .await
@@ -214,11 +222,11 @@ pub async fn login(
             return Err(KnownErrors::InternalError {
                 context: e.to_string(),
             }
-            .redirect("/login"));
+            .redirect(CALLBACK_URL));
         }
-        Ok(Redirect::to(&form.next.unwrap_or("/journal".to_string())))
+        Ok(Redirect::to(&form.next.unwrap_or("journal".to_string())))
     } else {
-        Err(KnownErrors::LoginFailed { email: form.email }.redirect("/login"))
+        Err(KnownErrors::LoginFailed { email }.redirect(CALLBACK_URL))
     }
 }
 

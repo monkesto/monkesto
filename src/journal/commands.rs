@@ -60,7 +60,7 @@ pub async fn create_journal(
 
 #[derive(Deserialize)]
 pub struct InviteUserForm {
-    email: Email,
+    email: String,
 }
 
 pub async fn invite_user(
@@ -70,6 +70,10 @@ pub async fn invite_user(
     Form(form): Form<InviteUserForm>,
 ) -> Result<Redirect, Redirect> {
     let callback_url = &format!("/journal/{}/person", id);
+
+    let email = Email::try_new(form.email)
+        .map_err(|_| KnownErrors::UserDoesntExist)
+        .or_redirect(callback_url)?;
 
     let user_id = user::get_id(session)?;
 
@@ -97,7 +101,7 @@ pub async fn invite_user(
 
             let invitee_id = state
                 .user_store
-                .lookup_user_id(&form.email)
+                .lookup_user_id(&email)
                 .await
                 .or_redirect(callback_url)?
                 .ok_or(KnownErrors::UserDoesntExist)

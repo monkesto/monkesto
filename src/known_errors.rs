@@ -30,8 +30,8 @@ pub enum KnownErrors {
         username: String,
     },
 
-    InvalidUsername {
-        username: String,
+    InvalidEmail {
+        email: String,
     },
 
     LoginFailed {
