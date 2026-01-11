@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use tower_sessions::Session;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid};
 
-use super::{error::WebauthnError, startup::AppState};
+use super::{error::WebauthnError, startup::WebauthnState};
 use crate::maud_header::header;
 
 #[derive(Deserialize)]
@@ -217,7 +217,7 @@ async fn handle_signup_get(webauthn_url: String, query: Query<SignupQuery>) -> i
 }
 
 async fn handle_signup_post(
-    app_state: AppState,
+    app_state: WebauthnState,
     session: Session,
     webauthn_url: String,
     form_data: Form<HashMap<String, String>>,
@@ -235,7 +235,7 @@ async fn handle_signup_post(
 }
 
 async fn handle_email_submission(
-    app_state: AppState,
+    app_state: WebauthnState,
     session: Session,
     webauthn_url: String,
     email: String,
@@ -295,7 +295,7 @@ async fn handle_email_submission(
 }
 
 async fn handle_credential_submission(
-    app_state: AppState,
+    app_state: WebauthnState,
     session: Session,
     form_data: Form<HashMap<String, String>>,
 ) -> Result<axum::response::Response, WebauthnError> {
@@ -359,7 +359,7 @@ pub async fn signup_get(
 }
 
 pub async fn signup_post(
-    Extension(app_state): Extension<AppState>,
+    Extension(app_state): Extension<WebauthnState>,
     Extension(webauthn_url): Extension<String>,
     session: Session,
     form: Form<HashMap<String, String>>,

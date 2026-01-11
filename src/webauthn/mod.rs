@@ -22,8 +22,8 @@ use tower_sessions::{
 use webauthn_rs::prelude::Url;
 
 use error::WebauthnError;
-use startup::AppState;
-use storage::{UserStorage, memory::MemoryStorage};
+use startup::WebauthnState;
+use storage::{WebauthnStorage, memory::MemoryStorage};
 
 pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnError> {
     // Get base URL from environment variable, defaulting to localhost:3000
@@ -41,11 +41,11 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
     let rp_id = rp_origin.host_str().ok_or(WebauthnError::InvalidHost)?;
 
     // Create WebAuthn instance and default storage
-    let webauthn = AppState::build_webauthn(rp_id, &rp_origin)?;
-    let storage = Arc::new(MemoryStorage::new()) as Arc<dyn UserStorage>;
+    let webauthn = WebauthnState::build_webauthn(rp_id, &rp_origin)?;
+    let storage = Arc::new(MemoryStorage::new()) as Arc<dyn WebauthnStorage>;
 
     // Create AppState with components
-    let app_state = AppState::new(webauthn, storage);
+    let app_state = WebauthnState::new(webauthn, storage);
 
     Ok(Router::new()
         .route("/", get(redirect_to_signin))

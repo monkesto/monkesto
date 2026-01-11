@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use tower_sessions::Session;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid};
 
-use super::{error::WebauthnError, startup::AppState};
+use super::{error::WebauthnError, startup::WebauthnState};
 use crate::maud_header::header;
 
 fn passkeys_page(email: &str, passkeys: &[webauthn_rs::prelude::Passkey]) -> Markup {
@@ -148,7 +148,7 @@ fn not_logged_in_page() -> Markup {
 }
 
 pub async fn passkey_get(
-    Extension(app_state): Extension<AppState>,
+    Extension(app_state): Extension<WebauthnState>,
     session: Session,
 ) -> impl IntoResponse {
     // Check if user is logged in
@@ -187,7 +187,7 @@ pub async fn passkey_get(
 }
 
 pub async fn delete_passkey_post(
-    Extension(app_state): Extension<AppState>,
+    Extension(app_state): Extension<WebauthnState>,
     session: Session,
     Path(cred_id): Path<String>,
 ) -> Result<impl IntoResponse, WebauthnError> {
@@ -227,7 +227,7 @@ pub async fn delete_passkey_post(
 }
 
 pub async fn create_passkey_post(
-    Extension(app_state): Extension<AppState>,
+    Extension(app_state): Extension<WebauthnState>,
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, WebauthnError> {

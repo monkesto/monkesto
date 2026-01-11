@@ -1,4 +1,4 @@
-use super::{StorageError, UserStorage};
+use super::{StorageError, WebauthnStorage};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 use webauthn_rs::prelude::{Passkey, Uuid};
@@ -44,7 +44,7 @@ impl Default for MemoryStorage {
 }
 
 #[async_trait::async_trait]
-impl UserStorage for MemoryStorage {
+impl WebauthnStorage for MemoryStorage {
     async fn email_exists(&self, email: &str) -> Result<bool, StorageError> {
         let data = self.data.lock().await;
         Ok(data.email_to_id.contains_key(email))

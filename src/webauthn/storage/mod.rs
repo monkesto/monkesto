@@ -1,6 +1,5 @@
 use webauthn_rs::prelude::{Passkey, Uuid};
 
-pub mod database;
 pub mod memory;
 
 /// Errors that can occur during storage operations
@@ -17,7 +16,7 @@ pub enum StorageError {
 
 /// Trait for abstracting user and passkey storage operations
 #[async_trait::async_trait]
-pub trait UserStorage: Send + Sync {
+pub trait WebauthnStorage: Send + Sync {
     /// Check if an email already exists in the system
     async fn email_exists(&self, email: &str) -> Result<bool, StorageError>;
 

@@ -1,5 +1,5 @@
 use crate::webauthn::error::WebauthnError;
-use crate::webauthn::storage::UserStorage;
+use crate::webauthn::storage::WebauthnStorage;
 use std::sync::Arc;
 use webauthn_rs::prelude::{Url, Webauthn, WebauthnBuilder};
 
@@ -19,18 +19,18 @@ use webauthn_rs::prelude::{Url, Webauthn, WebauthnBuilder};
 // Both parameters are passed explicitly to prevent accidental misconfiguration.
 
 #[derive(Clone)]
-pub struct AppState {
+pub struct WebauthnState {
     // Webauthn has no mutable inner state, so Arc and read only is sufficent.
     // Alternately, you could use a reference here provided you can work out
     // lifetimes.
     pub webauthn: Arc<Webauthn>,
     // Storage abstraction for users and passkeys
-    pub storage: Arc<dyn UserStorage>,
+    pub storage: Arc<dyn WebauthnStorage>,
 }
 
-impl AppState {
+impl WebauthnState {
     /// Creates a new AppState with the provided WebAuthn instance and storage implementation
-    pub fn new(webauthn: Arc<Webauthn>, storage: Arc<dyn UserStorage>) -> Self {
+    pub fn new(webauthn: Arc<Webauthn>, storage: Arc<dyn WebauthnStorage>) -> Self {
         Self { webauthn, storage }
     }
 

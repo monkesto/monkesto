@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use tower_sessions::Session;
 use webauthn_rs::prelude::{PasskeyAuthentication, PublicKeyCredential};
 
-use super::{error::WebauthnError, startup::AppState};
+use super::{error::WebauthnError, startup::WebauthnState};
 use crate::maud_header::header;
 
 #[derive(Deserialize)]
@@ -144,7 +144,7 @@ fn auth_page(
 }
 
 async fn handle_signin_page(
-    app_state: AppState,
+    app_state: WebauthnState,
     session: Session,
     webauthn_url: String,
     query: Query<SigninQuery>,
@@ -219,7 +219,7 @@ async fn handle_signin_page(
 }
 
 async fn handle_signin_completion(
-    app_state: AppState,
+    app_state: WebauthnState,
     session: Session,
     form_data: Form<HashMap<String, String>>,
 ) -> Result<axum::response::Response, WebauthnError> {
@@ -283,7 +283,7 @@ async fn handle_signin_completion(
 }
 
 pub async fn signin_get(
-    Extension(app_state): Extension<AppState>,
+    Extension(app_state): Extension<WebauthnState>,
     Extension(webauthn_url): Extension<String>,
     session: Session,
     query: Query<SigninQuery>,
@@ -292,7 +292,7 @@ pub async fn signin_get(
 }
 
 pub async fn signin_post(
-    Extension(app_state): Extension<AppState>,
+    Extension(app_state): Extension<WebauthnState>,
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
