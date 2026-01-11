@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use tower_sessions::Session;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid};
 
-use super::{error::WebauthnError, startup::WebauthnState};
+use super::{WebauthnState, error::WebauthnError};
 use crate::maud_header::header;
 
 fn passkeys_page(email: &str, passkeys: &[webauthn_rs::prelude::Passkey]) -> Markup {

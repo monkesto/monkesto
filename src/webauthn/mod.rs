@@ -4,7 +4,6 @@ mod passkey;
 mod signin;
 mod signout;
 mod signup;
-mod startup;
 mod storage;
 pub mod user;
 
@@ -20,10 +19,23 @@ use tower_sessions::{
     cookie::{SameSite, time::Duration},
 };
 use webauthn_rs::prelude::Url;
+use webauthn_rs::prelude::Webauthn;
+use webauthn_rs::prelude::WebauthnBuilder;
 
 use error::WebauthnError;
-use startup::WebauthnState;
 use storage::{WebauthnStorage, memory::MemoryStorage};
+
+#[derive(Clone)]
+pub struct WebauthnState {
+    pub webauthn: Arc<Webauthn>,
+    pub storage: Arc<dyn WebauthnStorage>,
+}
+
+impl WebauthnState {
+    pub fn new(webauthn: Arc<Webauthn>, storage: Arc<dyn WebauthnStorage>) -> Self {
+        Self { webauthn, storage }
+    }
+}
 
 pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnError> {
     // Get base URL from environment variable, defaulting to localhost:3000
@@ -41,7 +53,11 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
     let rp_id = rp_origin.host_str().ok_or(WebauthnError::InvalidHost)?;
 
     // Create WebAuthn instance and default storage
-    let webauthn = WebauthnState::build_webauthn(rp_id, &rp_origin)?;
+    let webauthn = Arc::new(
+        WebauthnBuilder::new(rp_id, &rp_origin)?
+            .rp_name("Monkesto")
+            .build()?,
+    );
     let storage = Arc::new(MemoryStorage::new()) as Arc<dyn WebauthnStorage>;
 
     // Create AppState with components

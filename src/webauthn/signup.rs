@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use tower_sessions::Session;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid};
 
-use super::{error::WebauthnError, startup::WebauthnState};
+use super::{WebauthnState, error::WebauthnError};
 use crate::maud_header::header;
 
 #[derive(Deserialize)]
