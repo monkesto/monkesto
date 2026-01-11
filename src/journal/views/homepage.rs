@@ -1,14 +1,13 @@
+use crate::AppState;
 use crate::auth::axum_login::AuthSession;
-use crate::auth::user;
+use crate::auth::{UserStore, user};
 use crate::cuid::Cuid;
 use crate::journal::layout::maud_layout;
-use crate::journal::queries::{get_associated_journals, get_journal_owner};
-use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
-use axum::Extension;
-use axum::extract::{Path, Query};
+use crate::journal::{JournalStore, Permissions};
+use crate::known_errors::{KnownErrors, UrlError};
+use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use maud::{Markup, html};
-use sqlx::PgPool;
 use std::str::FromStr;
 
 #[allow(dead_code)]
@@ -20,22 +19,22 @@ pub struct Journal {
 }
 
 pub async fn journal_list(
-    Extension(pool): Extension<PgPool>,
+    State(state): State<AppState>,
     session: AuthSession,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
     let user_id = user::get_id(session)?;
 
-    let journals_result = get_associated_journals(&user_id, &pool).await;
+    let journals_result = state.user_store.get_associated_journals(&user_id).await;
 
     let content = html! {
         @if let Ok(journals) = journals_result {
-            @for (id, journal) in journals {
+            @for journal_id in journals {
                 a
-                href=(format! ("/journal/{}", id))
+                href=(format! ("/journal/{}", journal_id))
                 class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
                     h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                        (journal.get_name())
+                        (state.journal_store.get_name(&journal_id).await.unwrap_or_else(|_| "unknown journal".to_string()))
                     }
                 }
             }
@@ -87,26 +86,20 @@ pub async fn journal_list(
 }
 
 pub async fn journal_detail(
-    Extension(pool): Extension<PgPool>,
+    State(state): State<AppState>,
     session: AuthSession,
     Path(id): Path<String>,
 ) -> Result<Markup, Redirect> {
-    let user_id = session
-        .user
-        .ok_or(KnownErrors::NotLoggedIn)
-        .or_redirect("/login")?
-        .id;
+    let user_id = user::get_id(session)?;
 
-    let journal_id = Cuid::from_str(&id);
-
-    let journals = get_associated_journals(&user_id, &pool).await;
-
-    let journal_res = journals
-        .ok()
-        .and_then(|journals| journals.get(&journal_id.unwrap_or_default()).cloned());
+    let journal_state_res = match Cuid::from_str(&id) {
+        Ok(s) => state.journal_store.get_journal(&s).await,
+        Err(e) => Err(e),
+    };
 
     let content = html! {
-        @if let Some(journal) = &journal_res {
+        @if let Ok(journal_state) = &journal_state_res && journal_state.tenants.get(&user_id).is_some_and(|p| p.tenant_permissions.contains(Permissions::READ)) {
+
             a
             href=(format!("/journal/{}/transaction", &id))
             class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
@@ -135,14 +128,9 @@ pub async fn journal_detail(
                 div class="space-y-2" {
                     div class="text-sm text-gray-600 dark:text-gray-400" {
                         "Created by "
-                        @match get_journal_owner(&id, &pool).await {
-                            Err(e) => (format!("error: {:?}", e)),
-                            Ok(None) => "unknown user",
-                            Ok(Some(s)) => (s),
-                        }
+                        (state.user_store.get_email(&journal_state.creator).await.map(|e| e.to_string()).unwrap_or_else(|_| "unknown user".to_string()).to_string())
                         " on "
-                        (journal
-                            .get_created_at()
+                        (journal_state.created_at
                             .with_timezone(&chrono_tz::America::Chicago)
                             .format("%Y-%m-%d %H:%M:%S %Z")
                         )
@@ -150,10 +138,21 @@ pub async fn journal_detail(
                 }
             }
         }
+        @else {
+            div class="flex justify-center items-center h-full" {
+                p class="text-gray-500 dark:text-gray-400" {
+                    "Invalid journal"
+                }
+            }
+        }
     };
 
     Ok(maud_layout(
-        Some(&journal_res.map_or_else(|| "unknown journal".to_string(), |j| j.get_name())),
+        Some(
+            &journal_state_res
+                .map(|s| s.name)
+                .unwrap_or_else(|_| "unknown journal".to_string()),
+        ),
         true,
         Some(&id),
         content,

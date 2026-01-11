@@ -1,22 +1,21 @@
 pub mod axum_login;
 pub mod user;
-pub mod username;
 pub mod view;
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::auth::axum_login::{AuthSession, Credentials};
+use crate::AppState;
+use crate::auth::axum_login::{AuthSession, Credentials, User};
 use crate::cuid::Cuid;
 use crate::known_errors::MonkestoResult;
 use crate::known_errors::{KnownErrors, RedirectOnError};
+use crate::webauthn::user::Email;
 use async_trait::async_trait;
-use axum::Extension;
-use axum::extract::Form;
+use axum::extract::{Form, State};
 use axum::response::Redirect;
 use dashmap::DashMap;
 use serde::Deserialize;
-use sqlx::PgPool;
 use user::{UserEvent, UserState};
 
 #[async_trait]
@@ -32,7 +31,7 @@ pub trait UserStore: Send + Sync {
 
     async fn get_user_state(&self, user_id: &Cuid) -> MonkestoResult<UserState>;
 
-    async fn lookup_user_id(&self, username: &str) -> MonkestoResult<Option<Cuid>>;
+    async fn lookup_user_id(&self, username: &Email) -> MonkestoResult<Option<Cuid>>;
 
     async fn get_pending_journals(&self, user_id: &Cuid) -> MonkestoResult<HashSet<Cuid>> {
         Ok(self.get_user_state(user_id).await?.pending_journal_invites)
@@ -41,13 +40,17 @@ pub trait UserStore: Send + Sync {
     async fn get_associated_journals(&self, user_id: &Cuid) -> MonkestoResult<HashSet<Cuid>> {
         Ok(self.get_user_state(user_id).await?.associated_journals)
     }
+
+    async fn get_email(&self, user_id: &Cuid) -> MonkestoResult<Email> {
+        Ok(self.get_user_state(user_id).await?.email)
+    }
 }
 
 #[allow(dead_code)]
 pub struct UserMemoryStore {
     events: Arc<DashMap<Cuid, Vec<UserEvent>>>,
     user_table: Arc<DashMap<Cuid, UserState>>,
-    username_lookup_table: Arc<DashMap<String, Cuid>>,
+    username_lookup_table: Arc<DashMap<Email, Cuid>>,
 }
 
 #[allow(dead_code)]
@@ -64,10 +67,10 @@ impl UserMemoryStore {
 #[async_trait]
 impl UserStore for UserMemoryStore {
     async fn create_user(&self, creation_event: UserEvent) -> MonkestoResult<()> {
-        if let UserEvent::Created { id, username } = creation_event.clone() {
+        if let UserEvent::Created { id, email } = creation_event.clone() {
             let state = UserState {
                 id,
-                username: username.clone(),
+                email: email.clone(),
                 pending_journal_invites: HashSet::new(),
                 associated_journals: HashSet::new(),
                 deleted: false,
@@ -80,7 +83,7 @@ impl UserStore for UserMemoryStore {
             self.events.insert(id, vec![creation_event]);
 
             // insert the username and id into the username lookup table
-            self.username_lookup_table.insert(username, id);
+            self.username_lookup_table.insert(email, id);
 
             Ok(())
         } else {
@@ -92,10 +95,10 @@ impl UserStore for UserMemoryStore {
         if let Some(mut events) = self.events.get_mut(user_id)
             && let Some(mut state) = self.user_table.get_mut(user_id)
         {
-            if let UserEvent::Renamed { name } = event.clone() {
-                if self.username_lookup_table.get(&state.username).is_some() {
-                    self.username_lookup_table.remove(&state.username);
-                    self.username_lookup_table.insert(name, *user_id);
+            if let UserEvent::UpdatedEmail { email } = event.clone() {
+                if self.username_lookup_table.get(&state.email).is_some() {
+                    self.username_lookup_table.remove(&state.email);
+                    self.username_lookup_table.insert(email, *user_id);
                 } else {
                     return Err(KnownErrors::UserDoesntExist);
                 }
@@ -116,70 +119,60 @@ impl UserStore for UserMemoryStore {
             .ok_or(KnownErrors::UserDoesntExist)
     }
 
-    async fn lookup_user_id(&self, username: &str) -> MonkestoResult<Option<Cuid>> {
-        Ok(self.username_lookup_table.get(username).map(|id| *id))
+    async fn lookup_user_id(&self, email: &Email) -> MonkestoResult<Option<Cuid>> {
+        Ok(self.username_lookup_table.get(email).map(|id| *id))
     }
-}
-
-#[allow(dead_code)]
-pub struct Users {
-    store: dyn UserStore,
 }
 
 #[derive(Deserialize)]
 pub struct SignupForm {
-    username: String,
+    email: Email,
     password: String,
     confirm_password: String,
     next: Option<String>,
 }
 
+#[axum::debug_handler]
 pub async fn create_user(
-    Extension(pool): Extension<PgPool>,
+    State(state): State<AppState>,
     mut session: AuthSession,
     Form(form): Form<SignupForm>,
 ) -> Result<Redirect, Redirect> {
-    if form.username.trim().is_empty() {
-        return Err(KnownErrors::InvalidUsername {
-            username: form.username,
-        }
-        .redirect("/signup"));
-    }
+    const CALLBACK_URL: &str = "/signup";
 
     if form.password != form.confirm_password {
-        return Err(KnownErrors::SignupPasswordMismatch {
-            username: form.username,
-        }
-        .redirect("/signup"));
+        return Err(
+            KnownErrors::SignupPasswordMismatch { email: form.email }.redirect(CALLBACK_URL)
+        );
     }
 
-    if username::get_id(&form.username, &pool)
+    if state
+        .user_store
+        .lookup_user_id(&form.email)
         .await
-        .or_redirect("/signup")?
+        .or_redirect(CALLBACK_URL)?
         .is_none()
     {
         let id = Cuid::new16();
-        let password_clone = form.password.clone();
 
-        let pw_hash =
-            tokio::task::spawn_blocking(|| bcrypt::hash(password_clone, bcrypt::DEFAULT_COST))
+        session.backend.add_user(
+            User::new(form.email.clone(), form.password.clone())
                 .await
-                .or_redirect("/signup")?
-                .or_redirect("/signup")?;
+                .or_redirect(CALLBACK_URL)?,
+        );
 
-        session
-            .backend
-            .create_auth_user(id, form.username.clone(), pw_hash)
+        state
+            .user_store
+            .create_user(UserEvent::Created {
+                id,
+                email: form.email.clone(),
+            })
             .await
-            .or_redirect("/signup")?;
-
-        username::update(&id, &form.username, &pool)
-            .await
-            .or_redirect("/signup")?;
+            .or_redirect(CALLBACK_URL)?;
 
         if let Ok(Some(user)) = session
             .authenticate(Credentials {
-                username: form.username.clone(),
+                email: form.email.clone(),
                 password: form.password,
             })
             .await
@@ -188,26 +181,20 @@ pub async fn create_user(
                 return Err(KnownErrors::InternalError {
                     context: e.to_string(),
                 }
-                .redirect("/login"));
+                .redirect(CALLBACK_URL));
             }
-            Ok(Redirect::to(&form.next.unwrap_or("/journal".to_string())))
+            Ok(Redirect::to(&form.next.unwrap_or(CALLBACK_URL.to_string())))
         } else {
-            Err(KnownErrors::LoginFailed {
-                username: form.username,
-            }
-            .redirect("/login"))
+            Err(KnownErrors::LoginFailed { email: form.email }.redirect("/login"))
         }
     } else {
-        Err(KnownErrors::UserExists {
-            username: form.username,
-        }
-        .redirect("/signup"))
+        Err(KnownErrors::UserExists { email: form.email }.redirect("/signup"))
     }
 }
 
 #[derive(Deserialize)]
 pub struct LoginForm {
-    username: String,
+    email: Email,
     password: String,
     next: Option<String>,
 }
@@ -218,7 +205,7 @@ pub async fn login(
 ) -> Result<Redirect, Redirect> {
     if let Ok(Some(user)) = session
         .authenticate(Credentials {
-            username: form.username.clone(),
+            email: form.email.clone(),
             password: form.password,
         })
         .await
@@ -231,10 +218,7 @@ pub async fn login(
         }
         Ok(Redirect::to(&form.next.unwrap_or("/journal".to_string())))
     } else {
-        Err(KnownErrors::LoginFailed {
-            username: form.username,
-        }
-        .redirect("/login"))
+        Err(KnownErrors::LoginFailed { email: form.email }.redirect("/login"))
     }
 }
 

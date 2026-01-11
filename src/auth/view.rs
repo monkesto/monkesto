@@ -16,14 +16,14 @@ pub async fn client_login(
         return Err(Redirect::to(&err.next.unwrap_or("/".to_string())));
     }
 
-    let username = err
+    let email = err
         .err
         .as_ref()
         .and_then(|e| match KnownErrors::decode(e) {
-            KnownErrors::LoginFailed { username } => Some(username),
+            KnownErrors::LoginFailed { email } => Some(email.to_string()),
             _ => None,
         })
-        .unwrap_or_default();
+        .unwrap_or("".to_string());
 
     let content = html! {
 
@@ -44,19 +44,19 @@ pub async fn client_login(
 
                         div {
                             label
-                            for="username"
+                            for="email"
                             class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100" {
-                                "Username"
+                                "Email"
                             }
 
                             div class="mt-2" {
                                 input
-                                id="username"
+                                id="email"
                                 type="text"
-                                name="username"
+                                name="email"
                                 required
-                                autocomplete="username"
-                                value=(username)
+                                autocomplete="email"
+                                value=(email)
                                 class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                                 ;
                             }
@@ -144,15 +144,15 @@ pub async fn client_signup(
                     div class="space-y-6" {
                         div {
                             label
-                                for="username"
+                                for="email"
                                 class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100" {
-                                "Username"
+                                "Email"
                             }
                             div class="mt-2" {
                                 input
-                                    id="username"
+                                    id="email"
                                     type="text"
-                                    name="username"
+                                    name="email"
                                     required
                                     class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500";
                             }

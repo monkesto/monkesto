@@ -1,77 +1,95 @@
-use crate::{cuid::Cuid, known_errors::KnownErrors};
+use crate::{
+    cuid::Cuid,
+    known_errors::{KnownErrors, MonkestoResult},
+    webauthn::user::Email,
+};
 use axum_login::{AuthUser, AuthnBackend, UserId};
+use dashmap::DashMap;
+use rand::{TryRngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, prelude::FromRow};
-use std::fmt;
-use tokio::task;
+use sqlx::prelude::FromRow;
+use std::{fmt, sync::Arc};
+use tokio::task::{self, spawn_blocking};
 
 #[derive(Clone, Serialize, Deserialize, FromRow)]
 pub struct User {
     pub id: Cuid,
-    username: String,
-    pw_hash: Vec<u8>,
+    email: Email,
+    pw_hash: String,
+    session_hash: [u8; 16],
 }
 
 impl fmt::Debug for User {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("User")
             .field("id", &self.id)
-            .field("username", &self.username)
+            .field("email", &self.email)
             .field("password", &"[redacted]")
             .finish()
+    }
+}
+
+impl User {
+    pub async fn new(email: Email, password: String) -> MonkestoResult<Self> {
+        let mut session_hash = [0u8; 16];
+        OsRng
+            .try_fill_bytes(&mut session_hash)
+            .map_err(|e| KnownErrors::OsError {
+                context: e.to_string(),
+            })?;
+
+        Ok(Self {
+            id: Cuid::new10(),
+            email,
+            pw_hash: spawn_blocking(move || {
+                bcrypt::hash(password, bcrypt::DEFAULT_COST)
+                    .expect("bcrypt password hashing failed")
+            })
+            .await?,
+            session_hash,
+        })
     }
 }
 
 impl AuthUser for User {
     type Id = Cuid;
 
-    fn id(&self) -> Self::Id {
+    fn id(&self) -> Cuid {
         self.id
     }
 
     fn session_auth_hash(&self) -> &[u8] {
-        &self.pw_hash
+        &self.session_hash
     }
 }
 
 #[derive(Clone)]
 pub struct Credentials {
-    pub username: String,
+    pub email: Email,
     pub password: String,
 }
 
 #[derive(Clone)]
-pub struct Backend {
-    pub db: PgPool,
+pub struct MemoryBackend {
+    pub users: Arc<DashMap<Cuid, User>>,
+    pub email_lookup_table: Arc<DashMap<Email, Cuid>>,
 }
 
-impl Backend {
-    pub fn new(db: PgPool) -> Self {
-        Self { db }
+impl MemoryBackend {
+    pub fn new() -> Self {
+        Self {
+            users: Arc::new(DashMap::new()),
+            email_lookup_table: Arc::new(DashMap::new()),
+        }
     }
-    pub async fn create_auth_user(
-        &self,
-        id: Cuid,
-        username: String,
-        pw_hash: String,
-    ) -> Result<(), KnownErrors> {
-        sqlx::query(
-            r#"
-        INSERT INTO auth_users (user_id, username, password)
-        VALUES ($1, $2, $3)
-        "#,
-        )
-        .bind(id.as_bytes())
-        .bind(username)
-        .bind(pw_hash)
-        .execute(&self.db)
-        .await?;
 
-        Ok(())
+    pub fn add_user(&mut self, user: User) {
+        self.email_lookup_table.insert(user.email.clone(), user.id);
+        self.users.insert(user.id, user);
     }
 }
 
-impl AuthnBackend for Backend {
+impl AuthnBackend for MemoryBackend {
     type User = User;
     type Credentials = Credentials;
     type Error = KnownErrors;
@@ -79,47 +97,27 @@ impl AuthnBackend for Backend {
     async fn authenticate(
         &self,
         creds: Self::Credentials,
-    ) -> Result<Option<Self::User>, Self::Error> {
-        let user_info: Option<(Vec<u8>, String)> =
-            sqlx::query_scalar(r#"SELECT (user_id, password) FROM auth_users WHERE username = $1"#)
-                .bind(creds.username.clone())
-                .fetch_optional(&self.db)
-                .await?;
+    ) -> Result<Option<Self::User>, KnownErrors> {
+        if let Some(id) = self.email_lookup_table.get(&creds.email)
+            && let Some(state) = self.users.get(&id)
+        {
+            let state_clone = state.value().clone();
 
-        if let Some((id, password)) = user_info {
             return task::spawn_blocking(move || {
-                if bcrypt::verify(creds.password, &password).is_ok_and(|f| f) {
-                    return Ok(Some(User {
-                        id: Cuid::from_bytes(&id)?,
-                        username: creds.username,
-                        pw_hash: password.into_bytes(),
-                    }));
+                if bcrypt::verify(creds.password, &state_clone.pw_hash).is_ok_and(|p| p) {
+                    Ok(Some(state_clone))
+                } else {
+                    Ok(None)
                 }
-
-                Ok(None)
             })
             .await?;
         }
-
         Ok(None)
     }
 
-    async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
-        let user_info: Option<(String, String)> =
-            sqlx::query_scalar(r#"SELECT (username, password) FROM auth_users WHERE user_id = $1"#)
-                .bind(user_id.as_bytes())
-                .fetch_optional(&self.db)
-                .await?;
-        if let Some((username, pw_hash)) = user_info {
-            Ok(Some(User {
-                id: *user_id,
-                username,
-                pw_hash: pw_hash.into_bytes(),
-            }))
-        } else {
-            Ok(None)
-        }
+    async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, KnownErrors> {
+        Ok(self.users.get(user_id).map(|s| (*s).clone()))
     }
 }
 
-pub type AuthSession = axum_login::AuthSession<Backend>;
+pub type AuthSession = axum_login::AuthSession<MemoryBackend>;

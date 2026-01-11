@@ -2,79 +2,25 @@ use crate::auth::axum_login::AuthSession;
 use crate::cuid::Cuid;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::RedirectOnError;
+use crate::webauthn::user::Email;
 use axum::response::Redirect;
-use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
 use sqlx::Decode;
 use sqlx::Encode;
 use sqlx::Type;
 use sqlx::postgres::PgValueRef;
-use sqlx::{PgPool, query_as};
 use std::collections::HashSet;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum UserEvent {
-    Created { id: Cuid, username: String },
-    Renamed { name: String },
+    Created { id: Cuid, email: Email },
+    UpdatedEmail { email: Email },
     CreatedJournal { journal_id: Cuid },
     InvitedToJournal { journal_id: Cuid },
     AcceptedJournalInvite { journal_id: Cuid },
     DeclinedJournalInvite { journal_id: Cuid },
     RemovedFromJournal { id: Cuid },
     Deleted,
-}
-
-#[derive(sqlx::Type)]
-#[sqlx(type_name = "smallint")]
-#[repr(i16)]
-pub enum UserEventType {
-    Created = 1,
-    Renamed = 2,
-    CreatedJournal = 3,
-    InvitedToJournal = 4,
-    AcceptedJournalInvite = 5,
-    DeclinedJournalInvite = 6,
-    RemovedFromJournal = 7,
-    Deleted = 8,
-}
-
-impl UserEvent {
-    pub fn get_type(&self) -> UserEventType {
-        use UserEventType::*;
-        match self {
-            Self::Created { .. } => Created,
-            Self::Renamed { .. } => Renamed,
-            Self::CreatedJournal { .. } => CreatedJournal,
-            Self::InvitedToJournal { .. } => InvitedToJournal,
-            Self::AcceptedJournalInvite { .. } => AcceptedJournalInvite,
-            Self::DeclinedJournalInvite { .. } => DeclinedJournalInvite,
-            Self::RemovedFromJournal { .. } => RemovedFromJournal,
-            Self::Deleted => Deleted,
-        }
-    }
-    pub async fn push_db(&self, id: &Cuid, pool: &PgPool) -> Result<i64, KnownErrors> {
-        let event_type = self.get_type();
-        let payload: Vec<u8> = to_allocvec(self)?;
-
-        let id: i64 = sqlx::query_scalar(
-            r#"
-            INSERT INTO user_events (
-                user_id,
-                event_type,
-                payload
-            )
-            VALUES ($1, $2, $3)
-            RETURNING id
-            "#,
-        )
-        .bind(id.as_bytes())
-        .bind(event_type)
-        .bind(payload)
-        .fetch_one(pool)
-        .await?;
-
-        Ok(id)
-    }
 }
 
 impl Type<sqlx::Postgres> for UserEvent {
@@ -100,52 +46,23 @@ impl<'r> Decode<'r, sqlx::Postgres> for UserEvent {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone, Default)]
 pub struct UserState {
     pub id: Cuid,
-    pub username: String,
+    pub email: Email,
     pub pending_journal_invites: HashSet<Cuid>,
     pub associated_journals: HashSet<Cuid>,
     pub deleted: bool,
 }
 
 impl UserState {
-    pub async fn build(
-        id: &Cuid,
-        event_types: Vec<UserEventType>,
-        pool: &PgPool,
-    ) -> Result<Self, KnownErrors> {
-        let user_events = query_as::<_, (Vec<u8>,)>(
-            r#"
-            SELECT payload FROM user_events
-            WHERE user_id = $1 AND event_type = ANY($2)
-            ORDER BY created_at ASC
-            "#,
-        )
-        .bind(id.as_bytes())
-        .bind(&event_types)
-        .fetch_all(pool)
-        .await?;
-
-        let mut aggregate = Self::default();
-
-        user_events
-            .into_iter()
-            .try_for_each(|(payload,)| -> Result<(), KnownErrors> {
-                aggregate.apply(from_bytes::<UserEvent>(&payload)?);
-                Ok(())
-            })?;
-
-        Ok(aggregate)
-    }
-
     pub fn apply(&mut self, event: UserEvent) {
         match event {
-            UserEvent::Created { id, username } => {
+            UserEvent::Created { id, email } => {
                 self.id = id;
-                self.username = username
+                self.email = email
             }
-            UserEvent::Renamed { name } => self.username = name,
+            UserEvent::UpdatedEmail { email } => self.email = email,
             UserEvent::CreatedJournal { journal_id } => {
                 _ = self.associated_journals.insert(journal_id)
             }

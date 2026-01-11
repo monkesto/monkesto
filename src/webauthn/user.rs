@@ -12,10 +12,12 @@ use nutype::nutype;
         Deserialize,
         AsRef,
         Display,
-        TryFrom
+        TryFrom,
+        Default
     ),
     sanitize(trim, lowercase),
-    validate(regex = r"^[\w\-\.]+@([\w-]+\.)+[\w-]{2,}$")
+    validate(regex = r"^[\w\-\.]+@([\w-]+\.)+[\w-]{2,}$"),
+    default = "test@email.com"
 )]
 pub struct Email(String);
 

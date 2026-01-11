@@ -1,13 +1,16 @@
 use core::fmt;
 use std::{array::TryFromSliceError, str::Utf8Error};
 
-use crate::journal::{Permissions, transaction::BalanceUpdate};
+use crate::{
+    journal::{Permissions, transaction::BalanceUpdate},
+    webauthn::user::Email,
+};
 use axum::response::Redirect;
 use base64::{Engine, engine::general_purpose};
 use postcard::to_allocvec;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum KnownErrors {
     InternalError {
         context: String,
@@ -32,17 +35,17 @@ pub enum KnownErrors {
     },
 
     LoginFailed {
-        username: String,
+        email: Email,
     },
 
     SignupPasswordMismatch {
-        username: String,
+        email: Email,
     },
 
     UserDoesntExist,
 
     UserExists {
-        username: String,
+        email: Email,
     },
 
     AccountExists,
@@ -60,6 +63,8 @@ pub enum KnownErrors {
 
     InvalidInput,
 
+    TransactionDoesntExist,
+
     InvalidId,
 
     NoInvitation,
@@ -71,6 +76,10 @@ pub enum KnownErrors {
     InvalidJournal,
 
     IncorrectEventType,
+
+    OsError {
+        context: String,
+    },
 
     None,
 }

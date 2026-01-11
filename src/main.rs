@@ -14,14 +14,33 @@ use axum::routing::get;
 use axum::routing::post;
 use axum_login::{AuthManagerLayerBuilder, login_required};
 use dotenvy::dotenv;
-use sqlx::postgres::PgPoolOptions;
-use sqlx::{Pool, Postgres};
 use std::env;
+use std::sync::Arc;
 use tower_http::services::ServeFile;
-use tower_sessions::SessionManagerLayer;
-use tower_sessions_sqlx_store::PostgresStore;
+use tower_sessions::{MemoryStore, SessionManagerLayer};
 
-use crate::auth::axum_login::Backend;
+use crate::auth::UserMemoryStore;
+use crate::auth::axum_login::MemoryBackend;
+use crate::journal::JournalMemoryStore;
+use crate::journal::transaction::TransasctionMemoryStore;
+
+#[derive(Clone)]
+pub struct AppState {
+    user_store: Arc<UserMemoryStore>,
+    journal_store: Arc<JournalMemoryStore>,
+    #[allow(dead_code)]
+    transaction_store: Arc<TransasctionMemoryStore>,
+}
+
+impl AppState {
+    fn new() -> Self {
+        Self {
+            user_store: Arc::new(UserMemoryStore::new()),
+            journal_store: Arc::new(JournalMemoryStore::new()),
+            transaction_store: Arc::new(TransasctionMemoryStore::new()),
+        }
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -38,8 +57,9 @@ async fn main() {
 
     let addr = env::var("SITE_ADDR").unwrap_or("0.0.0.0:3000".to_string());
 
-    let database_url = env::var("DATABASE_URL").expect("failed to get database url from .env");
+    //let database_url = env::var("DATABASE_URL").expect("failed to get database url from .env");
 
+    /*
     let pool: Pool<Postgres> = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
@@ -47,15 +67,20 @@ async fn main() {
         .expect("failed to connect to the postgres pool");
 
     let session_store = PostgresStore::new(pool.clone());
+
     session_store
         .migrate()
         .await
         .expect("faild to migrate session store");
+    // */
+
+    let session_store = MemoryStore::default();
 
     let session_layer = SessionManagerLayer::new(session_store);
-    let auth_backend = auth::axum_login::Backend::new(pool.clone());
+    let auth_backend = MemoryBackend::new();
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
 
+    /*
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS user_events (
             id BIGSERIAL PRIMARY KEY,
@@ -104,6 +129,7 @@ async fn main() {
     .execute(&pool)
     .await
     .expect("failed to create the username events table");
+    */
 
     let auth_routes = Router::new()
         .route("/login", get(auth::view::client_login))
@@ -138,7 +164,7 @@ async fn main() {
             "/journal/{id}/createaccount",
             post(journal::commands::create_account),
         )
-        .route_layer(login_required!(Backend, login_url = "/login"));
+        .route_layer(login_required!(MemoryBackend, login_url = "/login"));
 
     // the dockerfile defines this for production deployments
     let site_root = std::env::var("SITE_ROOT").unwrap_or_else(|_| "target/site".to_string());
@@ -155,8 +181,9 @@ async fn main() {
         .merge(journal_routes)
         .nest("/webauthn/", webauthn_routes)
         .fallback(notfoundpage::not_found_page)
-        .layer(axum::Extension(pool))
-        .layer(auth_layer);
+        //.layer(axum::Extension(pool))
+        .layer(auth_layer)
+        .with_state(AppState::new());
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`

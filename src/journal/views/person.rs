@@ -1,56 +1,38 @@
+use crate::AppState;
 use crate::auth::axum_login::AuthSession;
-use crate::auth::user;
-use crate::auth::username;
+use crate::auth::{UserStore, user};
 use crate::cuid::Cuid;
 use crate::journal::layout::maud_layout;
-use crate::journal::queries::{get_associated_journals, get_tenants};
+use crate::journal::{JournalStore, Permissions};
 use crate::known_errors::{KnownErrors, UrlError};
-use axum::Extension;
-use axum::extract::{Path, Query};
+use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use maud::{Markup, html};
-use sqlx::PgPool;
 use std::str::FromStr;
 
 pub async fn people_list_page(
-    Extension(pool): Extension<PgPool>,
+    State(state): State<AppState>,
     session: AuthSession,
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
     let user_id = user::get_id(session)?;
 
-    let journal_id_res = Cuid::from_str(&id);
-
-    let journals = get_associated_journals(&user_id, &pool).await;
-
-    let journal_res = journals
-        .ok()
-        .and_then(|journals| journals.get(&journal_id_res.unwrap_or_default()).cloned());
+    let journal_state_res = match Cuid::from_str(&id) {
+        Ok(s) => state.journal_store.get_journal(&s).await,
+        Err(e) => Err(e),
+    };
 
     let content = html! {
-        @if let Ok(journal_id) = Cuid::from_str(&id) {
-            @match get_tenants(&journal_id, &pool).await {
-                Ok(tenants) => {
-                    @for (tenant_id, _) in tenants {
-                                a
-                                href=(format!("/journal/{}/person/{}", id, tenant_id))
-                                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
-                                    h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                        @match username::get_username(&tenant_id, &pool).await {
-                                            Ok(Some(username)) => (username),
-                                            Ok(None) => "Unknown User",
-                                            Err(e) => (format!("An error occurred while fetching username: {}", e))
-                                        }
-                                    }
-                                }
-                            }
-                }
-                Err(e) => {
-                    div class="flex justify-center items-center h-full" {
-                        p class="text-gray-500 dark:text-gray-400" {
-                            "An error occurred while fetching tenants: "
-                            (e)
+        @if let Ok(journal_state) = &journal_state_res && journal_state.tenants.get(&user_id).is_some_and(|p| p.tenant_permissions.contains(Permissions::READ)) {
+            @for (tenant_id, _) in journal_state.tenants.clone() {
+                a
+                href=(format!("/journal/{}/person/{}", id, tenant_id))
+                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
+                    h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                        @match state.user_store.get_email(&user_id).await {
+                            Ok(email) => (email),
+                            Err(e) => (format!("An error occurred while fetching username: {}", e)),
                         }
                     }
                 }
@@ -105,7 +87,11 @@ pub async fn people_list_page(
     };
 
     Ok(maud_layout(
-        Some(&journal_res.map_or_else(|| "unknown journal".to_string(), |j| j.get_name())),
+        Some(
+            &journal_state_res
+                .map(|s| s.name)
+                .unwrap_or_else(|_| "unknown journal".to_string()),
+        ),
         true,
         Some(&id),
         content,

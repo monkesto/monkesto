@@ -1,13 +1,19 @@
-use crate::{cuid::Cuid, known_errors::MonkestoResult};
+use std::sync::Arc;
+
+use crate::{
+    cuid::Cuid,
+    known_errors::{KnownErrors, MonkestoResult},
+};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use sqlx::{Decode, Encode, Type, postgres::PgValueRef};
 
 #[async_trait]
 #[allow(dead_code)]
-pub trait TransactionStore {
+pub trait TransactionStore: Send + Sync + 'static {
     /// creates a new transaction state in the event store with the data from the creation event
     ///
     /// it should return an error if the event passed in is not a creation event
@@ -17,12 +23,76 @@ pub trait TransactionStore {
     async fn push_event(&self, transction_id: &Cuid, event: TransactionEvent)
     -> MonkestoResult<()>;
 
-    async fn get_transaction(&self, transacion_id: &Cuid) -> MonkestoResult<TransactiionState>;
+    async fn get_transaction(&self, transaction_id: &Cuid) -> MonkestoResult<TransactionState>;
 }
 
 #[allow(dead_code)]
-pub struct Transactions {
-    store: dyn TransactionStore,
+pub struct TransasctionMemoryStore {
+    events: Arc<DashMap<Cuid, Vec<TransactionEvent>>>,
+    transaction_table: Arc<DashMap<Cuid, TransactionState>>,
+}
+
+#[allow(dead_code)]
+impl TransasctionMemoryStore {
+    pub fn new() -> Self {
+        Self {
+            events: Arc::new(DashMap::new()),
+            transaction_table: Arc::new(DashMap::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl TransactionStore for TransasctionMemoryStore {
+    async fn create_transaction(&self, creation_event: TransactionEvent) -> MonkestoResult<()> {
+        if let TransactionEvent::Created {
+            id,
+            author,
+            description,
+            updates,
+            created_at,
+        } = creation_event.clone()
+        {
+            self.transaction_table.insert(
+                id,
+                TransactionState {
+                    id,
+                    author,
+                    description,
+                    updates,
+                    created_at,
+                },
+            );
+
+            self.events.insert(id, vec![creation_event]);
+
+            Ok(())
+        } else {
+            Err(KnownErrors::InvalidInput)
+        }
+    }
+
+    async fn push_event(
+        &self,
+        transction_id: &Cuid,
+        event: TransactionEvent,
+    ) -> MonkestoResult<()> {
+        if let Some(mut events) = self.events.get_mut(transction_id)
+            && let Some(mut state) = self.transaction_table.get_mut(transction_id)
+        {
+            events.push(event.clone());
+            state.apply(event);
+        }
+
+        Ok(())
+    }
+
+    async fn get_transaction(&self, transaction_id: &Cuid) -> MonkestoResult<TransactionState> {
+        self.transaction_table
+            .get(transaction_id)
+            .map(|s| (*s).clone())
+            .ok_or(KnownErrors::TransactionDoesntExist)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -43,9 +113,11 @@ pub enum TransactionEvent {
     },
     UpdatedDescription {
         new_desc: String,
+        updater: Cuid,
     },
     UpdatedBalancedUpdates {
         new_balanceupdates: Vec<BalanceUpdate>,
+        updater: Cuid,
     },
 }
 
@@ -94,13 +166,39 @@ impl<'r> Decode<'r, sqlx::Postgres> for TransactionEvent {
     }
 }
 
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize, Clone)]
 #[allow(dead_code)]
-pub struct TransactiionState {
+pub struct TransactionState {
     pub id: Cuid,
+    pub author: Cuid,
     pub description: String,
     pub updates: Vec<BalanceUpdate>,
     pub created_at: chrono::DateTime<Utc>,
+}
+
+impl TransactionState {
+    #[allow(dead_code)]
+    pub fn apply(&mut self, event: TransactionEvent) {
+        match event {
+            TransactionEvent::Created {
+                id,
+                author,
+                description,
+                updates,
+                created_at,
+            } => {
+                self.id = id;
+                self.author = author;
+                self.description = description;
+                self.updates = updates;
+                self.created_at = created_at;
+            }
+            TransactionEvent::UpdatedDescription { new_desc, .. } => self.description = new_desc,
+            TransactionEvent::UpdatedBalancedUpdates {
+                new_balanceupdates, ..
+            } => self.updates = new_balanceupdates,
+        }
+    }
 }
 
 #[cfg(test)]

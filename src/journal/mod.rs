@@ -1,8 +1,8 @@
 pub mod commands;
 pub mod layout;
-pub mod queries;
 pub mod transaction;
 pub mod views;
+
 use crate::{
     cuid::Cuid,
     known_errors::{KnownErrors, MonkestoResult},
@@ -11,14 +11,13 @@ use async_trait::async_trait;
 use bitflags::bitflags;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use postcard::{from_bytes, to_allocvec};
 use serde::{Deserialize, Serialize};
-use sqlx::{Decode, Encode, PgPool, Type, postgres::PgValueRef, query_as, query_scalar};
+use sqlx::{Decode, Encode, Type, postgres::PgValueRef};
 use std::{collections::HashMap, sync::Arc};
 
 #[async_trait]
 #[allow(dead_code)]
-pub trait JournalStore: Send + Sync {
+pub trait JournalStore: Send + Sync + 'static {
     /// creates a new journal state in the event store with the data from the creation event
     ///
     /// it should return an error if the event passed in is not a creation event
@@ -154,6 +153,7 @@ bitflags! {
 pub struct JournalTenantInfo {
     pub tenant_permissions: Permissions,
     pub inviting_user: Cuid,
+    pub invited_at: DateTime<Utc>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -187,59 +187,6 @@ pub enum JournalEvent {
         transaction_id: Cuid,
     },
     Deleted,
-}
-
-#[derive(sqlx::Type)]
-#[sqlx(type_name = "smallint")]
-#[repr(i16)]
-pub enum JournalEventType {
-    Created = 1,
-    Renamed = 2,
-    AddedTenant = 3,
-    TransferredOwnership = 4,
-    CreatedAccount = 5,
-    DeletedAccount = 6,
-    AddedEntry = 7,
-    Deleted = 8,
-}
-
-impl JournalEvent {
-    fn get_type(&self) -> JournalEventType {
-        use JournalEventType::*;
-        match self {
-            Self::Created { .. } => Created,
-            Self::Renamed { .. } => Renamed,
-            Self::AddedTenant { .. } => AddedTenant,
-            Self::TransferredOwnership { .. } => TransferredOwnership,
-            Self::CreatedAccount { .. } => CreatedAccount,
-            Self::DeletedAccount { .. } => DeletedAccount,
-            Self::AddedEntry { .. } => AddedEntry,
-            Self::Deleted => Deleted,
-        }
-    }
-
-    pub async fn push_db(&self, id: &Cuid, pool: &PgPool) -> Result<i64, KnownErrors> {
-        let payload: Vec<u8> = to_allocvec(self)?;
-
-        let id: i64 = sqlx::query_scalar(
-            r#"
-            INSERT INTO journal_events (
-                journal_id,
-                event_type,
-                payload
-            )
-            VALUES ($1, $2, $3)
-            RETURNING id
-            "#,
-        )
-        .bind(id.as_bytes())
-        .bind(self.get_type())
-        .bind(payload)
-        .fetch_one(pool)
-        .await?;
-
-        Ok(id)
-    }
 }
 
 impl Type<sqlx::Postgres> for JournalEvent {
@@ -279,50 +226,6 @@ pub struct JournalState {
 }
 
 impl JournalState {
-    pub async fn build(
-        id: &Cuid,
-        event_types: Vec<JournalEventType>,
-        pool: &PgPool,
-    ) -> Result<Self, KnownErrors> {
-        let journal_events = query_as::<_, (Vec<u8>,)>(
-            r#"
-                SELECT payload FROM journal_events
-                WHERE journal_id = $1 AND event_type = ANY($2)
-                ORDER BY created_at ASC
-                "#,
-        )
-        .bind(id.as_bytes())
-        .bind(event_types)
-        .fetch_all(pool)
-        .await?;
-
-        let created_at: Option<chrono::DateTime<Utc>> = query_scalar(
-            r#"
-                SELECT created_at FROM journal_events
-                WHERE journal_id = $1 AND event_type = $2
-            "#,
-        )
-        .bind(id.as_bytes())
-        .bind(JournalEventType::Created)
-        .fetch_optional(pool)
-        .await?;
-
-        let mut aggregate = Self {
-            id: *id,
-            created_at: created_at.unwrap_or_default(),
-            ..Default::default()
-        };
-
-        journal_events
-            .into_iter()
-            .try_for_each(|(payload,)| -> Result<(), KnownErrors> {
-                aggregate.apply(from_bytes::<JournalEvent>(&payload)?);
-                Ok(())
-            })?;
-
-        Ok(aggregate)
-    }
-
     pub fn apply(&mut self, event: JournalEvent) {
         match event {
             JournalEvent::Created {
@@ -402,46 +305,6 @@ pub struct Account {
     pub created_by: Cuid,
     pub created_at: chrono::DateTime<Utc>,
     pub balance: i64,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum AssociatedJournal {
-    Owned {
-        name: String,
-        created_at: chrono::DateTime<Utc>,
-    },
-    Shared {
-        name: String,
-        created_at: chrono::DateTime<Utc>,
-        tenant_info: JournalTenantInfo,
-    },
-}
-
-impl AssociatedJournal {
-    #[allow(dead_code)]
-    fn has_permission(&self, permissions: Permissions) -> bool {
-        match self {
-            Self::Owned { .. } => true,
-            Self::Shared { tenant_info, .. } => {
-                tenant_info.tenant_permissions.contains(permissions)
-            }
-        }
-    }
-}
-
-impl AssociatedJournal {
-    pub fn get_name(&self) -> String {
-        match self {
-            Self::Owned { name, .. } => name.clone(),
-            Self::Shared { name, .. } => name.clone(),
-        }
-    }
-    pub fn get_created_at(&self) -> chrono::DateTime<Utc> {
-        match self {
-            Self::Owned { created_at, .. } => *created_at,
-            Self::Shared { created_at, .. } => *created_at,
-        }
-    }
 }
 
 #[allow(dead_code)]

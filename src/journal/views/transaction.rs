@@ -1,14 +1,11 @@
+use crate::AppState;
 use crate::auth::axum_login::AuthSession;
-use crate::auth::user;
 use crate::cuid::Cuid;
-use crate::journal::layout;
-use crate::journal::queries::get_associated_journals;
+use crate::journal::{JournalStore, layout};
 use crate::known_errors::{KnownErrors, UrlError};
-use axum::Extension;
-use axum::extract::{Path, Query};
+use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use maud::{Markup, html};
-use sqlx::PgPool;
 use std::fmt::{self, Display};
 use std::str::FromStr;
 
@@ -135,21 +132,17 @@ fn transactions() -> Vec<Transaction> {
     ]
 }
 
+#[allow(unused_variables)]
 pub async fn transaction_list_page(
-    Extension(pool): Extension<PgPool>,
+    State(state): State<AppState>,
     session: AuthSession,
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let user_id = user::get_id(session)?;
-
-    let journal_id = Cuid::from_str(&id);
-
-    let journals = get_associated_journals(&user_id, &pool).await;
-
-    let journal_res = journals
-        .ok()
-        .and_then(|journals| journals.get(&journal_id.unwrap_or_default()).cloned());
+    let journal_state_res = match Cuid::from_str(&id) {
+        Ok(s) => state.journal_store.get_journal(&s).await,
+        Err(e) => Err(e),
+    };
 
     let content = html! {
         @for transaction in transactions() {
@@ -346,7 +339,11 @@ pub async fn transaction_list_page(
     };
 
     Ok(layout::maud_layout(
-        Some(&journal_res.map_or_else(|| "unknown journal".to_string(), |j| j.get_name())),
+        Some(
+            &journal_state_res
+                .map(|s| s.name)
+                .unwrap_or_else(|_| "unknown journal".to_string()),
+        ),
         true,
         Some(&id),
         content,

@@ -1,22 +1,21 @@
 use super::JournalEvent;
-use super::JournalState;
+use crate::AppState;
+use crate::auth::UserStore;
 use crate::auth::axum_login::AuthSession;
-use crate::auth::user::UserEventType;
-use crate::auth::user::UserState;
 use crate::auth::{self, user};
 use crate::cuid::Cuid;
-use crate::journal::JournalEventType;
+use crate::journal::JournalStore;
 use crate::journal::JournalTenantInfo;
 use crate::journal::Permissions;
 use crate::known_errors::{KnownErrors, RedirectOnError};
+use crate::webauthn::user::Email;
 use auth::user::UserEvent;
-use axum::Extension;
 use axum::Form;
 use axum::extract::Path;
+use axum::extract::State;
 use axum::response::Redirect;
 use chrono::Utc;
 use serde::Deserialize;
-use sqlx::PgPool;
 use std::str::FromStr;
 
 #[derive(Deserialize)]
@@ -25,10 +24,12 @@ pub struct CreateJournalForm {
 }
 
 pub async fn create_journal(
-    Extension(pool): Extension<PgPool>,
+    State(state): State<AppState>,
     session: AuthSession,
     Form(form): Form<CreateJournalForm>,
 ) -> Result<Redirect, Redirect> {
+    const CALLBACK_URL: &str = "/journal";
+
     let user_id = user::get_id(session)?;
 
     if form.journal_name.trim().is_empty() {
@@ -37,31 +38,33 @@ pub async fn create_journal(
 
     let journal_id = Cuid::new10();
 
-    JournalEvent::Created {
-        id: journal_id,
-        name: form.journal_name,
-        creator: user_id,
-        created_at: Utc::now(),
-    }
-    .push_db(&journal_id, &pool)
-    .await
-    .or_redirect("/journal")?;
-
-    UserEvent::CreatedJournal { journal_id }
-        .push_db(&user_id, &pool)
+    state
+        .journal_store
+        .create_journal(JournalEvent::Created {
+            id: journal_id,
+            name: form.journal_name,
+            creator: user_id,
+            created_at: Utc::now(),
+        })
         .await
-        .or_redirect("/journal")?;
+        .or_redirect(CALLBACK_URL)?;
 
-    Ok(Redirect::to("/journal"))
+    state
+        .user_store
+        .push_event(&user_id, UserEvent::CreatedJournal { journal_id })
+        .await
+        .or_redirect(CALLBACK_URL)?;
+
+    Ok(Redirect::to(CALLBACK_URL))
 }
 
 #[derive(Deserialize)]
 pub struct InviteUserForm {
-    username: String,
+    email: Email,
 }
 
 pub async fn invite_user(
-    Extension(pool): Extension<PgPool>,
+    State(state): State<AppState>,
     session: AuthSession,
     Path(id): Path<String>,
     Form(form): Form<InviteUserForm>,
@@ -72,75 +75,60 @@ pub async fn invite_user(
 
     let journal_id = Cuid::from_str(&id).or_redirect(callback_url)?;
 
-    let journal_state = JournalState::build(
-        &journal_id,
-        vec![
-            JournalEventType::Created,
-            JournalEventType::Deleted,
-            JournalEventType::AddedTenant,
-        ],
-        &pool,
-    )
-    .await
-    .or_redirect("/journal")?;
+    let journal_state = state
+        .journal_store
+        .get_journal(&journal_id)
+        .await
+        .or_redirect(callback_url)?;
 
     if !journal_state.deleted {
         if journal_state
             .get_user_permissions(&user_id)
             .contains(Permissions::INVITE)
         {
-            if form.username.trim().is_empty() {
-                return Err(KnownErrors::InvalidInput.redirect(callback_url));
-            }
-
             // TODO: add a selector for permissions
             let invitee_permissions = Permissions::all();
 
             let tenant_info = JournalTenantInfo {
                 tenant_permissions: invitee_permissions,
                 inviting_user: user_id,
+                invited_at: Utc::now(),
             };
 
-            let invitee_id = auth::username::get_id(&form.username, &pool)
+            let invitee_id = state
+                .user_store
+                .lookup_user_id(&form.email)
                 .await
                 .or_redirect(callback_url)?
                 .ok_or(KnownErrors::UserDoesntExist)
                 .or_redirect(callback_url)?;
 
-            let invitee_state = UserState::build(
-                &invitee_id,
-                vec![
-                    UserEventType::InvitedToJournal,
-                    UserEventType::AcceptedJournalInvite,
-                    UserEventType::DeclinedJournalInvite,
-                ],
-                &pool,
-            )
-            .await
-            .or_redirect(callback_url)?;
-
-            if invitee_state.pending_journal_invites.contains(&journal_id)
-                || invitee_state.associated_journals.contains(&journal_id)
-            {
+            if !journal_state.get_user_permissions(&invitee_id).is_empty() {
                 return Err(KnownErrors::UserCanAccessJournal.redirect(callback_url));
             }
 
-            JournalEvent::AddedTenant {
-                id: invitee_id,
-                tenant_info,
-            }
-            .push_db(&journal_id, &pool)
-            .await
-            .or_redirect(callback_url)?;
+            state
+                .journal_store
+                .push_event(
+                    &journal_id,
+                    JournalEvent::AddedTenant {
+                        id: invitee_id,
+                        tenant_info,
+                    },
+                )
+                .await
+                .or_redirect(callback_url)?;
 
-            UserEvent::InvitedToJournal { journal_id }
-                .push_db(&invitee_id, &pool)
+            state
+                .user_store
+                .push_event(&invitee_id, UserEvent::InvitedToJournal { journal_id })
                 .await
                 .or_redirect(callback_url)?;
 
             //TODO: add a menu for the user to accept or decline the invitation
-            UserEvent::AcceptedJournalInvite { journal_id }
-                .push_db(&invitee_id, &pool)
+            state
+                .user_store
+                .push_event(&invitee_id, UserEvent::AcceptedJournalInvite { journal_id })
                 .await
                 .or_redirect(callback_url)?;
         } else {
@@ -162,7 +150,7 @@ pub struct CreateAccountForm {
 }
 
 pub async fn create_account(
-    Extension(pool): Extension<PgPool>,
+    State(state): State<AppState>,
     session: AuthSession,
     Path(id): Path<String>,
     Form(form): Form<CreateAccountForm>,
@@ -171,33 +159,36 @@ pub async fn create_account(
 
     let journal_id = Cuid::from_str(&id).or_redirect(callback_url)?;
 
-    use JournalEventType::*;
-
     let user_id = user::get_id(session)?;
 
     if form.account_name.trim().is_empty() {
         return Err(KnownErrors::InvalidInput).or_redirect(callback_url)?;
     }
 
-    let journal_state =
-        JournalState::build(&journal_id, vec![Created, AddedTenant, Deleted], &pool)
-            .await
-            .or_redirect(callback_url)?;
+    let journal_state = state
+        .journal_store
+        .get_journal(&journal_id)
+        .await
+        .or_redirect(callback_url)?;
 
     if !journal_state.deleted {
         if journal_state
             .get_user_permissions(&user_id)
             .contains(Permissions::ADDACCOUNT)
         {
-            JournalEvent::CreatedAccount {
-                id: Cuid::new10(),
-                name: form.account_name,
-                created_by: user_id,
-                created_at: Utc::now(),
-            }
-            .push_db(&journal_id, &pool)
-            .await
-            .or_redirect(callback_url)?;
+            state
+                .journal_store
+                .push_event(
+                    &journal_id,
+                    JournalEvent::CreatedAccount {
+                        id: Cuid::new10(),
+                        name: form.account_name,
+                        created_by: user_id,
+                        created_at: Utc::now(),
+                    },
+                )
+                .await
+                .or_redirect(callback_url)?;
         } else {
             return Err(KnownErrors::PermissionError {
                 required_permissions: Permissions::ADDACCOUNT,
