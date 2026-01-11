@@ -1,6 +1,6 @@
-use nutype::nutype;
-pub use super::authority::UserId;
 use super::authority::Authority;
+pub use super::authority::UserId;
+use nutype::nutype;
 
 #[nutype(
     derive(
@@ -67,6 +67,13 @@ mod tests {
 #[expect(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UserEvent {
-    Created { id: UserId, by: Authority, email: Email },
-    Deleted { id: UserId, by: Authority },
+    Created {
+        id: UserId,
+        by: Authority,
+        email: Email,
+    },
+    Deleted {
+        id: UserId,
+        by: Authority,
+    },
 }

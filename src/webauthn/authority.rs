@@ -50,7 +50,7 @@ impl Authority {
             executor: actor.clone(),
         }
     }
-    
+
     #[allow(unused)]
     pub fn delegated(authorizer: &Actor, executor: &Actor) -> Self {
         Self {

@@ -1,3 +1,4 @@
+mod authority;
 mod error;
 mod passkey;
 mod signin;
@@ -6,7 +7,6 @@ mod signup;
 mod startup;
 mod storage;
 pub mod user;
-mod authority;
 
 use axum::{
     Router,
