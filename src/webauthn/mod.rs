@@ -6,6 +6,7 @@ mod signup;
 mod startup;
 mod storage;
 pub mod user;
+mod authority;
 
 use axum::{
     Router,
