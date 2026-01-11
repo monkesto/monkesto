@@ -30,7 +30,7 @@ impl fmt::Debug for User {
 }
 
 impl User {
-    pub async fn new(email: Email, password: String) -> MonkestoResult<Self> {
+    pub async fn new(email: Email, password: String, id: &Cuid) -> MonkestoResult<Self> {
         let mut session_hash = [0u8; 16];
         OsRng
             .try_fill_bytes(&mut session_hash)
@@ -39,7 +39,7 @@ impl User {
             })?;
 
         Ok(Self {
-            id: Cuid::new10(),
+            id: *id,
             email,
             pw_hash: spawn_blocking(move || {
                 bcrypt::hash(password, bcrypt::DEFAULT_COST)

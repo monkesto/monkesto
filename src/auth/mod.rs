@@ -132,7 +132,6 @@ pub struct SignupForm {
     next: Option<String>,
 }
 
-#[axum::debug_handler]
 pub async fn create_user(
     State(state): State<AppState>,
     mut session: AuthSession,
@@ -158,7 +157,7 @@ pub async fn create_user(
         let id = Cuid::new16();
 
         session.backend.add_user(
-            User::new(email.clone(), form.password.clone())
+            User::new(email.clone(), form.password.clone(), &id)
                 .await
                 .or_redirect(CALLBACK_URL)?,
         );
@@ -190,7 +189,7 @@ pub async fn create_user(
             Err(KnownErrors::LoginFailed { email }.redirect("/login"))
         }
     } else {
-        Err(KnownErrors::UserExists { email }.redirect("/signup"))
+        Err(KnownErrors::UserExists { email }.redirect(CALLBACK_URL))
     }
 }
 

@@ -30,7 +30,7 @@ pub async fn account_list_page(
     };
 
     let content = html! {
-        @if let Ok(journal_state) = &journal_state_res && journal_state.tenants.get(&user_id).is_some_and(|p| p.tenant_permissions.contains(Permissions::READ)) {
+        @if let Ok(journal_state) = &journal_state_res && journal_state.get_user_permissions(&user_id).contains(Permissions::READ) {
             @for (acc_id, acc) in journal_state.accounts.clone() {
                 a
                 href=(format!("/journal/{}/account/{}", id, acc_id.to_string()))

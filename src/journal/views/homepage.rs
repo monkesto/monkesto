@@ -98,7 +98,7 @@ pub async fn journal_detail(
     };
 
     let content = html! {
-        @if let Ok(journal_state) = &journal_state_res && journal_state.tenants.get(&user_id).is_some_and(|p| p.tenant_permissions.contains(Permissions::READ)) {
+        @if let Ok(journal_state) = &journal_state_res && journal_state.get_user_permissions(&user_id).contains(Permissions::READ) {
 
             a
             href=(format!("/journal/{}/transaction", &id))
