@@ -10,8 +10,11 @@ use std::collections::HashMap;
 use tower_sessions::Session;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid};
 
+use super::authority::Authority;
 use super::{WebauthnState, error::WebauthnError};
 use crate::maud_header::header;
+use cuid::Cuid2Constructor;
+use nutype::nutype;
 
 fn passkeys_page(email: &str, passkeys: &[webauthn_rs::prelude::Passkey]) -> Markup {
     header(html! {
@@ -447,4 +450,44 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
             }
         }
     })
+}
+
+#[nutype(
+    derive(
+        Debug,
+        Clone,
+        PartialEq,
+        Eq,
+        Hash,
+        Serialize,
+        Deserialize,
+        AsRef,
+        Display,
+        TryFrom
+    ),
+    validate(len_char_min = 16, len_char_max = 16)
+)]
+pub struct PasskeyId(String);
+
+impl PasskeyId {
+    #[allow(unused)]
+    pub fn new() -> Self {
+        PasskeyId::try_from(Cuid2Constructor::new().with_length(16).create_id())
+            .expect("Generated cuid2 should always be valid")
+    }
+}
+
+#[expect(dead_code)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PasskeyEvent {
+    Created { id: PasskeyId, by: Authority },
+    Deleted { id: PasskeyId, by: Authority },
+}
+
+#[expect(unused)]
+pub trait PasskeyStore: Send + Sync {
+    type EventId: Send + Sync + Clone;
+    type Error;
+
+    async fn record(event: PasskeyEvent) -> Result<Self::EventId, Self::Error>;
 }
