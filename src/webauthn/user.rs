@@ -77,3 +77,11 @@ pub enum UserEvent {
         by: Authority,
     },
 }
+
+#[expect(unused)]
+pub trait UserStore: Send + Sync {
+    type EventId: Send + Sync + Clone;
+    type Error;
+
+    async fn record(event: UserEvent) -> Result<Self::EventId, Self::Error>;
+}
