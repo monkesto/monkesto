@@ -2,7 +2,7 @@ use crate::AppState;
 use crate::AuthSession;
 use crate::auth::UserStore;
 use crate::auth::user;
-use crate::cuid::Cuid;
+use crate::cuid::JournalId;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::journal::layout::maud_layout;
@@ -20,7 +20,7 @@ pub async fn people_list_page(
 ) -> Result<Markup, Redirect> {
     let user = user::get_user(session)?;
 
-    let journal_state_res = match Cuid::from_str(&id) {
+    let journal_state_res = match JournalId::from_str(&id) {
         Ok(s) => state.journal_store.get_journal(&s).await,
         Err(e) => Err(e),
     };

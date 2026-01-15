@@ -6,14 +6,15 @@ use std::sync::Arc;
 
 use crate::AppState;
 use crate::AuthSession;
-use crate::cuid::Cuid;
+use crate::cuid::JournalId;
+use crate::cuid::UserId;
 use crate::known_errors::MonkestoResult;
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use crate::webauthn::user::Email;
-use ::axum_login::AuthnBackend;
 use async_trait::async_trait;
 use axum::extract::{Form, State};
 use axum::response::Redirect;
+use axum_login::AuthnBackend;
 use bcrypt::DEFAULT_COST;
 use dashmap::DashMap;
 use rand::TryRngCore;
@@ -32,31 +33,52 @@ pub trait UserStore: Clone + Send + Sync + AuthnBackend {
     async fn create_user(&self, creation_event: UserEvent) -> MonkestoResult<()>;
 
     /// adds a UserEvent to the event store and updates the cached state
-    async fn push_event(&self, user_id: &Cuid, event: UserEvent) -> MonkestoResult<()>;
+    async fn push_event(&self, user_id: &UserId, event: UserEvent) -> MonkestoResult<()>;
 
-    async fn get_user_state(&self, user_id: &Cuid) -> MonkestoResult<UserState>;
+    async fn get_user_state(&self, user_id: &UserId) -> MonkestoResult<UserState>;
 
-    async fn lookup_user_id(&self, username: &Email) -> MonkestoResult<Option<Cuid>>;
+    async fn lookup_user_id(&self, username: &Email) -> MonkestoResult<Option<UserId>>;
 
-    async fn get_pending_journals(&self, user_id: &Cuid) -> MonkestoResult<HashSet<Cuid>> {
+    async fn get_pending_journals(&self, user_id: &UserId) -> MonkestoResult<HashSet<JournalId>> {
         Ok(self.get_user_state(user_id).await?.pending_journal_invites)
     }
 
-    async fn get_associated_journals(&self, user_id: &Cuid) -> MonkestoResult<HashSet<Cuid>> {
+    async fn get_associated_journals(
+        &self,
+        user_id: &UserId,
+    ) -> MonkestoResult<HashSet<JournalId>> {
         Ok(self.get_user_state(user_id).await?.associated_journals)
     }
 
-    async fn get_email(&self, user_id: &Cuid) -> MonkestoResult<Email> {
+    async fn get_email(&self, user_id: &UserId) -> MonkestoResult<Email> {
         Ok(self.get_user_state(user_id).await?.email)
+    }
+
+    async fn seed_user(
+        &self,
+        creation_event: UserEvent,
+        update_events: Vec<UserEvent>,
+    ) -> MonkestoResult<()> {
+        if let UserEvent::Created { id, .. } = creation_event {
+            self.create_user(creation_event).await?;
+
+            for event in update_events {
+                self.push_event(&id, event).await?;
+            }
+        } else {
+            return Err(KnownErrors::IncorrectEventType);
+        }
+
+        Ok(())
     }
 }
 
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct UserMemoryStore {
-    events: Arc<DashMap<Cuid, Vec<UserEvent>>>,
-    user_table: Arc<DashMap<Cuid, UserState>>,
-    email_lookup_table: Arc<DashMap<Email, Cuid>>,
+    events: Arc<DashMap<UserId, Vec<UserEvent>>>,
+    user_table: Arc<DashMap<UserId, UserState>>,
+    email_lookup_table: Arc<DashMap<Email, UserId>>,
 }
 
 #[allow(dead_code)]
@@ -144,7 +166,7 @@ impl UserStore for UserMemoryStore {
         }
     }
 
-    async fn push_event(&self, user_id: &Cuid, event: UserEvent) -> MonkestoResult<()> {
+    async fn push_event(&self, user_id: &UserId, event: UserEvent) -> MonkestoResult<()> {
         if let Some(mut events) = self.events.get_mut(user_id)
             && let Some(mut state) = self.user_table.get_mut(user_id)
         {
@@ -165,14 +187,14 @@ impl UserStore for UserMemoryStore {
         Ok(())
     }
 
-    async fn get_user_state(&self, user_id: &Cuid) -> MonkestoResult<UserState> {
+    async fn get_user_state(&self, user_id: &UserId) -> MonkestoResult<UserState> {
         self.user_table
             .get(user_id)
             .map(|state| (*state).clone())
             .ok_or(KnownErrors::UserDoesntExist)
     }
 
-    async fn lookup_user_id(&self, email: &Email) -> MonkestoResult<Option<Cuid>> {
+    async fn lookup_user_id(&self, email: &Email) -> MonkestoResult<Option<UserId>> {
         Ok(self.email_lookup_table.get(email).map(|id| *id))
     }
 }
@@ -207,7 +229,7 @@ pub async fn create_user(
         .or_redirect(CALLBACK_URL)?
         .is_none()
     {
-        let id = Cuid::new16();
+        let id = UserId::new();
 
         let pw_clone = form.password.clone();
 

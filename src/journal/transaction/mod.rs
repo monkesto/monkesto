@@ -24,6 +24,24 @@ pub trait TransactionStore: Clone + Send + Sync + 'static {
     -> MonkestoResult<()>;
 
     async fn get_transaction(&self, transaction_id: &Cuid) -> MonkestoResult<TransactionState>;
+
+    async fn seed_transaction(
+        &self,
+        creation_event: TransactionEvent,
+        update_events: Vec<TransactionEvent>,
+    ) -> MonkestoResult<()> {
+        if let TransactionEvent::Created { id, .. } = creation_event {
+            self.create_transaction(creation_event).await?;
+
+            for event in update_events {
+                self.push_event(&id, event).await?;
+            }
+        } else {
+            return Err(KnownErrors::IncorrectEventType);
+        }
+
+        Ok(())
+    }
 }
 
 #[allow(dead_code)]

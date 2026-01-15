@@ -1,6 +1,7 @@
 use crate::AppState;
 use crate::AuthSession;
 use crate::cuid::Cuid;
+use crate::cuid::JournalId;
 use crate::journal::{JournalStore, layout};
 use crate::known_errors::{KnownErrors, UrlError};
 use axum::extract::{Path, Query, State};
@@ -139,7 +140,7 @@ pub async fn transaction_list_page(
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let journal_state_res = match Cuid::from_str(&id) {
+    let journal_state_res = match JournalId::from_str(&id) {
         Ok(s) => state.journal_store.get_journal(&s).await,
         Err(e) => Err(e),
     };

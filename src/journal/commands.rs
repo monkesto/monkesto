@@ -3,7 +3,8 @@ use crate::AppState;
 use crate::AuthSession;
 use crate::auth::UserStore;
 use crate::auth::{self, user};
-use crate::cuid::Cuid;
+use crate::cuid::AccountId;
+use crate::cuid::JournalId;
 use crate::journal::Permissions;
 use crate::journal::{JournalStore, JournalTenantInfo};
 use crate::known_errors::{KnownErrors, RedirectOnError};
@@ -35,7 +36,7 @@ pub async fn create_journal(
         return Err(KnownErrors::InvalidInput.redirect("/journal"));
     }
 
-    let journal_id = Cuid::new10();
+    let journal_id = JournalId::new();
 
     state
         .journal_store
@@ -76,7 +77,7 @@ pub async fn invite_user(
 
     let user = user::get_user(session)?;
 
-    let journal_id = Cuid::from_str(&id).or_redirect(callback_url)?;
+    let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
 
     let journal_state = state
         .journal_store
@@ -160,7 +161,7 @@ pub async fn create_account(
 ) -> Result<Redirect, Redirect> {
     let callback_url = &format!("/journal/{}/account", id);
 
-    let journal_id = Cuid::from_str(&id).or_redirect(callback_url)?;
+    let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
 
     let user = user::get_user(session)?;
 
@@ -184,7 +185,7 @@ pub async fn create_account(
                 .push_event(
                     &journal_id,
                     JournalEvent::CreatedAccount {
-                        id: Cuid::new10(),
+                        id: AccountId::new(),
                         name: form.account_name,
                         created_by: user.id,
                         created_at: Utc::now(),

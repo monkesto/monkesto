@@ -1,5 +1,5 @@
 use crate::AuthSession;
-use crate::cuid::Cuid;
+use crate::cuid::{JournalId, UserId};
 use crate::known_errors::KnownErrors;
 use crate::known_errors::RedirectOnError;
 use crate::webauthn::user::Email;
@@ -15,7 +15,7 @@ use std::collections::HashSet;
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum UserEvent {
     Created {
-        id: Cuid,
+        id: UserId,
         email: Email,
         pw_hash: String,
     },
@@ -23,19 +23,19 @@ pub enum UserEvent {
         email: Email,
     },
     CreatedJournal {
-        journal_id: Cuid,
+        journal_id: JournalId,
     },
     InvitedToJournal {
-        journal_id: Cuid,
+        journal_id: JournalId,
     },
     AcceptedJournalInvite {
-        journal_id: Cuid,
+        journal_id: JournalId,
     },
     DeclinedJournalInvite {
-        journal_id: Cuid,
+        journal_id: JournalId,
     },
     RemovedFromJournal {
-        id: Cuid,
+        id: JournalId,
     },
     Deleted,
 }
@@ -63,19 +63,19 @@ impl<'r> Decode<'r, sqlx::Postgres> for UserEvent {
     }
 }
 
-#[derive(Clone, Default, Debug)]
+#[derive(Clone, Debug)]
 pub struct UserState {
-    pub id: Cuid,
+    pub id: UserId,
     pub email: Email,
     pub pw_hash: String,
     pub session_hash: [u8; 16],
-    pub pending_journal_invites: HashSet<Cuid>,
-    pub associated_journals: HashSet<Cuid>,
+    pub pending_journal_invites: HashSet<JournalId>,
+    pub associated_journals: HashSet<JournalId>,
     pub deleted: bool,
 }
 
 impl AuthUser for UserState {
-    type Id = Cuid;
+    type Id = UserId;
 
     fn id(&self) -> Self::Id {
         self.id
@@ -124,7 +124,7 @@ pub fn get_user(session: AuthSession) -> Result<UserState, Redirect> {
 
 #[cfg(test)]
 mod test_user {
-    use crate::cuid::Cuid;
+    use crate::cuid::JournalId;
     use sqlx::{PgPool, prelude::FromRow};
 
     use super::UserEvent;
@@ -132,7 +132,7 @@ mod test_user {
     #[sqlx::test]
     async fn test_encode_decode_userevent(pool: PgPool) {
         let original_event = UserEvent::CreatedJournal {
-            journal_id: Cuid::new10(),
+            journal_id: JournalId::new(),
         };
 
         sqlx::query(

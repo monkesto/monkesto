@@ -4,7 +4,7 @@ pub mod transaction;
 pub mod views;
 
 use crate::{
-    cuid::Cuid,
+    cuid::{AccountId, JournalId, TransactionId, UserId},
     known_errors::{KnownErrors, MonkestoResult},
 };
 use async_trait::async_trait;
@@ -24,15 +24,15 @@ pub trait JournalStore: Clone + Send + Sync + 'static {
     async fn create_journal(&self, creation_event: JournalEvent) -> MonkestoResult<()>;
 
     /// adds a UserEvent to the event store and updates the cached state
-    async fn push_event(&self, journal_id: &Cuid, event: JournalEvent) -> MonkestoResult<()>;
+    async fn push_event(&self, journal_id: &JournalId, event: JournalEvent) -> MonkestoResult<()>;
 
     /// returns the cached state of the user
-    async fn get_journal(&self, journal_id: &Cuid) -> MonkestoResult<JournalState>;
+    async fn get_journal(&self, journal_id: &JournalId) -> MonkestoResult<JournalState>;
 
     async fn get_permissions(
         &self,
-        journal_id: &Cuid,
-        user_id: &Cuid,
+        journal_id: &JournalId,
+        user_id: &UserId,
     ) -> MonkestoResult<Permissions> {
         let state = self.get_journal(journal_id).await?;
         if state.owner == *user_id {
@@ -45,36 +45,57 @@ pub trait JournalStore: Clone + Send + Sync + 'static {
             .unwrap_or(Permissions::empty()))
     }
 
-    async fn get_name(&self, journal_id: &Cuid) -> MonkestoResult<String> {
+    async fn get_name(&self, journal_id: &JournalId) -> MonkestoResult<String> {
         Ok(self.get_journal(journal_id).await?.name)
     }
 
-    async fn get_creator(&self, journal_id: &Cuid) -> MonkestoResult<Cuid> {
+    async fn get_creator(&self, journal_id: &JournalId) -> MonkestoResult<UserId> {
         Ok(self.get_journal(journal_id).await?.creator)
     }
 
-    async fn get_created_at(&self, journal_id: &Cuid) -> MonkestoResult<DateTime<Utc>> {
+    async fn get_created_at(&self, journal_id: &JournalId) -> MonkestoResult<DateTime<Utc>> {
         Ok(self.get_journal(journal_id).await?.created_at)
     }
 
-    async fn get_accounts(&self, journal_id: &Cuid) -> MonkestoResult<HashMap<Cuid, Account>> {
+    async fn get_accounts(
+        &self,
+        journal_id: &JournalId,
+    ) -> MonkestoResult<HashMap<AccountId, Account>> {
         Ok(self.get_journal(journal_id).await?.accounts)
     }
 
-    async fn get_transactions(&self, journal_id: &Cuid) -> MonkestoResult<Vec<Cuid>> {
+    async fn get_transactions(&self, journal_id: &JournalId) -> MonkestoResult<Vec<TransactionId>> {
         Ok(self.get_journal(journal_id).await?.transactions)
     }
 
-    async fn get_deleted(&self, journal_id: &Cuid) -> MonkestoResult<bool> {
+    async fn get_deleted(&self, journal_id: &JournalId) -> MonkestoResult<bool> {
         Ok(self.get_journal(journal_id).await?.deleted)
+    }
+
+    async fn seed_journal(
+        &self,
+        creation_event: JournalEvent,
+        update_events: Vec<JournalEvent>,
+    ) -> MonkestoResult<()> {
+        if let JournalEvent::Created { id, .. } = creation_event {
+            self.create_journal(creation_event).await?;
+
+            for event in update_events {
+                self.push_event(&id, event).await?;
+            }
+        } else {
+            return Err(KnownErrors::IncorrectEventType);
+        }
+
+        Ok(())
     }
 }
 
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct JournalMemoryStore {
-    events: Arc<DashMap<Cuid, Vec<JournalEvent>>>,
-    journal_table: Arc<DashMap<Cuid, JournalState>>,
+    events: Arc<DashMap<JournalId, Vec<JournalEvent>>>,
+    journal_table: Arc<DashMap<JournalId, JournalState>>,
 }
 
 #[allow(dead_code)]
@@ -117,7 +138,7 @@ impl JournalStore for JournalMemoryStore {
         }
     }
 
-    async fn push_event(&self, journal_id: &Cuid, event: JournalEvent) -> MonkestoResult<()> {
+    async fn push_event(&self, journal_id: &JournalId, event: JournalEvent) -> MonkestoResult<()> {
         if let Some(mut events) = self.events.get_mut(journal_id)
             && let Some(mut state) = self.journal_table.get_mut(journal_id)
         {
@@ -130,7 +151,7 @@ impl JournalStore for JournalMemoryStore {
         }
     }
 
-    async fn get_journal(&self, journal_id: &Cuid) -> MonkestoResult<JournalState> {
+    async fn get_journal(&self, journal_id: &JournalId) -> MonkestoResult<JournalState> {
         self.journal_table
             .get(journal_id)
             .map(|state| (*state).clone())
@@ -150,42 +171,42 @@ bitflags! {
     }
 }
 
-#[derive(Default, Serialize, Deserialize, Clone, Debug, Copy, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Copy, PartialEq)]
 pub struct JournalTenantInfo {
     pub tenant_permissions: Permissions,
-    pub inviting_user: Cuid,
+    pub inviting_user: UserId,
     pub invited_at: DateTime<Utc>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum JournalEvent {
     Created {
-        id: Cuid,
+        id: JournalId,
         name: String,
         created_at: chrono::DateTime<Utc>,
-        creator: Cuid,
+        creator: UserId,
     },
     Renamed {
         name: String,
     },
     AddedTenant {
-        id: Cuid,
+        id: UserId,
         tenant_info: JournalTenantInfo,
     },
     TransferredOwnership {
-        new_owner: Cuid,
+        new_owner: UserId,
     },
     CreatedAccount {
         name: String,
-        id: Cuid,
-        created_by: Cuid,
+        id: AccountId,
+        created_by: UserId,
         created_at: DateTime<Utc>,
     },
     DeletedAccount {
-        account_id: Cuid,
+        account_id: AccountId,
     },
     AddedEntry {
-        transaction_id: Cuid,
+        transaction_id: TransactionId,
     },
     Deleted,
 }
@@ -213,16 +234,16 @@ impl<'r> Decode<'r, sqlx::Postgres> for JournalEvent {
     }
 }
 
-#[derive(Default, Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct JournalState {
-    pub id: Cuid,
+    pub id: JournalId,
     pub name: String,
-    pub creator: Cuid,
+    pub creator: UserId,
     pub created_at: chrono::DateTime<Utc>,
-    pub owner: Cuid,
-    pub tenants: HashMap<Cuid, JournalTenantInfo>,
-    pub accounts: HashMap<Cuid, Account>,
-    pub transactions: Vec<Cuid>,
+    pub owner: UserId,
+    pub tenants: HashMap<UserId, JournalTenantInfo>,
+    pub accounts: HashMap<AccountId, Account>,
+    pub transactions: Vec<TransactionId>,
     pub deleted: bool,
 }
 
@@ -276,7 +297,7 @@ impl JournalState {
         }
     }
 
-    pub fn get_user_permissions(&self, user_id: &Cuid) -> Permissions {
+    pub fn get_user_permissions(&self, user_id: &UserId) -> Permissions {
         if self.owner == *user_id {
             Permissions::all()
         } else if let Some(tenant_info) = self.tenants.get(user_id) {
@@ -289,21 +310,21 @@ impl JournalState {
 
 #[allow(dead_code)]
 pub struct SharedJournal {
-    pub id: Cuid,
+    pub id: JournalId,
     pub info: JournalTenantInfo,
 }
 
 #[allow(dead_code)]
 pub struct SharedAndPendingJournals {
-    pub shared: HashMap<Cuid, JournalTenantInfo>,
-    pub pending: HashMap<Cuid, JournalTenantInfo>,
+    pub shared: HashMap<JournalId, JournalTenantInfo>,
+    pub pending: HashMap<JournalId, JournalTenantInfo>,
 }
 
 #[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Account {
     pub name: String,
-    pub created_by: Cuid,
+    pub created_by: UserId,
     pub created_at: chrono::DateTime<Utc>,
     pub balance: i64,
 }
@@ -311,14 +332,14 @@ pub struct Account {
 #[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct JournalInvite {
-    pub id: Cuid,
+    pub id: UserId,
     pub name: String,
     pub tenant_info: JournalTenantInfo,
 }
 
 #[cfg(test)]
 mod test_user {
-    use crate::cuid::Cuid;
+    use crate::cuid::{AccountId, UserId};
     use chrono::Utc;
     use sqlx::{PgPool, prelude::FromRow};
 
@@ -328,8 +349,8 @@ mod test_user {
     async fn test_encode_decode_journalevent(pool: PgPool) {
         let original_event = JournalEvent::CreatedAccount {
             name: "test".into(),
-            id: Cuid::new10(),
-            created_by: Cuid::new10(),
+            id: AccountId::new(),
+            created_by: UserId::new(),
             created_at: Utc::now(),
         };
 
