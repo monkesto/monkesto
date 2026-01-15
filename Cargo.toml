@@ -36,6 +36,7 @@ dashmap = "6.1.0"
 nutype = { version = "0.6.2", features = ["serde", "regex"] }
 regex = "1.12.2"
 rand = "0.9.2"
+phf = {version = "0.13.1", features = ["macros"]}
 
 [lints.clippy]
 unwrap_used = "deny"

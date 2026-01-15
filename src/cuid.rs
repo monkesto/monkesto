@@ -1,5 +1,6 @@
 use super::known_errors::KnownErrors;
 use cuid::{Cuid2Constructor, cuid2_slug, is_cuid2};
+use phf::phf_set;
 use serde::{Deserialize, Serialize};
 use sqlx::{Decode, Encode, Type, postgres::PgValueRef};
 use std::{fmt, str::FromStr};
@@ -8,6 +9,7 @@ use std::{fmt, str::FromStr};
 pub enum Cuid {
     Cuid10([u8; 10]),
     Cuid16([u8; 16]),
+    Custom([u8; 5]),
 }
 
 impl Cuid {
@@ -39,6 +41,7 @@ impl Cuid {
         match self {
             Cuid::Cuid10(id) => id.as_ref(),
             Cuid::Cuid16(id) => id.as_ref(),
+            Cuid::Custom(id) => id.as_ref(),
         }
     }
 
@@ -54,6 +57,11 @@ impl Default for Cuid {
     }
 }
 
+// all of these ids must be exactly 5 ascii characters
+static VALID_CUSTOM_CUIDS: phf::Set<&'static str> = phf_set! {
+    "dylan",
+};
+
 impl FromStr for Cuid {
     type Err = KnownErrors;
     fn from_str(s: &str) -> Result<Self, KnownErrors> {
@@ -61,6 +69,13 @@ impl FromStr for Cuid {
             return Err(KnownErrors::InvalidId);
         }
         match s.len() {
+            5 => {
+                if VALID_CUSTOM_CUIDS.contains(s) {
+                    Ok(Self::Custom(s.as_bytes().try_into()?))
+                } else {
+                    Err(KnownErrors::InvalidId)
+                }
+            }
             10 => Ok(Self::Cuid10(s.as_bytes().try_into()?)),
             16 => Ok(Self::Cuid16(s.as_bytes().try_into()?)),
             _ => Err(KnownErrors::InvalidId),
@@ -81,6 +96,11 @@ impl fmt::Display for Cuid {
                 f,
                 "{}",
                 str::from_utf8(id).expect("failed to convert Cuid16 to string")
+            ),
+            Cuid::Custom(id) => write!(
+                f,
+                "{}",
+                str::from_utf8(id).expect("failed to convert custom Cuid to string")
             ),
         }
     }
