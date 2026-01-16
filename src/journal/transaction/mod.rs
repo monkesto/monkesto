@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    cuid::Cuid,
+    cuid::{Cuid, TransactionId, UserId},
     known_errors::{KnownErrors, MonkestoResult},
 };
 
@@ -20,10 +20,16 @@ pub trait TransactionStore: Clone + Send + Sync + 'static {
     async fn create_transaction(&self, creation_event: TransactionEvent) -> MonkestoResult<()>;
 
     /// applies a TransactionEvent to the event store and updates the cached state
-    async fn push_event(&self, transction_id: &Cuid, event: TransactionEvent)
-    -> MonkestoResult<()>;
+    async fn push_event(
+        &self,
+        transction_id: &TransactionId,
+        event: TransactionEvent,
+    ) -> MonkestoResult<()>;
 
-    async fn get_transaction(&self, transaction_id: &Cuid) -> MonkestoResult<TransactionState>;
+    async fn get_transaction(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> MonkestoResult<TransactionState>;
 
     async fn seed_transaction(
         &self,
@@ -47,8 +53,8 @@ pub trait TransactionStore: Clone + Send + Sync + 'static {
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct TransasctionMemoryStore {
-    events: Arc<DashMap<Cuid, Vec<TransactionEvent>>>,
-    transaction_table: Arc<DashMap<Cuid, TransactionState>>,
+    events: Arc<DashMap<TransactionId, Vec<TransactionEvent>>>,
+    transaction_table: Arc<DashMap<TransactionId, TransactionState>>,
 }
 
 #[allow(dead_code)]
@@ -93,7 +99,7 @@ impl TransactionStore for TransasctionMemoryStore {
 
     async fn push_event(
         &self,
-        transction_id: &Cuid,
+        transction_id: &TransactionId,
         event: TransactionEvent,
     ) -> MonkestoResult<()> {
         if let Some(mut events) = self.events.get_mut(transction_id)
@@ -106,7 +112,10 @@ impl TransactionStore for TransasctionMemoryStore {
         Ok(())
     }
 
-    async fn get_transaction(&self, transaction_id: &Cuid) -> MonkestoResult<TransactionState> {
+    async fn get_transaction(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> MonkestoResult<TransactionState> {
         self.transaction_table
             .get(transaction_id)
             .map(|s| (*s).clone())
@@ -124,19 +133,19 @@ pub struct BalanceUpdate {
 #[allow(dead_code)]
 pub enum TransactionEvent {
     Created {
-        id: Cuid,
-        author: Cuid,
+        id: TransactionId,
+        author: UserId,
         description: String,
         updates: Vec<BalanceUpdate>,
         created_at: DateTime<Utc>,
     },
     UpdatedDescription {
         new_desc: String,
-        updater: Cuid,
+        updater: UserId,
     },
     UpdatedBalancedUpdates {
         new_balanceupdates: Vec<BalanceUpdate>,
-        updater: Cuid,
+        updater: UserId,
     },
 }
 
@@ -185,11 +194,11 @@ impl<'r> Decode<'r, sqlx::Postgres> for TransactionEvent {
     }
 }
 
-#[derive(Default, Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 #[allow(dead_code)]
 pub struct TransactionState {
-    pub id: Cuid,
-    pub author: Cuid,
+    pub id: TransactionId,
+    pub author: UserId,
     pub description: String,
     pub updates: Vec<BalanceUpdate>,
     pub created_at: chrono::DateTime<Utc>,
@@ -222,7 +231,10 @@ impl TransactionState {
 
 #[cfg(test)]
 mod test_transaction {
-    use crate::{cuid::Cuid, journal::transaction::BalanceUpdate};
+    use crate::{
+        cuid::{Cuid, TransactionId, UserId},
+        journal::transaction::BalanceUpdate,
+    };
     use chrono::Utc;
     use sqlx::{PgPool, prelude::FromRow};
 
@@ -231,8 +243,8 @@ mod test_transaction {
     #[sqlx::test]
     async fn test_encode_decode_transactionevent(pool: PgPool) {
         let original_event = TransactionEvent::Created {
-            id: Cuid::new10(),
-            author: Cuid::new10(),
+            id: TransactionId::new(),
+            author: UserId::new(),
             description: "test".to_string(),
             updates: vec![BalanceUpdate {
                 account_id: Cuid::new10(),

@@ -48,17 +48,6 @@ impl Cuid {
             Cuid::Custom(id) => id.as_ref(),
         }
     }
-
-    #[allow(dead_code)]
-    pub fn is_default(&self) -> bool {
-        *self == Self::default()
-    }
-}
-
-impl Default for Cuid {
-    fn default() -> Self {
-        Self::from_str("aaaaaaaaaa").expect("failed to generate default Cuid")
-    }
 }
 
 // all of these ids must be exactly 5 ascii characters
@@ -110,148 +99,53 @@ impl fmt::Display for Cuid {
     }
 }
 
-// these types would probably be better defined with a macro
-// as all the impls are essentially identical
+macro_rules! id {
+    ($name: ident, $new_fn: expr) => {
+        #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        pub struct $name(Cuid);
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct UserId(Cuid);
+        #[allow(dead_code)]
+        impl $name {
+            pub fn new() -> Self {
+                Self($new_fn)
+            }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct JournalId(Cuid);
+            pub fn from_bytes(bytes: &[u8]) -> Result<Self, KnownErrors> {
+                Ok(Self(Cuid::from_bytes(bytes)?))
+            }
+        }
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct AccountId(Cuid);
+        impl Deref for $name {
+            type Target = Cuid;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TransactionId(Cuid);
+            fn deref(&self) -> &Self::Target {
+                &self.0
+            }
+        }
 
-impl UserId {
-    pub fn new() -> Self {
-        Self(Cuid::new10())
-    }
+        impl FromStr for $name {
+            type Err = KnownErrors;
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, KnownErrors> {
-        Ok(Self(Cuid::from_bytes(bytes)?))
-    }
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                Ok(Self(Cuid::from_str(s)?))
+            }
+        }
+
+        impl Display for $name {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+    };
 }
 
-impl JournalId {
-    pub fn new() -> Self {
-        Self(Cuid::new10())
-    }
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, KnownErrors> {
-        Ok(Self(Cuid::from_bytes(bytes)?))
-    }
-}
+id!(UserId, Cuid::new10());
 
-impl AccountId {
-    pub fn new() -> Self {
-        Self(Cuid::new10())
-    }
+id!(JournalId, Cuid::new10());
 
-    #[allow(dead_code)]
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, KnownErrors> {
-        Ok(Self(Cuid::from_bytes(bytes)?))
-    }
-}
+id!(AccountId, Cuid::new10());
 
-#[allow(dead_code)]
-impl TransactionId {
-    pub fn new() -> Self {
-        Self(Cuid::new16())
-    }
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, KnownErrors> {
-        Ok(Self(Cuid::from_bytes(bytes)?))
-    }
-}
-
-impl Deref for UserId {
-    type Target = Cuid;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Deref for JournalId {
-    type Target = Cuid;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Deref for TransactionId {
-    type Target = Cuid;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Deref for AccountId {
-    type Target = Cuid;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl FromStr for UserId {
-    type Err = KnownErrors;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(Cuid::from_str(s)?))
-    }
-}
-
-impl FromStr for JournalId {
-    type Err = KnownErrors;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(Cuid::from_str(s)?))
-    }
-}
-
-impl FromStr for AccountId {
-    type Err = KnownErrors;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(Cuid::from_str(s)?))
-    }
-}
-
-impl FromStr for TransactionId {
-    type Err = KnownErrors;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(Cuid::from_str(s)?))
-    }
-}
-
-impl Display for UserId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Display for JournalId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Display for AccountId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl Display for TransactionId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+id!(TransactionId, Cuid::new16());
 
 impl Type<sqlx::Postgres> for Cuid {
     fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
