@@ -8,7 +8,7 @@ use maud::{DOCTYPE, Markup, html};
 
 use std::collections::HashMap;
 use tower_sessions::Session;
-use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid};
+use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential};
 
 use std::sync::Arc;
 use webauthn_rs::prelude::Webauthn;
@@ -16,6 +16,7 @@ use webauthn_rs::prelude::Webauthn;
 use super::authority::Authority;
 use super::error::WebauthnError;
 use super::storage::WebauthnStorage;
+use super::user::UserId;
 use crate::id;
 use crate::ident::Ident;
 use crate::known_errors::KnownErrors;
@@ -166,7 +167,7 @@ pub async fn passkey_get(
     session: Session,
 ) -> impl IntoResponse {
     // Check if user is logged in
-    let user_id = match session.get::<Uuid>("user_id").await {
+    let user_id = match session.get::<UserId>("user_id").await {
         Ok(Some(id)) => id,
         Ok(None) | Err(_) => {
             // Not logged in
@@ -205,7 +206,7 @@ pub async fn delete_passkey_post(
 ) -> Result<impl IntoResponse, WebauthnError> {
     // Check if user is logged in
     let user_id = session
-        .get::<Uuid>("user_id")
+        .get::<UserId>("user_id")
         .await
         .map_err(|_| WebauthnError::Unknown)?
         .ok_or(WebauthnError::SessionExpired)?;
@@ -242,7 +243,7 @@ pub async fn create_passkey_post(
 ) -> Result<impl IntoResponse, WebauthnError> {
     // Check if user is logged in
     let user_id = session
-        .get::<Uuid>("user_id")
+        .get::<UserId>("user_id")
         .await
         .map_err(|_| WebauthnError::Unknown)?
         .ok_or(WebauthnError::SessionExpired)?;
@@ -296,6 +297,12 @@ pub async fn create_passkey_post(
             .await
             .unwrap_or_else(|_| "unknown@example.com".to_string());
 
+        // Get the webauthn UUID for this user
+        let webauthn_uuid = storage
+            .get_webauthn_uuid(&user_id)
+            .await
+            .map_err(|_| WebauthnError::Unknown)?;
+
         let exclude_credentials: Vec<_> = existing_passkeys
             .iter()
             .map(|sk| sk.cred_id().clone())
@@ -306,7 +313,7 @@ pub async fn create_passkey_post(
 
         // Start passkey registration
         match webauthn.start_passkey_registration(
-            user_id,
+            webauthn_uuid,
             &email,
             &email,
             Some(exclude_credentials),

@@ -251,7 +251,7 @@ async fn handle_signin_completion(
             let _ = session.remove_value("auth_state").await;
 
             // Find which user this credential belongs to
-            let _user_unique_id = storage
+            let user_id = storage
                 .find_user_by_credential(auth_result.cred_id().as_slice())
                 .await
                 .map_err(|_| WebauthnError::Unknown)?
@@ -259,7 +259,7 @@ async fn handle_signin_completion(
 
             // Set authenticated session
             session
-                .insert("user_id", _user_unique_id)
+                .insert("user_id", user_id)
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
 

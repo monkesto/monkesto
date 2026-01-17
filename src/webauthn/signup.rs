@@ -14,6 +14,7 @@ use webauthn_rs::prelude::Webauthn;
 
 use super::error::WebauthnError;
 use super::storage::WebauthnStorage;
+use super::user::UserId;
 use crate::maud_header::header;
 
 #[derive(Deserialize)]
@@ -259,18 +260,21 @@ async fn handle_email_submission(
     // Get existing credentials for exclusion
     let exclude_credentials = None; // New user, no existing credentials to exclude
 
-    // Generate new user ID
-    let user_unique_id = Uuid::new_v4();
+    // Generate new user ID (our internal identifier)
+    let user_id = UserId::new();
+
+    // Generate webauthn UUID (for webauthn-rs compatibility)
+    let webauthn_uuid = Uuid::new_v4();
 
     // Clear any previous registration state
     let _ = session.remove_value("reg_state").await;
 
     // Start passkey registration
-    match webauthn.start_passkey_registration(user_unique_id, &email, &email, exclude_credentials) {
+    match webauthn.start_passkey_registration(webauthn_uuid, &email, &email, exclude_credentials) {
         Ok((ccr, reg_state)) => {
             // Store registration state in session
             session
-                .insert("reg_state", (email.clone(), user_unique_id, reg_state))
+                .insert("reg_state", (email.clone(), user_id, webauthn_uuid, reg_state))
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
 
@@ -305,8 +309,8 @@ async fn handle_credential_submission(
         serde_json::from_str(credential_json).map_err(|_| WebauthnError::InvalidInput)?;
 
     // Get registration state from session
-    let (email, user_unique_id, reg_state) = session
-        .get::<(String, Uuid, PasskeyRegistration)>("reg_state")
+    let (email, user_id, webauthn_uuid, reg_state) = session
+        .get::<(String, UserId, Uuid, PasskeyRegistration)>("reg_state")
         .await
         .map_err(|_| WebauthnError::Unknown)?
         .ok_or(WebauthnError::SessionExpired)?;
@@ -319,7 +323,7 @@ async fn handle_credential_submission(
 
             // Store the new user and their passkey
             if storage
-                .create_user(email.clone(), user_unique_id, passkey)
+                .create_user(user_id.clone(), webauthn_uuid, email.clone(), passkey)
                 .await
                 .is_err()
             {
@@ -328,7 +332,7 @@ async fn handle_credential_submission(
 
             // Set authenticated session for the newly registered user
             session
-                .insert("user_id", user_unique_id)
+                .insert("user_id", user_id)
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
 

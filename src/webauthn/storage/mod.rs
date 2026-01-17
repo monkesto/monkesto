@@ -1,5 +1,7 @@
 use webauthn_rs::prelude::{Passkey, Uuid};
 
+use super::user::UserId;
+
 pub mod memory;
 
 /// Errors that can occur during storage operations
@@ -20,33 +22,40 @@ pub trait WebauthnStorage: Send + Sync {
     /// Check if an email already exists in the system
     async fn email_exists(&self, email: &str) -> Result<bool, StorageError>;
 
-    /// Get the email address for a specific user ID
-    async fn get_user_email(&self, user_id: &Uuid) -> Result<String, StorageError>;
+    /// Get the email address for a specific UserId
+    async fn get_user_email(&self, user_id: &UserId) -> Result<String, StorageError>;
+
+    /// Get the webauthn UUID for a specific UserId
+    async fn get_webauthn_uuid(&self, user_id: &UserId) -> Result<Uuid, StorageError>;
 
     /// Create a new user with their first passkey
     async fn create_user(
         &self,
+        user_id: UserId,
+        webauthn_uuid: Uuid,
         email: String,
-        user_id: Uuid,
         passkey: Passkey,
     ) -> Result<(), StorageError>;
 
     /// Get all passkeys for a specific user
-    async fn get_user_passkeys(&self, user_id: &Uuid) -> Result<Vec<Passkey>, StorageError>;
+    async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, StorageError>;
 
     /// Add a new passkey to an existing user
-    async fn add_passkey(&self, user_id: &Uuid, passkey: Passkey) -> Result<(), StorageError>;
+    async fn add_passkey(&self, user_id: &UserId, passkey: Passkey) -> Result<(), StorageError>;
 
     /// Remove a specific passkey from a user
-    async fn remove_passkey(&self, user_id: &Uuid, passkey_id: &[u8])
-    -> Result<bool, StorageError>;
+    async fn remove_passkey(
+        &self,
+        user_id: &UserId,
+        passkey_id: &[u8],
+    ) -> Result<bool, StorageError>;
 
     /// Get all credentials from all users (for usernameless authentication)
     async fn get_all_credentials(&self) -> Result<Vec<Passkey>, StorageError>;
 
-    /// Find user ID by passkey credential ID
+    /// Find UserId by passkey credential ID
     async fn find_user_by_credential(
         &self,
         credential_id: &[u8],
-    ) -> Result<Option<Uuid>, StorageError>;
+    ) -> Result<Option<UserId>, StorageError>;
 }
