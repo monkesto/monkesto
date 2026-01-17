@@ -1,7 +1,7 @@
 use crate::AppState;
 use crate::AuthSession;
 use crate::auth::user;
-use crate::cuid::Cuid;
+use crate::cuid::Ident;
 use crate::cuid::JournalId;
 use crate::journal::layout::maud_layout;
 use crate::journal::{JournalStore, Permissions};
@@ -12,7 +12,7 @@ use maud::{Markup, html};
 use std::str::FromStr;
 
 struct AccountItem {
-    pub id: Cuid,
+    pub id: Ident,
     pub name: String,
     pub balance: i64, // in cents
 }

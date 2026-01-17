@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::AuthSession;
-use crate::cuid::Cuid;
+use crate::cuid::Ident;
 use crate::cuid::JournalId;
 use crate::journal::{JournalStore, layout};
 use crate::known_errors::{KnownErrors, UrlError};
@@ -35,20 +35,20 @@ impl Display for EntryType {
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct AccountItem {
-    pub id: Cuid,
+    pub id: Ident,
     pub name: String,
 }
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct Person {
-    pub id: Cuid,
+    pub id: Ident,
     pub username: String,
 }
 
 #[derive(Debug, Clone)]
 struct Transaction {
-    pub id: Cuid,
+    pub id: Ident,
     pub author: Person,
     pub entries: Vec<Entry>,
 }
@@ -56,15 +56,15 @@ struct Transaction {
 fn transactions() -> Vec<Transaction> {
     vec![
         Transaction {
-            id: Cuid::from_str("aaaaaaaaab").expect("Invalid Cuid"),
+            id: Ident::from_str("aaaaaaaaab").expect("Invalid Cuid"),
             author: Person {
-                id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
+                id: Ident::from_str("aaaaaaaaac").expect("Invalid Cuid"),
                 username: "johndoe".to_string(),
             },
             entries: vec![
                 Entry {
                     account: AccountItem {
-                        id: Cuid::from_str("aaaaaaaaab").expect("Invalid Cuid"),
+                        id: Ident::from_str("aaaaaaaaab").expect("Invalid Cuid"),
                         name: "Cash".to_string(),
                     },
                     amount: 4567, // $45.67 in cents
@@ -72,7 +72,7 @@ fn transactions() -> Vec<Transaction> {
                 },
                 Entry {
                     account: AccountItem {
-                        id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
+                        id: Ident::from_str("aaaaaaaaac").expect("Invalid Cuid"),
                         name: "Groceries Expense".to_string(),
                     },
                     amount: 4567, // $45.67 in cents
@@ -81,15 +81,15 @@ fn transactions() -> Vec<Transaction> {
             ],
         },
         Transaction {
-            id: Cuid::from_str("aaaaaaaaab").expect("Invalid Cuid"),
+            id: Ident::from_str("aaaaaaaaab").expect("Invalid Cuid"),
             author: Person {
-                id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
+                id: Ident::from_str("aaaaaaaaac").expect("Invalid Cuid"),
                 username: "janesmith".to_string(),
             },
             entries: vec![
                 Entry {
                     account: AccountItem {
-                        id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
+                        id: Ident::from_str("aaaaaaaaac").expect("Invalid Cuid"),
                         name: "Checking Account".to_string(),
                     },
                     amount: 3214, // $32.14 in cents
@@ -97,7 +97,7 @@ fn transactions() -> Vec<Transaction> {
                 },
                 Entry {
                     account: AccountItem {
-                        id: Cuid::from_str("aaaaaaaaad").expect("Invalid Cuid"),
+                        id: Ident::from_str("aaaaaaaaad").expect("Invalid Cuid"),
                         name: "Fuel Expense".to_string(),
                     },
                     amount: 3214, // $32.14 in cents
@@ -106,15 +106,15 @@ fn transactions() -> Vec<Transaction> {
             ],
         },
         Transaction {
-            id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
+            id: Ident::from_str("aaaaaaaaac").expect("Invalid Cuid"),
             author: Person {
-                id: Cuid::from_str("aaaaaaaaac").expect("Invalid Cuid"),
+                id: Ident::from_str("aaaaaaaaac").expect("Invalid Cuid"),
                 username: "bobjohnson".to_string(),
             },
             entries: vec![
                 Entry {
                     account: AccountItem {
-                        id: Cuid::from_str("aaaaaaaaad").expect("Invalid Cuid"),
+                        id: Ident::from_str("aaaaaaaaad").expect("Invalid Cuid"),
                         name: "Cash".to_string(),
                     },
                     amount: 425, // $4.25 in cents
@@ -122,7 +122,7 @@ fn transactions() -> Vec<Transaction> {
                 },
                 Entry {
                     account: AccountItem {
-                        id: Cuid::from_str("aaaaaaaaae").expect("Invalid Cuid"),
+                        id: Ident::from_str("aaaaaaaaae").expect("Invalid Cuid"),
                         name: "Coffee Expense".to_string(),
                     },
                     amount: 425, // $4.25 in cents

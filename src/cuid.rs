@@ -10,13 +10,13 @@ use std::{
 };
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum Cuid {
+pub enum Ident {
     Cuid10([u8; 10]),
     Cuid16([u8; 16]),
     Custom([u8; 5]),
 }
 
-impl Cuid {
+impl Ident {
     pub fn new10() -> Self {
         Self::Cuid10(
             cuid2_slug()
@@ -43,9 +43,9 @@ impl Cuid {
 
     pub fn as_bytes(&self) -> &[u8] {
         match self {
-            Cuid::Cuid10(id) => id.as_ref(),
-            Cuid::Cuid16(id) => id.as_ref(),
-            Cuid::Custom(id) => id.as_ref(),
+            Ident::Cuid10(id) => id.as_ref(),
+            Ident::Cuid16(id) => id.as_ref(),
+            Ident::Custom(id) => id.as_ref(),
         }
     }
 }
@@ -55,7 +55,7 @@ static VALID_CUSTOM_CUIDS: phf::Set<&'static str> = phf_set! {
     "dylan",
 };
 
-impl FromStr for Cuid {
+impl FromStr for Ident {
     type Err = KnownErrors;
     fn from_str(s: &str) -> Result<Self, KnownErrors> {
         if !is_cuid2(s) {
@@ -77,20 +77,20 @@ impl FromStr for Cuid {
 }
 
 // this has the potential to panic if the id is created manually rather than with helper functions
-impl fmt::Display for Cuid {
+impl fmt::Display for Ident {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Cuid::Cuid10(id) => write!(
+            Ident::Cuid10(id) => write!(
                 f,
                 "{}",
                 str::from_utf8(id).expect("failed to convert Cuid10 to string")
             ),
-            Cuid::Cuid16(id) => write!(
+            Ident::Cuid16(id) => write!(
                 f,
                 "{}",
                 str::from_utf8(id).expect("failed to convert Cuid16 to string")
             ),
-            Cuid::Custom(id) => write!(
+            Ident::Custom(id) => write!(
                 f,
                 "{}",
                 str::from_utf8(id).expect("failed to convert custom Cuid to string")
@@ -102,7 +102,7 @@ impl fmt::Display for Cuid {
 macro_rules! id {
     ($name: ident, $new_fn: expr) => {
         #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-        pub struct $name(Cuid);
+        pub struct $name(Ident);
 
         #[allow(dead_code)]
         impl $name {
@@ -111,12 +111,12 @@ macro_rules! id {
             }
 
             pub fn from_bytes(bytes: &[u8]) -> Result<Self, KnownErrors> {
-                Ok(Self(Cuid::from_bytes(bytes)?))
+                Ok(Self(Ident::from_bytes(bytes)?))
             }
         }
 
         impl Deref for $name {
-            type Target = Cuid;
+            type Target = Ident;
 
             fn deref(&self) -> &Self::Target {
                 &self.0
@@ -127,7 +127,7 @@ macro_rules! id {
             type Err = KnownErrors;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                Ok(Self(Cuid::from_str(s)?))
+                Ok(Self(Ident::from_str(s)?))
             }
         }
 
@@ -139,21 +139,21 @@ macro_rules! id {
     };
 }
 
-id!(UserId, Cuid::new10());
+id!(UserId, Ident::new10());
 
-id!(JournalId, Cuid::new10());
+id!(JournalId, Ident::new10());
 
-id!(AccountId, Cuid::new10());
+id!(AccountId, Ident::new10());
 
-id!(TransactionId, Cuid::new16());
+id!(TransactionId, Ident::new16());
 
-impl Type<sqlx::Postgres> for Cuid {
+impl Type<sqlx::Postgres> for Ident {
     fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
         <&[u8] as Type<sqlx::Postgres>>::type_info()
     }
 }
 
-impl<'q> Encode<'q, sqlx::Postgres> for Cuid {
+impl<'q> Encode<'q, sqlx::Postgres> for Ident {
     fn encode_by_ref(
         &self,
         buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'q>,
@@ -163,7 +163,7 @@ impl<'q> Encode<'q, sqlx::Postgres> for Cuid {
     }
 }
 
-impl<'r> Decode<'r, sqlx::Postgres> for Cuid {
+impl<'r> Decode<'r, sqlx::Postgres> for Ident {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let bytes = <&[u8] as Decode<sqlx::Postgres>>::decode(value)?;
         Ok(Self::from_bytes(bytes)?)
@@ -174,11 +174,11 @@ impl<'r> Decode<'r, sqlx::Postgres> for Cuid {
 mod test_cuid {
     use sqlx::{PgPool, prelude::FromRow};
 
-    use super::Cuid;
+    use super::Ident;
 
     #[sqlx::test]
     async fn test_encode_decode_cuid(pool: PgPool) {
-        let original_id = Cuid::new10();
+        let original_id = Ident::new10();
 
         sqlx::query(
             r#"
@@ -204,7 +204,7 @@ mod test_cuid {
         .await
         .expect("failed to insert cuid into mock table");
 
-        let id: Cuid = sqlx::query_scalar(
+        let id: Ident = sqlx::query_scalar(
             r#"
             SELECT id FROM test_cuid_table
             LIMIT 1
@@ -218,7 +218,7 @@ mod test_cuid {
 
         #[derive(FromRow)]
         struct WrapperType {
-            id: Cuid,
+            id: Ident,
         }
 
         let id_wrapper: WrapperType = sqlx::query_as(

@@ -2,7 +2,7 @@ use crate::AppState;
 use crate::AuthSession;
 use crate::auth::UserStore;
 use crate::auth::user;
-use crate::cuid::Cuid;
+use crate::cuid::Ident;
 use crate::cuid::JournalId;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
@@ -15,7 +15,7 @@ use std::str::FromStr;
 
 #[allow(dead_code)]
 pub struct Journal {
-    pub id: Cuid,
+    pub id: Ident,
     pub name: String,
     pub creator_username: String,
     pub created_at: String,

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    cuid::{Cuid, TransactionId, UserId},
+    cuid::{Ident, TransactionId, UserId},
     known_errors::{KnownErrors, MonkestoResult},
 };
 
@@ -125,7 +125,7 @@ impl TransactionStore for TransasctionMemoryStore {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BalanceUpdate {
-    pub account_id: Cuid,
+    pub account_id: Ident,
     pub changed_by: i64,
 }
 
@@ -232,7 +232,7 @@ impl TransactionState {
 #[cfg(test)]
 mod test_transaction {
     use crate::{
-        cuid::{Cuid, TransactionId, UserId},
+        cuid::{Ident, TransactionId, UserId},
         journal::transaction::BalanceUpdate,
     };
     use chrono::Utc;
@@ -247,7 +247,7 @@ mod test_transaction {
             author: UserId::new(),
             description: "test".to_string(),
             updates: vec![BalanceUpdate {
-                account_id: Cuid::new10(),
+                account_id: Ident::new10(),
                 changed_by: -45,
             }],
             created_at: Utc::now(),
