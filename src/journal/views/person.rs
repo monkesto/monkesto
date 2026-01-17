@@ -2,7 +2,7 @@ use crate::AppState;
 use crate::AuthSession;
 use crate::auth::UserStore;
 use crate::auth::user;
-use crate::cuid::JournalId;
+use crate::ident::JournalId;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::journal::layout::maud_layout;

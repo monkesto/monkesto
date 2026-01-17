@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    cuid::{Ident, TransactionId, UserId},
+    ident::{Ident, TransactionId, UserId},
     known_errors::{KnownErrors, MonkestoResult},
 };
 
@@ -232,7 +232,7 @@ impl TransactionState {
 #[cfg(test)]
 mod test_transaction {
     use crate::{
-        cuid::{Ident, TransactionId, UserId},
+        ident::{Ident, TransactionId, UserId},
         journal::transaction::BalanceUpdate,
     };
     use chrono::Utc;

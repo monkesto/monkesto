@@ -1,5 +1,5 @@
 mod auth;
-mod cuid;
+mod ident;
 mod journal;
 mod known_errors;
 mod maud_header;

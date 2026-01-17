@@ -1,8 +1,8 @@
 use crate::AppState;
 use crate::AuthSession;
 use crate::auth::user;
-use crate::cuid::Ident;
-use crate::cuid::JournalId;
+use crate::ident::Ident;
+use crate::ident::JournalId;
 use crate::journal::layout::maud_layout;
 use crate::journal::{JournalStore, Permissions};
 use crate::known_errors::{KnownErrors, UrlError};

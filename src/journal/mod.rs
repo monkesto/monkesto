@@ -4,7 +4,7 @@ pub mod transaction;
 pub mod views;
 
 use crate::{
-    cuid::{AccountId, JournalId, TransactionId, UserId},
+    ident::{AccountId, JournalId, TransactionId, UserId},
     known_errors::{KnownErrors, MonkestoResult},
 };
 use async_trait::async_trait;
@@ -339,7 +339,7 @@ pub struct JournalInvite {
 
 #[cfg(test)]
 mod test_user {
-    use crate::cuid::{AccountId, UserId};
+    use crate::ident::{AccountId, UserId};
     use chrono::Utc;
     use sqlx::{PgPool, prelude::FromRow};
 

@@ -1,5 +1,5 @@
 use crate::AuthSession;
-use crate::cuid::{JournalId, UserId};
+use crate::ident::{JournalId, UserId};
 use crate::known_errors::KnownErrors;
 use crate::known_errors::RedirectOnError;
 use crate::webauthn::user::Email;
@@ -124,7 +124,7 @@ pub fn get_user(session: AuthSession) -> Result<UserState, Redirect> {
 
 #[cfg(test)]
 mod test_user {
-    use crate::cuid::JournalId;
+    use crate::ident::JournalId;
     use sqlx::{PgPool, prelude::FromRow};
 
     use super::UserEvent;

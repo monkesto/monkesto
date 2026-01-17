@@ -51,8 +51,13 @@ impl Ident {
 }
 
 // all of these ids must be exactly 5 ascii characters
-static VALID_CUSTOM_CUIDS: phf::Set<&'static str> = phf_set! {
+static VALID_CUSTOM_IDENTS: phf::Set<&'static str> = phf_set! {
     "dylan",
+    "grace",
+    "henry",
+    "annie",
+    "isaac",
+    "sarah",
 };
 
 impl FromStr for Ident {
@@ -63,7 +68,7 @@ impl FromStr for Ident {
         }
         match s.len() {
             5 => {
-                if VALID_CUSTOM_CUIDS.contains(s) {
+                if VALID_CUSTOM_IDENTS.contains(s) {
                     Ok(Self::Custom(s.as_bytes().try_into()?))
                 } else {
                     Err(KnownErrors::InvalidId)
@@ -93,7 +98,7 @@ impl fmt::Display for Ident {
             Ident::Custom(id) => write!(
                 f,
                 "{}",
-                str::from_utf8(id).expect("failed to convert custom Cuid to string")
+                str::from_utf8(id).expect("failed to convert custom Ident to string")
             ),
         }
     }
@@ -171,29 +176,29 @@ impl<'r> Decode<'r, sqlx::Postgres> for Ident {
 }
 
 #[cfg(test)]
-mod test_cuid {
+mod test_ident {
     use sqlx::{PgPool, prelude::FromRow};
 
     use super::Ident;
 
     #[sqlx::test]
-    async fn test_encode_decode_cuid(pool: PgPool) {
+    async fn test_encode_decode_ident(pool: PgPool) {
         let original_id = Ident::new10();
 
         sqlx::query(
             r#"
-            CREATE TABLE test_cuid_table (
+            CREATE TABLE test_ident_table (
             id BYTEA
             )
             "#,
         )
         .execute(&pool)
         .await
-        .expect("failed to create mock cuid table");
+        .expect("failed to create mock ident table");
 
         sqlx::query(
             r#"
-            INSERT INTO test_cuid_table(
+            INSERT INTO test_ident_table(
             id
             )
             VALUES ($1)
@@ -202,17 +207,17 @@ mod test_cuid {
         .bind(original_id)
         .execute(&pool)
         .await
-        .expect("failed to insert cuid into mock table");
+        .expect("failed to insert ident into mock table");
 
         let id: Ident = sqlx::query_scalar(
             r#"
-            SELECT id FROM test_cuid_table
+            SELECT id FROM test_ident_table
             LIMIT 1
             "#,
         )
         .fetch_one(&pool)
         .await
-        .expect("failed to fetch cuid from mock table");
+        .expect("failed to fetch ident from mock table");
 
         assert_eq!(id, original_id);
 
@@ -223,13 +228,13 @@ mod test_cuid {
 
         let id_wrapper: WrapperType = sqlx::query_as(
             r#"
-            SELECT id FROM test_cuid_table
+            SELECT id FROM test_ident_table
             LIMIT 1
             "#,
         )
         .fetch_one(&pool)
         .await
-        .expect("failed to fetch cuid from mock table");
+        .expect("failed to fetch ident from mock table");
 
         assert_eq!(id_wrapper.id, original_id)
     }

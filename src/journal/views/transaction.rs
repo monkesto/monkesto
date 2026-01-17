@@ -1,7 +1,7 @@
 use crate::AppState;
 use crate::AuthSession;
-use crate::cuid::Ident;
-use crate::cuid::JournalId;
+use crate::ident::Ident;
+use crate::ident::JournalId;
 use crate::journal::{JournalStore, layout};
 use crate::known_errors::{KnownErrors, UrlError};
 use axum::extract::{Path, Query, State};

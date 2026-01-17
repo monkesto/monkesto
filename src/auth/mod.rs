@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use crate::AppState;
 use crate::AuthSession;
-use crate::cuid::JournalId;
-use crate::cuid::UserId;
+use crate::ident::JournalId;
+use crate::ident::UserId;
 use crate::known_errors::MonkestoResult;
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use crate::webauthn::user::Email;
