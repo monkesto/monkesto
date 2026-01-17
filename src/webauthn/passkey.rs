@@ -10,8 +10,12 @@ use std::collections::HashMap;
 use tower_sessions::Session;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid};
 
+use std::sync::Arc;
+use webauthn_rs::prelude::Webauthn;
+
 use super::authority::Authority;
-use super::{WebauthnState, error::WebauthnError};
+use super::error::WebauthnError;
+use super::storage::WebauthnStorage;
 use crate::maud_header::header;
 use cuid::Cuid2Constructor;
 use nutype::nutype;
@@ -151,7 +155,7 @@ fn not_logged_in_page() -> Markup {
 }
 
 pub async fn passkey_get(
-    Extension(app_state): Extension<WebauthnState>,
+    Extension(storage): Extension<Arc<dyn WebauthnStorage>>,
     session: Session,
 ) -> impl IntoResponse {
     // Check if user is logged in
@@ -168,15 +172,13 @@ pub async fn passkey_get(
     };
 
     // Get user passkeys
-    let passkeys = app_state
-        .storage
+    let passkeys = storage
         .get_user_passkeys(&user_id)
         .await
         .unwrap_or_default();
 
     // Get the email for this user
-    let email = app_state
-        .storage
+    let email = storage
         .get_user_email(&user_id)
         .await
         .unwrap_or_else(|_| "unknown@example.com".to_string());
@@ -190,7 +192,7 @@ pub async fn passkey_get(
 }
 
 pub async fn delete_passkey_post(
-    Extension(app_state): Extension<WebauthnState>,
+    Extension(storage): Extension<Arc<dyn WebauthnStorage>>,
     session: Session,
     Path(cred_id): Path<String>,
 ) -> Result<impl IntoResponse, WebauthnError> {
@@ -207,11 +209,7 @@ pub async fn delete_passkey_post(
         .map_err(|_| WebauthnError::InvalidInput)?;
 
     // Remove the passkey from the user's passkeys (only if it belongs to them)
-    match app_state
-        .storage
-        .remove_passkey(&user_id, &cred_id_bytes)
-        .await
-    {
+    match storage.remove_passkey(&user_id, &cred_id_bytes).await {
         Ok(true) => {
             // Passkey was successfully removed
         }
@@ -230,7 +228,8 @@ pub async fn delete_passkey_post(
 }
 
 pub async fn create_passkey_post(
-    Extension(app_state): Extension<WebauthnState>,
+    Extension(webauthn): Extension<Arc<Webauthn>>,
+    Extension(storage): Extension<Arc<dyn WebauthnStorage>>,
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, WebauthnError> {
@@ -255,21 +254,13 @@ pub async fn create_passkey_post(
             .ok_or(WebauthnError::SessionExpired)?;
 
         // Verify the registration
-        match app_state
-            .webauthn
-            .finish_passkey_registration(&credential, &reg_state)
-        {
+        match webauthn.finish_passkey_registration(&credential, &reg_state) {
             Ok(passkey) => {
                 // Clear the registration state
                 let _ = session.remove_value("add_passkey_reg_state").await;
 
                 // Add the new passkey to the user's existing passkeys
-                if app_state
-                    .storage
-                    .add_passkey(&user_id, passkey)
-                    .await
-                    .is_err()
-                {
+                if storage.add_passkey(&user_id, passkey).await.is_err() {
                     return Ok(
                         Redirect::to("/webauthn/passkey?error=storage_error").into_response()
                     );
@@ -287,15 +278,13 @@ pub async fn create_passkey_post(
     } else {
         // This is initial request - start registration
         // Get user's existing passkeys
-        let existing_passkeys = app_state
-            .storage
+        let existing_passkeys = storage
             .get_user_passkeys(&user_id)
             .await
             .unwrap_or_default();
 
         // Get user's email
-        let email = app_state
-            .storage
+        let email = storage
             .get_user_email(&user_id)
             .await
             .unwrap_or_else(|_| "unknown@example.com".to_string());
@@ -309,7 +298,7 @@ pub async fn create_passkey_post(
         let _ = session.remove_value("add_passkey_reg_state").await;
 
         // Start passkey registration
-        match app_state.webauthn.start_passkey_registration(
+        match webauthn.start_passkey_registration(
             user_id,
             &email,
             &email,

@@ -18,24 +18,10 @@ use tower_sessions::{
     Expiry, MemoryStore, SessionManagerLayer,
     cookie::{SameSite, time::Duration},
 };
-use webauthn_rs::prelude::Url;
-use webauthn_rs::prelude::Webauthn;
-use webauthn_rs::prelude::WebauthnBuilder;
+use webauthn_rs::prelude::{Url, WebauthnBuilder};
 
 use error::WebauthnError;
 use storage::{WebauthnStorage, memory::MemoryStorage};
-
-#[derive(Clone)]
-pub struct WebauthnState {
-    pub webauthn: Arc<Webauthn>,
-    pub storage: Arc<dyn WebauthnStorage>,
-}
-
-impl WebauthnState {
-    pub fn new(webauthn: Arc<Webauthn>, storage: Arc<dyn WebauthnStorage>) -> Self {
-        Self { webauthn, storage }
-    }
-}
 
 pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnError> {
     // Get base URL from environment variable, defaulting to localhost:3000
@@ -60,9 +46,6 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
     );
     let storage = Arc::new(MemoryStorage::new()) as Arc<dyn WebauthnStorage>;
 
-    // Create AppState with components
-    let app_state = WebauthnState::new(webauthn, storage);
-
     Ok(Router::new()
         .route("/", get(redirect_to_signin))
         .route("/signin", get(signin::signin_get).post(signin::signin_post))
@@ -78,7 +61,8 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
         .route("/signout", get(signout::signout_get))
         .route("/signout", axum::routing::post(signout::signout_post))
         .layer(Extension(webauthn_url))
-        .layer(Extension(app_state))
+        .layer(Extension(webauthn))
+        .layer(Extension(storage))
         .layer(
             SessionManagerLayer::new(MemoryStore::default())
                 .with_name("webauthnrs")

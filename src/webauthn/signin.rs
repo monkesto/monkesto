@@ -9,7 +9,11 @@ use std::collections::HashMap;
 use tower_sessions::Session;
 use webauthn_rs::prelude::{PasskeyAuthentication, PublicKeyCredential};
 
-use super::{WebauthnState, error::WebauthnError};
+use std::sync::Arc;
+use webauthn_rs::prelude::Webauthn;
+
+use super::error::WebauthnError;
+use super::storage::WebauthnStorage;
 use crate::maud_header::header;
 
 #[derive(Deserialize)]
@@ -144,7 +148,8 @@ fn auth_page(
 }
 
 async fn handle_signin_page(
-    app_state: WebauthnState,
+    webauthn: Arc<Webauthn>,
+    storage: Arc<dyn WebauthnStorage>,
     session: Session,
     webauthn_url: String,
     query: Query<SigninQuery>,
@@ -154,11 +159,7 @@ async fn handle_signin_page(
     let _ = session.remove_value("usernameless_auth_state").await;
 
     // For identifier-less authentication (WebAuthn terminology: "usernameless"), load all credentials
-    let all_credentials = app_state
-        .storage
-        .get_all_credentials()
-        .await
-        .unwrap_or_default();
+    let all_credentials = storage.get_all_credentials().await.unwrap_or_default();
 
     let (challenge_data, error_message) = if all_credentials.is_empty() {
         // No credentials available
@@ -168,10 +169,7 @@ async fn handle_signin_page(
         )
     } else {
         // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
-        match app_state
-            .webauthn
-            .start_passkey_authentication(&all_credentials)
-        {
+        match webauthn.start_passkey_authentication(&all_credentials) {
             Ok((mut rcr, auth_state)) => {
                 // Clear allowCredentials for true identifier-less experience
                 rcr.public_key.allow_credentials.clear();
@@ -219,7 +217,8 @@ async fn handle_signin_page(
 }
 
 async fn handle_signin_completion(
-    app_state: WebauthnState,
+    webauthn: Arc<Webauthn>,
+    storage: Arc<dyn WebauthnStorage>,
     session: Session,
     form_data: Form<HashMap<String, String>>,
 ) -> Result<axum::response::Response, WebauthnError> {
@@ -245,18 +244,14 @@ async fn handle_signin_completion(
         .ok_or(WebauthnError::SessionExpired)?;
 
     // Verify the authentication
-    match app_state
-        .webauthn
-        .finish_passkey_authentication(&credential, &auth_state)
-    {
+    match webauthn.finish_passkey_authentication(&credential, &auth_state) {
         Ok(auth_result) => {
             // Clear the auth state
             let _ = session.remove_value("identifierless_auth_state").await;
             let _ = session.remove_value("auth_state").await;
 
             // Find which user this credential belongs to
-            let _user_unique_id = app_state
-                .storage
+            let _user_unique_id = storage
                 .find_user_by_credential(auth_result.cred_id().as_slice())
                 .await
                 .map_err(|_| WebauthnError::Unknown)?
@@ -283,20 +278,22 @@ async fn handle_signin_completion(
 }
 
 pub async fn signin_get(
-    Extension(app_state): Extension<WebauthnState>,
+    Extension(webauthn): Extension<Arc<Webauthn>>,
+    Extension(storage): Extension<Arc<dyn WebauthnStorage>>,
     Extension(webauthn_url): Extension<String>,
     session: Session,
     query: Query<SigninQuery>,
 ) -> impl IntoResponse {
-    handle_signin_page(app_state, session, webauthn_url, query).await
+    handle_signin_page(webauthn, storage, session, webauthn_url, query).await
 }
 
 pub async fn signin_post(
-    Extension(app_state): Extension<WebauthnState>,
+    Extension(webauthn): Extension<Arc<Webauthn>>,
+    Extension(storage): Extension<Arc<dyn WebauthnStorage>>,
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    match handle_signin_completion(app_state, session, form).await {
+    match handle_signin_completion(webauthn, storage, session, form).await {
         Ok(response) => response.into_response(),
         Err(error) => error.into_response(),
     }

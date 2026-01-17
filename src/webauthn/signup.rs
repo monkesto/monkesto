@@ -9,7 +9,11 @@ use std::collections::HashMap;
 use tower_sessions::Session;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid};
 
-use super::{WebauthnState, error::WebauthnError};
+use std::sync::Arc;
+use webauthn_rs::prelude::Webauthn;
+
+use super::error::WebauthnError;
+use super::storage::WebauthnStorage;
 use crate::maud_header::header;
 
 #[derive(Deserialize)]
@@ -217,7 +221,8 @@ async fn handle_signup_get(webauthn_url: String, query: Query<SignupQuery>) -> i
 }
 
 async fn handle_signup_post(
-    app_state: WebauthnState,
+    webauthn: Arc<Webauthn>,
+    storage: Arc<dyn WebauthnStorage>,
     session: Session,
     webauthn_url: String,
     form_data: Form<HashMap<String, String>>,
@@ -225,17 +230,18 @@ async fn handle_signup_post(
     // Check if this is an email submission or credential submission
     if let Some(_credential_json) = form_data.get("credential") {
         // This is step 2: credential submission
-        handle_credential_submission(app_state, session, form_data).await
+        handle_credential_submission(webauthn, storage, session, form_data).await
     } else if let Some(email) = form_data.get("email") {
         // This is step 1: email submission
-        handle_email_submission(app_state, session, webauthn_url, email.clone()).await
+        handle_email_submission(webauthn, storage, session, webauthn_url, email.clone()).await
     } else {
         Err(WebauthnError::InvalidInput)
     }
 }
 
 async fn handle_email_submission(
-    app_state: WebauthnState,
+    webauthn: Arc<Webauthn>,
+    storage: Arc<dyn WebauthnStorage>,
     session: Session,
     webauthn_url: String,
     email: String,
@@ -246,12 +252,7 @@ async fn handle_email_submission(
     }
 
     // Check if email is already taken
-    if app_state
-        .storage
-        .email_exists(&email)
-        .await
-        .unwrap_or(false)
-    {
+    if storage.email_exists(&email).await.unwrap_or(false) {
         return Ok(Redirect::to("/webauthn/signup?error=email_taken").into_response());
     }
 
@@ -265,12 +266,7 @@ async fn handle_email_submission(
     let _ = session.remove_value("reg_state").await;
 
     // Start passkey registration
-    match app_state.webauthn.start_passkey_registration(
-        user_unique_id,
-        &email,
-        &email,
-        exclude_credentials,
-    ) {
+    match webauthn.start_passkey_registration(user_unique_id, &email, &email, exclude_credentials) {
         Ok((ccr, reg_state)) => {
             // Store registration state in session
             session
@@ -295,7 +291,8 @@ async fn handle_email_submission(
 }
 
 async fn handle_credential_submission(
-    app_state: WebauthnState,
+    webauthn: Arc<Webauthn>,
+    storage: Arc<dyn WebauthnStorage>,
     session: Session,
     form_data: Form<HashMap<String, String>>,
 ) -> Result<axum::response::Response, WebauthnError> {
@@ -315,17 +312,13 @@ async fn handle_credential_submission(
         .ok_or(WebauthnError::SessionExpired)?;
 
     // Verify the registration
-    match app_state
-        .webauthn
-        .finish_passkey_registration(&credential, &reg_state)
-    {
+    match webauthn.finish_passkey_registration(&credential, &reg_state) {
         Ok(passkey) => {
             // Clear the registration state
             let _ = session.remove_value("reg_state").await;
 
             // Store the new user and their passkey
-            if app_state
-                .storage
+            if storage
                 .create_user(email.clone(), user_unique_id, passkey)
                 .await
                 .is_err()
@@ -359,12 +352,13 @@ pub async fn signup_get(
 }
 
 pub async fn signup_post(
-    Extension(app_state): Extension<WebauthnState>,
+    Extension(webauthn): Extension<Arc<Webauthn>>,
+    Extension(storage): Extension<Arc<dyn WebauthnStorage>>,
     Extension(webauthn_url): Extension<String>,
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    match handle_signup_post(app_state, session, webauthn_url, form).await {
+    match handle_signup_post(webauthn, storage, session, webauthn_url, form).await {
         Ok(response) => response,
         Err(error) => error.into_response(),
     }
