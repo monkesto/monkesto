@@ -104,6 +104,7 @@ impl fmt::Display for Ident {
     }
 }
 
+#[macro_export]
 macro_rules! id {
     ($name: ident, $new_fn: expr) => {
         #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]

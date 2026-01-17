@@ -1,30 +1,15 @@
-use cuid::Cuid2Constructor;
-use nutype::nutype;
+use crate::ident::Ident;
+use serde::{Deserialize, Serialize};
+use std::{
+    fmt::{self, Display},
+    ops::Deref,
+    str::FromStr,
+};
 
-#[nutype(
-    derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        Serialize,
-        Deserialize,
-        AsRef,
-        Display,
-        TryFrom
-    ),
-    validate(len_char_min = 16, len_char_max = 16)
-)]
-pub struct UserId(String);
+use crate::id;
+use crate::known_errors::KnownErrors;
 
-impl UserId {
-    #[allow(unused)]
-    pub fn new() -> Self {
-        UserId::try_from(Cuid2Constructor::new().with_length(16).create_id())
-            .expect("Generated cuid2 should always be valid")
-    }
-}
+id!(UserId, Ident::new16());
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Actor {
@@ -50,7 +35,7 @@ mod tests {
     #[test]
     fn test_userid_new() {
         let user_id = UserId::new();
-        assert_eq!(user_id.as_ref().len(), 16);
+        assert_eq!(user_id.to_string().len(), 16);
     }
 
     #[test]
