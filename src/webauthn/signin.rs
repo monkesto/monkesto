@@ -13,7 +13,7 @@ use std::sync::Arc;
 use webauthn_rs::prelude::Webauthn;
 
 use super::error::WebauthnError;
-use super::storage::WebauthnStorage;
+use super::storage::PasskeyStore;
 use crate::maud_header::header;
 
 #[derive(Deserialize)]
@@ -149,7 +149,7 @@ fn auth_page(
 
 async fn handle_signin_page(
     webauthn: Arc<Webauthn>,
-    storage: Arc<dyn WebauthnStorage>,
+    passkey_store: Arc<dyn PasskeyStore>,
     session: Session,
     webauthn_url: String,
     query: Query<SigninQuery>,
@@ -159,7 +159,10 @@ async fn handle_signin_page(
     let _ = session.remove_value("usernameless_auth_state").await;
 
     // For identifier-less authentication (WebAuthn terminology: "usernameless"), load all credentials
-    let all_credentials = storage.get_all_credentials().await.unwrap_or_default();
+    let all_credentials = passkey_store
+        .get_all_credentials()
+        .await
+        .unwrap_or_default();
 
     let (challenge_data, error_message) = if all_credentials.is_empty() {
         // No credentials available
@@ -218,7 +221,7 @@ async fn handle_signin_page(
 
 async fn handle_signin_completion(
     webauthn: Arc<Webauthn>,
-    storage: Arc<dyn WebauthnStorage>,
+    passkey_store: Arc<dyn PasskeyStore>,
     session: Session,
     form_data: Form<HashMap<String, String>>,
 ) -> Result<axum::response::Response, WebauthnError> {
@@ -251,7 +254,7 @@ async fn handle_signin_completion(
             let _ = session.remove_value("auth_state").await;
 
             // Find which user this credential belongs to
-            let (user_id, _passkey_id) = storage
+            let (user_id, _passkey_id) = passkey_store
                 .find_user_by_credential(auth_result.cred_id().as_slice())
                 .await
                 .map_err(|_| WebauthnError::Unknown)?
@@ -279,21 +282,21 @@ async fn handle_signin_completion(
 
 pub async fn signin_get(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(storage): Extension<Arc<dyn WebauthnStorage>>,
+    Extension(passkey_store): Extension<Arc<dyn PasskeyStore>>,
     Extension(webauthn_url): Extension<String>,
     session: Session,
     query: Query<SigninQuery>,
 ) -> impl IntoResponse {
-    handle_signin_page(webauthn, storage, session, webauthn_url, query).await
+    handle_signin_page(webauthn, passkey_store, session, webauthn_url, query).await
 }
 
 pub async fn signin_post(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(storage): Extension<Arc<dyn WebauthnStorage>>,
+    Extension(passkey_store): Extension<Arc<dyn PasskeyStore>>,
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    match handle_signin_completion(webauthn, storage, session, form).await {
+    match handle_signin_completion(webauthn, passkey_store, session, form).await {
         Ok(response) => response.into_response(),
         Err(error) => error.into_response(),
     }

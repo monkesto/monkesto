@@ -21,7 +21,9 @@ use tower_sessions::{
 use webauthn_rs::prelude::{Url, WebauthnBuilder};
 
 use error::WebauthnError;
-use storage::{WebauthnStorage, memory::MemoryStorage};
+use storage::{
+    PasskeyStore, UserStore, memory_passkey::MemoryPasskeyStore, memory_user::MemoryUserStore,
+};
 
 pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnError> {
     // Get base URL from environment variable, defaulting to localhost:3000
@@ -44,7 +46,8 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
             .rp_name("Monkesto")
             .build()?,
     );
-    let storage = Arc::new(MemoryStorage::new()) as Arc<dyn WebauthnStorage>;
+    let user_store = Arc::new(MemoryUserStore::new()) as Arc<dyn UserStore>;
+    let passkey_store = Arc::new(MemoryPasskeyStore::new()) as Arc<dyn PasskeyStore>;
 
     Ok(Router::new()
         .route("/", get(redirect_to_signin))
@@ -62,7 +65,8 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
         .route("/signout", axum::routing::post(signout::signout_post))
         .layer(Extension(webauthn_url))
         .layer(Extension(webauthn))
-        .layer(Extension(storage))
+        .layer(Extension(user_store))
+        .layer(Extension(passkey_store))
         .layer(
             SessionManagerLayer::new(MemoryStore::default())
                 .with_name("webauthnrs")

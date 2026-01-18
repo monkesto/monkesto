@@ -14,7 +14,8 @@ use webauthn_rs::prelude::Webauthn;
 
 use super::authority::Authority;
 use super::error::WebauthnError;
-use super::storage::{Passkey, WebauthnStorage};
+use super::storage::PasskeyStore as StoragePasskeyStore;
+use super::storage::{Passkey, UserStore};
 use super::user::UserId;
 use crate::id;
 use crate::ident::Ident;
@@ -162,7 +163,8 @@ fn not_logged_in_page() -> Markup {
 }
 
 pub async fn passkey_get(
-    Extension(storage): Extension<Arc<dyn WebauthnStorage>>,
+    Extension(user_store): Extension<Arc<dyn UserStore>>,
+    Extension(passkey_store): Extension<Arc<dyn StoragePasskeyStore>>,
     session: Session,
 ) -> impl IntoResponse {
     // Check if user is logged in
@@ -179,13 +181,13 @@ pub async fn passkey_get(
     };
 
     // Get user passkeys
-    let passkeys = storage
+    let passkeys = passkey_store
         .get_user_passkeys(&user_id)
         .await
         .unwrap_or_default();
 
     // Get the email for this user
-    let email = storage
+    let email = user_store
         .get_user_email(&user_id)
         .await
         .unwrap_or_else(|_| "unknown@example.com".to_string());
@@ -199,7 +201,7 @@ pub async fn passkey_get(
 }
 
 pub async fn delete_passkey_post(
-    Extension(storage): Extension<Arc<dyn WebauthnStorage>>,
+    Extension(passkey_store): Extension<Arc<dyn StoragePasskeyStore>>,
     session: Session,
     Path(passkey_id_str): Path<String>,
 ) -> Result<impl IntoResponse, WebauthnError> {
@@ -216,7 +218,7 @@ pub async fn delete_passkey_post(
         .map_err(|_| WebauthnError::InvalidInput)?;
 
     // Remove the passkey from the user's passkeys (only if it belongs to them)
-    match storage.remove_passkey(&user_id, &passkey_id).await {
+    match passkey_store.remove_passkey(&user_id, &passkey_id).await {
         Ok(true) => {
             // Passkey was successfully removed
         }
@@ -236,7 +238,8 @@ pub async fn delete_passkey_post(
 
 pub async fn create_passkey_post(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(storage): Extension<Arc<dyn WebauthnStorage>>,
+    Extension(user_store): Extension<Arc<dyn UserStore>>,
+    Extension(passkey_store): Extension<Arc<dyn StoragePasskeyStore>>,
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, WebauthnError> {
@@ -270,7 +273,7 @@ pub async fn create_passkey_post(
                 let passkey_id = PasskeyId::new();
 
                 // Add the new passkey to the user's existing passkeys
-                if storage
+                if passkey_store
                     .add_passkey(&user_id, passkey_id, passkey)
                     .await
                     .is_err()
@@ -292,19 +295,19 @@ pub async fn create_passkey_post(
     } else {
         // This is initial request - start registration
         // Get user's existing passkeys
-        let existing_passkeys = storage
+        let existing_passkeys = passkey_store
             .get_user_passkeys(&user_id)
             .await
             .unwrap_or_default();
 
         // Get user's email
-        let email = storage
+        let email = user_store
             .get_user_email(&user_id)
             .await
             .unwrap_or_else(|_| "unknown@example.com".to_string());
 
         // Get the webauthn UUID for this user
-        let webauthn_uuid = storage
+        let webauthn_uuid = user_store
             .get_webauthn_uuid(&user_id)
             .await
             .map_err(|_| WebauthnError::Unknown)?;
