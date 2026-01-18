@@ -1,8 +1,15 @@
-use webauthn_rs::prelude::{Passkey, Uuid};
+use webauthn_rs::prelude::Uuid;
 
+use super::passkey::PasskeyId;
 use super::user::UserId;
 
 pub mod memory;
+
+#[derive(Debug, Clone)]
+pub struct Passkey {
+    pub id: PasskeyId,
+    pub passkey: webauthn_rs::prelude::Passkey,
+}
 
 /// Errors that can occur during storage operations
 #[derive(Debug, thiserror::Error)]
@@ -34,28 +41,35 @@ pub trait WebauthnStorage: Send + Sync {
         user_id: UserId,
         webauthn_uuid: Uuid,
         email: String,
-        passkey: Passkey,
+        passkey_id: PasskeyId,
+        passkey: webauthn_rs::prelude::Passkey,
     ) -> Result<(), StorageError>;
 
     /// Get all passkeys for a specific user
     async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, StorageError>;
 
     /// Add a new passkey to an existing user
-    async fn add_passkey(&self, user_id: &UserId, passkey: Passkey) -> Result<(), StorageError>;
+    async fn add_passkey(
+        &self,
+        user_id: &UserId,
+        passkey_id: PasskeyId,
+        passkey: webauthn_rs::prelude::Passkey,
+    ) -> Result<(), StorageError>;
 
-    /// Remove a specific passkey from a user
+    /// Remove a specific passkey from a user by PasskeyId
     async fn remove_passkey(
         &self,
         user_id: &UserId,
-        passkey_id: &[u8],
+        passkey_id: &PasskeyId,
     ) -> Result<bool, StorageError>;
 
     /// Get all credentials from all users (for usernameless authentication)
-    async fn get_all_credentials(&self) -> Result<Vec<Passkey>, StorageError>;
+    async fn get_all_credentials(&self)
+    -> Result<Vec<webauthn_rs::prelude::Passkey>, StorageError>;
 
-    /// Find UserId by passkey credential ID
+    /// Find UserId and PasskeyId by passkey credential ID
     async fn find_user_by_credential(
         &self,
         credential_id: &[u8],
-    ) -> Result<Option<UserId>, StorageError>;
+    ) -> Result<Option<(UserId, PasskeyId)>, StorageError>;
 }

@@ -13,6 +13,7 @@ use std::sync::Arc;
 use webauthn_rs::prelude::Webauthn;
 
 use super::error::WebauthnError;
+use super::passkey::PasskeyId;
 use super::storage::WebauthnStorage;
 use super::user::UserId;
 use crate::maud_header::header;
@@ -274,7 +275,10 @@ async fn handle_email_submission(
         Ok((ccr, reg_state)) => {
             // Store registration state in session
             session
-                .insert("reg_state", (email.clone(), user_id, webauthn_uuid, reg_state))
+                .insert(
+                    "reg_state",
+                    (email.clone(), user_id, webauthn_uuid, reg_state),
+                )
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
 
@@ -321,9 +325,18 @@ async fn handle_credential_submission(
             // Clear the registration state
             let _ = session.remove_value("reg_state").await;
 
+            // Generate a PasskeyId for this passkey
+            let passkey_id = PasskeyId::new();
+
             // Store the new user and their passkey
             if storage
-                .create_user(user_id.clone(), webauthn_uuid, email.clone(), passkey)
+                .create_user(
+                    user_id.clone(),
+                    webauthn_uuid,
+                    email.clone(),
+                    passkey_id,
+                    passkey,
+                )
                 .await
                 .is_err()
             {

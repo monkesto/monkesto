@@ -3,7 +3,6 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Redirect},
 };
-use base64::{Engine as _, engine::general_purpose};
 use maud::{DOCTYPE, Markup, html};
 
 use std::collections::HashMap;
@@ -15,7 +14,7 @@ use webauthn_rs::prelude::Webauthn;
 
 use super::authority::Authority;
 use super::error::WebauthnError;
-use super::storage::WebauthnStorage;
+use super::storage::{Passkey, WebauthnStorage};
 use super::user::UserId;
 use crate::id;
 use crate::ident::Ident;
@@ -28,7 +27,7 @@ use std::{
     str::FromStr,
 };
 
-fn passkeys_page(email: &str, passkeys: &[webauthn_rs::prelude::Passkey]) -> Markup {
+fn passkeys_page(email: &str, passkeys: &[Passkey]) -> Markup {
     header(html! {
         (DOCTYPE)
         html lang="en" {
@@ -80,7 +79,7 @@ fn passkeys_page(email: &str, passkeys: &[webauthn_rs::prelude::Passkey]) -> Mar
                                     }
                                 } @else {
                                     div class="space-y-2" {
-                                        @for (index, passkey) in passkeys.iter().enumerate() {
+                                        @for (index, stored) in passkeys.iter().enumerate() {
                                             div class="border border-gray-200 dark:border-gray-600 rounded p-3" {
                                                 div class="flex justify-between items-start" {
                                                     div {
@@ -88,11 +87,11 @@ fn passkeys_page(email: &str, passkeys: &[webauthn_rs::prelude::Passkey]) -> Mar
                                                             "Passkey " (index + 1)
                                                         }
                                                         p class="text-xs text-gray-500 dark:text-gray-400 font-mono" {
-                                                            (format!("{:x}", passkey.cred_id().as_slice().iter().take(8).fold(0u64, |acc, &x| (acc << 8) | x as u64)))
+                                                            (stored.id.to_string())
                                                         }
                                                     }
                                                     div {
-                                                        form method="POST" action=(format!("passkey/{}/delete", general_purpose::STANDARD.encode(passkey.cred_id().as_slice()))) style="display: inline;" {
+                                                        form method="POST" action=(format!("passkey/{}/delete", stored.id)) style="display: inline;" {
                                                             button
                                                             type="submit"
                                                             onclick="return confirm('Are you sure you want to delete this passkey?')"
@@ -202,7 +201,7 @@ pub async fn passkey_get(
 pub async fn delete_passkey_post(
     Extension(storage): Extension<Arc<dyn WebauthnStorage>>,
     session: Session,
-    Path(cred_id): Path<String>,
+    Path(passkey_id_str): Path<String>,
 ) -> Result<impl IntoResponse, WebauthnError> {
     // Check if user is logged in
     let user_id = session
@@ -211,13 +210,13 @@ pub async fn delete_passkey_post(
         .map_err(|_| WebauthnError::Unknown)?
         .ok_or(WebauthnError::SessionExpired)?;
 
-    // Decode the credential ID
-    let cred_id_bytes = general_purpose::STANDARD
-        .decode(&cred_id)
+    // Parse the PasskeyId
+    let passkey_id = passkey_id_str
+        .parse::<PasskeyId>()
         .map_err(|_| WebauthnError::InvalidInput)?;
 
     // Remove the passkey from the user's passkeys (only if it belongs to them)
-    match storage.remove_passkey(&user_id, &cred_id_bytes).await {
+    match storage.remove_passkey(&user_id, &passkey_id).await {
         Ok(true) => {
             // Passkey was successfully removed
         }
@@ -267,8 +266,15 @@ pub async fn create_passkey_post(
                 // Clear the registration state
                 let _ = session.remove_value("add_passkey_reg_state").await;
 
+                // Generate a PasskeyId for this passkey
+                let passkey_id = PasskeyId::new();
+
                 // Add the new passkey to the user's existing passkeys
-                if storage.add_passkey(&user_id, passkey).await.is_err() {
+                if storage
+                    .add_passkey(&user_id, passkey_id, passkey)
+                    .await
+                    .is_err()
+                {
                     return Ok(
                         Redirect::to("/webauthn/passkey?error=storage_error").into_response()
                     );
@@ -305,7 +311,7 @@ pub async fn create_passkey_post(
 
         let exclude_credentials: Vec<_> = existing_passkeys
             .iter()
-            .map(|sk| sk.cred_id().clone())
+            .map(|stored| stored.passkey.cred_id().clone())
             .collect();
 
         // Clear any previous registration state
