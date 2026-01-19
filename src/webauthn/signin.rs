@@ -19,12 +19,14 @@ use crate::maud_header::header;
 #[derive(Deserialize)]
 pub struct SigninQuery {
     error: Option<String>,
+    next: Option<String>,
 }
 
 fn auth_page(
     webauthn_url: &str,
     challenge_data: Option<&str>,
     error_message: Option<&str>,
+    next: Option<&str>,
 ) -> Markup {
     header(html! {
         (DOCTYPE)
@@ -120,12 +122,16 @@ fn auth_page(
                         // Hidden form for credential submission
                         form id="auth-form" method="POST" action="signin" style="display: none;" {
                             input type="hidden" id="credential-field" name="credential" value="";
+                            @if let Some(next) = next {
+                                input type="hidden" name="next" value=(next);
+                            }
                         }
 
                         p class="mt-10 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
                             "Don't have an account? "
+                            @let signup_url = next.map(|n| format!("signup?next={}", n)).unwrap_or_else(|| "signup".to_string());
                             a
-                            href="signup"
+                            href=(signup_url)
                             class="font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300" {
                                 "Sign up here"
                             }
@@ -153,6 +159,7 @@ async fn handle_signin_page<P: PasskeyStore>(
     session: Session,
     webauthn_url: String,
     query: Query<SigninQuery>,
+    next: Option<String>,
 ) -> impl IntoResponse {
     // Clear any previous auth state
     let _ = session.remove_value("auth_state").await;
@@ -211,7 +218,12 @@ async fn handle_signin_page<P: PasskeyStore>(
         _ => None,
     });
 
-    let markup = auth_page(&webauthn_url, challenge_data.as_deref(), error_message);
+    let markup = auth_page(
+        &webauthn_url,
+        challenge_data.as_deref(),
+        error_message,
+        next.as_deref(),
+    );
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/html")],
@@ -224,6 +236,7 @@ async fn handle_signin_completion<P: PasskeyStore>(
     passkey_store: Arc<P>,
     session: Session,
     form_data: Form<HashMap<String, String>>,
+    next: Option<String>,
 ) -> Result<axum::response::Response, WebauthnError> {
     // Extract credential from form
     let credential_json = form_data
@@ -266,8 +279,9 @@ async fn handle_signin_completion<P: PasskeyStore>(
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
 
-            // Redirect to passkey page
-            Ok(Redirect::to("/webauthn/passkey").into_response())
+            // Redirect to next or default
+            let redirect_to = next.as_deref().unwrap_or("/webauthn/passkey");
+            Ok(Redirect::to(redirect_to).into_response())
         }
         Err(_) => {
             // Clear the auth state on failure
@@ -287,7 +301,8 @@ pub async fn signin_get<P: PasskeyStore + 'static>(
     session: Session,
     query: Query<SigninQuery>,
 ) -> impl IntoResponse {
-    handle_signin_page(webauthn, passkey_store, session, webauthn_url, query).await
+    let next = query.next.clone();
+    handle_signin_page(webauthn, passkey_store, session, webauthn_url, query, next).await
 }
 
 pub async fn signin_post<P: PasskeyStore + 'static>(
@@ -296,7 +311,8 @@ pub async fn signin_post<P: PasskeyStore + 'static>(
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    match handle_signin_completion(webauthn, passkey_store, session, form).await {
+    let next = form.get("next").cloned();
+    match handle_signin_completion(webauthn, passkey_store, session, form, next).await {
         Ok(response) => response.into_response(),
         Err(error) => error.into_response(),
     }

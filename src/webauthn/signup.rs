@@ -21,9 +21,10 @@ use crate::maud_header::header;
 #[derive(Deserialize)]
 pub struct SignupQuery {
     error: Option<String>,
+    next: Option<String>,
 }
 
-fn email_form_page(webauthn_url: &str, error_message: Option<&str>) -> Markup {
+fn email_form_page(webauthn_url: &str, error_message: Option<&str>, next: Option<&str>) -> Markup {
     header(html! {
         (DOCTYPE)
         html lang="en" {
@@ -60,6 +61,10 @@ fn email_form_page(webauthn_url: &str, error_message: Option<&str>) -> Markup {
                                 }
                             }
 
+                            @if let Some(next) = next {
+                                input type="hidden" name="next" value=(next);
+                            }
+
                             div {
                                 button
                                 type="submit"
@@ -71,8 +76,9 @@ fn email_form_page(webauthn_url: &str, error_message: Option<&str>) -> Markup {
 
                         p class="mt-10 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
                             "Already have an account? "
+                            @let signin_url = next.map(|n| format!("signin?next={}", n)).unwrap_or_else(|| "signin".to_string());
                             a
-                            href="signin"
+                            href=(signin_url)
                             class="font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300" {
                                 "Sign in here"
                             }
@@ -92,7 +98,12 @@ fn email_form_page(webauthn_url: &str, error_message: Option<&str>) -> Markup {
     })
 }
 
-fn challenge_page(webauthn_url: &str, email: &str, challenge_data: &str) -> Markup {
+fn challenge_page(
+    webauthn_url: &str,
+    email: &str,
+    challenge_data: &str,
+    next: Option<&str>,
+) -> Markup {
     header(html! {
         (DOCTYPE)
         html lang="en" {
@@ -184,6 +195,9 @@ fn challenge_page(webauthn_url: &str, email: &str, challenge_data: &str) -> Mark
                         form id="registration-form" method="POST" action="signup" style="display: none;" {
                             input type="hidden" name="email" value=(email);
                             input type="hidden" id="credential-field" name="credential" value="";
+                            @if let Some(next) = next {
+                                input type="hidden" name="next" value=(next);
+                            }
                         }
 
                         div class="text-center" {
@@ -202,7 +216,11 @@ fn challenge_page(webauthn_url: &str, email: &str, challenge_data: &str) -> Mark
     })
 }
 
-async fn handle_signup_get(webauthn_url: String, query: Query<SignupQuery>) -> impl IntoResponse {
+async fn handle_signup_get(
+    webauthn_url: String,
+    query: Query<SignupQuery>,
+    next: Option<String>,
+) -> impl IntoResponse {
     // Handle error messages from query parameters
     let error_message = match query.error.as_deref() {
         Some("email_taken") => {
@@ -214,7 +232,7 @@ async fn handle_signup_get(webauthn_url: String, query: Query<SignupQuery>) -> i
         _ => None,
     };
 
-    let markup = email_form_page(&webauthn_url, error_message);
+    let markup = email_form_page(&webauthn_url, error_message, next.as_deref());
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "text/html")],
@@ -229,14 +247,31 @@ async fn handle_signup_post<U: UserStore, P: PasskeyStore>(
     session: Session,
     webauthn_url: String,
     form_data: Form<HashMap<String, String>>,
+    next: Option<String>,
 ) -> Result<axum::response::Response, WebauthnError> {
     // Check if this is an email submission or credential submission
     if let Some(_credential_json) = form_data.get("credential") {
         // This is step 2: credential submission
-        handle_credential_submission(webauthn, user_store, passkey_store, session, form_data).await
+        handle_credential_submission(
+            webauthn,
+            user_store,
+            passkey_store,
+            session,
+            form_data,
+            next,
+        )
+        .await
     } else if let Some(email) = form_data.get("email") {
         // This is step 1: email submission
-        handle_email_submission(webauthn, user_store, session, webauthn_url, email.clone()).await
+        handle_email_submission(
+            webauthn,
+            user_store,
+            session,
+            webauthn_url,
+            email.clone(),
+            next,
+        )
+        .await
     } else {
         Err(WebauthnError::InvalidInput)
     }
@@ -248,6 +283,7 @@ async fn handle_email_submission<U: UserStore>(
     session: Session,
     webauthn_url: String,
     email: String,
+    next: Option<String>,
 ) -> Result<axum::response::Response, WebauthnError> {
     // Validate email format (basic validation)
     if email.is_empty() || email.len() > 254 || !email.contains('@') || !email.contains('.') {
@@ -274,11 +310,17 @@ async fn handle_email_submission<U: UserStore>(
     // Start passkey registration
     match webauthn.start_passkey_registration(webauthn_uuid, &email, &email, exclude_credentials) {
         Ok((ccr, reg_state)) => {
-            // Store registration state in session
+            // Store registration state in session (including next for the credential submission step)
             session
                 .insert(
                     "reg_state",
-                    (email.clone(), user_id, webauthn_uuid, reg_state),
+                    (
+                        email.clone(),
+                        user_id,
+                        webauthn_uuid,
+                        reg_state,
+                        next.clone(),
+                    ),
                 )
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
@@ -287,7 +329,7 @@ async fn handle_email_submission<U: UserStore>(
             let challenge_json = serde_json::to_string(&ccr).map_err(|_| WebauthnError::Unknown)?;
 
             // Return challenge page
-            let markup = challenge_page(&webauthn_url, &email, &challenge_json);
+            let markup = challenge_page(&webauthn_url, &email, &challenge_json, next.as_deref());
             Ok((
                 StatusCode::OK,
                 [(header::CONTENT_TYPE, "text/html")],
@@ -305,6 +347,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
     passkey_store: Arc<P>,
     session: Session,
     form_data: Form<HashMap<String, String>>,
+    next: Option<String>,
 ) -> Result<axum::response::Response, WebauthnError> {
     // Extract credential from form
     let credential_json = form_data
@@ -315,11 +358,14 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
         serde_json::from_str(credential_json).map_err(|_| WebauthnError::InvalidInput)?;
 
     // Get registration state from session
-    let (email, user_id, webauthn_uuid, reg_state) = session
-        .get::<(String, UserId, Uuid, PasskeyRegistration)>("reg_state")
+    let (email, user_id, webauthn_uuid, reg_state, stored_next) = session
+        .get::<(String, UserId, Uuid, PasskeyRegistration, Option<String>)>("reg_state")
         .await
         .map_err(|_| WebauthnError::Unknown)?
         .ok_or(WebauthnError::SessionExpired)?;
+
+    // Use next from form if provided, otherwise fall back to stored next
+    let next = next.or(stored_next);
 
     // Verify the registration
     match webauthn.finish_passkey_registration(&credential, &reg_state) {
@@ -366,8 +412,9 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
 
-            // Redirect to passkey page
-            Ok(Redirect::to("/webauthn/passkey").into_response())
+            // Redirect to next or default
+            let redirect_to = next.as_deref().unwrap_or("/webauthn/passkey");
+            Ok(Redirect::to(redirect_to).into_response())
         }
         Err(_) => {
             // Clear the registration state on failure
@@ -382,7 +429,8 @@ pub async fn signup_get(
     Extension(webauthn_url): Extension<String>,
     query: Query<SignupQuery>,
 ) -> impl IntoResponse {
-    handle_signup_get(webauthn_url, query).await
+    let next = query.next.clone();
+    handle_signup_get(webauthn_url, query, next).await
 }
 
 pub async fn signup_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
@@ -393,6 +441,7 @@ pub async fn signup_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
+    let next = form.get("next").cloned();
     match handle_signup_post(
         webauthn,
         user_store,
@@ -400,6 +449,7 @@ pub async fn signup_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
         session,
         webauthn_url,
         form,
+        next,
     )
     .await
     {
