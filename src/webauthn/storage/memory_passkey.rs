@@ -1,5 +1,5 @@
-use super::{Passkey, PasskeyStore, StorageError};
-use crate::webauthn::passkey::PasskeyId;
+use super::{Passkey, PasskeyStore};
+use crate::webauthn::passkey::{PasskeyId, PasskeyStoreError};
 use crate::webauthn::user::UserId;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
@@ -44,9 +44,9 @@ impl Default for MemoryPasskeyStore {
 #[async_trait::async_trait]
 impl PasskeyStore for MemoryPasskeyStore {
     type EventId = ();
-    type Error = StorageError;
+    type Error = PasskeyStoreError;
 
-    async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, StorageError> {
+    async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, PasskeyStoreError> {
         let data = self.data.lock().await;
         Ok(data.keys.get(user_id).cloned().unwrap_or_default())
     }
@@ -56,7 +56,7 @@ impl PasskeyStore for MemoryPasskeyStore {
         user_id: &UserId,
         passkey_id: PasskeyId,
         passkey: webauthn_rs::prelude::Passkey,
-    ) -> Result<(), StorageError> {
+    ) -> Result<(), PasskeyStoreError> {
         let mut data = self.data.lock().await;
 
         // Create entry if user doesn't exist in passkey store yet
@@ -73,7 +73,7 @@ impl PasskeyStore for MemoryPasskeyStore {
         &self,
         user_id: &UserId,
         passkey_id: &PasskeyId,
-    ) -> Result<bool, StorageError> {
+    ) -> Result<bool, PasskeyStoreError> {
         let mut data = self.data.lock().await;
 
         match data.keys.get_mut(user_id) {
@@ -88,7 +88,7 @@ impl PasskeyStore for MemoryPasskeyStore {
 
     async fn get_all_credentials(
         &self,
-    ) -> Result<Vec<webauthn_rs::prelude::Passkey>, StorageError> {
+    ) -> Result<Vec<webauthn_rs::prelude::Passkey>, PasskeyStoreError> {
         let data = self.data.lock().await;
         let credentials = data
             .keys
@@ -102,7 +102,7 @@ impl PasskeyStore for MemoryPasskeyStore {
     async fn find_user_by_credential(
         &self,
         credential_id: &[u8],
-    ) -> Result<Option<(UserId, PasskeyId)>, StorageError> {
+    ) -> Result<Option<(UserId, PasskeyId)>, PasskeyStoreError> {
         let data = self.data.lock().await;
 
         for (user_id, passkeys) in &data.keys {

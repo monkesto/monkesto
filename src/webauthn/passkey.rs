@@ -473,7 +473,12 @@ pub enum PasskeyEvent {
     Deleted { id: PasskeyId, by: Authority },
 }
 
-use super::storage::StorageError;
+#[derive(Debug, thiserror::Error)]
+pub enum PasskeyStoreError {
+    #[error("Storage operation failed: {0}")]
+    #[allow(dead_code)]
+    OperationFailed(String),
+}
 
 #[async_trait::async_trait]
 pub trait PasskeyStore: Send + Sync {
@@ -483,7 +488,7 @@ pub trait PasskeyStore: Send + Sync {
     // async fn record(event: PasskeyEvent) -> Result<Self::EventId, Self::Error>;
 
     /// Get all passkeys for a specific user
-    async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, StorageError>;
+    async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, Self::Error>;
 
     /// Add a new passkey to an existing user
     async fn add_passkey(
@@ -491,22 +496,21 @@ pub trait PasskeyStore: Send + Sync {
         user_id: &UserId,
         passkey_id: PasskeyId,
         passkey: webauthn_rs::prelude::Passkey,
-    ) -> Result<(), StorageError>;
+    ) -> Result<(), Self::Error>;
 
     /// Remove a specific passkey from a user by PasskeyId
     async fn remove_passkey(
         &self,
         user_id: &UserId,
         passkey_id: &PasskeyId,
-    ) -> Result<bool, StorageError>;
+    ) -> Result<bool, Self::Error>;
 
     /// Get all credentials from all users (for usernameless authentication)
-    async fn get_all_credentials(&self)
-    -> Result<Vec<webauthn_rs::prelude::Passkey>, StorageError>;
+    async fn get_all_credentials(&self) -> Result<Vec<webauthn_rs::prelude::Passkey>, Self::Error>;
 
     /// Find UserId and PasskeyId by passkey credential ID
     async fn find_user_by_credential(
         &self,
         credential_id: &[u8],
-    ) -> Result<Option<(UserId, PasskeyId)>, StorageError>;
+    ) -> Result<Option<(UserId, PasskeyId)>, Self::Error>;
 }

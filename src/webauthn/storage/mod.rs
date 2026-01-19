@@ -9,18 +9,6 @@ pub struct Passkey {
     pub passkey: webauthn_rs::prelude::Passkey,
 }
 
-/// Errors that can occur during storage operations
-#[derive(Debug, thiserror::Error)]
-pub enum StorageError {
-    #[error("User not found")]
-    UserNotFound,
-    #[error("Email already exists")]
-    EmailAlreadyExists,
-    #[error("Storage operation failed: {0}")]
-    #[allow(dead_code)]
-    OperationFailed(String),
-}
-
 pub use super::passkey::PasskeyStore;
 pub use super::user::UserStore;
 
@@ -144,7 +132,7 @@ mod tests {
             .await;
 
         match result {
-            Err(StorageError::EmailAlreadyExists) => {
+            Err(crate::webauthn::user::UserStoreError::EmailAlreadyExists) => {
                 // Expected
             }
             _ => panic!("Should have failed with EmailAlreadyExists"),

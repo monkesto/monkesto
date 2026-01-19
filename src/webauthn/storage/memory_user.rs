@@ -1,5 +1,5 @@
-use super::{StorageError, UserStore};
-use crate::webauthn::user::UserId;
+use super::UserStore;
+use crate::webauthn::user::{UserId, UserStoreError};
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 use webauthn_rs::prelude::Uuid;
@@ -48,14 +48,14 @@ impl Default for MemoryUserStore {
 #[async_trait::async_trait]
 impl UserStore for MemoryUserStore {
     type EventId = ();
-    type Error = StorageError;
+    type Error = UserStoreError;
 
-    async fn email_exists(&self, email: &str) -> Result<bool, StorageError> {
+    async fn email_exists(&self, email: &str) -> Result<bool, UserStoreError> {
         let data = self.data.lock().await;
         Ok(data.email_to_user_id.contains_key(email))
     }
 
-    async fn get_user_email(&self, user_id: &UserId) -> Result<String, StorageError> {
+    async fn get_user_email(&self, user_id: &UserId) -> Result<String, UserStoreError> {
         let data = self.data.lock().await;
         data.email_to_user_id
             .iter()
@@ -66,15 +66,15 @@ impl UserStore for MemoryUserStore {
                     None
                 }
             })
-            .ok_or(StorageError::UserNotFound)
+            .ok_or(UserStoreError::UserNotFound)
     }
 
-    async fn get_webauthn_uuid(&self, user_id: &UserId) -> Result<Uuid, StorageError> {
+    async fn get_webauthn_uuid(&self, user_id: &UserId) -> Result<Uuid, UserStoreError> {
         let data = self.data.lock().await;
         data.user_id_to_webauthn_uuid
             .get(user_id)
             .copied()
-            .ok_or(StorageError::UserNotFound)
+            .ok_or(UserStoreError::UserNotFound)
     }
 
     async fn create_user(
@@ -82,12 +82,12 @@ impl UserStore for MemoryUserStore {
         user_id: UserId,
         webauthn_uuid: Uuid,
         email: String,
-    ) -> Result<(), StorageError> {
+    ) -> Result<(), UserStoreError> {
         let mut data = self.data.lock().await;
 
         // Check if email already exists
         if data.email_to_user_id.contains_key(&email) {
-            return Err(StorageError::EmailAlreadyExists);
+            return Err(UserStoreError::EmailAlreadyExists);
         }
 
         // Insert the new user with both identifiers
