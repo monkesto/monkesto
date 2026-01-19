@@ -10,7 +10,7 @@ use std::sync::Arc;
 use webauthn_rs::prelude::{PasskeyAuthentication, PublicKeyCredential, Webauthn};
 
 use super::AuthSession;
-use super::error::WebauthnError;
+use super::WebauthnError;
 use super::passkey::PasskeyStore;
 use super::user::UserStore;
 use crate::maud_header::header;

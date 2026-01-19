@@ -10,8 +10,8 @@ use std::sync::Arc;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Webauthn};
 
 use super::AuthSession;
+use super::WebauthnError;
 use super::authority::{Actor, Authority};
-use super::error::WebauthnError;
 use super::user::{UserId, UserStore};
 use crate::id;
 use crate::ident::Ident;
