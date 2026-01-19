@@ -12,9 +12,10 @@ use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uui
 use std::sync::Arc;
 use webauthn_rs::prelude::Webauthn;
 
+use super::authority::{Actor, Authority};
 use super::error::WebauthnError;
-use super::passkey::{PasskeyId, PasskeyStore};
-use super::user::{UserId, UserStore};
+use super::passkey::{PasskeyEvent, PasskeyId, PasskeyStore};
+use super::user::{Email, UserEvent, UserId, UserStore};
 use crate::maud_header::header;
 
 #[derive(Deserialize)]
@@ -330,8 +331,16 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             let passkey_id = PasskeyId::new();
 
             // Store the new user and their passkey
+            let email_validated =
+                Email::try_new(&email).map_err(|_| WebauthnError::InvalidInput)?;
+
             if user_store
-                .create_user(user_id, webauthn_uuid, email.clone())
+                .record(UserEvent::Created {
+                    id: user_id,
+                    by: Authority::Direct(Actor::Anonymous),
+                    email: email_validated,
+                    webauthn_uuid,
+                })
                 .await
                 .is_err()
             {
@@ -339,7 +348,12 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             }
 
             if passkey_store
-                .add_passkey(&user_id, passkey_id, passkey)
+                .record(PasskeyEvent::Created {
+                    id: passkey_id,
+                    user_id,
+                    by: Authority::Direct(Actor::User(user_id)),
+                    passkey,
+                })
                 .await
                 .is_err()
             {

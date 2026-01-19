@@ -12,7 +12,7 @@ use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential};
 use std::sync::Arc;
 use webauthn_rs::prelude::Webauthn;
 
-use super::authority::Authority;
+use super::authority::{Actor, Authority};
 use super::error::WebauthnError;
 use super::user::{UserId, UserStore};
 use crate::id;
@@ -215,20 +215,15 @@ pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
         .parse::<PasskeyId>()
         .map_err(|_| WebauthnError::InvalidInput)?;
 
-    // Remove the passkey from the user's passkeys (only if it belongs to them)
-    match passkey_store.remove_passkey(&user_id, &passkey_id).await {
-        Ok(true) => {
-            // Passkey was successfully removed
-        }
-        Ok(false) => {
-            // Passkey wasn't found for this user
-            return Err(WebauthnError::UserNotFound);
-        }
-        Err(_) => {
-            // Storage error
-            return Err(WebauthnError::Unknown);
-        }
-    }
+    // Remove the passkey from the user's passkeys
+    passkey_store
+        .record(PasskeyEvent::Deleted {
+            id: passkey_id,
+            user_id,
+            by: Authority::Direct(Actor::User(user_id)),
+        })
+        .await
+        .map_err(|_| WebauthnError::Unknown)?;
 
     // Redirect back to passkey page
     Ok(Redirect::to("/webauthn/passkey").into_response())
@@ -272,7 +267,12 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
 
                 // Add the new passkey to the user's existing passkeys
                 if passkey_store
-                    .add_passkey(&user_id, passkey_id, passkey)
+                    .record(PasskeyEvent::Created {
+                        id: passkey_id,
+                        user_id,
+                        by: Authority::Direct(Actor::User(user_id)),
+                        passkey,
+                    })
                     .await
                     .is_err()
                 {
@@ -470,11 +470,22 @@ pub struct Passkey {
     pub passkey: webauthn_rs::prelude::Passkey,
 }
 
-#[expect(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum PasskeyEvent {
-    Created { id: PasskeyId, by: Authority },
-    Deleted { id: PasskeyId, by: Authority },
+    Created {
+        id: PasskeyId,
+        user_id: UserId,
+        #[expect(dead_code)]
+        by: Authority,
+        passkey: webauthn_rs::prelude::Passkey,
+    },
+    Deleted {
+        id: PasskeyId,
+        user_id: UserId,
+        #[expect(dead_code)]
+        by: Authority,
+    },
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -489,30 +500,12 @@ pub trait PasskeyStore: Send + Sync {
     type EventId: Send + Sync + Clone;
     type Error;
 
-    // async fn record(event: PasskeyEvent) -> Result<Self::EventId, Self::Error>;
+    async fn record(&self, event: PasskeyEvent) -> Result<Self::EventId, Self::Error>;
 
-    /// Get all passkeys for a specific user
     async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, Self::Error>;
 
-    /// Add a new passkey to an existing user
-    async fn add_passkey(
-        &self,
-        user_id: &UserId,
-        passkey_id: PasskeyId,
-        passkey: webauthn_rs::prelude::Passkey,
-    ) -> Result<(), Self::Error>;
-
-    /// Remove a specific passkey from a user by PasskeyId
-    async fn remove_passkey(
-        &self,
-        user_id: &UserId,
-        passkey_id: &PasskeyId,
-    ) -> Result<bool, Self::Error>;
-
-    /// Get all credentials from all users (for usernameless authentication)
     async fn get_all_credentials(&self) -> Result<Vec<webauthn_rs::prelude::Passkey>, Self::Error>;
 
-    /// Find UserId and PasskeyId by passkey credential ID
     async fn find_user_by_credential(
         &self,
         credential_id: &[u8],
@@ -557,44 +550,32 @@ impl PasskeyStore for MemoryPasskeyStore {
     type EventId = ();
     type Error = PasskeyStoreError;
 
-    async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, PasskeyStoreError> {
-        let data = self.data.lock().await;
-        Ok(data.keys.get(user_id).cloned().unwrap_or_default())
-    }
-
-    async fn add_passkey(
-        &self,
-        user_id: &UserId,
-        passkey_id: PasskeyId,
-        passkey: webauthn_rs::prelude::Passkey,
-    ) -> Result<(), PasskeyStoreError> {
+    async fn record(&self, event: PasskeyEvent) -> Result<(), PasskeyStoreError> {
         let mut data = self.data.lock().await;
 
-        // Create entry if user doesn't exist in passkey store yet
-        let passkeys = data.keys.entry(*user_id).or_insert_with(Vec::new);
-        passkeys.push(Passkey {
-            id: passkey_id,
-            passkey,
-        });
+        match event {
+            PasskeyEvent::Created {
+                id,
+                user_id,
+                by: _,
+                passkey,
+            } => {
+                let passkeys = data.keys.entry(user_id).or_insert_with(Vec::new);
+                passkeys.push(Passkey { id, passkey });
+            }
+            PasskeyEvent::Deleted { id, user_id, by: _ } => {
+                if let Some(passkeys) = data.keys.get_mut(&user_id) {
+                    passkeys.retain(|stored| stored.id != id);
+                }
+            }
+        }
 
         Ok(())
     }
 
-    async fn remove_passkey(
-        &self,
-        user_id: &UserId,
-        passkey_id: &PasskeyId,
-    ) -> Result<bool, PasskeyStoreError> {
-        let mut data = self.data.lock().await;
-
-        match data.keys.get_mut(user_id) {
-            Some(passkeys) => {
-                let initial_len = passkeys.len();
-                passkeys.retain(|stored| &stored.id != passkey_id);
-                Ok(passkeys.len() < initial_len)
-            }
-            None => Ok(false), // User has no passkeys, so nothing was removed
-        }
+    async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, PasskeyStoreError> {
+        let data = self.data.lock().await;
+        Ok(data.keys.get(user_id).cloned().unwrap_or_default())
     }
 
     async fn get_all_credentials(
@@ -647,14 +628,16 @@ mod tests {
                 .is_empty()
         );
 
-        // Removing non-existent passkey should return false
+        // Deleting non-existent passkey should succeed silently
         let passkey_id = PasskeyId::new();
-        assert!(
-            !passkey_store
-                .remove_passkey(&user_id, &passkey_id)
-                .await
-                .expect("Should remove passkey")
-        );
+        passkey_store
+            .record(PasskeyEvent::Deleted {
+                id: passkey_id,
+                user_id,
+                by: Authority::Direct(Actor::User(user_id)),
+            })
+            .await
+            .expect("Should succeed even for non-existent passkey");
 
         // Test that get_all_credentials works when empty
         assert!(

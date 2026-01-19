@@ -23,7 +23,6 @@ pub enum Actor {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Authority {
-    #[expect(unused)]
     Direct(Actor),
     // Delegated { authorizer: Actor, executor: Actor },
 }

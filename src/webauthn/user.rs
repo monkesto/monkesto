@@ -31,6 +31,7 @@ pub struct User {
 
 #[cfg(test)]
 mod tests {
+    use super::super::authority::{Actor, Authority};
     use super::*;
     use std::sync::Arc;
 
@@ -82,7 +83,12 @@ mod tests {
 
         // Create a user
         user_store
-            .create_user(user_id, webauthn_uuid, email.clone())
+            .record(UserEvent::Created {
+                id: user_id,
+                by: Authority::Direct(Actor::Anonymous),
+                email: Email::try_new(&email).expect("test email should be valid"),
+                webauthn_uuid,
+            })
             .await
             .expect("Should create user successfully");
 
@@ -121,13 +127,23 @@ mod tests {
 
         // Create first user
         user_store
-            .create_user(user_id_1, webauthn_uuid_1, email.clone())
+            .record(UserEvent::Created {
+                id: user_id_1,
+                by: Authority::Direct(Actor::Anonymous),
+                email: Email::try_new(&email).expect("test email should be valid"),
+                webauthn_uuid: webauthn_uuid_1,
+            })
             .await
             .expect("Should create first user successfully");
 
         // Try to create second user with same email
         let result = user_store
-            .create_user(user_id_2, webauthn_uuid_2, email.clone())
+            .record(UserEvent::Created {
+                id: user_id_2,
+                by: Authority::Direct(Actor::Anonymous),
+                email: Email::try_new(&email).expect("test email should be valid"),
+                webauthn_uuid: webauthn_uuid_2,
+            })
             .await;
 
         match result {
@@ -139,18 +155,16 @@ mod tests {
     }
 }
 
-#[expect(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UserEvent {
     Created {
         id: UserId,
         by: Authority,
         email: Email,
+        webauthn_uuid: Uuid,
     },
-    Deleted {
-        id: UserId,
-        by: Authority,
-    },
+    #[expect(dead_code)]
+    Deleted { id: UserId, by: Authority },
 }
 
 use webauthn_rs::prelude::Uuid;
@@ -171,24 +185,13 @@ pub trait UserStore: Send + Sync {
     type EventId: Send + Sync + Clone;
     type Error;
 
-    // async fn record(event: UserEvent) -> Result<Self::EventId, Self::Error>;
+    async fn record(&self, event: UserEvent) -> Result<Self::EventId, Self::Error>;
 
-    /// Check if an email already exists in the system
     async fn email_exists(&self, email: &str) -> Result<bool, Self::Error>;
 
-    /// Get the email address for a specific UserId
     async fn get_user_email(&self, user_id: &UserId) -> Result<String, Self::Error>;
 
-    /// Get the webauthn UUID for a specific UserId
     async fn get_webauthn_uuid(&self, user_id: &UserId) -> Result<Uuid, Self::Error>;
-
-    /// Create a new user
-    async fn create_user(
-        &self,
-        user_id: UserId,
-        webauthn_uuid: Uuid,
-        email: String,
-    ) -> Result<(), Self::Error>;
 }
 
 use std::{collections::HashMap, sync::Arc};
@@ -234,6 +237,35 @@ impl UserStore for MemoryUserStore {
     type EventId = ();
     type Error = UserStoreError;
 
+    async fn record(&self, event: UserEvent) -> Result<(), UserStoreError> {
+        let mut data = self.data.lock().await;
+
+        match event {
+            UserEvent::Created {
+                id,
+                by: _,
+                email,
+                webauthn_uuid,
+            } => {
+                let email_str = email.to_string();
+                if data.email_to_user_id.contains_key(&email_str) {
+                    return Err(UserStoreError::EmailAlreadyExists);
+                }
+                data.email_to_user_id.insert(email_str, id);
+                data.user_id_to_webauthn_uuid.insert(id, webauthn_uuid);
+                data.webauthn_uuid_to_user_id.insert(webauthn_uuid, id);
+            }
+            UserEvent::Deleted { id, by: _ } => {
+                if let Some(webauthn_uuid) = data.user_id_to_webauthn_uuid.remove(&id) {
+                    data.webauthn_uuid_to_user_id.remove(&webauthn_uuid);
+                }
+                data.email_to_user_id.retain(|_, user_id| user_id != &id);
+            }
+        }
+
+        Ok(())
+    }
+
     async fn email_exists(&self, email: &str) -> Result<bool, UserStoreError> {
         let data = self.data.lock().await;
         Ok(data.email_to_user_id.contains_key(email))
@@ -259,26 +291,5 @@ impl UserStore for MemoryUserStore {
             .get(user_id)
             .copied()
             .ok_or(UserStoreError::UserNotFound)
-    }
-
-    async fn create_user(
-        &self,
-        user_id: UserId,
-        webauthn_uuid: Uuid,
-        email: String,
-    ) -> Result<(), UserStoreError> {
-        let mut data = self.data.lock().await;
-
-        // Check if email already exists
-        if data.email_to_user_id.contains_key(&email) {
-            return Err(UserStoreError::EmailAlreadyExists);
-        }
-
-        // Insert the new user with both identifiers
-        data.email_to_user_id.insert(email, user_id);
-        data.user_id_to_webauthn_uuid.insert(user_id, webauthn_uuid);
-        data.webauthn_uuid_to_user_id.insert(webauthn_uuid, user_id);
-
-        Ok(())
     }
 }
