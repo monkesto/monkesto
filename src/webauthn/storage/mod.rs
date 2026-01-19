@@ -1,8 +1,5 @@
 use super::passkey::PasskeyId;
 
-pub mod memory_passkey;
-pub mod memory_user;
-
 #[derive(Debug, Clone)]
 pub struct Passkey {
     pub id: PasskeyId,
@@ -15,11 +12,8 @@ pub use super::user::UserStore;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::webauthn::passkey::PasskeyId;
-    use crate::webauthn::storage::{
-        memory_passkey::MemoryPasskeyStore, memory_user::MemoryUserStore,
-    };
-    use crate::webauthn::user::UserId;
+    use crate::webauthn::passkey::{MemoryPasskeyStore, PasskeyId};
+    use crate::webauthn::user::{MemoryUserStore, UserId};
     use std::sync::Arc;
     use webauthn_rs::prelude::Uuid;
 

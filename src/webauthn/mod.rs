@@ -21,7 +21,8 @@ use tower_sessions::{
 use webauthn_rs::prelude::{Url, WebauthnBuilder};
 
 use error::WebauthnError;
-use storage::{memory_passkey::MemoryPasskeyStore, memory_user::MemoryUserStore};
+use passkey::MemoryPasskeyStore;
+use user::MemoryUserStore;
 
 pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnError> {
     // Get base URL from environment variable, defaulting to localhost:3000
