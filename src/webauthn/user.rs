@@ -206,6 +206,9 @@ pub trait UserStore: Send + Sync {
     async fn get_user_email(&self, user_id: &UserId) -> Result<String, Self::Error>;
 
     async fn get_webauthn_uuid(&self, user_id: &UserId) -> Result<Uuid, Self::Error>;
+
+    #[expect(unused)]
+    async fn lookup_user_id(&self, email: &str) -> Result<Option<UserId>, Self::Error>;
 }
 
 use std::{collections::HashMap, sync::Arc};
@@ -312,6 +315,11 @@ impl UserStore for MemoryUserStore {
             .get(user_id)
             .copied()
             .ok_or(UserStoreError::UserNotFound)
+    }
+
+    async fn lookup_user_id(&self, email: &str) -> Result<Option<UserId>, UserStoreError> {
+        let data = self.data.lock().await;
+        Ok(data.email_to_user_id.get(email).copied())
     }
 }
 
