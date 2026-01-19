@@ -285,12 +285,12 @@ async fn handle_email_submission<U: UserStore>(
 ) -> Result<axum::response::Response, WebauthnError> {
     // Validate email format (basic validation)
     if email.is_empty() || email.len() > 254 || !email.contains('@') || !email.contains('.') {
-        return Ok(Redirect::to("/webauthn/signup?error=invalid_email").into_response());
+        return Ok(Redirect::to("/signup?error=invalid_email").into_response());
     }
 
     // Check if email is already taken
     if user_store.email_exists(&email).await.unwrap_or(false) {
-        return Ok(Redirect::to("/webauthn/signup?error=email_taken").into_response());
+        return Ok(Redirect::to("/signup?error=email_taken").into_response());
     }
 
     // Get existing credentials for exclusion
@@ -335,7 +335,7 @@ async fn handle_email_submission<U: UserStore>(
             )
                 .into_response())
         }
-        Err(_) => Ok(Redirect::to("/webauthn/signup?error=registration_failed").into_response()),
+        Err(_) => Ok(Redirect::to("/signup?error=registration_failed").into_response()),
     }
 }
 
@@ -388,7 +388,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 .await
                 .is_err()
             {
-                return Ok(Redirect::to("/webauthn/signup?error=storage_error").into_response());
+                return Ok(Redirect::to("/signup?error=storage_error").into_response());
             }
 
             if passkey_store
@@ -401,7 +401,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 .await
                 .is_err()
             {
-                return Ok(Redirect::to("/webauthn/signup?error=storage_error").into_response());
+                return Ok(Redirect::to("/signup?error=storage_error").into_response());
             }
 
             // Log in the newly registered user via axum_login
@@ -415,14 +415,14 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 .map_err(|e| WebauthnError::LoginFailed(e.to_string()))?;
 
             // Redirect to next or default
-            let redirect_to = next.as_deref().unwrap_or("/webauthn/passkey");
+            let redirect_to = next.as_deref().unwrap_or("/passkey");
             Ok(Redirect::to(redirect_to).into_response())
         }
         Err(_) => {
             // Clear the registration state on failure
             let _ = session.remove_value("reg_state").await;
 
-            Ok(Redirect::to("/webauthn/signup?error=registration_failed").into_response())
+            Ok(Redirect::to("/signup?error=registration_failed").into_response())
         }
     }
 }

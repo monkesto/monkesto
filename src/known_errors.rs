@@ -202,5 +202,6 @@ where
 #[derive(Deserialize)]
 pub struct UrlError {
     pub err: Option<String>,
+    #[allow(dead_code)]
     pub next: Option<String>,
 }

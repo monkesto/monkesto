@@ -1,15 +1,4 @@
-use crate::ident::Ident;
-use serde::{Deserialize, Serialize};
-use std::{
-    fmt::{self, Display},
-    ops::Deref,
-    str::FromStr,
-};
-
-use crate::id;
-use crate::known_errors::KnownErrors;
-
-id!(UserId, Ident::new16());
+pub use crate::ident::UserId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Actor {

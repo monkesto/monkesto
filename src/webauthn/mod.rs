@@ -58,7 +58,7 @@ impl IntoResponse for WebauthnError {
     fn into_response(self) -> Response {
         match self {
             WebauthnError::SessionExpired => {
-                Redirect::to("/webauthn/signin?error=session_expired").into_response()
+                Redirect::to("/signin?error=session_expired").into_response()
             }
             WebauthnError::InvalidInput => {
                 (StatusCode::BAD_REQUEST, "Invalid Input").into_response()
@@ -95,7 +95,7 @@ pub fn router<S: Clone + Send + Sync + 'static>(
             env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".to_string())
         });
 
-    let webauthn_url = format!("{}/webauthn/", base_url);
+    let webauthn_url = format!("{}/", base_url);
 
     // Parse the base URL to extract rp_id and rp_origin for WebAuthn security
     let rp_origin = Url::parse(&base_url)?;
@@ -124,14 +124,10 @@ pub fn router<S: Clone + Send + Sync + 'static>(
         )
         .route("/signout", get(signout::signout_get))
         .route("/signout", axum::routing::post(signout::signout_post))
-        .route_layer(login_required!(
-            MemoryUserStore,
-            login_url = "/webauthn/signin"
-        ));
+        .route_layer(login_required!(MemoryUserStore, login_url = "/signin"));
 
     // Public routes (no login required)
     let public_routes = Router::new()
-        .route("/", get(redirect_to_signin))
         .route(
             "/signin",
             get(signin::signin_get::<MemoryPasskeyStore>)
@@ -149,8 +145,4 @@ pub fn router<S: Clone + Send + Sync + 'static>(
         .layer(Extension(webauthn))
         .layer(Extension(user_store))
         .layer(Extension(passkey_store)))
-}
-
-async fn redirect_to_signin() -> impl IntoResponse {
-    Redirect::temporary("/webauthn/signin")
 }

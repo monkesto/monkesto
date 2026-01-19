@@ -1,5 +1,7 @@
 use super::authority::Authority;
 pub use super::authority::UserId;
+use crate::known_errors::{KnownErrors, RedirectOnError};
+use axum::response::Redirect;
 use nutype::nutype;
 
 #[nutype(
@@ -39,6 +41,13 @@ impl axum_login::AuthUser for User {
         // We don't invalidate sessions based on credential changes
         &[]
     }
+}
+
+pub fn get_user(session: crate::AuthSession) -> Result<User, Redirect> {
+    session
+        .user
+        .ok_or(KnownErrors::NotLoggedIn)
+        .or_redirect("/signin")
 }
 
 #[cfg(test)]
@@ -207,7 +216,6 @@ pub trait UserStore: Send + Sync {
 
     async fn get_webauthn_uuid(&self, user_id: &UserId) -> Result<Uuid, Self::Error>;
 
-    #[expect(unused)]
     async fn lookup_user_id(&self, email: &str) -> Result<Option<UserId>, Self::Error>;
 }
 

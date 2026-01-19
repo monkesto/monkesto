@@ -1,14 +1,13 @@
 use super::JournalEvent;
 use crate::AppState;
 use crate::AuthSession;
-use crate::auth::UserStore;
-use crate::auth::user;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::journal::Permissions;
 use crate::journal::{JournalStore, JournalTenantInfo};
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use crate::webauthn::user::Email;
+use crate::webauthn::user::{self, UserStore};
 use axum::Form;
 use axum::extract::Path;
 use axum::extract::State;
@@ -94,8 +93,11 @@ pub async fn invite_user(
 
             let invitee_id = state
                 .user_store
-                .lookup_user_id(&email)
+                .lookup_user_id(email.as_ref())
                 .await
+                .map_err(|e| KnownErrors::InternalError {
+                    context: e.to_string(),
+                })
                 .or_redirect(callback_url)?
                 .ok_or(KnownErrors::UserDoesntExist)
                 .or_redirect(callback_url)?;

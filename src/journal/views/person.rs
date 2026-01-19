@@ -1,12 +1,11 @@
 use crate::AppState;
 use crate::AuthSession;
-use crate::auth::UserStore;
-use crate::auth::user;
 use crate::ident::JournalId;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::journal::layout::maud_layout;
 use crate::known_errors::{KnownErrors, UrlError};
+use crate::webauthn::user::{self, UserStore};
 use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use maud::{Markup, html};
@@ -32,7 +31,7 @@ pub async fn people_list_page(
                 href=(format!("/journal/{}/person/{}", id, tenant_id))
                 class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
                     h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                        @match state.user_store.get_email(&tenant_id).await {
+                        @match state.user_store.get_user_email(&tenant_id).await {
                             Ok(email) => (email),
                             Err(e) => (format!("An error occurred while fetching username: {}", e)),
                         }

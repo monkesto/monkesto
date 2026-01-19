@@ -1,13 +1,12 @@
 use crate::AppState;
 use crate::AuthSession;
-use crate::auth::UserStore;
-use crate::auth::user;
 use crate::ident::Ident;
 use crate::ident::JournalId;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::journal::layout::maud_layout;
 use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
+use crate::webauthn::user::{self, UserStore};
 use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use maud::{Markup, html};
@@ -129,7 +128,7 @@ pub async fn journal_detail(
                 div class="space-y-2" {
                     div class="text-sm text-gray-600 dark:text-gray-400" {
                         "Created by "
-                        (state.user_store.get_email(&journal_state.creator).await.map(|e| e.to_string()).unwrap_or_else(|_| "unknown user".to_string()).to_string())
+                        (state.user_store.get_user_email(&journal_state.creator).await.map(|e| e.to_string()).unwrap_or_else(|_| "unknown user".to_string()).to_string())
                         " on "
                         (journal_state.created_at
                             .with_timezone(&chrono_tz::America::Chicago)

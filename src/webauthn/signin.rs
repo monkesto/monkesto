@@ -287,7 +287,7 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
                 .map_err(|e| WebauthnError::LoginFailed(e.to_string()))?;
 
             // Redirect to next or default
-            let redirect_to = next.as_deref().unwrap_or("/webauthn/passkey");
+            let redirect_to = next.as_deref().unwrap_or("/passkey");
             Ok(Redirect::to(redirect_to).into_response())
         }
         Err(_) => {
@@ -296,7 +296,7 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
             let _ = session.remove_value("auth_state").await;
 
             // Redirect back to login with error
-            Ok(Redirect::to("/webauthn/signin?error=auth_failed").into_response())
+            Ok(Redirect::to("/signin?error=auth_failed").into_response())
         }
     }
 }

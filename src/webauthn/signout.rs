@@ -85,5 +85,5 @@ pub async fn signout_post(
     let _ = session.remove_value("reg_state").await;
 
     // Redirect to sign in page
-    Redirect::to("/webauthn/signin")
+    Redirect::to("/signin")
 }
