@@ -32,6 +32,7 @@ pub struct User {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     #[test]
     fn test_email_validation() {
@@ -61,6 +62,80 @@ mod tests {
             Email::try_new("testexample.com"),
             Err(EmailError::RegexViolated)
         );
+    }
+
+    #[tokio::test]
+    async fn test_user_store_operations() {
+        let user_store = Arc::new(MemoryUserStore::new());
+
+        let user_id = UserId::new();
+        let webauthn_uuid = Uuid::new_v4();
+        let email = "test@example.com".to_string();
+
+        // Initially email should not exist
+        assert!(
+            !user_store
+                .email_exists(&email)
+                .await
+                .expect("Should check email existence")
+        );
+
+        // Create a user
+        user_store
+            .create_user(user_id, webauthn_uuid, email.clone())
+            .await
+            .expect("Should create user successfully");
+
+        // Verify user exists
+        assert!(
+            user_store
+                .email_exists(&email)
+                .await
+                .expect("Should check email existence")
+        );
+        assert_eq!(
+            user_store
+                .get_user_email(&user_id)
+                .await
+                .expect("Should get user email"),
+            email
+        );
+        assert_eq!(
+            user_store
+                .get_webauthn_uuid(&user_id)
+                .await
+                .expect("Should get webauthn UUID"),
+            webauthn_uuid
+        );
+    }
+
+    #[tokio::test]
+    async fn test_email_already_exists() {
+        let user_store = Arc::new(MemoryUserStore::new());
+
+        let user_id_1 = UserId::new();
+        let user_id_2 = UserId::new();
+        let webauthn_uuid_1 = Uuid::new_v4();
+        let webauthn_uuid_2 = Uuid::new_v4();
+        let email = "test@example.com".to_string();
+
+        // Create first user
+        user_store
+            .create_user(user_id_1, webauthn_uuid_1, email.clone())
+            .await
+            .expect("Should create first user successfully");
+
+        // Try to create second user with same email
+        let result = user_store
+            .create_user(user_id_2, webauthn_uuid_2, email.clone())
+            .await;
+
+        match result {
+            Err(UserStoreError::EmailAlreadyExists) => {
+                // Expected
+            }
+            _ => panic!("Should have failed with EmailAlreadyExists"),
+        }
     }
 }
 

@@ -13,7 +13,7 @@ use std::sync::Arc;
 use webauthn_rs::prelude::Webauthn;
 
 use super::error::WebauthnError;
-use super::storage::PasskeyStore;
+use super::passkey::PasskeyStore;
 use crate::maud_header::header;
 
 #[derive(Deserialize)]

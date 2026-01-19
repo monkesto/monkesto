@@ -14,9 +14,7 @@ use webauthn_rs::prelude::Webauthn;
 
 use super::authority::Authority;
 use super::error::WebauthnError;
-use super::storage::PasskeyStore as StoragePasskeyStore;
-use super::storage::{Passkey, UserStore};
-use super::user::UserId;
+use super::user::{UserId, UserStore};
 use crate::id;
 use crate::ident::Ident;
 use crate::known_errors::KnownErrors;
@@ -162,7 +160,7 @@ fn not_logged_in_page() -> Markup {
     })
 }
 
-pub async fn passkey_get<U: UserStore + 'static, P: StoragePasskeyStore + 'static>(
+pub async fn passkey_get<U: UserStore + 'static, P: PasskeyStore + 'static>(
     Extension(user_store): Extension<Arc<U>>,
     Extension(passkey_store): Extension<Arc<P>>,
     session: Session,
@@ -200,7 +198,7 @@ pub async fn passkey_get<U: UserStore + 'static, P: StoragePasskeyStore + 'stati
     )
 }
 
-pub async fn delete_passkey_post<P: StoragePasskeyStore + 'static>(
+pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
     Extension(passkey_store): Extension<Arc<P>>,
     session: Session,
     Path(passkey_id_str): Path<String>,
@@ -236,7 +234,7 @@ pub async fn delete_passkey_post<P: StoragePasskeyStore + 'static>(
     Ok(Redirect::to("/webauthn/passkey").into_response())
 }
 
-pub async fn create_passkey_post<U: UserStore + 'static, P: StoragePasskeyStore + 'static>(
+pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
     Extension(webauthn): Extension<Arc<Webauthn>>,
     Extension(user_store): Extension<Arc<U>>,
     Extension(passkey_store): Extension<Arc<P>>,
@@ -466,6 +464,12 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
 
 id!(PasskeyId, Ident::new16());
 
+#[derive(Debug, Clone)]
+pub struct Passkey {
+    pub id: PasskeyId,
+    pub passkey: webauthn_rs::prelude::Passkey,
+}
+
 #[expect(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PasskeyEvent {
@@ -621,5 +625,53 @@ impl PasskeyStore for MemoryPasskeyStore {
         }
 
         Ok(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn test_passkey_store_operations() {
+        let passkey_store = Arc::new(MemoryPasskeyStore::new());
+        let user_id = UserId::new();
+
+        // Initially user should have no passkeys
+        assert!(
+            passkey_store
+                .get_user_passkeys(&user_id)
+                .await
+                .expect("Should get user passkeys")
+                .is_empty()
+        );
+
+        // Removing non-existent passkey should return false
+        let passkey_id = PasskeyId::new();
+        assert!(
+            !passkey_store
+                .remove_passkey(&user_id, &passkey_id)
+                .await
+                .expect("Should remove passkey")
+        );
+
+        // Test that get_all_credentials works when empty
+        assert!(
+            passkey_store
+                .get_all_credentials()
+                .await
+                .expect("Should get all credentials")
+                .is_empty()
+        );
+
+        // Test that find_user_by_credential returns None when empty
+        assert!(
+            passkey_store
+                .find_user_by_credential(&[1, 2, 3, 4])
+                .await
+                .expect("Should find user by credential")
+                .is_none()
+        );
     }
 }
