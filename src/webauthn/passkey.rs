@@ -162,9 +162,9 @@ fn not_logged_in_page() -> Markup {
     })
 }
 
-pub async fn passkey_get(
-    Extension(user_store): Extension<Arc<dyn UserStore>>,
-    Extension(passkey_store): Extension<Arc<dyn StoragePasskeyStore>>,
+pub async fn passkey_get<U: UserStore + 'static, P: StoragePasskeyStore + 'static>(
+    Extension(user_store): Extension<Arc<U>>,
+    Extension(passkey_store): Extension<Arc<P>>,
     session: Session,
 ) -> impl IntoResponse {
     // Check if user is logged in
@@ -200,8 +200,8 @@ pub async fn passkey_get(
     )
 }
 
-pub async fn delete_passkey_post(
-    Extension(passkey_store): Extension<Arc<dyn StoragePasskeyStore>>,
+pub async fn delete_passkey_post<P: StoragePasskeyStore + 'static>(
+    Extension(passkey_store): Extension<Arc<P>>,
     session: Session,
     Path(passkey_id_str): Path<String>,
 ) -> Result<impl IntoResponse, WebauthnError> {
@@ -236,10 +236,10 @@ pub async fn delete_passkey_post(
     Ok(Redirect::to("/webauthn/passkey").into_response())
 }
 
-pub async fn create_passkey_post(
+pub async fn create_passkey_post<U: UserStore + 'static, P: StoragePasskeyStore + 'static>(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(user_store): Extension<Arc<dyn UserStore>>,
-    Extension(passkey_store): Extension<Arc<dyn StoragePasskeyStore>>,
+    Extension(user_store): Extension<Arc<U>>,
+    Extension(passkey_store): Extension<Arc<P>>,
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, WebauthnError> {

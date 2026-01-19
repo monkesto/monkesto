@@ -222,10 +222,10 @@ async fn handle_signup_get(webauthn_url: String, query: Query<SignupQuery>) -> i
     )
 }
 
-async fn handle_signup_post(
+async fn handle_signup_post<U: UserStore, P: PasskeyStore>(
     webauthn: Arc<Webauthn>,
-    user_store: Arc<dyn UserStore>,
-    passkey_store: Arc<dyn PasskeyStore>,
+    user_store: Arc<U>,
+    passkey_store: Arc<P>,
     session: Session,
     webauthn_url: String,
     form_data: Form<HashMap<String, String>>,
@@ -242,9 +242,9 @@ async fn handle_signup_post(
     }
 }
 
-async fn handle_email_submission(
+async fn handle_email_submission<U: UserStore>(
     webauthn: Arc<Webauthn>,
-    user_store: Arc<dyn UserStore>,
+    user_store: Arc<U>,
     session: Session,
     webauthn_url: String,
     email: String,
@@ -299,10 +299,10 @@ async fn handle_email_submission(
     }
 }
 
-async fn handle_credential_submission(
+async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
     webauthn: Arc<Webauthn>,
-    user_store: Arc<dyn UserStore>,
-    passkey_store: Arc<dyn PasskeyStore>,
+    user_store: Arc<U>,
+    passkey_store: Arc<P>,
     session: Session,
     form_data: Form<HashMap<String, String>>,
 ) -> Result<axum::response::Response, WebauthnError> {
@@ -372,10 +372,10 @@ pub async fn signup_get(
     handle_signup_get(webauthn_url, query).await
 }
 
-pub async fn signup_post(
+pub async fn signup_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(user_store): Extension<Arc<dyn UserStore>>,
-    Extension(passkey_store): Extension<Arc<dyn PasskeyStore>>,
+    Extension(user_store): Extension<Arc<U>>,
+    Extension(passkey_store): Extension<Arc<P>>,
     Extension(webauthn_url): Extension<String>,
     session: Session,
     form: Form<HashMap<String, String>>,

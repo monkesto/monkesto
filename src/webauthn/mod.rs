@@ -21,9 +21,7 @@ use tower_sessions::{
 use webauthn_rs::prelude::{Url, WebauthnBuilder};
 
 use error::WebauthnError;
-use storage::{
-    PasskeyStore, UserStore, memory_passkey::MemoryPasskeyStore, memory_user::MemoryUserStore,
-};
+use storage::{memory_passkey::MemoryPasskeyStore, memory_user::MemoryUserStore};
 
 pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnError> {
     // Get base URL from environment variable, defaulting to localhost:3000
@@ -46,20 +44,29 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
             .rp_name("Monkesto")
             .build()?,
     );
-    let user_store = Arc::new(MemoryUserStore::new()) as Arc<dyn UserStore>;
-    let passkey_store = Arc::new(MemoryPasskeyStore::new()) as Arc<dyn PasskeyStore>;
+    let user_store = Arc::new(MemoryUserStore::new());
+    let passkey_store = Arc::new(MemoryPasskeyStore::new());
 
     Ok(Router::new()
         .route("/", get(redirect_to_signin))
-        .route("/signin", get(signin::signin_get).post(signin::signin_post))
-        .route("/signup", get(signup::signup_get).post(signup::signup_post))
+        .route(
+            "/signin",
+            get(signin::signin_get::<MemoryPasskeyStore>)
+                .post(signin::signin_post::<MemoryPasskeyStore>),
+        )
+        .route(
+            "/signup",
+            get(signup::signup_get)
+                .post(signup::signup_post::<MemoryUserStore, MemoryPasskeyStore>),
+        )
         .route(
             "/passkey",
-            get(passkey::passkey_get).post(passkey::create_passkey_post),
+            get(passkey::passkey_get::<MemoryUserStore, MemoryPasskeyStore>)
+                .post(passkey::create_passkey_post::<MemoryUserStore, MemoryPasskeyStore>),
         )
         .route(
             "/passkey/{id}/delete",
-            axum::routing::post(passkey::delete_passkey_post),
+            axum::routing::post(passkey::delete_passkey_post::<MemoryPasskeyStore>),
         )
         .route("/signout", get(signout::signout_get))
         .route("/signout", axum::routing::post(signout::signout_post))

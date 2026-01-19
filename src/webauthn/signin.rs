@@ -147,9 +147,9 @@ fn auth_page(
     })
 }
 
-async fn handle_signin_page(
+async fn handle_signin_page<P: PasskeyStore>(
     webauthn: Arc<Webauthn>,
-    passkey_store: Arc<dyn PasskeyStore>,
+    passkey_store: Arc<P>,
     session: Session,
     webauthn_url: String,
     query: Query<SigninQuery>,
@@ -219,9 +219,9 @@ async fn handle_signin_page(
     )
 }
 
-async fn handle_signin_completion(
+async fn handle_signin_completion<P: PasskeyStore>(
     webauthn: Arc<Webauthn>,
-    passkey_store: Arc<dyn PasskeyStore>,
+    passkey_store: Arc<P>,
     session: Session,
     form_data: Form<HashMap<String, String>>,
 ) -> Result<axum::response::Response, WebauthnError> {
@@ -280,9 +280,9 @@ async fn handle_signin_completion(
     }
 }
 
-pub async fn signin_get(
+pub async fn signin_get<P: PasskeyStore + 'static>(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(passkey_store): Extension<Arc<dyn PasskeyStore>>,
+    Extension(passkey_store): Extension<Arc<P>>,
     Extension(webauthn_url): Extension<String>,
     session: Session,
     query: Query<SigninQuery>,
@@ -290,9 +290,9 @@ pub async fn signin_get(
     handle_signin_page(webauthn, passkey_store, session, webauthn_url, query).await
 }
 
-pub async fn signin_post(
+pub async fn signin_post<P: PasskeyStore + 'static>(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(passkey_store): Extension<Arc<dyn PasskeyStore>>,
+    Extension(passkey_store): Extension<Arc<P>>,
     session: Session,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
