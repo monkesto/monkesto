@@ -47,6 +47,9 @@ impl Default for MemoryUserStore {
 
 #[async_trait::async_trait]
 impl UserStore for MemoryUserStore {
+    type EventId = ();
+    type Error = StorageError;
+
     async fn email_exists(&self, email: &str) -> Result<bool, StorageError> {
         let data = self.data.lock().await;
         Ok(data.email_to_user_id.contains_key(email))

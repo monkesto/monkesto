@@ -43,6 +43,9 @@ impl Default for MemoryPasskeyStore {
 
 #[async_trait::async_trait]
 impl PasskeyStore for MemoryPasskeyStore {
+    type EventId = ();
+    type Error = StorageError;
+
     async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, StorageError> {
         let data = self.data.lock().await;
         Ok(data.keys.get(user_id).cloned().unwrap_or_default())

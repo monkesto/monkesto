@@ -473,10 +473,40 @@ pub enum PasskeyEvent {
     Deleted { id: PasskeyId, by: Authority },
 }
 
-#[expect(unused)]
+use super::storage::StorageError;
+
+#[async_trait::async_trait]
 pub trait PasskeyStore: Send + Sync {
     type EventId: Send + Sync + Clone;
     type Error;
 
-    async fn record(event: PasskeyEvent) -> Result<Self::EventId, Self::Error>;
+    // async fn record(event: PasskeyEvent) -> Result<Self::EventId, Self::Error>;
+
+    /// Get all passkeys for a specific user
+    async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, StorageError>;
+
+    /// Add a new passkey to an existing user
+    async fn add_passkey(
+        &self,
+        user_id: &UserId,
+        passkey_id: PasskeyId,
+        passkey: webauthn_rs::prelude::Passkey,
+    ) -> Result<(), StorageError>;
+
+    /// Remove a specific passkey from a user by PasskeyId
+    async fn remove_passkey(
+        &self,
+        user_id: &UserId,
+        passkey_id: &PasskeyId,
+    ) -> Result<bool, StorageError>;
+
+    /// Get all credentials from all users (for usernameless authentication)
+    async fn get_all_credentials(&self)
+    -> Result<Vec<webauthn_rs::prelude::Passkey>, StorageError>;
+
+    /// Find UserId and PasskeyId by passkey credential ID
+    async fn find_user_by_credential(
+        &self,
+        credential_id: &[u8],
+    ) -> Result<Option<(UserId, PasskeyId)>, StorageError>;
 }

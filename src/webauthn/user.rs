@@ -78,10 +78,30 @@ pub enum UserEvent {
     },
 }
 
-#[expect(unused)]
+use super::storage::StorageError;
+use webauthn_rs::prelude::Uuid;
+
+#[async_trait::async_trait]
 pub trait UserStore: Send + Sync {
     type EventId: Send + Sync + Clone;
     type Error;
 
-    async fn record(event: UserEvent) -> Result<Self::EventId, Self::Error>;
+    // async fn record(event: UserEvent) -> Result<Self::EventId, Self::Error>;
+
+    /// Check if an email already exists in the system
+    async fn email_exists(&self, email: &str) -> Result<bool, StorageError>;
+
+    /// Get the email address for a specific UserId
+    async fn get_user_email(&self, user_id: &UserId) -> Result<String, StorageError>;
+
+    /// Get the webauthn UUID for a specific UserId
+    async fn get_webauthn_uuid(&self, user_id: &UserId) -> Result<Uuid, StorageError>;
+
+    /// Create a new user
+    async fn create_user(
+        &self,
+        user_id: UserId,
+        webauthn_uuid: Uuid,
+        email: String,
+    ) -> Result<(), StorageError>;
 }
