@@ -2,11 +2,8 @@ pub use crate::ident::UserId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Actor {
-    #[allow(unused)]
     User(UserId),
-    #[allow(unused)]
-    System,
-    #[allow(unused)]
+    // System,
     Anonymous,
 }
 
