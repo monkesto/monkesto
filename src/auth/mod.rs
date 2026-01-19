@@ -170,14 +170,6 @@ impl UserStore for UserMemoryStore {
         if let Some(mut events) = self.events.get_mut(user_id)
             && let Some(mut state) = self.user_table.get_mut(user_id)
         {
-            if let UserEvent::UpdatedEmail { email } = event.clone() {
-                if self.email_lookup_table.get(&state.email).is_some() {
-                    self.email_lookup_table.remove(&state.email);
-                    self.email_lookup_table.insert(email, *user_id);
-                } else {
-                    return Err(KnownErrors::UserDoesntExist);
-                }
-            }
             state.apply(event.clone());
             events.push(event);
         } else {

@@ -19,9 +19,6 @@ pub enum UserEvent {
         email: Email,
         pw_hash: String,
     },
-    UpdatedEmail {
-        email: Email,
-    },
     CreatedJournal {
         journal_id: JournalId,
     },
@@ -94,7 +91,6 @@ impl UserState {
                 self.email = email;
                 self.pw_hash = pw_hash;
             }
-            UserEvent::UpdatedEmail { email } => self.email = email,
             UserEvent::CreatedJournal { journal_id } => {
                 _ = self.associated_journals.insert(journal_id)
             }
