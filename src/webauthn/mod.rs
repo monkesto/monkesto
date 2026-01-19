@@ -12,18 +12,19 @@ use axum::{
     response::{IntoResponse, Redirect},
     routing::get,
 };
+use axum_login::login_required;
 use std::{env, sync::Arc};
-use tower_sessions::{
-    Expiry, MemoryStore, SessionManagerLayer,
-    cookie::{SameSite, time::Duration},
-};
 use webauthn_rs::prelude::{Url, WebauthnBuilder};
 
 use error::WebauthnError;
 use passkey::MemoryPasskeyStore;
-use user::MemoryUserStore;
+pub use user::MemoryUserStore;
 
-pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnError> {
+pub type AuthSession = axum_login::AuthSession<MemoryUserStore>;
+
+pub fn router<S: Clone + Send + Sync + 'static>(
+    user_store: Arc<MemoryUserStore>,
+) -> Result<Router<S>, WebauthnError> {
     // Get base URL from environment variable, defaulting to localhost:3000
     let base_url = env::var("RAILWAY_PUBLIC_DOMAIN")
         .ok()
@@ -38,27 +39,16 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
     let rp_origin = Url::parse(&base_url)?;
     let rp_id = rp_origin.host_str().ok_or(WebauthnError::InvalidHost)?;
 
-    // Create WebAuthn instance and default storage
+    // Create WebAuthn instance and passkey storage
     let webauthn = Arc::new(
         WebauthnBuilder::new(rp_id, &rp_origin)?
             .rp_name("Monkesto")
             .build()?,
     );
-    let user_store = Arc::new(MemoryUserStore::new());
     let passkey_store = Arc::new(MemoryPasskeyStore::new());
 
-    Ok(Router::new()
-        .route("/", get(redirect_to_signin))
-        .route(
-            "/signin",
-            get(signin::signin_get::<MemoryPasskeyStore>)
-                .post(signin::signin_post::<MemoryPasskeyStore>),
-        )
-        .route(
-            "/signup",
-            get(signup::signup_get)
-                .post(signup::signup_post::<MemoryUserStore, MemoryPasskeyStore>),
-        )
+    // Protected routes (require login)
+    let protected_routes = Router::new()
         .route(
             "/passkey",
             get(passkey::passkey_get::<MemoryUserStore, MemoryPasskeyStore>)
@@ -70,17 +60,31 @@ pub fn router<S: Clone + Send + Sync + 'static>() -> Result<Router<S>, WebauthnE
         )
         .route("/signout", get(signout::signout_get))
         .route("/signout", axum::routing::post(signout::signout_post))
+        .route_layer(login_required!(
+            MemoryUserStore,
+            login_url = "/webauthn/signin"
+        ));
+
+    // Public routes (no login required)
+    let public_routes = Router::new()
+        .route("/", get(redirect_to_signin))
+        .route(
+            "/signin",
+            get(signin::signin_get::<MemoryPasskeyStore>)
+                .post(signin::signin_post::<MemoryUserStore, MemoryPasskeyStore>),
+        )
+        .route(
+            "/signup",
+            get(signup::signup_get)
+                .post(signup::signup_post::<MemoryUserStore, MemoryPasskeyStore>),
+        );
+
+    Ok(public_routes
+        .merge(protected_routes)
         .layer(Extension(webauthn_url))
         .layer(Extension(webauthn))
         .layer(Extension(user_store))
-        .layer(Extension(passkey_store))
-        .layer(
-            SessionManagerLayer::new(MemoryStore::default())
-                .with_name("webauthnrs")
-                .with_same_site(SameSite::Lax)
-                .with_secure(true)
-                .with_expiry(Expiry::OnInactivity(Duration::seconds(360))),
-        ))
+        .layer(Extension(passkey_store)))
 }
 
 async fn redirect_to_signin() -> impl IntoResponse {

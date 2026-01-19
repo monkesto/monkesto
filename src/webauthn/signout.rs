@@ -6,9 +6,8 @@ use axum::{
 use maud::{DOCTYPE, Markup, html};
 
 use std::collections::HashMap;
-use tower_sessions::Session;
 
-use super::error::WebauthnError;
+use super::AuthSession;
 use crate::maud_header::header;
 
 fn signout_page(message: Option<&str>) -> Markup {
@@ -73,17 +72,18 @@ pub async fn signout_get() -> impl IntoResponse {
 }
 
 pub async fn signout_post(
-    session: Session,
+    mut auth_session: AuthSession,
     _form: Form<HashMap<String, String>>,
-) -> Result<impl IntoResponse, WebauthnError> {
-    // Clear the user session
-    let _ = session.remove_value("user_id").await;
+) -> impl IntoResponse {
+    // Log out via axum_login
+    let _ = auth_session.logout().await;
 
     // Clear any other auth-related session data
+    let session = &auth_session.session;
     let _ = session.remove_value("identifierless_auth_state").await;
     let _ = session.remove_value("auth_state").await;
     let _ = session.remove_value("reg_state").await;
 
     // Redirect to sign in page
-    Ok(Redirect::to("/webauthn/signin").into_response())
+    Redirect::to("/webauthn/signin")
 }

@@ -6,12 +6,10 @@ use axum::{
 use maud::{DOCTYPE, Markup, html};
 
 use std::collections::HashMap;
-use tower_sessions::Session;
-use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential};
-
 use std::sync::Arc;
-use webauthn_rs::prelude::Webauthn;
+use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Webauthn};
 
+use super::AuthSession;
 use super::authority::{Actor, Authority};
 use super::error::WebauthnError;
 use super::user::{UserId, UserStore};
@@ -163,12 +161,12 @@ fn not_logged_in_page() -> Markup {
 pub async fn passkey_get<U: UserStore + 'static, P: PasskeyStore + 'static>(
     Extension(user_store): Extension<Arc<U>>,
     Extension(passkey_store): Extension<Arc<P>>,
-    session: Session,
+    auth_session: AuthSession,
 ) -> impl IntoResponse {
     // Check if user is logged in
-    let user_id = match session.get::<UserId>("user_id").await {
-        Ok(Some(id)) => id,
-        Ok(None) | Err(_) => {
+    let user_id = match auth_session.user {
+        Some(ref user) => user.id,
+        None => {
             // Not logged in
             return (
                 StatusCode::OK,
@@ -200,14 +198,14 @@ pub async fn passkey_get<U: UserStore + 'static, P: PasskeyStore + 'static>(
 
 pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
     Extension(passkey_store): Extension<Arc<P>>,
-    session: Session,
+    auth_session: AuthSession,
     Path(passkey_id_str): Path<String>,
 ) -> Result<impl IntoResponse, WebauthnError> {
     // Check if user is logged in
-    let user_id = session
-        .get::<UserId>("user_id")
-        .await
-        .map_err(|_| WebauthnError::Unknown)?
+    let user_id = auth_session
+        .user
+        .as_ref()
+        .map(|u| u.id)
         .ok_or(WebauthnError::SessionExpired)?;
 
     // Parse the PasskeyId
@@ -233,15 +231,17 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
     Extension(webauthn): Extension<Arc<Webauthn>>,
     Extension(user_store): Extension<Arc<U>>,
     Extension(passkey_store): Extension<Arc<P>>,
-    session: Session,
+    auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, WebauthnError> {
     // Check if user is logged in
-    let user_id = session
-        .get::<UserId>("user_id")
-        .await
-        .map_err(|_| WebauthnError::Unknown)?
+    let user_id = auth_session
+        .user
+        .as_ref()
+        .map(|u| u.id)
         .ok_or(WebauthnError::SessionExpired)?;
+
+    let session = &auth_session.session;
 
     // Check if this is a credential submission or initial request
     if let Some(credential_json) = form.get("credential") {

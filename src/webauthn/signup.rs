@@ -6,12 +6,10 @@ use axum::{
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 use serde::Deserialize;
 use std::collections::HashMap;
-use tower_sessions::Session;
-use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid};
-
 use std::sync::Arc;
-use webauthn_rs::prelude::Webauthn;
+use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid, Webauthn};
 
+use super::AuthSession;
 use super::authority::{Actor, Authority};
 use super::error::WebauthnError;
 use super::passkey::{PasskeyEvent, PasskeyId, PasskeyStore};
@@ -244,7 +242,7 @@ async fn handle_signup_post<U: UserStore, P: PasskeyStore>(
     webauthn: Arc<Webauthn>,
     user_store: Arc<U>,
     passkey_store: Arc<P>,
-    session: Session,
+    auth_session: AuthSession,
     webauthn_url: String,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
@@ -256,7 +254,7 @@ async fn handle_signup_post<U: UserStore, P: PasskeyStore>(
             webauthn,
             user_store,
             passkey_store,
-            session,
+            auth_session,
             form_data,
             next,
         )
@@ -266,7 +264,7 @@ async fn handle_signup_post<U: UserStore, P: PasskeyStore>(
         handle_email_submission(
             webauthn,
             user_store,
-            session,
+            auth_session,
             webauthn_url,
             email.clone(),
             next,
@@ -280,7 +278,7 @@ async fn handle_signup_post<U: UserStore, P: PasskeyStore>(
 async fn handle_email_submission<U: UserStore>(
     webauthn: Arc<Webauthn>,
     user_store: Arc<U>,
-    session: Session,
+    auth_session: AuthSession,
     webauthn_url: String,
     email: String,
     next: Option<String>,
@@ -305,6 +303,7 @@ async fn handle_email_submission<U: UserStore>(
     let webauthn_uuid = Uuid::new_v4();
 
     // Clear any previous registration state
+    let session = &auth_session.session;
     let _ = session.remove_value("reg_state").await;
 
     // Start passkey registration
@@ -345,7 +344,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
     webauthn: Arc<Webauthn>,
     user_store: Arc<U>,
     passkey_store: Arc<P>,
-    session: Session,
+    mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
 ) -> Result<axum::response::Response, WebauthnError> {
@@ -358,6 +357,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
         serde_json::from_str(credential_json).map_err(|_| WebauthnError::InvalidInput)?;
 
     // Get registration state from session
+    let session = &auth_session.session;
     let (email, user_id, webauthn_uuid, reg_state, stored_next) = session
         .get::<(String, UserId, Uuid, PasskeyRegistration, Option<String>)>("reg_state")
         .await
@@ -384,7 +384,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 .record(UserEvent::Created {
                     id: user_id,
                     by: Authority::Direct(Actor::Anonymous),
-                    email: email_validated,
+                    email: email_validated.clone(),
                     webauthn_uuid,
                 })
                 .await
@@ -406,9 +406,13 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 return Ok(Redirect::to("/webauthn/signup?error=storage_error").into_response());
             }
 
-            // Set authenticated session for the newly registered user
-            session
-                .insert("user_id", user_id)
+            // Log in the newly registered user via axum_login
+            let user = super::user::User {
+                id: user_id,
+                email: email_validated,
+            };
+            auth_session
+                .login(&user)
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
 
@@ -438,7 +442,7 @@ pub async fn signup_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
     Extension(user_store): Extension<Arc<U>>,
     Extension(passkey_store): Extension<Arc<P>>,
     Extension(webauthn_url): Extension<String>,
-    session: Session,
+    auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let next = form.get("next").cloned();
@@ -446,7 +450,7 @@ pub async fn signup_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
         webauthn,
         user_store,
         passkey_store,
-        session,
+        auth_session,
         webauthn_url,
         form,
         next,

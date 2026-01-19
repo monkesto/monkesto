@@ -22,11 +22,23 @@ use nutype::nutype;
 )]
 pub struct Email(String);
 
-#[expect(dead_code)]
 #[derive(Debug, Clone)]
 pub struct User {
-    id: UserId,
-    email: Email,
+    pub id: UserId,
+    pub email: Email,
+}
+
+impl axum_login::AuthUser for User {
+    type Id = UserId;
+
+    fn id(&self) -> Self::Id {
+        self.id
+    }
+
+    fn session_auth_hash(&self) -> &[u8] {
+        // We don't invalidate sessions based on credential changes
+        &[]
+    }
 }
 
 #[cfg(test)]
@@ -189,6 +201,8 @@ pub trait UserStore: Send + Sync {
 
     async fn email_exists(&self, email: &str) -> Result<bool, Self::Error>;
 
+    async fn get_user(&self, user_id: &UserId) -> Result<Option<User>, Self::Error>;
+
     async fn get_user_email(&self, user_id: &UserId) -> Result<String, Self::Error>;
 
     async fn get_webauthn_uuid(&self, user_id: &UserId) -> Result<Uuid, Self::Error>;
@@ -199,6 +213,7 @@ use tokio::sync::Mutex;
 
 struct UserData {
     email_to_user_id: HashMap<String, UserId>,
+    user_id_to_email: HashMap<UserId, Email>,
     user_id_to_webauthn_uuid: HashMap<UserId, Uuid>,
     webauthn_uuid_to_user_id: HashMap<Uuid, UserId>,
 }
@@ -207,6 +222,7 @@ impl UserData {
     fn new() -> Self {
         Self {
             email_to_user_id: HashMap::new(),
+            user_id_to_email: HashMap::new(),
             user_id_to_webauthn_uuid: HashMap::new(),
             webauthn_uuid_to_user_id: HashMap::new(),
         }
@@ -214,6 +230,7 @@ impl UserData {
 }
 
 /// In-memory storage implementation for users using HashMap
+#[derive(Clone)]
 pub struct MemoryUserStore {
     data: Arc<Mutex<UserData>>,
 }
@@ -252,6 +269,7 @@ impl UserStore for MemoryUserStore {
                     return Err(UserStoreError::EmailAlreadyExists);
                 }
                 data.email_to_user_id.insert(email_str, id);
+                data.user_id_to_email.insert(id, email);
                 data.user_id_to_webauthn_uuid.insert(id, webauthn_uuid);
                 data.webauthn_uuid_to_user_id.insert(webauthn_uuid, id);
             }
@@ -259,6 +277,7 @@ impl UserStore for MemoryUserStore {
                 if let Some(webauthn_uuid) = data.user_id_to_webauthn_uuid.remove(&id) {
                     data.webauthn_uuid_to_user_id.remove(&webauthn_uuid);
                 }
+                data.user_id_to_email.remove(&id);
                 data.email_to_user_id.retain(|_, user_id| user_id != &id);
             }
         }
@@ -271,17 +290,19 @@ impl UserStore for MemoryUserStore {
         Ok(data.email_to_user_id.contains_key(email))
     }
 
+    async fn get_user(&self, user_id: &UserId) -> Result<Option<User>, UserStoreError> {
+        let data = self.data.lock().await;
+        Ok(data.user_id_to_email.get(user_id).map(|email| User {
+            id: *user_id,
+            email: email.clone(),
+        }))
+    }
+
     async fn get_user_email(&self, user_id: &UserId) -> Result<String, UserStoreError> {
         let data = self.data.lock().await;
-        data.email_to_user_id
-            .iter()
-            .find_map(|(email, id)| {
-                if id == user_id {
-                    Some(email.clone())
-                } else {
-                    None
-                }
-            })
+        data.user_id_to_email
+            .get(user_id)
+            .map(|e| e.to_string())
             .ok_or(UserStoreError::UserNotFound)
     }
 
@@ -291,5 +312,28 @@ impl UserStore for MemoryUserStore {
             .get(user_id)
             .copied()
             .ok_or(UserStoreError::UserNotFound)
+    }
+}
+
+/// Dummy credentials type - webauthn authentication happens outside axum_login's flow
+#[derive(Clone)]
+pub struct WebauthnCredentials;
+
+impl axum_login::AuthnBackend for MemoryUserStore {
+    type User = User;
+    type Credentials = WebauthnCredentials;
+    type Error = UserStoreError;
+
+    async fn authenticate(
+        &self,
+        _creds: Self::Credentials,
+    ) -> Result<Option<Self::User>, Self::Error> {
+        // Webauthn authentication is handled separately via challenge/response
+        // This method is not used - we call session.login() directly after webauthn verification
+        Ok(None)
+    }
+
+    async fn get_user(&self, user_id: &UserId) -> Result<Option<Self::User>, Self::Error> {
+        UserStore::get_user(self, user_id).await
     }
 }

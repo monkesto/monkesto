@@ -15,14 +15,17 @@ use axum::routing::post;
 use axum_login::{AuthManagerLayerBuilder, login_required};
 use dotenvy::dotenv;
 use std::env;
+use std::sync::Arc;
 use tower_http::services::ServeFile;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
 
 use crate::auth::UserMemoryStore;
 use crate::journal::JournalMemoryStore;
 use crate::journal::transaction::TransasctionMemoryStore;
+use crate::webauthn::MemoryUserStore as WebauthnUserStore;
 
 pub type AuthSession = axum_login::AuthSession<UserMemoryStore>;
+pub type WebauthnAuthSession = axum_login::AuthSession<WebauthnUserStore>;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -67,12 +70,19 @@ async fn main() {
     // */
 
     let user_store = UserMemoryStore::new();
+    let webauthn_user_store = Arc::new(WebauthnUserStore::new());
 
     let session_store = MemoryStore::default();
 
-    let session_layer = SessionManagerLayer::new(session_store);
+    let session_layer = SessionManagerLayer::new(session_store.clone());
 
     let auth_layer = AuthManagerLayerBuilder::new(user_store.clone(), session_layer).build();
+
+    // Separate auth layer for webauthn routes
+    let webauthn_session_layer = SessionManagerLayer::new(session_store);
+    let webauthn_auth_layer =
+        AuthManagerLayerBuilder::new((*webauthn_user_store).clone(), webauthn_session_layer)
+            .build();
 
     /*
     sqlx::query(
@@ -132,7 +142,9 @@ async fn main() {
         .route("/signup", get(auth::view::client_signup))
         .route("/signup", post(auth::create_user));
 
-    let webauthn_routes = webauthn::router().expect("Failed to initialize WebAuthn router");
+    let webauthn_routes = webauthn::router(webauthn_user_store)
+        .expect("Failed to initialize WebAuthn router")
+        .layer(webauthn_auth_layer);
 
     let journal_routes = Router::new()
         .route("/journal", get(journal::views::homepage::journal_list))

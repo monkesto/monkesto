@@ -6,14 +6,13 @@ use axum::{
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 use serde::Deserialize;
 use std::collections::HashMap;
-use tower_sessions::Session;
-use webauthn_rs::prelude::{PasskeyAuthentication, PublicKeyCredential};
-
 use std::sync::Arc;
-use webauthn_rs::prelude::Webauthn;
+use webauthn_rs::prelude::{PasskeyAuthentication, PublicKeyCredential, Webauthn};
 
+use super::AuthSession;
 use super::error::WebauthnError;
 use super::passkey::PasskeyStore;
+use super::user::UserStore;
 use crate::maud_header::header;
 
 #[derive(Deserialize)]
@@ -156,12 +155,13 @@ fn auth_page(
 async fn handle_signin_page<P: PasskeyStore>(
     webauthn: Arc<Webauthn>,
     passkey_store: Arc<P>,
-    session: Session,
+    auth_session: AuthSession,
     webauthn_url: String,
     query: Query<SigninQuery>,
     next: Option<String>,
 ) -> impl IntoResponse {
     // Clear any previous auth state
+    let session = auth_session.session;
     let _ = session.remove_value("auth_state").await;
     let _ = session.remove_value("usernameless_auth_state").await;
 
@@ -231,10 +231,11 @@ async fn handle_signin_page<P: PasskeyStore>(
     )
 }
 
-async fn handle_signin_completion<P: PasskeyStore>(
+async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
     webauthn: Arc<Webauthn>,
+    user_store: Arc<U>,
     passkey_store: Arc<P>,
-    session: Session,
+    mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
 ) -> Result<axum::response::Response, WebauthnError> {
@@ -248,6 +249,7 @@ async fn handle_signin_completion<P: PasskeyStore>(
         serde_json::from_str(credential_json).map_err(|_| WebauthnError::InvalidInput)?;
 
     // Get auth state from session (checking both possible keys for compatibility)
+    let session = &auth_session.session;
     let auth_state = session
         .get::<PasskeyAuthentication>("identifierless_auth_state")
         .await
@@ -273,9 +275,15 @@ async fn handle_signin_completion<P: PasskeyStore>(
                 .map_err(|_| WebauthnError::Unknown)?
                 .ok_or(WebauthnError::UserNotFound)?;
 
-            // Set authenticated session
-            session
-                .insert("user_id", user_id)
+            // Get the user and log them in via axum_login
+            let user = user_store
+                .get_user(&user_id)
+                .await
+                .map_err(|_| WebauthnError::Unknown)?
+                .ok_or(WebauthnError::UserNotFound)?;
+
+            auth_session
+                .login(&user)
                 .await
                 .map_err(|_| WebauthnError::Unknown)?;
 
@@ -298,21 +306,39 @@ pub async fn signin_get<P: PasskeyStore + 'static>(
     Extension(webauthn): Extension<Arc<Webauthn>>,
     Extension(passkey_store): Extension<Arc<P>>,
     Extension(webauthn_url): Extension<String>,
-    session: Session,
+    auth_session: AuthSession,
     query: Query<SigninQuery>,
 ) -> impl IntoResponse {
     let next = query.next.clone();
-    handle_signin_page(webauthn, passkey_store, session, webauthn_url, query, next).await
+    handle_signin_page(
+        webauthn,
+        passkey_store,
+        auth_session,
+        webauthn_url,
+        query,
+        next,
+    )
+    .await
 }
 
-pub async fn signin_post<P: PasskeyStore + 'static>(
+pub async fn signin_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
     Extension(webauthn): Extension<Arc<Webauthn>>,
+    Extension(user_store): Extension<Arc<U>>,
     Extension(passkey_store): Extension<Arc<P>>,
-    session: Session,
+    auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let next = form.get("next").cloned();
-    match handle_signin_completion(webauthn, passkey_store, session, form, next).await {
+    match handle_signin_completion(
+        webauthn,
+        user_store,
+        passkey_store,
+        auth_session,
+        form,
+        next,
+    )
+    .await
+    {
         Ok(response) => response.into_response(),
         Err(error) => error.into_response(),
     }
