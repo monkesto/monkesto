@@ -1,5 +1,5 @@
 use crate::AuthSession;
-use crate::ident::{JournalId, UserId};
+use crate::ident::UserId;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::RedirectOnError;
 use crate::webauthn::user::Email;
@@ -10,7 +10,6 @@ use sqlx::Decode;
 use sqlx::Encode;
 use sqlx::Type;
 use sqlx::postgres::PgValueRef;
-use std::collections::HashSet;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum UserEvent {
@@ -18,21 +17,6 @@ pub enum UserEvent {
         id: UserId,
         email: Email,
         pw_hash: String,
-    },
-    CreatedJournal {
-        journal_id: JournalId,
-    },
-    InvitedToJournal {
-        journal_id: JournalId,
-    },
-    AcceptedJournalInvite {
-        journal_id: JournalId,
-    },
-    DeclinedJournalInvite {
-        journal_id: JournalId,
-    },
-    RemovedFromJournal {
-        id: JournalId,
     },
     Deleted,
 }
@@ -66,8 +50,6 @@ pub struct UserState {
     pub email: Email,
     pub pw_hash: String,
     pub session_hash: [u8; 16],
-    pub pending_journal_invites: HashSet<JournalId>,
-    pub associated_journals: HashSet<JournalId>,
     pub deleted: bool,
 }
 
@@ -91,21 +73,6 @@ impl UserState {
                 self.email = email;
                 self.pw_hash = pw_hash;
             }
-            UserEvent::CreatedJournal { journal_id } => {
-                _ = self.associated_journals.insert(journal_id)
-            }
-            UserEvent::InvitedToJournal { journal_id } => {
-                _ = self.pending_journal_invites.insert(journal_id)
-            }
-            UserEvent::DeclinedJournalInvite { journal_id } => {
-                _ = self.pending_journal_invites.remove(&journal_id)
-            }
-            UserEvent::AcceptedJournalInvite { journal_id } => {
-                if self.pending_journal_invites.contains(&journal_id) {
-                    _ = self.associated_journals.insert(journal_id);
-                }
-            }
-            UserEvent::RemovedFromJournal { id } => _ = self.associated_journals.remove(&id),
             UserEvent::Deleted => self.deleted = true,
         }
     }
@@ -120,15 +87,18 @@ pub fn get_user(session: AuthSession) -> Result<UserState, Redirect> {
 
 #[cfg(test)]
 mod test_user {
-    use crate::ident::JournalId;
+    use crate::ident::UserId;
+    use crate::webauthn::user::Email;
     use sqlx::{PgPool, prelude::FromRow};
 
     use super::UserEvent;
 
     #[sqlx::test]
     async fn test_encode_decode_userevent(pool: PgPool) {
-        let original_event = UserEvent::CreatedJournal {
-            journal_id: JournalId::new(),
+        let original_event = UserEvent::Created {
+            id: UserId::new(),
+            email: Email::try_new("test@example.com").expect("valid email"),
+            pw_hash: "hash".to_string(),
         };
 
         sqlx::query(

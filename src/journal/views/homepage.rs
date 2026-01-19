@@ -7,7 +7,7 @@ use crate::ident::JournalId;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::journal::layout::maud_layout;
-use crate::known_errors::{KnownErrors, UrlError};
+use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
 use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use maud::{Markup, html};
@@ -28,7 +28,11 @@ pub async fn journal_list(
 ) -> Result<Markup, Redirect> {
     let user = user::get_user(session)?;
 
-    let journals = user.associated_journals;
+    let journals = state
+        .journal_store
+        .get_user_journals(&user.id)
+        .await
+        .or_redirect("/journal")?;
 
     let content = html! {
         @for journal_id in journals {

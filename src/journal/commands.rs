@@ -2,14 +2,13 @@ use super::JournalEvent;
 use crate::AppState;
 use crate::AuthSession;
 use crate::auth::UserStore;
-use crate::auth::{self, user};
+use crate::auth::user;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::journal::Permissions;
 use crate::journal::{JournalStore, JournalTenantInfo};
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use crate::webauthn::user::Email;
-use auth::user::UserEvent;
 use axum::Form;
 use axum::extract::Path;
 use axum::extract::State;
@@ -46,12 +45,6 @@ pub async fn create_journal(
             creator: user.id,
             created_at: Utc::now(),
         })
-        .await
-        .or_redirect(CALLBACK_URL)?;
-
-    state
-        .user_store
-        .push_event(&user.id, UserEvent::CreatedJournal { journal_id })
         .await
         .or_redirect(CALLBACK_URL)?;
 
@@ -120,19 +113,6 @@ pub async fn invite_user(
                         tenant_info,
                     },
                 )
-                .await
-                .or_redirect(callback_url)?;
-
-            state
-                .user_store
-                .push_event(&invitee_id, UserEvent::InvitedToJournal { journal_id })
-                .await
-                .or_redirect(callback_url)?;
-
-            //TODO: add a menu for the user to accept or decline the invitation
-            state
-                .user_store
-                .push_event(&invitee_id, UserEvent::AcceptedJournalInvite { journal_id })
                 .await
                 .or_redirect(callback_url)?;
         } else {

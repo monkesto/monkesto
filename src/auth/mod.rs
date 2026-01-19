@@ -1,12 +1,10 @@
 pub mod user;
 pub mod view;
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::AppState;
 use crate::AuthSession;
-use crate::ident::JournalId;
 use crate::ident::UserId;
 use crate::known_errors::MonkestoResult;
 use crate::known_errors::{KnownErrors, RedirectOnError};
@@ -38,17 +36,6 @@ pub trait UserStore: Clone + Send + Sync + AuthnBackend {
     async fn get_user_state(&self, user_id: &UserId) -> MonkestoResult<UserState>;
 
     async fn lookup_user_id(&self, username: &Email) -> MonkestoResult<Option<UserId>>;
-
-    async fn get_pending_journals(&self, user_id: &UserId) -> MonkestoResult<HashSet<JournalId>> {
-        Ok(self.get_user_state(user_id).await?.pending_journal_invites)
-    }
-
-    async fn get_associated_journals(
-        &self,
-        user_id: &UserId,
-    ) -> MonkestoResult<HashSet<JournalId>> {
-        Ok(self.get_user_state(user_id).await?.associated_journals)
-    }
 
     async fn get_email(&self, user_id: &UserId) -> MonkestoResult<Email> {
         Ok(self.get_user_state(user_id).await?.email)
@@ -146,8 +133,6 @@ impl UserStore for UserMemoryStore {
                 email: email.clone(),
                 pw_hash,
                 session_hash,
-                pending_journal_invites: HashSet::new(),
-                associated_journals: HashSet::new(),
                 deleted: false,
             };
 

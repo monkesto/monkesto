@@ -29,6 +29,9 @@ pub trait JournalStore: Clone + Send + Sync + 'static {
     /// returns the cached state of the user
     async fn get_journal(&self, journal_id: &JournalId) -> MonkestoResult<JournalState>;
 
+    /// returns all journals that a user is a member of (owner or tenant)
+    async fn get_user_journals(&self, user_id: &UserId) -> MonkestoResult<Vec<JournalId>>;
+
     async fn get_permissions(
         &self,
         journal_id: &JournalId,
@@ -96,6 +99,8 @@ pub trait JournalStore: Clone + Send + Sync + 'static {
 pub struct JournalMemoryStore {
     events: Arc<DashMap<JournalId, Vec<JournalEvent>>>,
     journal_table: Arc<DashMap<JournalId, JournalState>>,
+    /// Index of user_id -> set of journal_ids they belong to
+    user_journals: Arc<DashMap<UserId, std::collections::HashSet<JournalId>>>,
 }
 
 #[allow(dead_code)]
@@ -104,6 +109,7 @@ impl JournalMemoryStore {
         Self {
             events: Arc::new(DashMap::new()),
             journal_table: Arc::new(DashMap::new()),
+            user_journals: Arc::new(DashMap::new()),
         }
     }
 }
@@ -132,6 +138,10 @@ impl JournalStore for JournalMemoryStore {
                 deleted: false,
             };
             self.journal_table.insert(id, state);
+
+            // Add creator to user_journals index
+            self.user_journals.entry(creator).or_default().insert(id);
+
             Ok(())
         } else {
             Err(KnownErrors::InvalidInput)
@@ -142,6 +152,14 @@ impl JournalStore for JournalMemoryStore {
         if let Some(mut events) = self.events.get_mut(journal_id)
             && let Some(mut state) = self.journal_table.get_mut(journal_id)
         {
+            // Update user_journals index for membership changes
+            if let JournalEvent::AddedTenant { id: user_id, .. } = &event {
+                self.user_journals
+                    .entry(*user_id)
+                    .or_default()
+                    .insert(*journal_id);
+            }
+
             state.apply(event.clone());
             events.push(event);
 
@@ -156,6 +174,14 @@ impl JournalStore for JournalMemoryStore {
             .get(journal_id)
             .map(|state| (*state).clone())
             .ok_or(KnownErrors::InvalidJournal)
+    }
+
+    async fn get_user_journals(&self, user_id: &UserId) -> MonkestoResult<Vec<JournalId>> {
+        Ok(self
+            .user_journals
+            .get(user_id)
+            .map(|set| set.iter().copied().collect())
+            .unwrap_or_default())
     }
 }
 
