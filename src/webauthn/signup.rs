@@ -415,7 +415,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 .map_err(|e| WebauthnError::LoginFailed(e.to_string()))?;
 
             // Redirect to next or default
-            let redirect_to = next.as_deref().unwrap_or("/passkey");
+            let redirect_to = next.as_deref().unwrap_or("/journal");
             Ok(Redirect::to(redirect_to).into_response())
         }
         Err(_) => {
