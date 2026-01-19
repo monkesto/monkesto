@@ -145,7 +145,7 @@ macro_rules! id {
     };
 }
 
-id!(UserId, Ident::new10());
+id!(UserId, Ident::new16());
 
 id!(JournalId, Ident::new10());
 
