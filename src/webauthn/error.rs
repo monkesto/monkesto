@@ -7,8 +7,6 @@ use webauthn_rs::prelude::WebauthnError as WebauthnCoreError;
 
 #[derive(Error, Debug)]
 pub enum WebauthnError {
-    #[error("unknown webauthn error")]
-    Unknown,
     #[error("User Not Found")]
     UserNotFound,
     #[error("Authentication session expired")]
@@ -23,7 +21,14 @@ pub enum WebauthnError {
     InvalidUrl(#[from] url::ParseError),
     #[error("BASE_URL must have a valid host for WebAuthn rp_id")]
     InvalidHost,
+    #[error("Store operation failed: {0}")]
+    StoreError(String),
+    #[error("Login failed: {0}")]
+    LoginFailed(String),
+    #[error("Serialization failed: {0}")]
+    SerializationError(#[from] serde_json::Error),
 }
+
 impl IntoResponse for WebauthnError {
     fn into_response(self) -> Response {
         match self {
@@ -34,19 +39,37 @@ impl IntoResponse for WebauthnError {
             WebauthnError::InvalidInput => {
                 (StatusCode::BAD_REQUEST, "Invalid Input").into_response()
             }
-            _ => {
-                let body = match self {
-                    WebauthnError::UserNotFound => "User Not Found",
-                    WebauthnError::Unknown => "Unknown Error",
-                    WebauthnError::InvalidSessionState(_) => "Deserialising Session failed",
-                    WebauthnError::WebauthnInit(_) => "WebAuthn initialization failed",
-                    WebauthnError::InvalidUrl(_) => "Invalid URL for WebAuthn origin",
-                    WebauthnError::InvalidHost => {
-                        "BASE_URL must have a valid host for WebAuthn rp_id"
-                    }
-                    _ => unreachable!(),
-                };
-                (StatusCode::INTERNAL_SERVER_ERROR, body).into_response()
+            WebauthnError::UserNotFound => {
+                (StatusCode::NOT_FOUND, "User Not Found").into_response()
+            }
+            WebauthnError::InvalidSessionState(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Deserialising Session failed",
+            )
+                .into_response(),
+            WebauthnError::WebauthnInit(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "WebAuthn initialization failed",
+            )
+                .into_response(),
+            WebauthnError::InvalidUrl(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Invalid URL for WebAuthn origin",
+            )
+                .into_response(),
+            WebauthnError::InvalidHost => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "BASE_URL must have a valid host for WebAuthn rp_id",
+            )
+                .into_response(),
+            WebauthnError::StoreError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Store operation failed").into_response()
+            }
+            WebauthnError::LoginFailed(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Login failed").into_response()
+            }
+            WebauthnError::SerializationError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Serialization failed").into_response()
             }
         }
     }

@@ -252,8 +252,7 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
     let session = &auth_session.session;
     let auth_state = session
         .get::<PasskeyAuthentication>("identifierless_auth_state")
-        .await
-        .map_err(|_| WebauthnError::Unknown)?
+        .await?
         .or_else(|| {
             // Try the regular auth_state key as fallback - this is sync so we can't await here
             // For now, just use the identifierless_auth_state
@@ -272,20 +271,20 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
             let (user_id, _passkey_id) = passkey_store
                 .find_user_by_credential(auth_result.cred_id().as_slice())
                 .await
-                .map_err(|_| WebauthnError::Unknown)?
+                .map_err(|e| WebauthnError::StoreError(e.to_string()))?
                 .ok_or(WebauthnError::UserNotFound)?;
 
             // Get the user and log them in via axum_login
             let user = user_store
                 .get_user(&user_id)
                 .await
-                .map_err(|_| WebauthnError::Unknown)?
+                .map_err(|e| WebauthnError::StoreError(e.to_string()))?
                 .ok_or(WebauthnError::UserNotFound)?;
 
             auth_session
                 .login(&user)
                 .await
-                .map_err(|_| WebauthnError::Unknown)?;
+                .map_err(|e| WebauthnError::LoginFailed(e.to_string()))?;
 
             // Redirect to next or default
             let redirect_to = next.as_deref().unwrap_or("/webauthn/passkey");

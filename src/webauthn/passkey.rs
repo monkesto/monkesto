@@ -221,7 +221,7 @@ pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
             by: Authority::Direct(Actor::User(user_id)),
         })
         .await
-        .map_err(|_| WebauthnError::Unknown)?;
+        .map_err(|e| WebauthnError::StoreError(e.to_string()))?;
 
     // Redirect back to passkey page
     Ok(Redirect::to("/webauthn/passkey").into_response())
@@ -252,8 +252,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
         // Get registration state from session
         let reg_state = session
             .get::<PasskeyRegistration>("add_passkey_reg_state")
-            .await
-            .map_err(|_| WebauthnError::Unknown)?
+            .await?
             .ok_or(WebauthnError::SessionExpired)?;
 
         // Verify the registration
@@ -308,7 +307,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
         let webauthn_uuid = user_store
             .get_webauthn_uuid(&user_id)
             .await
-            .map_err(|_| WebauthnError::Unknown)?;
+            .map_err(|e| WebauthnError::StoreError(e.to_string()))?;
 
         let exclude_credentials: Vec<_> = existing_passkeys
             .iter()
@@ -327,14 +326,10 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
         ) {
             Ok((ccr, reg_state)) => {
                 // Store registration state in session
-                session
-                    .insert("add_passkey_reg_state", reg_state)
-                    .await
-                    .map_err(|_| WebauthnError::Unknown)?;
+                session.insert("add_passkey_reg_state", reg_state).await?;
 
                 // Serialize challenge to JSON
-                let challenge_json =
-                    serde_json::to_string(&ccr).map_err(|_| WebauthnError::Unknown)?;
+                let challenge_json = serde_json::to_string(&ccr)?;
 
                 // Return challenge page
                 let markup = add_passkey_challenge_page(&email, &challenge_json);
@@ -498,7 +493,7 @@ pub enum PasskeyStoreError {
 #[async_trait::async_trait]
 pub trait PasskeyStore: Send + Sync {
     type EventId: Send + Sync + Clone;
-    type Error;
+    type Error: std::fmt::Display;
 
     async fn record(&self, event: PasskeyEvent) -> Result<Self::EventId, Self::Error>;
 

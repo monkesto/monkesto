@@ -321,11 +321,10 @@ async fn handle_email_submission<U: UserStore>(
                         next.clone(),
                     ),
                 )
-                .await
-                .map_err(|_| WebauthnError::Unknown)?;
+                .await?;
 
             // Serialize challenge to JSON
-            let challenge_json = serde_json::to_string(&ccr).map_err(|_| WebauthnError::Unknown)?;
+            let challenge_json = serde_json::to_string(&ccr)?;
 
             // Return challenge page
             let markup = challenge_page(&webauthn_url, &email, &challenge_json, next.as_deref());
@@ -360,8 +359,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
     let session = &auth_session.session;
     let (email, user_id, webauthn_uuid, reg_state, stored_next) = session
         .get::<(String, UserId, Uuid, PasskeyRegistration, Option<String>)>("reg_state")
-        .await
-        .map_err(|_| WebauthnError::Unknown)?
+        .await?
         .ok_or(WebauthnError::SessionExpired)?;
 
     // Use next from form if provided, otherwise fall back to stored next
@@ -414,7 +412,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             auth_session
                 .login(&user)
                 .await
-                .map_err(|_| WebauthnError::Unknown)?;
+                .map_err(|e| WebauthnError::LoginFailed(e.to_string()))?;
 
             // Redirect to next or default
             let redirect_to = next.as_deref().unwrap_or("/webauthn/passkey");

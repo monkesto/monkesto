@@ -195,7 +195,7 @@ pub enum UserStoreError {
 #[async_trait::async_trait]
 pub trait UserStore: Send + Sync {
     type EventId: Send + Sync + Clone;
-    type Error;
+    type Error: std::fmt::Display;
 
     async fn record(&self, event: UserEvent) -> Result<Self::EventId, Self::Error>;
 
