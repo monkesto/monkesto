@@ -114,9 +114,14 @@ pub fn router<S: Clone + Send + Sync + 'static>(
     // Protected routes (require login)
     let protected_routes = Router::new()
         .route(
+            "/me",
+            get(passkey::passkey_get::<MemoryUserStore, MemoryPasskeyStore>),
+        )
+        .route(
             "/passkey",
-            get(passkey::passkey_get::<MemoryUserStore, MemoryPasskeyStore>)
-                .post(passkey::create_passkey_post::<MemoryUserStore, MemoryPasskeyStore>),
+            axum::routing::post(
+                passkey::create_passkey_post::<MemoryUserStore, MemoryPasskeyStore>,
+            ),
         )
         .route(
             "/passkey/{id}/delete",

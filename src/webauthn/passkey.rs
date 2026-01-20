@@ -224,7 +224,7 @@ pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
         .map_err(|e| WebauthnError::StoreError(e.to_string()))?;
 
     // Redirect back to passkey page
-    Ok(Redirect::to("/passkey").into_response())
+    Ok(Redirect::to("/me").into_response())
 }
 
 pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
@@ -275,16 +275,16 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
                     .await
                     .is_err()
                 {
-                    return Ok(Redirect::to("/passkey?error=storage_error").into_response());
+                    return Ok(Redirect::to("/me?error=storage_error").into_response());
                 }
 
                 // Redirect back to passkey management page
-                Ok(Redirect::to("/passkey").into_response())
+                Ok(Redirect::to("/me").into_response())
             }
             Err(_) => {
                 // Clear the registration state on failure
                 let _ = session.remove_value("add_passkey_reg_state").await;
-                Ok(Redirect::to("/passkey?error=registration_failed").into_response())
+                Ok(Redirect::to("/me?error=registration_failed").into_response())
             }
         }
     } else {
@@ -338,7 +338,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
                 )
                     .into_response())
             }
-            Err(_) => Ok(Redirect::to("/passkey?error=registration_failed").into_response()),
+            Err(_) => Ok(Redirect::to("/me?error=registration_failed").into_response()),
         }
     }
 }
