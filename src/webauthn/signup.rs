@@ -8,6 +8,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid, Webauthn};
+use webauthn_rs_proto::{AuthenticatorSelectionCriteria, ResidentKeyRequirement};
 
 use super::AuthSession;
 use super::WebauthnError;
@@ -308,7 +309,14 @@ async fn handle_email_submission<U: UserStore>(
 
     // Start passkey registration
     match webauthn.start_passkey_registration(webauthn_uuid, &email, &email, exclude_credentials) {
-        Ok((ccr, reg_state)) => {
+        Ok((mut ccr, reg_state)) => {
+            ccr.public_key.authenticator_selection = Some(AuthenticatorSelectionCriteria {
+                authenticator_attachment: None,
+                resident_key: Some(ResidentKeyRequirement::Required),
+                require_resident_key: true,
+                user_verification: webauthn_rs_proto::UserVerificationPolicy::Required,
+            });
+
             // Store registration state in session (including next for the credential submission step)
             session
                 .insert(

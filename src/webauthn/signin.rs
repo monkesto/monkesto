@@ -180,9 +180,9 @@ async fn handle_signin_page<P: PasskeyStore>(
     } else {
         // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
         match webauthn.start_passkey_authentication(&all_credentials) {
-            Ok((rcr, auth_state)) => {
+            Ok((mut rcr, auth_state)) => {
                 // Clear allowCredentials for true identifier-less experience
-                // rcr.public_key.allow_credentials.clear();
+                rcr.public_key.allow_credentials.clear();
 
                 // Store auth state in session
                 match session
