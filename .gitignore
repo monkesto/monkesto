@@ -26,3 +26,5 @@ node_modules/
 /playwright/.auth/
 
 .claude/settings.local.json
+
+.sessions/

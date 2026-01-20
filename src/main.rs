@@ -13,9 +13,11 @@ use axum::routing::get;
 use axum_login::{AuthManagerLayerBuilder, login_required};
 use dotenvy::dotenv;
 use std::env;
+
 use std::sync::Arc;
 use tower_http::services::ServeFile;
-use tower_sessions::{MemoryStore, SessionManagerLayer};
+use tower_sessions::SessionManagerLayer;
+use tower_sessions_file_store::FileSessionStorage;
 
 use crate::journal::JournalMemoryStore;
 use crate::journal::transaction::TransasctionMemoryStore;
@@ -48,7 +50,7 @@ async fn main() {
 
     let user_store = Arc::new(MemoryUserStore::new());
 
-    let session_store = MemoryStore::default();
+    let session_store = FileSessionStorage::new();
     let session_layer = SessionManagerLayer::new(session_store);
     let auth_layer = AuthManagerLayerBuilder::new((*user_store).clone(), session_layer).build();
 
