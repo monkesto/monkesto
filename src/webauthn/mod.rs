@@ -1,4 +1,5 @@
 mod authority;
+mod me;
 mod passkey;
 mod signin;
 mod signout;
@@ -115,7 +116,7 @@ pub fn router<S: Clone + Send + Sync + 'static>(
     let protected_routes = Router::new()
         .route(
             "/me",
-            get(passkey::passkey_get::<MemoryUserStore, MemoryPasskeyStore>),
+            get(me::me_get::<MemoryUserStore, MemoryPasskeyStore>),
         )
         .route(
             "/passkey",
