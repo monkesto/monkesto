@@ -49,6 +49,7 @@ async fn main() {
     let addr = env::var("SITE_ADDR").unwrap_or("0.0.0.0:3000".to_string());
 
     let user_store = Arc::new(MemoryUserStore::new());
+    user_store.seed_dev_users().await;
 
     let session_store = FileSessionStorage::new();
     let session_layer = SessionManagerLayer::new(session_store);

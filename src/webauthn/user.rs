@@ -252,6 +252,60 @@ impl MemoryUserStore {
             data: Arc::new(Mutex::new(UserData::new())),
         }
     }
+
+    /// The list of dev user emails (stable across restarts).
+    pub const DEV_USERS: &'static [&'static str] =
+        &["pacioli@monkesto.com", "wedgwood@monkesto.com"];
+
+    /// Seeds two dev users for local development.
+    /// Uses stable IDs so sessions remain valid across restarts.
+    pub async fn seed_dev_users(&self) {
+        use super::authority::{Actor, Authority};
+        use std::str::FromStr;
+
+        // Stable IDs for dev users - these are valid cuid2 format (16 chars, lowercase alphanumeric)
+        // Generated once and hardcoded to ensure session stability across restarts
+        let dev_users = [
+            (
+                "pacioli@monkesto.com",
+                UserId::from_str("zk8m3p5q7r2n4v6x").expect("stable dev user id"),
+                Uuid::parse_str("a1b2c3d4-e5f6-4a5b-8c9d-0e1f2a3b4c5d")
+                    .expect("stable dev user uuid"),
+            ),
+            (
+                "wedgwood@monkesto.com",
+                UserId::from_str("yj7l2o4p6q8s0u1w").expect("stable dev user id"),
+                Uuid::parse_str("b2c3d4e5-f6a7-5b6c-9d0e-1f2a3b4c5d6e")
+                    .expect("stable dev user uuid"),
+            ),
+        ];
+
+        for (email, user_id, webauthn_uuid) in dev_users {
+            if let Ok(false) = self.email_exists(email).await {
+                let _ = self
+                    .record(UserEvent::Created {
+                        id: user_id,
+                        by: Authority::Direct(Actor::System),
+                        email: Email::try_new(email).expect("dev email should be valid"),
+                        webauthn_uuid,
+                    })
+                    .await;
+            }
+        }
+    }
+
+    /// Returns dev users for displaying in the dev login form.
+    pub async fn get_dev_users(&self) -> Vec<User> {
+        let mut users = Vec::new();
+        for email in Self::DEV_USERS {
+            if let Ok(Some(user_id)) = self.lookup_user_id(email).await
+                && let Ok(Some(user)) = UserStore::get_user(self, &user_id).await
+            {
+                users.push(user);
+            }
+        }
+        users
+    }
 }
 
 impl Default for MemoryUserStore {

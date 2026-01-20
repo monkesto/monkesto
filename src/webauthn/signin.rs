@@ -12,7 +12,7 @@ use webauthn_rs::prelude::{PasskeyAuthentication, PublicKeyCredential, Webauthn}
 use super::AuthSession;
 use super::WebauthnError;
 use super::passkey::PasskeyStore;
-use super::user::UserStore;
+use super::user::{User, UserStore};
 use crate::maud_header::header;
 
 #[derive(Deserialize)]
@@ -26,6 +26,7 @@ fn auth_page(
     challenge_data: Option<&str>,
     error_message: Option<&str>,
     next: Option<&str>,
+    dev_users: &[User],
 ) -> Markup {
     header(html! {
         (DOCTYPE)
@@ -145,6 +146,29 @@ fn auth_page(
                                 p id="flash_message" class="text-center text-sm/6 text-gray-500 dark:text-gray-400" {}
                             }
                         }
+
+                        // Dev login section (only shown if dev users exist)
+                        @if !dev_users.is_empty() {
+                            div class="mt-10 border-t border-gray-200 dark:border-gray-700" {}
+                            p style="margin-top: 1rem; margin-bottom: 1rem;" class="text-center text-xs text-gray-400 dark:text-gray-500" {
+                                "Dev Login"
+                            }
+                            div class="space-y-2" {
+                                @for user in dev_users {
+                                    form method="POST" action="/signin" {
+                                        input type="hidden" name="dev_user_id" value=(user.id.to_string());
+                                        @if let Some(next) = next {
+                                            input type="hidden" name="next" value=(next);
+                                        }
+                                        button
+                                            type="submit"
+                                            class="flex w-full justify-center rounded-md bg-gray-100 px-3 py-1.5 text-sm/6 font-medium text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700" {
+                                            (user.email.to_string())
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -155,6 +179,7 @@ fn auth_page(
 async fn handle_signin_page<P: PasskeyStore>(
     webauthn: Arc<Webauthn>,
     passkey_store: Arc<P>,
+    user_store: Arc<super::MemoryUserStore>,
     auth_session: AuthSession,
     webauthn_url: String,
     query: Query<SigninQuery>,
@@ -218,11 +243,15 @@ async fn handle_signin_page<P: PasskeyStore>(
         _ => None,
     });
 
+    // Get dev users for the dev login form
+    let dev_users = user_store.get_dev_users().await;
+
     let markup = auth_page(
         &webauthn_url,
         challenge_data.as_deref(),
         error_message,
         next.as_deref(),
+        &dev_users,
     );
     (
         StatusCode::OK,
@@ -304,6 +333,7 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
 pub async fn signin_get<P: PasskeyStore + 'static>(
     Extension(webauthn): Extension<Arc<Webauthn>>,
     Extension(passkey_store): Extension<Arc<P>>,
+    Extension(user_store): Extension<Arc<super::MemoryUserStore>>,
     Extension(webauthn_url): Extension<String>,
     auth_session: AuthSession,
     query: Query<SigninQuery>,
@@ -312,6 +342,7 @@ pub async fn signin_get<P: PasskeyStore + 'static>(
     handle_signin_page(
         webauthn,
         passkey_store,
+        user_store,
         auth_session,
         webauthn_url,
         query,
@@ -328,6 +359,12 @@ pub async fn signin_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let next = form.get("next").cloned();
+
+    // Check for dev login first
+    if let Some(dev_user_id) = form.get("dev_user_id") {
+        return handle_dev_login(user_store, auth_session, dev_user_id, next).await;
+    }
+
     match handle_signin_completion(
         webauthn,
         user_store,
@@ -341,4 +378,40 @@ pub async fn signin_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
         Ok(response) => response.into_response(),
         Err(error) => error.into_response(),
     }
+}
+
+async fn handle_dev_login<U: UserStore>(
+    user_store: Arc<U>,
+    mut auth_session: AuthSession,
+    dev_user_id: &str,
+    next: Option<String>,
+) -> axum::response::Response {
+    use super::user::UserId;
+    use std::str::FromStr;
+
+    // Parse the user ID
+    let user_id = match UserId::from_str(dev_user_id) {
+        Ok(id) => id,
+        Err(_) => return Redirect::to("/signin?error=auth_failed").into_response(),
+    };
+
+    // Look up the user
+    let user = match user_store.get_user(&user_id).await {
+        Ok(Some(user)) => user,
+        _ => return Redirect::to("/signin?error=auth_failed").into_response(),
+    };
+
+    // Verify this is a dev user
+    if !super::MemoryUserStore::DEV_USERS.contains(&user.email.as_ref()) {
+        return Redirect::to("/signin?error=auth_failed").into_response();
+    }
+
+    // Log them in
+    if auth_session.login(&user).await.is_err() {
+        return Redirect::to("/signin?error=auth_failed").into_response();
+    }
+
+    // Redirect to next or default
+    let redirect_to = next.as_deref().unwrap_or("/journal");
+    Redirect::to(redirect_to).into_response()
 }

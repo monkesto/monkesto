@@ -3,7 +3,7 @@ pub use crate::ident::UserId;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Actor {
     User(UserId),
-    // System,
+    System,
     Anonymous,
 }
 
