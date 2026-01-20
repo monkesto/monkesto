@@ -91,7 +91,7 @@ impl KnownErrors {
         // to_allocvec should be infallible
         let bytes = to_allocvec(self).expect("postcard error serialization failed");
 
-        general_purpose::URL_SAFE.encode(bytes)
+        general_purpose::URL_SAFE_NO_PAD.encode(bytes)
     }
 
     pub fn redirect(&self, page: &str) -> Redirect {
@@ -99,7 +99,7 @@ impl KnownErrors {
     }
 
     pub fn decode(err: &str) -> Self {
-        general_purpose::URL_SAFE
+        general_purpose::URL_SAFE_NO_PAD
             .decode(err)
             .ok()
             .and_then(|bytes| postcard::from_bytes(&bytes).ok())
