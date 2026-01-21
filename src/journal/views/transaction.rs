@@ -146,194 +146,96 @@ pub async fn transaction_list_page(
     };
 
     let content = html! {
-        @for transaction in transactions() {
-            a
-            href=(format!("/journal/{}/transaction/{}", id, transaction.id.to_string()))
-            class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                div class="space-y-3" {
-                    div class="space-y-2" {
-                        @for entry in transaction.entries {
-                            @let entry_amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
+        @if let Ok(ref journal_state) = journal_state_res {
+            @for transaction in transactions() {
+                a
+                href=(format!("/journal/{}/transaction/{}", id, transaction.id.to_string()))
+                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                    div class="space-y-3" {
+                        div class="space-y-2" {
+                            @for entry in transaction.entries {
+                                @let entry_amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
 
-                            div class="flex justify-between items-center" {
-                                span class="text-base font-medium text-gray-900 dark:text-white" {
-                                    (entry.account.name)
-                                }
+                                div class="flex justify-between items-center" {
+                                    span class="text-base font-medium text-gray-900 dark:text-white" {
+                                        (entry.account.name)
+                                    }
 
-                                span class="text-base text-gray-700 dark:text-gray-300" {
-                                    (entry_amount) " " (entry.entry_type)
+                                    span class="text-base text-gray-700 dark:text-gray-300" {
+                                        (entry_amount) " " (entry.entry_type)
+                                    }
                                 }
                             }
                         }
-                    }
-                    div class="text-xs text-gray-400 dark:text-gray-500" {
-                        (transaction.author.username)
-                    }
-                }
-            }
-        }
-        hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600";
-
-        div class="mt-10" {
-            div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6" {
-                h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6" {
-                    "Create New Transaction"
-                }
-
-                form class="space-y-6" {
-                    // Entry 1
-                    div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg space-y-3" {
-                        div {
-                            label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                "Account"
-                            }
-                            select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400" {
-                                option value="" { "Select account..." }
-                                option value="cash" { "Cash" }
-                                option value="checking" { "Checking Account" }
-                                option value="savings" { "Savings Account" }
-                                option value="groceries" { "Groceries Expense" }
-                                option value="fuel" { "Fuel Expense" }
-                                option value="coffee" { "Coffee Expense" }
-                            }
-                        }
-                        div class="grid grid-cols-4 gap-2 sm:gap-3" {
-                            div class="col-span-3" {
-                                label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                    "Amount"
-                                }
-                                input class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]" type="number" step="0.01" min="0" placeholder="0.00";
-                            }
-                            div {
-                                label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                    "Type"
-                                }
-                                select class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400" {
-                                    option value="debit" { "Dr" }
-                                    option value="credit" { "Cr" }
-                                }
-                            }
-                        }
-                    }
-
-                    // Entry 2
-                    div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg space-y-3" {
-                        div {
-                            label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                "Account"
-                            }
-                            select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400" {
-                                option value="" { "Select account..." }
-                                option value="cash" { "Cash" }
-                                option value="checking" { "Checking Account" }
-                                option value="savings" { "Savings Account" }
-                                option value="groceries" { "Groceries Expense" }
-                                option value="fuel" { "Fuel Expense" }
-                                option value="coffee" { "Coffee Expense" }
-                            }
-                        }
-                        div class="grid grid-cols-4 gap-2 sm:gap-3" {
-                            div class="col-span-3" {
-                                label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                    "Amount"
-                                }
-                                input class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]" type="number" step="0.01" min="0" placeholder="0.00";
-                            }
-                            div {
-                                label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                    "Type"
-                                }
-                                select class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400" {
-                                    option value="debit" { "Dr" }
-                                    option value="credit" { "Cr" }
-                                }
-                            }
-                        }
-                    }
-
-                    // Entry 3
-                    div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg space-y-3" {
-                        div {
-                            label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                "Account (Optional)"
-                            }
-                            select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400" {
-                                option value="" { "Select account..." }
-                                option value="cash" { "Cash" }
-                                option value="checking" { "Checking Account" }
-                                option value="savings" { "Savings Account" }
-                                option value="groceries" { "Groceries Expense" }
-                                option value="fuel" { "Fuel Expense" }
-                                option value="coffee" { "Coffee Expense" }
-                            }
-                        }
-                        div class="grid grid-cols-4 gap-2 sm:gap-3" {
-                            div class="col-span-3" {
-                                label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                    "Amount"
-                                }
-                                input class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]" type="number" step="0.01" min="0" placeholder="0.00";
-                            }
-                            div {
-                                label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                    "Type"
-                                }
-                                select class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400" {
-                                    option value="debit" { "Dr" }
-                                    option value="credit" { "Cr" }
-                                }
-                            }
-                        }
-                    }
-
-                    // Entry 4
-                    div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg space-y-3" {
-                        div {
-                            label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                "Account (Optional)"
-                            }
-                            select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400" {
-                                option value="" { "Select account..." }
-                                option value="cash" { "Cash" }
-                                option value="checking" { "Checking Account" }
-                                option value="savings" { "Savings Account" }
-                                option value="groceries" { "Groceries Expense" }
-                                option value="fuel" { "Fuel Expense" }
-                                option value="coffee" { "Coffee Expense" }
-                            }
-                        }
-                        div class="grid grid-cols-4 gap-2 sm:gap-3" {
-                            div class="col-span-3" {
-                                label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                    "Amount"
-                                }
-                                input class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]" type="number" step="0.01" min="0" placeholder="0.00";
-                            }
-                            div {
-                                label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                    "Type"
-                                }
-                                select class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400" {
-                                    option value="debit" { "Dr" }
-                                    option value="credit" { "Cr" }
-                                }
-                            }
-                        }
-                    }
-
-                    div class="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-600" {
-                        div class="text-sm text-gray-500 dark:text-gray-400" {
-                            "Debits must equal credits"
-                        }
-                        button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
-                            "Create Transaction"
+                        div class="text-xs text-gray-400 dark:text-gray-500" {
+                            (transaction.author.username)
                         }
                     }
                 }
             }
-            @if let Some(e) = err.err {
-                p {
-                    (format!("An error occurred: {:?}", KnownErrors::decode(&e)))
+            hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600";
+
+            div class="mt-10" {
+                div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6" {
+                    h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6" {
+                        "Create New Transaction"
+                    }
+
+                    form method="post" action=(format!("/journal/{}/transaction", id)) class="space-y-6" {
+                        @for i in 0..4 {
+                            div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg space-y-3" {
+                                div {
+                                    label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                        (if i < 2 {"Account"} else {"Account (Optional)"})
+                                    }
+                                    select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
+                                    name="accounts[]" {
+                                        option value="" { "Select account..." }
+                                        @for (acc_id, acc_state) in journal_state.accounts.iter() {
+                                            option value=(acc_id.to_string()) { (acc_state.name) }
+                                        }
+                                    }
+                                }
+                                div class="grid grid-cols-4 gap-2 sm:gap-3" {
+                                    div class="col-span-3" {
+                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                            "Amount"
+                                        }
+                                        input class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                        type="number"
+                                        step="0.01" min="0"
+                                        placeholder="0.00"
+                                        required[i < 2]
+                                        name="amount[]";
+                                    }
+                                    div {
+                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                            "Type"
+                                        }
+                                        select class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
+                                        name="credit_or_debit[]" {
+                                            option value="debit" { "Dr" }
+                                            option value="credit" { "Cr" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        div class="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-600" {
+                            div class="text-sm text-gray-500 dark:text-gray-400" {
+                                "Debits must equal credits"
+                            }
+                            button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
+                                "Create Transaction"
+                            }
+                        }
+                    }
+                }
+                @if let Some(e) = err.err {
+                    p {
+                        (format!("An error occurred: {:?}", KnownErrors::decode(&e)))
+                    }
                 }
             }
         }
