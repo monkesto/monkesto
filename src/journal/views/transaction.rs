@@ -1,137 +1,15 @@
 use crate::AppState;
 use crate::AuthSession;
-use crate::ident::Ident;
 use crate::ident::JournalId;
+use crate::journal::transaction::EntryType;
+use crate::journal::transaction::TransactionStore;
 use crate::journal::{JournalStore, layout};
 use crate::known_errors::{KnownErrors, UrlError};
 use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
+use axum_login::AuthnBackend;
 use maud::{Markup, html};
-use std::fmt::{self, Display};
 use std::str::FromStr;
-
-#[derive(Debug, Clone)]
-enum EntryType {
-    Debit,
-    Credit,
-}
-
-#[derive(Debug, Clone)]
-struct Entry {
-    pub account: AccountItem,
-    pub amount: i64, // in cents
-    pub entry_type: EntryType,
-}
-
-impl Display for EntryType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Debit => write!(f, "Dr"),
-            Self::Credit => write!(f, "Cr"),
-        }
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct AccountItem {
-    pub id: Ident,
-    pub name: String,
-}
-
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct Person {
-    pub id: Ident,
-    pub username: String,
-}
-
-#[derive(Debug, Clone)]
-struct Transaction {
-    pub id: Ident,
-    pub author: Person,
-    pub entries: Vec<Entry>,
-}
-
-fn transactions() -> Vec<Transaction> {
-    vec![
-        Transaction {
-            id: Ident::from_str("aaaaaaaaab").expect("Invalid Cuid"),
-            author: Person {
-                id: Ident::from_str("aaaaaaaaac").expect("Invalid Cuid"),
-                username: "johndoe".to_string(),
-            },
-            entries: vec![
-                Entry {
-                    account: AccountItem {
-                        id: Ident::from_str("aaaaaaaaab").expect("Invalid Cuid"),
-                        name: "Cash".to_string(),
-                    },
-                    amount: 4567, // $45.67 in cents
-                    entry_type: EntryType::Credit,
-                },
-                Entry {
-                    account: AccountItem {
-                        id: Ident::from_str("aaaaaaaaac").expect("Invalid Cuid"),
-                        name: "Groceries Expense".to_string(),
-                    },
-                    amount: 4567, // $45.67 in cents
-                    entry_type: EntryType::Debit,
-                },
-            ],
-        },
-        Transaction {
-            id: Ident::from_str("aaaaaaaaab").expect("Invalid Cuid"),
-            author: Person {
-                id: Ident::from_str("aaaaaaaaac").expect("Invalid Cuid"),
-                username: "janesmith".to_string(),
-            },
-            entries: vec![
-                Entry {
-                    account: AccountItem {
-                        id: Ident::from_str("aaaaaaaaac").expect("Invalid Cuid"),
-                        name: "Checking Account".to_string(),
-                    },
-                    amount: 3214, // $32.14 in cents
-                    entry_type: EntryType::Credit,
-                },
-                Entry {
-                    account: AccountItem {
-                        id: Ident::from_str("aaaaaaaaad").expect("Invalid Cuid"),
-                        name: "Fuel Expense".to_string(),
-                    },
-                    amount: 3214, // $32.14 in cents
-                    entry_type: EntryType::Debit,
-                },
-            ],
-        },
-        Transaction {
-            id: Ident::from_str("aaaaaaaaac").expect("Invalid Cuid"),
-            author: Person {
-                id: Ident::from_str("aaaaaaaaac").expect("Invalid Cuid"),
-                username: "bobjohnson".to_string(),
-            },
-            entries: vec![
-                Entry {
-                    account: AccountItem {
-                        id: Ident::from_str("aaaaaaaaad").expect("Invalid Cuid"),
-                        name: "Cash".to_string(),
-                    },
-                    amount: 425, // $4.25 in cents
-                    entry_type: EntryType::Credit,
-                },
-                Entry {
-                    account: AccountItem {
-                        id: Ident::from_str("aaaaaaaaae").expect("Invalid Cuid"),
-                        name: "Coffee Expense".to_string(),
-                    },
-                    amount: 425, // $4.25 in cents
-                    entry_type: EntryType::Debit,
-                },
-            ],
-        },
-    ]
-}
 
 #[allow(unused_variables)]
 pub async fn transaction_list_page(
@@ -147,28 +25,43 @@ pub async fn transaction_list_page(
 
     let content = html! {
         @if let Ok(ref journal_state) = journal_state_res {
-            @for transaction in transactions() {
+            @for transaction_id in journal_state.transactions.iter() {
                 a
-                href=(format!("/journal/{}/transaction/{}", id, transaction.id.to_string()))
+                href=(format!("/journal/{}/transaction/{}", id, transaction_id.to_string()))
                 class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
                     div class="space-y-3" {
                         div class="space-y-2" {
-                            @for entry in transaction.entries {
-                                @let entry_amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
+                            @match state.transaction_store.get_transaction(transaction_id).await {
+                                Ok(transaction) => {
+                                    @for entry in transaction.updates {
+                                        @let entry_amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
 
-                                div class="flex justify-between items-center" {
-                                    span class="text-base font-medium text-gray-900 dark:text-white" {
-                                        (entry.account.name)
+                                        div class="flex justify-between items-center" {
+                                            span class="text-base font-medium text-gray-900 dark:text-white" {
+                                                @match journal_state.accounts.get(&entry.account_id) {
+                                                    Some(account) => (account.name),
+                                                    None => "Unknown Account"
+                                                }
+                                            }
+
+                                            span class="text-base text-gray-700 dark:text-gray-300" {
+                                                (entry_amount) " " (entry.entry_type)
+                                            }
+                                        }
                                     }
 
-                                    span class="text-base text-gray-700 dark:text-gray-300" {
-                                        (entry_amount) " " (entry.entry_type)
+                                    div class="text-xs text-gray-400 dark:text-gray-500" {
+                                        @match state.user_store.get_user(&transaction.author).await {
+                                            Ok(Some(user)) => (user.email),
+                                            Ok(None) => "Unknown User",
+                                            Err(e) => (format! ("Failed to get user: {}", e)),
+                                        }
                                     }
                                 }
+                                Err(e) => {
+                                    (format!("Failed to get transaction {}: {}", transaction_id, e))
+                                }
                             }
-                        }
-                        div class="text-xs text-gray-400 dark:text-gray-500" {
-                            (transaction.author.username)
                         }
                     }
                 }
@@ -189,10 +82,10 @@ pub async fn transaction_list_page(
                                         (if i < 2 {"Account"} else {"Account (Optional)"})
                                     }
                                     select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
-                                    name="accounts[]" {
+                                    name="account" {
                                         option value="" { "Select account..." }
                                         @for (acc_id, acc_state) in journal_state.accounts.iter() {
-                                            option value=(acc_id.to_string()) { (acc_state.name) }
+                                            option value=(acc_id) { (acc_state.name) }
                                         }
                                     }
                                 }
@@ -206,16 +99,16 @@ pub async fn transaction_list_page(
                                         step="0.01" min="0"
                                         placeholder="0.00"
                                         required[i < 2]
-                                        name="amount[]";
+                                        name="amount";
                                     }
                                     div {
                                         label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
                                             "Type"
                                         }
                                         select class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
-                                        name="credit_or_debit[]" {
-                                            option value="debit" { "Dr" }
-                                            option value="credit" { "Cr" }
+                                        name="entry_type" {
+                                            option value=(EntryType::Debit) { "Dr" }
+                                            option value=(EntryType::Credit) { "Cr" }
                                         }
                                     }
                                 }

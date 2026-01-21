@@ -3,15 +3,20 @@ use crate::AppState;
 use crate::AuthSession;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
+use crate::ident::TransactionId;
 use crate::journal::Permissions;
+use crate::journal::transaction::BalanceUpdate;
+use crate::journal::transaction::EntryType;
+use crate::journal::transaction::TransactionEvent;
+use crate::journal::transaction::TransactionStore;
 use crate::journal::{JournalStore, JournalTenantInfo};
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use crate::webauthn::user::Email;
 use crate::webauthn::user::{self, UserStore};
-use axum::Form;
 use axum::extract::Path;
 use axum::extract::State;
 use axum::response::Redirect;
+use axum_extra::extract::Form;
 use chrono::Utc;
 use serde::Deserialize;
 use std::str::FromStr;
@@ -186,6 +191,109 @@ pub async fn create_account(
     }
 
     Ok(Redirect::to(callback_url))
+}
+
+#[derive(Deserialize)]
+pub struct TransactForm {
+    account: Vec<String>,
+    amount: Vec<String>,
+    entry_type: Vec<String>,
+}
+
+pub async fn transact(
+    State(state): State<AppState>,
+    session: AuthSession,
+    Path(id): Path<String>,
+    Form(form): Form<TransactForm>,
+) -> Result<Redirect, Redirect> {
+    let callback_url = &format!("/journal/{}/transaction", id);
+
+    let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
+    let journal_state = state
+        .journal_store
+        .get_journal(&journal_id)
+        .await
+        .or_redirect(callback_url)?;
+
+    let user = user::get_user(session)?;
+
+    let mut total_change = 0;
+    let mut updates = Vec::new();
+
+    for (idx, acc_id_str) in form.account.iter().enumerate() {
+        // if the id isn't valid, assume that the user just didn't select an account
+        if let Ok(acc_id) = AccountId::from_str(acc_id_str) {
+            // if the id doesn't map to an account, return an error
+            journal_state
+                .accounts
+                .get(&acc_id)
+                .ok_or(KnownErrors::AccountDoesntExist { id: acc_id })
+                .or_redirect(callback_url)?;
+
+            let amt: i64 = form
+                .amount
+                .get(idx)
+                .ok_or(KnownErrors::InvalidInput)
+                .or_redirect(callback_url)?
+                .parse()
+                .or_redirect(callback_url)?;
+
+            // error when the amount is below zero to prevent confusion with the credit/debit selector
+            if amt <= 0 {
+                return Err(KnownErrors::InvalidInput).or_redirect(callback_url);
+            }
+
+            let entry_type = EntryType::from_str(
+                form.entry_type
+                    .get(idx)
+                    .ok_or(KnownErrors::InvalidInput)
+                    .or_redirect(callback_url)?,
+            )
+            .or_redirect(callback_url)?;
+
+            updates.push(BalanceUpdate {
+                account_id: acc_id,
+                amount: amt as u64,
+                entry_type,
+            });
+
+            total_change += amt
+                * if entry_type == EntryType::Credit {
+                    1
+                } else {
+                    -1
+                };
+        }
+    }
+
+    // if total change isn't zero, return an error
+    if total_change != 0 {
+        Err(KnownErrors::BalanceMismatch {
+            attempted_transaction: updates,
+        })
+        .or_redirect(callback_url)
+    } else if updates.is_empty() {
+        Err(KnownErrors::InvalidInput).or_redirect(callback_url)
+    } else {
+        let transaction_id = TransactionId::new();
+        state
+            .transaction_store
+            .create_transaction(TransactionEvent::Created {
+                id: transaction_id,
+                author: user.id,
+                updates,
+                created_at: Utc::now(),
+            })
+            .await
+            .or_redirect(callback_url)?;
+        state
+            .journal_store
+            .push_event(&journal_id, JournalEvent::AddedEntry { transaction_id })
+            .await
+            .or_redirect(callback_url)?;
+
+        Ok(Redirect::to(callback_url))
+    }
 }
 
 /*

@@ -73,6 +73,10 @@ async fn main() {
             get(journal::views::transaction::transaction_list_page),
         )
         .route(
+            "/journal/{id}/transaction",
+            axum::routing::post(journal::commands::transact),
+        )
+        .route(
             "/journal/{id}/account",
             get(journal::views::account::account_list_page),
         )

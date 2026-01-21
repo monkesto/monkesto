@@ -1,7 +1,8 @@
 use core::fmt;
-use std::{array::TryFromSliceError, str::Utf8Error};
+use std::{array::TryFromSliceError, num::ParseIntError, str::Utf8Error};
 
 use crate::{
+    ident::AccountId,
     journal::{Permissions, transaction::BalanceUpdate},
     webauthn::user::Email,
 };
@@ -44,6 +45,10 @@ pub enum KnownErrors {
 
     UserDoesntExist,
 
+    AccountDoesntExist {
+        id: AccountId,
+    },
+
     UserExists {
         email: Email,
     },
@@ -52,7 +57,6 @@ pub enum KnownErrors {
 
     BalanceMismatch {
         attempted_transaction: Vec<BalanceUpdate>,
-        desc: String,
     },
 
     PermissionError {
@@ -79,6 +83,10 @@ pub enum KnownErrors {
 
     OsError {
         context: String,
+    },
+
+    ParseInt {
+        err: String,
     },
 
     None,
@@ -167,6 +175,14 @@ impl From<TryFromSliceError> for KnownErrors {
     fn from(err: TryFromSliceError) -> Self {
         Self::InternalError {
             context: err.to_string(),
+        }
+    }
+}
+
+impl From<ParseIntError> for KnownErrors {
+    fn from(value: ParseIntError) -> Self {
+        Self::ParseInt {
+            err: value.to_string(),
         }
     }
 }

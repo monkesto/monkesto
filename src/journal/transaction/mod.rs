@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use std::{fmt::Display, str::FromStr, sync::Arc};
 
 use crate::{
-    ident::{Ident, TransactionId, UserId},
+    ident::{AccountId, TransactionId, UserId},
     known_errors::{KnownErrors, MonkestoResult},
 };
 
@@ -73,7 +73,6 @@ impl TransactionStore for TransasctionMemoryStore {
         if let TransactionEvent::Created {
             id,
             author,
-            description,
             updates,
             created_at,
         } = creation_event.clone()
@@ -83,7 +82,6 @@ impl TransactionStore for TransasctionMemoryStore {
                 TransactionState {
                     id,
                     author,
-                    description,
                     updates,
                     created_at,
                 },
@@ -123,10 +121,37 @@ impl TransactionStore for TransasctionMemoryStore {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Copy)]
+pub enum EntryType {
+    Debit,
+    Credit,
+}
+
+impl Display for EntryType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Debit => write!(f, "Dr"),
+            Self::Credit => write!(f, "Cr"),
+        }
+    }
+}
+
+impl FromStr for EntryType {
+    type Err = KnownErrors;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Dr" => Ok(Self::Debit),
+            "Cr" => Ok(Self::Credit),
+            _ => Err(KnownErrors::InvalidInput),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BalanceUpdate {
-    pub account_id: Ident,
-    pub changed_by: i64,
+    pub account_id: AccountId,
+    pub amount: u64,
+    pub entry_type: EntryType,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -135,13 +160,8 @@ pub enum TransactionEvent {
     Created {
         id: TransactionId,
         author: UserId,
-        description: String,
         updates: Vec<BalanceUpdate>,
         created_at: DateTime<Utc>,
-    },
-    UpdatedDescription {
-        new_desc: String,
-        updater: UserId,
     },
     UpdatedBalancedUpdates {
         new_balanceupdates: Vec<BalanceUpdate>,
@@ -166,7 +186,6 @@ impl TransactionEvent {
         match self {
             Self::Created { .. } => Created,
             Self::UpdatedBalancedUpdates { .. } => UpdatedBalanceUpdates,
-            Self::UpdatedDescription { .. } => UpdatedDescription,
         }
     }
 }
@@ -199,7 +218,6 @@ impl<'r> Decode<'r, sqlx::Postgres> for TransactionEvent {
 pub struct TransactionState {
     pub id: TransactionId,
     pub author: UserId,
-    pub description: String,
     pub updates: Vec<BalanceUpdate>,
     pub created_at: chrono::DateTime<Utc>,
 }
@@ -211,17 +229,14 @@ impl TransactionState {
             TransactionEvent::Created {
                 id,
                 author,
-                description,
                 updates,
                 created_at,
             } => {
                 self.id = id;
                 self.author = author;
-                self.description = description;
                 self.updates = updates;
                 self.created_at = created_at;
             }
-            TransactionEvent::UpdatedDescription { new_desc, .. } => self.description = new_desc,
             TransactionEvent::UpdatedBalancedUpdates {
                 new_balanceupdates, ..
             } => self.updates = new_balanceupdates,
@@ -232,8 +247,8 @@ impl TransactionState {
 #[cfg(test)]
 mod test_transaction {
     use crate::{
-        ident::{Ident, TransactionId, UserId},
-        journal::transaction::BalanceUpdate,
+        ident::{AccountId, TransactionId, UserId},
+        journal::transaction::{BalanceUpdate, EntryType},
     };
     use chrono::Utc;
     use sqlx::{PgPool, prelude::FromRow};
@@ -245,10 +260,10 @@ mod test_transaction {
         let original_event = TransactionEvent::Created {
             id: TransactionId::new(),
             author: UserId::new(),
-            description: "test".to_string(),
             updates: vec![BalanceUpdate {
-                account_id: Ident::new10(),
-                changed_by: -45,
+                account_id: AccountId::new(),
+                amount: 45,
+                entry_type: EntryType::Debit,
             }],
             created_at: Utc::now(),
         };
