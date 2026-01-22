@@ -11,7 +11,7 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "uui
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 chrono = {version = "0.4.42", features = ["serde"]}
-bcrypt = {version = "0.17.1"}
+bcrypt = {version = "0.18.0"}
 dotenvy = "0.15.7"
 bitflags = {version = "2.10.0", features = ["serde"]}
 chrono-tz = "0.10.4"
