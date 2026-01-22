@@ -155,14 +155,6 @@ impl From<base64::DecodeError> for KnownErrors {
     }
 }
 
-impl From<bcrypt::BcryptError> for KnownErrors {
-    fn from(err: bcrypt::BcryptError) -> Self {
-        Self::InternalError {
-            context: err.to_string(),
-        }
-    }
-}
-
 impl From<Utf8Error> for KnownErrors {
     fn from(err: Utf8Error) -> Self {
         Self::InternalError {
