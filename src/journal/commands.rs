@@ -18,6 +18,8 @@ use axum::extract::State;
 use axum::response::Redirect;
 use axum_extra::extract::Form;
 use chrono::Utc;
+use rust_decimal::dec;
+use rust_decimal::prelude::*;
 use serde::Deserialize;
 use std::str::FromStr;
 
@@ -230,40 +232,52 @@ pub async fn transact(
                 .ok_or(KnownErrors::AccountDoesntExist { id: acc_id })
                 .or_redirect(callback_url)?;
 
-            let amt: i64 = (form
-                .amount
-                .get(idx)
-                .ok_or(KnownErrors::InvalidInput)
-                .or_redirect(callback_url)?
-                .parse::<f64>()
-                .or_redirect(callback_url)?
-                * 100.0) as i64;
-
-            // error when the amount is below zero to prevent confusion with the credit/debit selector
-            if amt <= 0 {
-                return Err(KnownErrors::InvalidInput).or_redirect(callback_url);
-            }
-
-            let entry_type = EntryType::from_str(
-                form.entry_type
+            let dec_amt = Decimal::from_str(
+                form.amount
                     .get(idx)
                     .ok_or(KnownErrors::InvalidInput)
                     .or_redirect(callback_url)?,
             )
-            .or_redirect(callback_url)?;
+            .or_redirect(callback_url)?
+                * dec!(100);
 
-            updates.push(BalanceUpdate {
-                account_id: acc_id,
-                amount: amt as u64,
-                entry_type,
-            });
+            // this will reject inputs with partial cent values
+            // this should not be possible unless a user uses the
+            //  inspector tool to change their HTML
+            if !dec_amt.is_integer() {
+                return Err(KnownErrors::InvalidInput.redirect(callback_url));
+            } else {
+                let amt = dec_amt
+                    .to_i64()
+                    .ok_or(KnownErrors::InvalidInput)
+                    .or_redirect(callback_url)?;
 
-            total_change += amt
-                * if entry_type == EntryType::Credit {
-                    1
-                } else {
-                    -1
-                };
+                // error when the amount is below zero to prevent confusion with the credit/debit selector
+                if amt <= 0 {
+                    return Err(KnownErrors::InvalidInput).or_redirect(callback_url);
+                }
+
+                let entry_type = EntryType::from_str(
+                    form.entry_type
+                        .get(idx)
+                        .ok_or(KnownErrors::InvalidInput)
+                        .or_redirect(callback_url)?,
+                )
+                .or_redirect(callback_url)?;
+
+                updates.push(BalanceUpdate {
+                    account_id: acc_id,
+                    amount: amt as u64,
+                    entry_type,
+                });
+
+                total_change += amt
+                    * if entry_type == EntryType::Credit {
+                        1
+                    } else {
+                        -1
+                    };
+            }
         }
     }
 
