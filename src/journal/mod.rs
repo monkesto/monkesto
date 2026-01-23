@@ -234,17 +234,62 @@ impl JournalStore for JournalMemoryStore {
         }
     }
 
-    // TODO: make this update the account stored in the journal
-    #[expect(unused_variables)]
     async fn push_transaction_event(
         &self,
         journal_id: &JournalId,
         transaction_id: &TransactionId,
         event: TransactionEvent,
     ) -> MonkestoResult<()> {
-        self.transaction_store
-            .push_event(transaction_id, event)
-            .await
+        if let Some(mut journal) = self.journal_table.get_mut(journal_id) {
+            match event {
+                TransactionEvent::Created { .. } => return Err(KnownErrors::InvalidInput),
+                TransactionEvent::UpdatedBalancedUpdates {
+                    ref new_balanceupdates,
+                    ..
+                } => {
+                    // undo old updates
+                    for old_update in self
+                        .transaction_store
+                        .get_transaction(transaction_id)
+                        .await?
+                        .updates
+                    {
+                        if let Some(account) = journal.accounts.get_mut(&old_update.account_id) {
+                            if old_update.entry_type == EntryType::Credit {
+                                account.balance -= old_update.amount as i64
+                            } else {
+                                account.balance += old_update.amount as i64
+                            }
+                        } else {
+                            return Err(KnownErrors::AccountDoesntExist {
+                                id: old_update.account_id,
+                            });
+                        }
+                    }
+
+                    // apply new updates
+                    for update in new_balanceupdates {
+                        if let Some(account) = journal.accounts.get_mut(&update.account_id) {
+                            if update.entry_type == EntryType::Credit {
+                                account.balance += update.amount as i64
+                            } else {
+                                account.balance -= update.amount as i64
+                            }
+                        } else {
+                            return Err(KnownErrors::AccountDoesntExist {
+                                id: update.account_id,
+                            });
+                        }
+                    }
+
+                    self.transaction_store
+                        .push_event(transaction_id, event)
+                        .await
+                }
+            }
+        } else {
+            Err(KnownErrors::InvalidJournal)
+        }
     }
 
     async fn get_transaction_state(
