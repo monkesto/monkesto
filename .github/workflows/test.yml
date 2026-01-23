@@ -43,16 +43,23 @@ jobs:
         image: postgres:15
         env:
           POSTGRES_PASSWORD: postgres
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
         ports:
           - 5432:5432
 
     steps:
+      # build the binary without waiting for the postgres container
       - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --release
+
+      # postgres should be healthy by now, but we check just in case
+      - name: Wait for Postgres
+        run: |
+          until pg_isready -h localhost -p 5432 -U postgres; do
+            sleep 1
+          done
+
+      # this should be much quicker because the binary is already built
       - name: Run rust tests
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
