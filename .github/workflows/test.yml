@@ -53,11 +53,9 @@ jobs:
         run: cargo build --release
 
       # postgres should be healthy by now, but we check just in case
-      - name: Wait for Postgres
-        env:
-          PGPASSWORD: postgres
+      - name: Wait for Postgres port
         run: |
-          until psql -h localhost -U postgres -c '\q'; do
+          until nc -z localhost 5432; do
             sleep 1
           done
 
