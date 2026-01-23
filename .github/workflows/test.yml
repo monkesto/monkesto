@@ -54,8 +54,10 @@ jobs:
 
       # postgres should be healthy by now, but we check just in case
       - name: Wait for Postgres
+        env:
+          PGPASSWORD: postgres
         run: |
-          until pg_isready -h localhost -p 5432 -U postgres; do
+          until psql -h localhost -U postgres -c '\q'; do
             sleep 1
           done
 
