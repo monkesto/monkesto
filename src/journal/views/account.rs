@@ -41,9 +41,10 @@ pub async fn account_list_page(
                         h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
                             (acc.name)
                         }
+                        @let balance = acc.balance.abs();
                         div class="text-right" {
                             div class="text-lg font-medium text-gray-900 dark:text-white" {
-                                (format!("${}.{:02}", acc.balance / 100, acc.balance % 100))
+                                (format!("${}.{:02} {}", balance / 100, balance % 100, if acc.balance < 0 { "Dr" } else { "Cr" }))
                             }
                         }
                     }

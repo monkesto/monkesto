@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Decode, Encode, Type, postgres::PgValueRef};
 
 #[async_trait]
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub trait TransactionStore: Clone + Send + Sync + 'static {
     /// creates a new transaction state in the event store with the data from the creation event
     ///
@@ -22,7 +22,7 @@ pub trait TransactionStore: Clone + Send + Sync + 'static {
     /// applies a TransactionEvent to the event store and updates the cached state
     async fn push_event(
         &self,
-        transction_id: &TransactionId,
+        transaction_id: &TransactionId,
         event: TransactionEvent,
     ) -> MonkestoResult<()>;
 
@@ -50,14 +50,12 @@ pub trait TransactionStore: Clone + Send + Sync + 'static {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Clone)]
 pub struct TransasctionMemoryStore {
     events: Arc<DashMap<TransactionId, Vec<TransactionEvent>>>,
     transaction_table: Arc<DashMap<TransactionId, TransactionState>>,
 }
 
-#[allow(dead_code)]
 impl TransasctionMemoryStore {
     pub fn new() -> Self {
         Self {
@@ -73,16 +71,16 @@ impl TransactionStore for TransasctionMemoryStore {
         if let TransactionEvent::Created {
             id,
             author,
-            updates,
+            ref updates,
             created_at,
-        } = creation_event.clone()
+        } = creation_event
         {
             self.transaction_table.insert(
                 id,
                 TransactionState {
                     id,
                     author,
-                    updates,
+                    updates: updates.clone(),
                     created_at,
                 },
             );
@@ -97,11 +95,11 @@ impl TransactionStore for TransasctionMemoryStore {
 
     async fn push_event(
         &self,
-        transction_id: &TransactionId,
+        transaction_id: &TransactionId,
         event: TransactionEvent,
     ) -> MonkestoResult<()> {
-        if let Some(mut events) = self.events.get_mut(transction_id)
-            && let Some(mut state) = self.transaction_table.get_mut(transction_id)
+        if let Some(mut events) = self.events.get_mut(transaction_id)
+            && let Some(mut state) = self.transaction_table.get_mut(transaction_id)
         {
             events.push(event.clone());
             state.apply(event);
@@ -155,7 +153,6 @@ pub struct BalanceUpdate {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[allow(dead_code)]
 pub enum TransactionEvent {
     Created {
         id: TransactionId,
@@ -172,7 +169,6 @@ pub enum TransactionEvent {
 #[derive(sqlx::Type)]
 #[sqlx(type_name = "smallint")]
 #[repr(i16)]
-#[allow(dead_code)]
 pub enum TransactionEventType {
     Created = 1,
     UpdatedDescription = 2,
@@ -180,7 +176,7 @@ pub enum TransactionEventType {
 }
 
 impl TransactionEvent {
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     fn get_type(&self) -> TransactionEventType {
         use TransactionEventType::*;
         match self {
@@ -214,7 +210,6 @@ impl<'r> Decode<'r, sqlx::Postgres> for TransactionEvent {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-#[allow(dead_code)]
 pub struct TransactionState {
     pub id: TransactionId,
     pub author: UserId,
@@ -223,7 +218,6 @@ pub struct TransactionState {
 }
 
 impl TransactionState {
-    #[allow(dead_code)]
     pub fn apply(&mut self, event: TransactionEvent) {
         match event {
             TransactionEvent::Created {

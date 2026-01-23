@@ -5,6 +5,9 @@ pub mod views;
 
 use crate::{
     ident::{AccountId, JournalId, TransactionId, UserId},
+    journal::transaction::{
+        EntryType, TransactionEvent, TransactionState, TransactionStore, TransasctionMemoryStore,
+    },
     known_errors::{KnownErrors, MonkestoResult},
 };
 use async_trait::async_trait;
@@ -16,7 +19,7 @@ use sqlx::{Decode, Encode, Type, postgres::PgValueRef};
 use std::{collections::HashMap, sync::Arc};
 
 #[async_trait]
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub trait JournalStore: Clone + Send + Sync + 'static {
     /// creates a new journal state in the event store with the data from the creation event
     ///
@@ -24,7 +27,32 @@ pub trait JournalStore: Clone + Send + Sync + 'static {
     async fn create_journal(&self, creation_event: JournalEvent) -> MonkestoResult<()>;
 
     /// adds a UserEvent to the event store and updates the cached state
-    async fn push_event(&self, journal_id: &JournalId, event: JournalEvent) -> MonkestoResult<()>;
+    async fn push_journal_event(
+        &self,
+        journal_id: &JournalId,
+        event: JournalEvent,
+    ) -> MonkestoResult<()>;
+
+    /// intercept transaction events to update account state
+    async fn create_transaction(
+        &self,
+        journal_id: &JournalId,
+        creation_event: TransactionEvent,
+    ) -> MonkestoResult<()>;
+
+    /// intercept transaction events to update account state
+    async fn push_transaction_event(
+        &self,
+        journal_id: &JournalId,
+        transaction_id: &TransactionId,
+        event: TransactionEvent,
+    ) -> MonkestoResult<()>;
+
+    /// helper function to remove the requirement for directly storing the transaction store in the state
+    async fn get_transaction_state(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> MonkestoResult<TransactionState>;
 
     /// returns the cached state of the user
     async fn get_journal(&self, journal_id: &JournalId) -> MonkestoResult<JournalState>;
@@ -84,7 +112,7 @@ pub trait JournalStore: Clone + Send + Sync + 'static {
             self.create_journal(creation_event).await?;
 
             for event in update_events {
-                self.push_event(&id, event).await?;
+                self.push_journal_event(&id, event).await?;
             }
         } else {
             return Err(KnownErrors::IncorrectEventType);
@@ -94,22 +122,23 @@ pub trait JournalStore: Clone + Send + Sync + 'static {
     }
 }
 
-#[allow(dead_code)]
 #[derive(Clone)]
 pub struct JournalMemoryStore {
     events: Arc<DashMap<JournalId, Vec<JournalEvent>>>,
     journal_table: Arc<DashMap<JournalId, JournalState>>,
     /// Index of user_id -> set of journal_ids they belong to
     user_journals: Arc<DashMap<UserId, std::collections::HashSet<JournalId>>>,
+
+    transaction_store: Arc<TransasctionMemoryStore>,
 }
 
-#[allow(dead_code)]
 impl JournalMemoryStore {
-    pub fn new() -> Self {
+    pub fn new(transaction_store: Arc<TransasctionMemoryStore>) -> Self {
         Self {
             events: Arc::new(DashMap::new()),
             journal_table: Arc::new(DashMap::new()),
             user_journals: Arc::new(DashMap::new()),
+            transaction_store,
         }
     }
 }
@@ -148,7 +177,11 @@ impl JournalStore for JournalMemoryStore {
         }
     }
 
-    async fn push_event(&self, journal_id: &JournalId, event: JournalEvent) -> MonkestoResult<()> {
+    async fn push_journal_event(
+        &self,
+        journal_id: &JournalId,
+        event: JournalEvent,
+    ) -> MonkestoResult<()> {
         if let Some(mut events) = self.events.get_mut(journal_id)
             && let Some(mut state) = self.journal_table.get_mut(journal_id)
         {
@@ -167,6 +200,58 @@ impl JournalStore for JournalMemoryStore {
         } else {
             Err(KnownErrors::InvalidJournal)
         }
+    }
+
+    async fn create_transaction(
+        &self,
+        journal_id: &JournalId,
+        creation_event: TransactionEvent,
+    ) -> MonkestoResult<()> {
+        if let TransactionEvent::Created { ref updates, .. } = creation_event {
+            if let Some(mut journal) = self.journal_table.get_mut(journal_id) {
+                for update in updates {
+                    if let Some(account) = journal.accounts.get_mut(&update.account_id) {
+                        if update.entry_type == EntryType::Credit {
+                            account.balance += update.amount as i64
+                        } else {
+                            account.balance -= update.amount as i64
+                        }
+                    } else {
+                        return Err(KnownErrors::AccountDoesntExist {
+                            id: update.account_id,
+                        });
+                    }
+                }
+            } else {
+                return Err(KnownErrors::InvalidJournal);
+            }
+
+            self.transaction_store
+                .create_transaction(creation_event)
+                .await
+        } else {
+            Err(KnownErrors::InvalidInput)
+        }
+    }
+
+    // TODO: make this update the account stored in the journal
+    #[expect(unused_variables)]
+    async fn push_transaction_event(
+        &self,
+        journal_id: &JournalId,
+        transaction_id: &TransactionId,
+        event: TransactionEvent,
+    ) -> MonkestoResult<()> {
+        self.transaction_store
+            .push_event(transaction_id, event)
+            .await
+    }
+
+    async fn get_transaction_state(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> MonkestoResult<TransactionState> {
+        self.transaction_store.get_transaction(transaction_id).await
     }
 
     async fn get_journal(&self, journal_id: &JournalId) -> MonkestoResult<JournalState> {
@@ -334,19 +419,18 @@ impl JournalState {
     }
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct SharedJournal {
     pub id: JournalId,
     pub info: JournalTenantInfo,
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct SharedAndPendingJournals {
     pub shared: HashMap<JournalId, JournalTenantInfo>,
     pub pending: HashMap<JournalId, JournalTenantInfo>,
 }
 
-#[allow(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Account {
     pub name: String,
@@ -355,7 +439,7 @@ pub struct Account {
     pub balance: i64,
 }
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct JournalInvite {
     pub id: UserId,

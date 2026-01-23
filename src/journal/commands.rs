@@ -8,7 +8,7 @@ use crate::journal::Permissions;
 use crate::journal::transaction::BalanceUpdate;
 use crate::journal::transaction::EntryType;
 use crate::journal::transaction::TransactionEvent;
-use crate::journal::transaction::TransactionStore;
+
 use crate::journal::{JournalStore, JournalTenantInfo};
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use crate::webauthn::user::Email;
@@ -113,7 +113,7 @@ pub async fn invite_user(
 
             state
                 .journal_store
-                .push_event(
+                .push_journal_event(
                     &journal_id,
                     JournalEvent::AddedTenant {
                         id: invitee_id,
@@ -169,7 +169,7 @@ pub async fn create_account(
         {
             state
                 .journal_store
-                .push_event(
+                .push_journal_event(
                     &journal_id,
                     JournalEvent::CreatedAccount {
                         id: AccountId::new(),
@@ -277,220 +277,24 @@ pub async fn transact(
     } else {
         let transaction_id = TransactionId::new();
         state
-            .transaction_store
-            .create_transaction(TransactionEvent::Created {
-                id: transaction_id,
-                author: user.id,
-                updates,
-                created_at: Utc::now(),
-            })
+            .journal_store
+            .create_transaction(
+                &journal_id,
+                TransactionEvent::Created {
+                    id: transaction_id,
+                    author: user.id,
+                    updates,
+                    created_at: Utc::now(),
+                },
+            )
             .await
             .or_redirect(callback_url)?;
         state
             .journal_store
-            .push_event(&journal_id, JournalEvent::AddedEntry { transaction_id })
+            .push_journal_event(&journal_id, JournalEvent::AddedEntry { transaction_id })
             .await
             .or_redirect(callback_url)?;
 
         Ok(Redirect::to(callback_url))
     }
 }
-
-/*
-These functions are unused. They are kept to serve as a guide
-for future implementations.
-
-pub async fn respond_to_journal_invite(
-    journal_id: String,
-    accepted: String,
-) -> Result<(), ServerFnError> {
-    let journal_id = Cuid::from_str(&journal_id)?;
-
-    let accepted: bool = serde_json::from_str(&accepted)?;
-
-    use UserEventType::*;
-
-    let session_id = extensions::get_session_id().await?;
-    let pool = extensions::get_pool().await?;
-
-    let user_id = auth::get_user_id(&session_id, &pool).await?;
-
-    let user_state = UserState::build(
-        &user_id,
-        vec![
-            InvitedToJournal,
-            AcceptedJournalInvite,
-            DeclinedJournalInvite,
-            RemovedFromJournal,
-        ],
-        &pool,
-    )
-    .await?;
-
-    if user_state.pending_journal_invites.contains_key(&journal_id) {
-        if accepted {
-            UserEvent::AcceptedJournalInvite { id: journal_id }
-                .push_db(&user_id, &pool)
-                .await?;
-        } else {
-            UserEvent::DeclinedJournalInvite { id: journal_id }
-                .push_db(&user_id, &pool)
-                .await?;
-        }
-    } else {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::NoInvitation.to_string()?,
-        ));
-    }
-
-    Ok(())
-}
-
-pub async fn add_account(journal_id: Cuid, account_name: String) -> Result<(), ServerFnError> {
-    use UserEventType::*;
-
-    let session_id = extensions::get_session_id().await?;
-    let pool = extensions::get_pool().await?;
-
-    let user_id = auth::get_user_id(&session_id, &pool).await?;
-
-    if account_name.trim().is_empty() {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::InvalidInput.to_string()?,
-        ));
-    }
-
-    let user_state = UserState::build(
-        &user_id,
-        vec![
-            CreatedJournal,
-            InvitedToJournal,
-            AcceptedJournalInvite,
-            DeclinedJournalInvite,
-            RemovedFromJournal,
-        ],
-        &pool,
-    )
-    .await?;
-
-    if user_state.owned_journals.contains(&journal_id)
-        || user_state
-            .accepted_journal_invites
-            .get(&journal_id)
-            .is_some_and(|tenant_info| {
-                tenant_info
-                    .tenant_permissions
-                    .contains(Permissions::ADDACCOUNT)
-            })
-    {
-        JournalEvent::CreatedAccount { account_name }
-            .push_db(&journal_id, &pool)
-            .await?;
-    } else {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::PermissionError {
-                required_permissions: Permissions::ADDACCOUNT,
-            }
-            .to_string()?,
-        ));
-    }
-
-    Ok(())
-}
-
-pub async fn transact(
-    journal_id: String,
-    account_ids: Vec<String>,
-    balance_add_cents: Vec<String>,
-    balance_remove_cents: Vec<String>,
-) -> Result<(), ServerFnError> {
-    use UserEventType::*;
-    let journal_id = Cuid::from_str(&journal_id)?;
-
-    let session_id = extensions::get_session_id().await?;
-    let pool = extensions::get_pool().await?;
-
-    let user_id = auth::get_user_id(&session_id, &pool).await?;
-
-    let user_state = UserState::build(
-        &user_id,
-        vec![
-            CreatedJournal,
-            InvitedToJournal,
-            AcceptedJournalInvite,
-            DeclinedJournalInvite,
-            RemovedFromJournal,
-        ],
-        &pool,
-    )
-    .await?;
-
-    if !user_state.owned_journals.contains(&journal_id) {
-        if let Some(tenant_info) = user_state.accepted_journal_invites.get(&journal_id) {
-            if !tenant_info
-                .tenant_permissions
-                .contains(Permissions::APPENDTRANSACTION)
-            {
-                return Err(ServerFnError::ServerError(
-                    KnownErrors::PermissionError {
-                        required_permissions: Permissions::APPENDTRANSACTION,
-                    }
-                    .to_string()?,
-                ));
-            }
-        } else {
-            return Err(ServerFnError::ServerError(
-                KnownErrors::PermissionError {
-                    required_permissions: Permissions::APPENDTRANSACTION,
-                }
-                .to_string()?,
-            ));
-        }
-    }
-
-    let mut updates: Vec<BalanceUpdate> = Vec::new();
-    let mut total_balance_change: i64 = 0;
-
-    for i in 0..balance_add_cents.len() {
-        let add_amt = (balance_add_cents[i].parse::<f64>().unwrap_or(0.0) * 100.0) as i64;
-
-        let remove_amt = (balance_remove_cents[i].parse::<f64>().unwrap_or(0.0) * 100.0) as i64;
-
-        let account_sum = add_amt - remove_amt;
-
-        if account_sum != 0 {
-            total_balance_change += account_sum;
-            updates.push(BalanceUpdate {
-                account_id: Cuid::from_str(&account_ids[i])?,
-                changed_by: account_sum,
-            });
-        }
-    }
-
-    if total_balance_change != 0 {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::BalanceMismatch {
-                attempted_transaction: updates,
-            }
-            .to_string()?,
-        ));
-    }
-
-    if updates.is_empty() {
-        return Err(ServerFnError::ServerError(
-            KnownErrors::InvalidInput.to_string()?,
-        ));
-    }
-
-    JournalEvent::AddedEntry {
-        transaction: Transaction {
-            author: user_id,
-            updates,
-        },
-    }
-    .push_db(&journal_id, &pool)
-    .await?;
-
-    Ok(())
-}
-*/

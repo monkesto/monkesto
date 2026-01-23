@@ -12,7 +12,7 @@ use axum::response::Redirect;
 use maud::{Markup, html};
 use std::str::FromStr;
 
-#[allow(dead_code)]
+#[expect(dead_code)]
 pub struct Journal {
     pub id: Ident,
     pub name: String,

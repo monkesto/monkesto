@@ -184,10 +184,10 @@ pub trait RedirectOnError<T> {
     fn or_redirect(self, page: &str) -> Result<T, Redirect>;
 
     /// redirects to the given page without passing E
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     fn or_redirect_clean(self, page: &str) -> Result<T, Redirect>;
 
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     /// redirects to the given page, passing the given err
     fn or_redirect_override(self, err: KnownErrors, page: &str) -> Result<T, Redirect>;
 }
@@ -210,6 +210,6 @@ where
 #[derive(Deserialize)]
 pub struct UrlError {
     pub err: Option<String>,
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     pub next: Option<String>,
 }

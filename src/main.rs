@@ -29,8 +29,6 @@ pub type AuthSession = axum_login::AuthSession<MemoryUserStore>;
 pub struct AppState {
     user_store: Arc<MemoryUserStore>,
     journal_store: JournalMemoryStore,
-    #[allow(dead_code)]
-    transaction_store: TransasctionMemoryStore,
 }
 
 #[tokio::main]
@@ -111,8 +109,7 @@ async fn main() {
         .layer(auth_layer)
         .with_state(AppState {
             user_store,
-            journal_store: JournalMemoryStore::new(),
-            transaction_store: TransasctionMemoryStore::new(),
+            journal_store: JournalMemoryStore::new(Arc::new(TransasctionMemoryStore::new())),
         });
 
     // run our app with hyper

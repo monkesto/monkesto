@@ -197,7 +197,6 @@ pub enum UserStoreError {
     #[error("Email already exists")]
     EmailAlreadyExists,
     #[error("Storage operation failed: {0}")]
-    #[allow(dead_code)]
     OperationFailed(String),
 }
 

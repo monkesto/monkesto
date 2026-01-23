@@ -310,7 +310,7 @@ pub enum PasskeyEvent {
 #[derive(Debug, thiserror::Error)]
 pub enum PasskeyStoreError {
     #[error("Storage operation failed: {0}")]
-    #[allow(dead_code)]
+    #[expect(dead_code)]
     OperationFailed(String),
 }
 

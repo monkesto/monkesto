@@ -2,7 +2,6 @@ use crate::AppState;
 use crate::AuthSession;
 use crate::ident::JournalId;
 use crate::journal::transaction::EntryType;
-use crate::journal::transaction::TransactionStore;
 use crate::journal::{JournalStore, layout};
 use crate::known_errors::{KnownErrors, UrlError};
 use axum::extract::{Path, Query, State};
@@ -11,7 +10,7 @@ use axum_login::AuthnBackend;
 use maud::{Markup, html};
 use std::str::FromStr;
 
-#[allow(unused_variables)]
+#[expect(unused_variables)]
 pub async fn transaction_list_page(
     State(state): State<AppState>,
     session: AuthSession,
@@ -31,7 +30,7 @@ pub async fn transaction_list_page(
                 class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
                     div class="space-y-3" {
                         div class="space-y-2" {
-                            @match state.transaction_store.get_transaction(transaction_id).await {
+                            @match state.journal_store.get_transaction_state(transaction_id).await {
                                 Ok(transaction) => {
                                     @for entry in transaction.updates {
                                         @let entry_amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);

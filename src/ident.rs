@@ -110,12 +110,12 @@ macro_rules! id {
         #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub struct $name(Ident);
 
-        #[allow(dead_code)]
         impl $name {
             pub fn new() -> Self {
                 Self($new_fn)
             }
 
+            #[allow(dead_code)]
             pub fn from_bytes(bytes: &[u8]) -> Result<Self, KnownErrors> {
                 Ok(Self(Ident::from_bytes(bytes)?))
             }
