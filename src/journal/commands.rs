@@ -230,13 +230,14 @@ pub async fn transact(
                 .ok_or(KnownErrors::AccountDoesntExist { id: acc_id })
                 .or_redirect(callback_url)?;
 
-            let amt: i64 = form
+            let amt: i64 = (form
                 .amount
                 .get(idx)
                 .ok_or(KnownErrors::InvalidInput)
                 .or_redirect(callback_url)?
-                .parse()
-                .or_redirect(callback_url)?;
+                .parse::<f64>()
+                .or_redirect(callback_url)?
+                * 100.0) as i64;
 
             // error when the amount is below zero to prevent confusion with the credit/debit selector
             if amt <= 0 {

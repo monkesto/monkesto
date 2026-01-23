@@ -1,5 +1,9 @@
 use core::fmt;
-use std::{array::TryFromSliceError, num::ParseIntError, str::Utf8Error};
+use std::{
+    array::TryFromSliceError,
+    num::{ParseFloatError, ParseIntError},
+    str::Utf8Error,
+};
 
 use crate::{
     ident::AccountId,
@@ -89,6 +93,10 @@ pub enum KnownErrors {
         err: String,
     },
 
+    ParseFloat {
+        err: String,
+    },
+
     None,
 }
 
@@ -174,6 +182,14 @@ impl From<TryFromSliceError> for KnownErrors {
 impl From<ParseIntError> for KnownErrors {
     fn from(value: ParseIntError) -> Self {
         Self::ParseInt {
+            err: value.to_string(),
+        }
+    }
+}
+
+impl From<ParseFloatError> for KnownErrors {
+    fn from(value: ParseFloatError) -> Self {
+        Self::ParseFloat {
             err: value.to_string(),
         }
     }
