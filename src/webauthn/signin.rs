@@ -196,43 +196,25 @@ async fn handle_signin_page<P: PasskeyStore>(
         .await
         .unwrap_or_default();
 
-    let (challenge_data, error_message) = if all_credentials.is_empty() {
-        // No credentials available
-        (
-            None,
-            Some("No registered users found. Please register first."),
-        )
-    } else {
-        // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
-        match webauthn.start_passkey_authentication(&all_credentials) {
-            Ok((mut rcr, auth_state)) => {
-                // Clear allowCredentials for true identifier-less experience
-                rcr.public_key.allow_credentials.clear();
+    // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
+    let challenge_data = match webauthn.start_passkey_authentication(&all_credentials) {
+        Ok((mut rcr, auth_state)) => {
+            // Clear allowCredentials for true identifier-less experience
+            rcr.public_key.allow_credentials.clear();
 
-                // Store auth state in session
-                match session
-                    .insert("identifierless_auth_state", auth_state)
-                    .await
-                {
-                    Ok(_) => {
-                        // Serialize challenge to JSON
-                        match serde_json::to_string(&rcr) {
-                            Ok(json) => (Some(json), None),
-                            Err(_) => (
-                                None,
-                                Some("Failed to generate challenge. Please try again."),
-                            ),
-                        }
-                    }
-                    Err(_) => (None, Some("Session error. Please try again.")),
-                }
+            // Store auth state in session
+            match session
+                .insert("identifierless_auth_state", auth_state)
+                .await
+            {
+                Ok(_) => serde_json::to_string(&rcr).ok(),
+                Err(_) => None,
             }
-            Err(_) => (
-                None,
-                Some("Failed to generate authentication challenge. Please try again."),
-            ),
         }
+        Err(_) => None,
     };
+
+    let error_message: Option<&str> = None;
 
     // Handle error messages from query parameters
     let error_message = error_message.or_else(|| match query.error.as_deref() {
