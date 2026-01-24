@@ -235,7 +235,7 @@ fn auth_page(
                             }
                         }
 
-                        p class="mt-10 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
+                        p class="mt-6 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
                             "Don't have an account? "
                             @let signup_url = next.map(|n| format!("signup?next={}", n)).unwrap_or_else(|| "signup".to_string());
                             a

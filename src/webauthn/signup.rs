@@ -108,7 +108,7 @@ fn email_form_page(webauthn_url: &str, error_message: Option<&str>, next: Option
                             }
                         }
 
-                        p class="mt-10 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
+                        p class="mt-6 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
                             "Already have an account? "
                             @let signin_url = next.map(|n| format!("signin?next={}", n)).unwrap_or_else(|| "signin".to_string());
                             a
