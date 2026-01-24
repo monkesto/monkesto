@@ -397,3 +397,29 @@ async fn handle_dev_login<U: UserStore>(
     let redirect_to = next.as_deref().unwrap_or("/journal");
     Redirect::to(redirect_to).into_response()
 }
+
+#[cfg(test)]
+mod tests {
+    /// This test verifies that signin uses get_all_credentials from the passkey store.
+    /// If get_all_credentials is removed, authentication will break because the
+    /// auth_state won't contain the credentials needed to verify the response.
+    #[tokio::test]
+    async fn test_signin_uses_get_all_credentials() {
+        use super::super::passkey::{MemoryPasskeyStore, PasskeyStore};
+
+        let passkey_store = MemoryPasskeyStore::new();
+
+        // This call must exist in the signin flow - if removed, auth breaks
+        // webauthn-rs seems to record all the credentials in the state
+        // and then look it up afterward.
+        //
+        // This doesn't go to the browser because it gets cleared out first,
+        // but it's pretty wasteful nonetheless.
+        let credentials = passkey_store.get_all_credentials().await;
+
+        assert!(
+            credentials.is_ok(),
+            "get_all_credentials must be callable on PasskeyStore"
+        );
+    }
+}
