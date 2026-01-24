@@ -1,22 +1,65 @@
 use axum::{
     extract::{Extension, Form, Query},
     http::{StatusCode, header},
-    response::{IntoResponse, Redirect},
+    response::{IntoResponse, Redirect, Response},
 };
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
+use thiserror::Error;
 use webauthn_rs::prelude::{
     AuthenticationResult, PasskeyAuthentication, PublicKeyCredential, RequestChallengeResponse,
     Webauthn,
 };
 
 use super::AuthSession;
-use super::WebauthnError;
 use super::passkey::PasskeyStore;
 use super::user::{User, UserId, UserStore};
 use crate::maud_header::header;
+
+/// Errors that occur during the signin flow.
+#[derive(Error, Debug)]
+pub enum SigninError {
+    #[error("Authentication failed")]
+    AuthenticationFailed,
+    #[error("Authentication session expired")]
+    SessionExpired,
+    #[error("Invalid input data")]
+    InvalidInput,
+    #[error("Session error: {0}")]
+    SessionError(#[from] tower_sessions::session::Error),
+    #[error("User not found")]
+    UserNotFound,
+    #[error("Store operation failed: {0}")]
+    StoreError(String),
+    #[error("Login failed: {0}")]
+    LoginFailed(String),
+}
+
+impl IntoResponse for SigninError {
+    fn into_response(self) -> Response {
+        match self {
+            SigninError::SessionExpired => {
+                Redirect::to("/signin?error=session_expired").into_response()
+            }
+            SigninError::AuthenticationFailed => {
+                Redirect::to("/signin?error=auth_failed").into_response()
+            }
+            SigninError::InvalidInput => (StatusCode::BAD_REQUEST, "Invalid input").into_response(),
+            SigninError::UserNotFound => (StatusCode::NOT_FOUND, "User not found").into_response(),
+            SigninError::SessionError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Session error").into_response()
+            }
+            SigninError::StoreError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Store operation failed").into_response()
+            }
+            SigninError::LoginFailed(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Login failed").into_response()
+            }
+        }
+    }
+}
 
 /// Handles WebAuthn authentication flow (signin).
 /// This struct encapsulates the start and finish phases of authentication.
@@ -63,18 +106,18 @@ impl<'a, P: PasskeyStore> SigninAuthenticator<'a, P> {
         &self,
         credential: &PublicKeyCredential,
         auth_state: &PasskeyAuthentication,
-    ) -> Result<(UserId, AuthenticationResult), WebauthnError> {
+    ) -> Result<(UserId, AuthenticationResult), SigninError> {
         let auth_result = self
             .webauthn
             .finish_passkey_authentication(credential, auth_state)
-            .map_err(|_| WebauthnError::AuthenticationFailed)?;
+            .map_err(|_| SigninError::AuthenticationFailed)?;
 
         let (user_id, _passkey_id) = self
             .passkey_store
             .find_user_by_credential(auth_result.cred_id().as_slice())
             .await
-            .map_err(|e| WebauthnError::StoreError(e.to_string()))?
-            .ok_or(WebauthnError::UserNotFound)?;
+            .map_err(|e| SigninError::StoreError(e.to_string()))?
+            .ok_or(SigninError::UserNotFound)?;
 
         Ok((user_id, auth_result))
     }
@@ -306,15 +349,15 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
     mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
-) -> Result<axum::response::Response, WebauthnError> {
+) -> Result<axum::response::Response, SigninError> {
     // Extract credential from form
     let credential_json = form_data
         .get("credential")
-        .ok_or(WebauthnError::InvalidInput)?;
+        .ok_or(SigninError::InvalidInput)?;
 
     // Parse the JSON credential data
     let credential: PublicKeyCredential =
-        serde_json::from_str(credential_json).map_err(|_| WebauthnError::InvalidInput)?;
+        serde_json::from_str(credential_json).map_err(|_| SigninError::InvalidInput)?;
 
     // Get auth state from session (checking both possible keys for compatibility)
     let session = &auth_session.session;
@@ -326,7 +369,7 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
             // For now, just use the identifierless_auth_state
             None
         })
-        .ok_or(WebauthnError::SessionExpired)?;
+        .ok_or(SigninError::SessionExpired)?;
 
     // Verify the authentication using SigninAuthenticator
     let authenticator = SigninAuthenticator::new(&webauthn, passkey_store.as_ref());
@@ -340,13 +383,13 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
             let user = user_store
                 .get_user(&user_id)
                 .await
-                .map_err(|e| WebauthnError::StoreError(e.to_string()))?
-                .ok_or(WebauthnError::UserNotFound)?;
+                .map_err(|e| SigninError::StoreError(e.to_string()))?
+                .ok_or(SigninError::UserNotFound)?;
 
             auth_session
                 .login(&user)
                 .await
-                .map_err(|e| WebauthnError::LoginFailed(e.to_string()))?;
+                .map_err(|e| SigninError::LoginFailed(e.to_string()))?;
 
             // Redirect to next or default
             let redirect_to = next.as_deref().unwrap_or("/journal");

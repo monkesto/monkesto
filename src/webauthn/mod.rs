@@ -9,9 +9,7 @@ pub mod user;
 use axum::{
     Router,
     extract::Extension,
-    http::StatusCode,
-    response::{IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, post},
 };
 use axum_login::login_required;
 use std::{env, sync::Arc};
@@ -33,61 +31,6 @@ pub enum WebauthnConfigError {
     InvalidUrl(#[from] url::ParseError),
     #[error("BASE_URL must have a valid host for WebAuthn rp_id")]
     InvalidHost,
-}
-
-/// Errors that occur during WebAuthn authentication flows.
-/// These implement IntoResponse for use in route handlers.
-#[derive(Error, Debug)]
-pub enum WebauthnError {
-    #[error("User Not Found")]
-    UserNotFound,
-    #[error("Authentication failed")]
-    AuthenticationFailed,
-    #[error("Authentication session expired")]
-    SessionExpired,
-    #[error("Invalid input data")]
-    InvalidInput,
-    #[error("Deserialising Session failed: {0}")]
-    InvalidSessionState(#[from] tower_sessions::session::Error),
-    #[error("Store operation failed: {0}")]
-    StoreError(String),
-    #[error("Login failed: {0}")]
-    LoginFailed(String),
-    #[error("Serialization failed: {0}")]
-    SerializationError(#[from] serde_json::Error),
-}
-
-impl IntoResponse for WebauthnError {
-    fn into_response(self) -> Response {
-        match self {
-            WebauthnError::SessionExpired => {
-                Redirect::to("/signin?error=session_expired").into_response()
-            }
-            WebauthnError::AuthenticationFailed => {
-                Redirect::to("/signin?error=auth_failed").into_response()
-            }
-            WebauthnError::InvalidInput => {
-                (StatusCode::BAD_REQUEST, "Invalid Input").into_response()
-            }
-            WebauthnError::UserNotFound => {
-                (StatusCode::NOT_FOUND, "User Not Found").into_response()
-            }
-            WebauthnError::InvalidSessionState(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Deserialising Session failed",
-            )
-                .into_response(),
-            WebauthnError::StoreError(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Store operation failed").into_response()
-            }
-            WebauthnError::LoginFailed(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Login failed").into_response()
-            }
-            WebauthnError::SerializationError(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Serialization failed").into_response()
-            }
-        }
-    }
 }
 
 pub fn router<S: Clone + Send + Sync + 'static>(
@@ -125,16 +68,14 @@ pub fn router<S: Clone + Send + Sync + 'static>(
         )
         .route(
             "/passkey",
-            axum::routing::post(
-                passkey::create_passkey_post::<MemoryUserStore, MemoryPasskeyStore>,
-            ),
+            post(passkey::create_passkey_post::<MemoryUserStore, MemoryPasskeyStore>),
         )
         .route(
             "/passkey/{id}/delete",
-            axum::routing::post(passkey::delete_passkey_post::<MemoryPasskeyStore>),
+            post(passkey::delete_passkey_post::<MemoryPasskeyStore>),
         )
         .route("/signout", get(signout::signout_get))
-        .route("/signout", axum::routing::post(signout::signout_post))
+        .route("/signout", post(signout::signout_post))
         .route_layer(login_required!(MemoryUserStore, login_url = "/signin"));
 
     // Public routes (no login required)

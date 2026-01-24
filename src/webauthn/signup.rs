@@ -1,21 +1,56 @@
 use axum::{
     extract::{Extension, Form, Query},
     http::{StatusCode, header},
-    response::{IntoResponse, Redirect},
+    response::{IntoResponse, Redirect, Response},
 };
 use maud::{DOCTYPE, Markup, PreEscaped, html};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
+use thiserror::Error;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid, Webauthn};
 use webauthn_rs_proto::{AuthenticatorSelectionCriteria, ResidentKeyRequirement};
 
 use super::AuthSession;
-use super::WebauthnError;
 use super::authority::{Actor, Authority};
 use super::passkey::{PasskeyEvent, PasskeyId, PasskeyStore};
 use super::user::{Email, UserEvent, UserId, UserStore};
 use crate::maud_header::header;
+
+/// Errors that occur during the signup flow.
+#[derive(Error, Debug)]
+pub enum SignupError {
+    #[error("Session expired")]
+    SessionExpired,
+    #[error("Invalid input data")]
+    InvalidInput,
+    #[error("Session error: {0}")]
+    SessionError(#[from] tower_sessions::session::Error),
+    #[error("Serialization error: {0}")]
+    SerializationError(#[from] serde_json::Error),
+    #[error("Login failed: {0}")]
+    LoginFailed(String),
+}
+
+impl IntoResponse for SignupError {
+    fn into_response(self) -> Response {
+        match self {
+            SignupError::SessionExpired => {
+                Redirect::to("/signup?error=session_expired").into_response()
+            }
+            SignupError::InvalidInput => (StatusCode::BAD_REQUEST, "Invalid input").into_response(),
+            SignupError::SessionError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Session error").into_response()
+            }
+            SignupError::SerializationError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Serialization error").into_response()
+            }
+            SignupError::LoginFailed(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Login failed").into_response()
+            }
+        }
+    }
+}
 
 #[derive(Deserialize)]
 pub struct SignupQuery {
@@ -247,7 +282,7 @@ async fn handle_signup_post<U: UserStore, P: PasskeyStore>(
     webauthn_url: String,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
-) -> Result<axum::response::Response, WebauthnError> {
+) -> Result<axum::response::Response, SignupError> {
     // Check if this is an email submission or credential submission
     if let Some(_credential_json) = form_data.get("credential") {
         // This is step 2: credential submission
@@ -272,7 +307,7 @@ async fn handle_signup_post<U: UserStore, P: PasskeyStore>(
         )
         .await
     } else {
-        Err(WebauthnError::InvalidInput)
+        Err(SignupError::InvalidInput)
     }
 }
 
@@ -283,7 +318,7 @@ async fn handle_email_submission<U: UserStore>(
     webauthn_url: String,
     email: String,
     next: Option<String>,
-) -> Result<axum::response::Response, WebauthnError> {
+) -> Result<axum::response::Response, SignupError> {
     // Validate email format (basic validation)
     if email.is_empty() || email.len() > 254 || !email.contains('@') || !email.contains('.') {
         return Ok(Redirect::to("/signup?error=invalid_email").into_response());
@@ -354,21 +389,21 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
     mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
-) -> Result<axum::response::Response, WebauthnError> {
+) -> Result<axum::response::Response, SignupError> {
     // Extract credential from form
     let credential_json = form_data
         .get("credential")
-        .ok_or(WebauthnError::InvalidInput)?;
+        .ok_or(SignupError::InvalidInput)?;
 
     let credential: RegisterPublicKeyCredential =
-        serde_json::from_str(credential_json).map_err(|_| WebauthnError::InvalidInput)?;
+        serde_json::from_str(credential_json).map_err(|_| SignupError::InvalidInput)?;
 
     // Get registration state from session
     let session = &auth_session.session;
     let (email, user_id, webauthn_uuid, reg_state, stored_next) = session
         .get::<(String, UserId, Uuid, PasskeyRegistration, Option<String>)>("reg_state")
         .await?
-        .ok_or(WebauthnError::SessionExpired)?;
+        .ok_or(SignupError::SessionExpired)?;
 
     // Use next from form if provided, otherwise fall back to stored next
     let next = next.or(stored_next);
@@ -383,8 +418,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             let passkey_id = PasskeyId::new();
 
             // Store the new user and their passkey
-            let email_validated =
-                Email::try_new(&email).map_err(|_| WebauthnError::InvalidInput)?;
+            let email_validated = Email::try_new(&email).map_err(|_| SignupError::InvalidInput)?;
 
             if user_store
                 .record(UserEvent::Created {
@@ -420,7 +454,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             auth_session
                 .login(&user)
                 .await
-                .map_err(|e| WebauthnError::LoginFailed(e.to_string()))?;
+                .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
 
             // Redirect to next or default
             let redirect_to = next.as_deref().unwrap_or("/journal");

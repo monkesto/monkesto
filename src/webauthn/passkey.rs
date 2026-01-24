@@ -1,20 +1,57 @@
 use axum::{
     extract::{Extension, Form, Path},
     http::{StatusCode, header},
-    response::{IntoResponse, Redirect},
+    response::{IntoResponse, Redirect, Response},
 };
+use thiserror::Error;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Webauthn};
 
 use super::AuthSession;
-use super::WebauthnError;
 use super::authority::{Actor, Authority};
 use super::user::{UserId, UserStore};
 use crate::id;
 use crate::ident::Ident;
 use crate::known_errors::KnownErrors;
+
+/// Errors that occur during passkey management operations.
+#[derive(Error, Debug)]
+pub enum PasskeyError {
+    #[error("Session expired")]
+    SessionExpired,
+    #[error("Invalid input data")]
+    InvalidInput,
+    #[error("Session error: {0}")]
+    SessionError(#[from] tower_sessions::session::Error),
+    #[error("Serialization error: {0}")]
+    SerializationError(#[from] serde_json::Error),
+    #[error("Store operation failed: {0}")]
+    StoreError(String),
+}
+
+impl IntoResponse for PasskeyError {
+    fn into_response(self) -> Response {
+        match self {
+            PasskeyError::SessionExpired => {
+                Redirect::to("/signin?error=session_expired").into_response()
+            }
+            PasskeyError::InvalidInput => {
+                (StatusCode::BAD_REQUEST, "Invalid input").into_response()
+            }
+            PasskeyError::SessionError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Session error").into_response()
+            }
+            PasskeyError::SerializationError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Serialization error").into_response()
+            }
+            PasskeyError::StoreError(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Store operation failed").into_response()
+            }
+        }
+    }
+}
 
 use serde::{Deserialize, Serialize};
 use std::{
@@ -27,18 +64,18 @@ pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
     Extension(passkey_store): Extension<Arc<P>>,
     auth_session: AuthSession,
     Path(passkey_id_str): Path<String>,
-) -> Result<impl IntoResponse, WebauthnError> {
+) -> Result<impl IntoResponse, PasskeyError> {
     // Check if user is logged in
     let user_id = auth_session
         .user
         .as_ref()
         .map(|u| u.id)
-        .ok_or(WebauthnError::SessionExpired)?;
+        .ok_or(PasskeyError::SessionExpired)?;
 
     // Parse the PasskeyId
     let passkey_id = passkey_id_str
         .parse::<PasskeyId>()
-        .map_err(|_| WebauthnError::InvalidInput)?;
+        .map_err(|_| PasskeyError::InvalidInput)?;
 
     // Remove the passkey from the user's passkeys
     passkey_store
@@ -48,7 +85,7 @@ pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
             by: Authority::Direct(Actor::User(user_id)),
         })
         .await
-        .map_err(|e| WebauthnError::StoreError(e.to_string()))?;
+        .map_err(|e| PasskeyError::StoreError(e.to_string()))?;
 
     // Redirect back to passkey page
     Ok(Redirect::to("/me").into_response())
@@ -60,13 +97,13 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
     Extension(passkey_store): Extension<Arc<P>>,
     auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
-) -> Result<impl IntoResponse, WebauthnError> {
+) -> Result<impl IntoResponse, PasskeyError> {
     // Check if user is logged in
     let user_id = auth_session
         .user
         .as_ref()
         .map(|u| u.id)
-        .ok_or(WebauthnError::SessionExpired)?;
+        .ok_or(PasskeyError::SessionExpired)?;
 
     let session = &auth_session.session;
 
@@ -74,13 +111,13 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
     if let Some(credential_json) = form.get("credential") {
         // This is credential submission - finish registration
         let credential: RegisterPublicKeyCredential =
-            serde_json::from_str(credential_json).map_err(|_| WebauthnError::InvalidInput)?;
+            serde_json::from_str(credential_json).map_err(|_| PasskeyError::InvalidInput)?;
 
         // Get registration state from session
         let reg_state = session
             .get::<PasskeyRegistration>("add_passkey_reg_state")
             .await?
-            .ok_or(WebauthnError::SessionExpired)?;
+            .ok_or(PasskeyError::SessionExpired)?;
 
         // Verify the registration
         match webauthn.finish_passkey_registration(&credential, &reg_state) {
@@ -132,7 +169,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
         let webauthn_uuid = user_store
             .get_webauthn_uuid(&user_id)
             .await
-            .map_err(|e| WebauthnError::StoreError(e.to_string()))?;
+            .map_err(|e| PasskeyError::StoreError(e.to_string()))?;
 
         let exclude_credentials: Vec<_> = existing_passkeys
             .iter()
