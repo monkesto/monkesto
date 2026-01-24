@@ -42,6 +42,11 @@ pub fn maud_layout(
                                     }
                                 }
                             }
+                            a
+                                href="/me"
+                                class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-2 py-1" {
+                                "Profile"
+                            }
                             form action="/signout" method="post" {
                                 button
                                     class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-2 py-1"

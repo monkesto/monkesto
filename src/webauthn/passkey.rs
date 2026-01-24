@@ -3,7 +3,6 @@ use axum::{
     http::{StatusCode, header},
     response::{IntoResponse, Redirect},
 };
-use maud::DOCTYPE;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,7 +15,7 @@ use super::user::{UserId, UserStore};
 use crate::id;
 use crate::ident::Ident;
 use crate::known_errors::KnownErrors;
-use crate::maud_header::header;
+
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::{self, Display},
@@ -172,113 +171,97 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
 }
 
 fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup {
+    use crate::journal::layout::maud_layout;
     use maud::{PreEscaped, html};
 
-    header(html! {
-        (DOCTYPE)
-        html lang="en" {
-            head {
-                meta charset="UTF-8";
-                meta name="viewport" content="width=device-width, initial-scale=1";
-                title { "Add New Passkey - Monkesto" }
-                script
-                    src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
-                    crossorigin="anonymous" {}
-                script id="challenge-data" type="application/json" {
-                    (PreEscaped(challenge_data))
+    let content = html! {
+        script
+            src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
+            crossorigin="anonymous" {}
+        script id="challenge-data" type="application/json" {
+            (PreEscaped(challenge_data))
+        }
+        script {
+            r#"
+            window.addEventListener('load', function() {
+                const challengeDataElement = document.getElementById('challenge-data');
+                if (!challengeDataElement) {
+                    document.getElementById('flash_message').innerHTML = 'No challenge data available. Please try again.';
+                    return;
                 }
-                script {
-                    r#"
-                    window.addEventListener('load', function() {
-                        const challengeDataElement = document.getElementById('challenge-data');
-                        if (!challengeDataElement) {
-                            document.getElementById('flash_message').innerHTML = 'No challenge data available. Please try again.';
-                            return;
-                        }
 
-                        let credentialCreationOptions;
-                        try {
-                            credentialCreationOptions = JSON.parse(challengeDataElement.textContent);
-                        } catch (error) {
-                            console.error('Failed to parse challenge data:', error);
-                            document.getElementById('flash_message').innerHTML = 'Invalid challenge data. Please try again.';
-                            return;
-                        }
-
-                        // Convert base64url strings to Uint8Arrays
-                        credentialCreationOptions.publicKey.challenge = Base64.toUint8Array(
-                            credentialCreationOptions.publicKey.challenge
-                        );
-                        credentialCreationOptions.publicKey.user.id = Base64.toUint8Array(
-                            credentialCreationOptions.publicKey.user.id
-                        );
-                        credentialCreationOptions.publicKey.excludeCredentials?.forEach(function(listItem) {
-                            listItem.id = Base64.toUint8Array(listItem.id);
-                        });
-
-                        // Show creating message
-                        document.getElementById('status_message').innerHTML = 'Creating your new passkey...';
-
-                        navigator.credentials.create({
-                            publicKey: credentialCreationOptions.publicKey
-                        }).then(function(credential) {
-                            // Convert response to base64url and submit via form
-                            const credentialData = {
-                                id: credential.id,
-                                rawId: Base64.fromUint8Array(new Uint8Array(credential.rawId), true),
-                                type: credential.type,
-                                response: {
-                                    attestationObject: Base64.fromUint8Array(
-                                        new Uint8Array(credential.response.attestationObject), true
-                                    ),
-                                    clientDataJSON: Base64.fromUint8Array(
-                                        new Uint8Array(credential.response.clientDataJSON), true
-                                    )
-                                }
-                            };
-
-                            document.getElementById('credential-field').value = JSON.stringify(credentialData);
-                            document.getElementById('registration-form').submit();
-                        }).catch(function(error) {
-                            console.error('Registration error:', error);
-                            document.getElementById('flash_message').innerHTML = 'Failed to create passkey: ' + error.message;
-                        });
-                    });
-                    "#
+                let credentialCreationOptions;
+                try {
+                    credentialCreationOptions = JSON.parse(challengeDataElement.textContent);
+                } catch (error) {
+                    console.error('Failed to parse challenge data:', error);
+                    document.getElementById('flash_message').innerHTML = 'Invalid challenge data. Please try again.';
+                    return;
                 }
+
+                // Convert base64url strings to Uint8Arrays
+                credentialCreationOptions.publicKey.challenge = Base64.toUint8Array(
+                    credentialCreationOptions.publicKey.challenge
+                );
+                credentialCreationOptions.publicKey.user.id = Base64.toUint8Array(
+                    credentialCreationOptions.publicKey.user.id
+                );
+                credentialCreationOptions.publicKey.excludeCredentials?.forEach(function(listItem) {
+                    listItem.id = Base64.toUint8Array(listItem.id);
+                });
+
+                // Show creating message
+                document.getElementById('status_message').innerHTML = 'Creating your new passkey...';
+
+                navigator.credentials.create({
+                    publicKey: credentialCreationOptions.publicKey
+                }).then(function(credential) {
+                    // Convert response to base64url and submit via form
+                    const credentialData = {
+                        id: credential.id,
+                        rawId: Base64.fromUint8Array(new Uint8Array(credential.rawId), true),
+                        type: credential.type,
+                        response: {
+                            attestationObject: Base64.fromUint8Array(
+                                new Uint8Array(credential.response.attestationObject), true
+                            ),
+                            clientDataJSON: Base64.fromUint8Array(
+                                new Uint8Array(credential.response.clientDataJSON), true
+                            )
+                        }
+                    };
+
+                    document.getElementById('credential-field').value = JSON.stringify(credentialData);
+                    document.getElementById('registration-form').submit();
+                }).catch(function(error) {
+                    console.error('Registration error:', error);
+                    document.getElementById('flash_message').innerHTML = 'Failed to create passkey: ' + error.message;
+                });
+            });
+            "#
+        }
+
+        p class="text-center text-sm/6 text-gray-600 dark:text-gray-400" {
+            "Email: " strong { (email) }
+        }
+
+        // Hidden form for credential submission
+        form id="registration-form" method="POST" action="passkey" style="display: none;" {
+            input type="hidden" id="credential-field" name="credential" value="";
+        }
+
+        div class="text-center" {
+            p id="status_message" class="text-lg text-gray-900 dark:text-white" {
+                "Please follow your device's prompts to create your new passkey"
             }
-            body {
-                div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
-                    div class="sm:mx-auto sm:w-full sm:max-w-sm" {
-                        img src="/logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto";
-                        h2 class="mt-10 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white" {
-                            "Add New Passkey"
-                        }
-                        p class="mt-2 text-center text-sm/6 text-gray-600 dark:text-gray-400" {
-                            "Email: " strong { (email) }
-                        }
-                    }
 
-                    div class="mt-10 sm:mx-auto sm:w-full sm:max-w-sm" {
-                        // Hidden form for credential submission
-                        form id="registration-form" method="POST" action="passkey" style="display: none;" {
-                            input type="hidden" id="credential-field" name="credential" value="";
-                        }
-
-                        div class="text-center" {
-                            p id="status_message" class="text-lg text-gray-900 dark:text-white" {
-                                "Please follow your device's prompts to create your new passkey"
-                            }
-
-                            div class="mt-6" {
-                                p id="flash_message" class="text-center text-sm/6 text-red-500" {}
-                            }
-                        }
-                    }
-                }
+            div class="mt-6" {
+                p id="flash_message" class="text-center text-sm/6 text-red-500" {}
             }
         }
-    })
+    };
+
+    maud_layout(None, false, None, content)
 }
 
 id!(PasskeyId, Ident::new16());
