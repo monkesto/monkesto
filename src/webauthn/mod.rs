@@ -41,6 +41,8 @@ pub enum WebauthnConfigError {
 pub enum WebauthnError {
     #[error("User Not Found")]
     UserNotFound,
+    #[error("Authentication failed")]
+    AuthenticationFailed,
     #[error("Authentication session expired")]
     SessionExpired,
     #[error("Invalid input data")]
@@ -60,6 +62,9 @@ impl IntoResponse for WebauthnError {
         match self {
             WebauthnError::SessionExpired => {
                 Redirect::to("/signin?error=session_expired").into_response()
+            }
+            WebauthnError::AuthenticationFailed => {
+                Redirect::to("/signin?error=auth_failed").into_response()
             }
             WebauthnError::InvalidInput => {
                 (StatusCode::BAD_REQUEST, "Invalid Input").into_response()

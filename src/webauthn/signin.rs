@@ -7,13 +7,78 @@ use maud::{DOCTYPE, Markup, PreEscaped, html};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use webauthn_rs::prelude::{PasskeyAuthentication, PublicKeyCredential, Webauthn};
+use webauthn_rs::prelude::{
+    AuthenticationResult, PasskeyAuthentication, PublicKeyCredential, RequestChallengeResponse,
+    Webauthn,
+};
 
 use super::AuthSession;
 use super::WebauthnError;
 use super::passkey::PasskeyStore;
-use super::user::{User, UserStore};
+use super::user::{User, UserId, UserStore};
 use crate::maud_header::header;
+
+/// Handles WebAuthn authentication flow (signin).
+/// This struct encapsulates the start and finish phases of authentication.
+pub struct SigninAuthenticator<'a, P: PasskeyStore> {
+    webauthn: &'a Webauthn,
+    passkey_store: &'a P,
+}
+
+impl<'a, P: PasskeyStore> SigninAuthenticator<'a, P> {
+    pub fn new(webauthn: &'a Webauthn, passkey_store: &'a P) -> Self {
+        Self {
+            webauthn,
+            passkey_store,
+        }
+    }
+
+    /// Start the authentication flow by loading credentials and generating a challenge.
+    ///
+    /// The allowCredentials list is cleared for a true identifier-less experience
+    /// (the browser/OS will prompt the user to pick their passkey).
+    ///
+    /// Returns the challenge request and auth state, or None if it fails.
+    pub async fn start(&self) -> Option<(RequestChallengeResponse, PasskeyAuthentication)> {
+        let all_credentials = self
+            .passkey_store
+            .get_all_credentials()
+            .await
+            .unwrap_or_default();
+
+        match self.webauthn.start_passkey_authentication(&all_credentials) {
+            Ok((mut rcr, auth_state)) => {
+                // Clear allowCredentials for true identifier-less experience
+                rcr.public_key.allow_credentials.clear();
+                Some((rcr, auth_state))
+            }
+            Err(_) => None,
+        }
+    }
+
+    /// Finish the authentication flow by verifying the credential.
+    ///
+    /// Returns the user ID if authentication succeeds.
+    pub async fn finish(
+        &self,
+        credential: &PublicKeyCredential,
+        auth_state: &PasskeyAuthentication,
+    ) -> Result<(UserId, AuthenticationResult), WebauthnError> {
+        let auth_result = self
+            .webauthn
+            .finish_passkey_authentication(credential, auth_state)
+            .map_err(|_| WebauthnError::AuthenticationFailed)?;
+
+        let (user_id, _passkey_id) = self
+            .passkey_store
+            .find_user_by_credential(auth_result.cred_id().as_slice())
+            .await
+            .map_err(|e| WebauthnError::StoreError(e.to_string()))?
+            .ok_or(WebauthnError::UserNotFound)?;
+
+        Ok((user_id, auth_result))
+    }
+}
 
 #[derive(Deserialize)]
 pub struct SigninQuery {
@@ -190,18 +255,10 @@ async fn handle_signin_page<P: PasskeyStore>(
     let _ = session.remove_value("auth_state").await;
     let _ = session.remove_value("usernameless_auth_state").await;
 
-    // For identifier-less authentication (WebAuthn terminology: "usernameless"), load all credentials
-    let all_credentials = passkey_store
-        .get_all_credentials()
-        .await
-        .unwrap_or_default();
-
     // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
-    let challenge_data = match webauthn.start_passkey_authentication(&all_credentials) {
-        Ok((mut rcr, auth_state)) => {
-            // Clear allowCredentials for true identifier-less experience
-            rcr.public_key.allow_credentials.clear();
-
+    let authenticator = SigninAuthenticator::new(&webauthn, passkey_store.as_ref());
+    let challenge_data = match authenticator.start().await {
+        Some((rcr, auth_state)) => {
             // Store auth state in session
             match session
                 .insert("identifierless_auth_state", auth_state)
@@ -211,7 +268,7 @@ async fn handle_signin_page<P: PasskeyStore>(
                 Err(_) => None,
             }
         }
-        Err(_) => None,
+        None => None,
     };
 
     let error_message: Option<&str> = None;
@@ -271,19 +328,13 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
         })
         .ok_or(WebauthnError::SessionExpired)?;
 
-    // Verify the authentication
-    match webauthn.finish_passkey_authentication(&credential, &auth_state) {
-        Ok(auth_result) => {
+    // Verify the authentication using SigninAuthenticator
+    let authenticator = SigninAuthenticator::new(&webauthn, passkey_store.as_ref());
+    match authenticator.finish(&credential, &auth_state).await {
+        Ok((user_id, _auth_result)) => {
             // Clear the auth state
             let _ = session.remove_value("identifierless_auth_state").await;
             let _ = session.remove_value("auth_state").await;
-
-            // Find which user this credential belongs to
-            let (user_id, _passkey_id) = passkey_store
-                .find_user_by_credential(auth_result.cred_id().as_slice())
-                .await
-                .map_err(|e| WebauthnError::StoreError(e.to_string()))?
-                .ok_or(WebauthnError::UserNotFound)?;
 
             // Get the user and log them in via axum_login
             let user = user_store
@@ -396,30 +447,4 @@ async fn handle_dev_login<U: UserStore>(
     // Redirect to next or default
     let redirect_to = next.as_deref().unwrap_or("/journal");
     Redirect::to(redirect_to).into_response()
-}
-
-#[cfg(test)]
-mod tests {
-    /// This test verifies that signin uses get_all_credentials from the passkey store.
-    /// If get_all_credentials is removed, authentication will break because the
-    /// auth_state won't contain the credentials needed to verify the response.
-    #[tokio::test]
-    async fn test_signin_uses_get_all_credentials() {
-        use super::super::passkey::{MemoryPasskeyStore, PasskeyStore};
-
-        let passkey_store = MemoryPasskeyStore::new();
-
-        // This call must exist in the signin flow - if removed, auth breaks
-        // webauthn-rs seems to record all the credentials in the state
-        // and then look it up afterward.
-        //
-        // This doesn't go to the browser because it gets cleared out first,
-        // but it's pretty wasteful nonetheless.
-        let credentials = passkey_store.get_all_credentials().await;
-
-        assert!(
-            credentials.is_ok(),
-            "get_all_credentials must be callable on PasskeyStore"
-        );
-    }
 }
