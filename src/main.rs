@@ -1,11 +1,11 @@
+mod auth;
 mod authority;
 mod event;
 mod ident;
 mod journal;
 mod known_errors;
-mod theme;
 mod notfoundpage;
-mod auth;
+mod theme;
 
 use axum::Router;
 use axum::http::{StatusCode, header};
@@ -21,9 +21,9 @@ use tower_http::services::ServeFile;
 use tower_sessions::SessionManagerLayer;
 use tower_sessions_file_store::FileSessionStorage;
 
+use crate::auth::MemoryUserStore;
 use crate::journal::JournalMemoryStore;
 use crate::journal::transaction::TransasctionMemoryStore;
-use crate::auth::MemoryUserStore;
 
 pub type AuthSession = axum_login::AuthSession<MemoryUserStore>;
 

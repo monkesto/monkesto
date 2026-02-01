@@ -1,3 +1,4 @@
+mod layout;
 mod me;
 mod passkey;
 mod signin;
@@ -15,6 +16,7 @@ use std::{env, sync::Arc};
 use thiserror::Error;
 use webauthn_rs::prelude::{Url, WebauthnBuilder, WebauthnError as WebauthnCoreError};
 
+pub use layout::layout;
 use passkey::MemoryPasskeyStore;
 pub use user::MemoryUserStore;
 
@@ -47,9 +49,7 @@ pub fn router<S: Clone + Send + Sync + 'static>(
 
     // Parse the base URL to extract rp_id and rp_origin for WebAuthn security
     let rp_origin = Url::parse(&base_url)?;
-    let rp_id = rp_origin
-        .host_str()
-        .ok_or(AuthConfigError::InvalidHost)?;
+    let rp_id = rp_origin.host_str().ok_or(AuthConfigError::InvalidHost)?;
 
     // Create WebAuthn instance and passkey storage
     let webauthn = Arc::new(

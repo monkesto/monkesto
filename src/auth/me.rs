@@ -6,10 +6,10 @@ use axum::{
 use maud::{DOCTYPE, Markup, html};
 use std::sync::Arc;
 
+use super::layout::layout;
 use super::AuthSession;
 use super::passkey::{Passkey, PasskeyStore};
 use super::user::UserStore;
-use crate::journal::layout::layout;
 use crate::theme::theme;
 
 fn me_page(email: &str, passkeys: &[Passkey]) -> Markup {
@@ -76,7 +76,13 @@ fn me_page(email: &str, passkeys: &[Passkey]) -> Markup {
         }
     };
 
-    layout(Some("Profile"), false, None, content)
+    let nav_title = Some(html! {
+        span class="text-sm font-medium text-gray-700 dark:text-gray-300" {
+            "Profile"
+        }
+    });
+
+    layout(nav_title, content)
 }
 
 fn not_logged_in_page() -> Markup {

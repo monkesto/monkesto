@@ -10,12 +10,14 @@ use std::sync::Arc;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Webauthn};
 
 use super::AuthSession;
+use super::layout::layout;
 use super::user::{UserId, UserStore};
 use crate::authority::{Actor, Authority};
 use crate::event::EventStore;
 use crate::id;
 use crate::ident::Ident;
 use crate::known_errors::KnownErrors;
+use maud::{PreEscaped, html};
 
 /// Errors that occur during passkey management operations.
 #[derive(Error, Debug)]
@@ -208,9 +210,6 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
 }
 
 fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup {
-    use crate::journal::layout::layout;
-    use maud::{PreEscaped, html};
-
     let content = html! {
         script
             src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
@@ -298,7 +297,7 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
         }
     };
 
-    layout(None, false, None, content)
+    layout(None, content)
 }
 
 id!(PasskeyId, Ident::new16());
