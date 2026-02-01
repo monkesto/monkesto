@@ -1,7 +1,7 @@
 use crate::theme::theme;
 use maud::{Markup, html};
 
-pub fn maud_layout(
+pub fn layout(
     page_title: Option<&str>,
     show_switch_link: bool,
     journal_id: Option<&str>,

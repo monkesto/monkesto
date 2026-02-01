@@ -133,7 +133,7 @@ pub async fn transaction_list_page(
         }
     };
 
-    Ok(layout::maud_layout(
+    Ok(layout::layout(
         Some(
             &journal_state_res
                 .map(|s| s.name)

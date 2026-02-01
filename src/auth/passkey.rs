@@ -208,7 +208,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
 }
 
 fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup {
-    use crate::journal::layout::maud_layout;
+    use crate::journal::layout::layout;
     use maud::{PreEscaped, html};
 
     let content = html! {
@@ -298,7 +298,7 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
         }
     };
 
-    maud_layout(None, false, None, content)
+    layout(None, false, None, content)
 }
 
 id!(PasskeyId, Ident::new16());

@@ -4,7 +4,7 @@ use crate::ident::Ident;
 use crate::ident::JournalId;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
-use crate::journal::layout::maud_layout;
+use crate::journal::layout::layout;
 use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
 use crate::auth::user::{self, UserStore};
 use axum::extract::{Path, Query, State};
@@ -82,7 +82,7 @@ pub async fn journal_list(
         }
     };
 
-    Ok(maud_layout(None, false, None, content))
+    Ok(layout(None, false, None, content))
 }
 
 pub async fn journal_detail(
@@ -147,7 +147,7 @@ pub async fn journal_detail(
         }
     };
 
-    Ok(maud_layout(
+    Ok(layout(
         Some(
             &journal_state_res
                 .map(|s| s.name)

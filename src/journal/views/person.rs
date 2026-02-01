@@ -3,7 +3,7 @@ use crate::AuthSession;
 use crate::ident::{JournalId, UserId};
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
-use crate::journal::layout::maud_layout;
+use crate::journal::layout::layout;
 use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
 use crate::auth::user::{self, UserStore};
 use axum::extract::{Path, Query, State};
@@ -117,7 +117,7 @@ pub async fn person_detail_page(
         }
     };
 
-    Ok(maud_layout(
+    Ok(layout(
         Some(&journal_state.name),
         true,
         Some(&id),
@@ -220,7 +220,7 @@ pub async fn people_list_page(
         }
     };
 
-    Ok(maud_layout(
+    Ok(layout(
         Some(
             &journal_state_res
                 .map(|s| s.name)

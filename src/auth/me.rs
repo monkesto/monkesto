@@ -9,7 +9,7 @@ use std::sync::Arc;
 use super::AuthSession;
 use super::passkey::{Passkey, PasskeyStore};
 use super::user::UserStore;
-use crate::journal::layout::maud_layout;
+use crate::journal::layout::layout;
 use crate::theme::theme;
 
 fn me_page(email: &str, passkeys: &[Passkey]) -> Markup {
@@ -76,7 +76,7 @@ fn me_page(email: &str, passkeys: &[Passkey]) -> Markup {
         }
     };
 
-    maud_layout(Some("Profile"), false, None, content)
+    layout(Some("Profile"), false, None, content)
 }
 
 fn not_logged_in_page() -> Markup {
