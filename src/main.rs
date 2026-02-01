@@ -1,3 +1,5 @@
+mod authority;
+mod event;
 mod ident;
 mod journal;
 mod known_errors;

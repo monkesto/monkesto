@@ -12,9 +12,9 @@ use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uui
 use webauthn_rs_proto::{AuthenticatorSelectionCriteria, ResidentKeyRequirement};
 
 use super::AuthSession;
-use super::authority::{Actor, Authority};
 use super::passkey::{PasskeyEvent, PasskeyId, PasskeyStore};
 use super::user::{Email, UserEvent, UserId, UserStore};
+use crate::authority::{Actor, Authority};
 use crate::maud_header::header;
 
 /// Errors that occur during the signup flow.
@@ -421,12 +421,14 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             let email_validated = Email::try_new(&email).map_err(|_| SignupError::InvalidInput)?;
 
             if user_store
-                .record(UserEvent::Created {
-                    id: user_id,
-                    by: Authority::Direct(Actor::Anonymous),
-                    email: email_validated.clone(),
-                    webauthn_uuid,
-                })
+                .record(
+                    user_id,
+                    Authority::Direct(Actor::Anonymous),
+                    UserEvent::Created {
+                        email: email_validated.clone(),
+                        webauthn_uuid,
+                    },
+                )
                 .await
                 .is_err()
             {
@@ -434,12 +436,11 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             }
 
             if passkey_store
-                .record(PasskeyEvent::Created {
-                    id: passkey_id,
-                    user_id,
-                    by: Authority::Direct(Actor::User(user_id)),
-                    passkey,
-                })
+                .record(
+                    passkey_id,
+                    Authority::Direct(Actor::User(user_id)),
+                    PasskeyEvent::Created { user_id, passkey },
+                )
                 .await
                 .is_err()
             {

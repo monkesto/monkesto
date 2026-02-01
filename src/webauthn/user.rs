@@ -1,5 +1,6 @@
-use super::authority::Authority;
-pub use super::authority::UserId;
+use crate::authority::Authority;
+pub use crate::authority::UserId;
+use crate::event::EventStore;
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use axum::response::Redirect;
 use nutype::nutype;
@@ -52,8 +53,8 @@ pub fn get_user(session: crate::AuthSession) -> Result<User, Redirect> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::authority::{Actor, Authority};
     use super::*;
+    use crate::authority::{Actor, Authority};
     use std::sync::Arc;
 
     #[test]
@@ -104,12 +105,14 @@ mod tests {
 
         // Create a user
         user_store
-            .record(UserEvent::Created {
-                id: user_id,
-                by: Authority::Direct(Actor::Anonymous),
-                email: Email::try_new(&email).expect("test email should be valid"),
-                webauthn_uuid,
-            })
+            .record(
+                user_id,
+                Authority::Direct(Actor::Anonymous),
+                UserEvent::Created {
+                    email: Email::try_new(&email).expect("test email should be valid"),
+                    webauthn_uuid,
+                },
+            )
             .await
             .expect("Should create user successfully");
 
@@ -148,23 +151,27 @@ mod tests {
 
         // Create first user
         user_store
-            .record(UserEvent::Created {
-                id: user_id_1,
-                by: Authority::Direct(Actor::Anonymous),
-                email: Email::try_new(&email).expect("test email should be valid"),
-                webauthn_uuid: webauthn_uuid_1,
-            })
+            .record(
+                user_id_1,
+                Authority::Direct(Actor::Anonymous),
+                UserEvent::Created {
+                    email: Email::try_new(&email).expect("test email should be valid"),
+                    webauthn_uuid: webauthn_uuid_1,
+                },
+            )
             .await
             .expect("Should create first user successfully");
 
         // Try to create second user with same email
         let result = user_store
-            .record(UserEvent::Created {
-                id: user_id_2,
-                by: Authority::Direct(Actor::Anonymous),
-                email: Email::try_new(&email).expect("test email should be valid"),
-                webauthn_uuid: webauthn_uuid_2,
-            })
+            .record(
+                user_id_2,
+                Authority::Direct(Actor::Anonymous),
+                UserEvent::Created {
+                    email: Email::try_new(&email).expect("test email should be valid"),
+                    webauthn_uuid: webauthn_uuid_2,
+                },
+            )
             .await;
 
         match result {
@@ -179,13 +186,11 @@ mod tests {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum UserEvent {
     Created {
-        id: UserId,
-        by: Authority,
         email: Email,
         webauthn_uuid: Uuid,
     },
     #[expect(dead_code)]
-    Deleted { id: UserId, by: Authority },
+    Deleted,
 }
 
 use webauthn_rs::prelude::Uuid;
@@ -200,13 +205,7 @@ pub enum UserStoreError {
     OperationFailed(String),
 }
 
-#[async_trait::async_trait]
-pub trait UserStore: Send + Sync {
-    type EventId: Send + Sync + Clone;
-    type Error: std::fmt::Display;
-
-    async fn record(&self, event: UserEvent) -> Result<Self::EventId, Self::Error>;
-
+pub trait UserStore: EventStore<Id = UserId, Event = UserEvent> {
     async fn email_exists(&self, email: &str) -> Result<bool, Self::Error>;
 
     async fn get_user(&self, user_id: &UserId) -> Result<Option<User>, Self::Error>;
@@ -259,7 +258,7 @@ impl MemoryUserStore {
     /// Seeds two dev users for local development.
     /// Uses stable IDs so sessions remain valid across restarts.
     pub async fn seed_dev_users(&self) {
-        use super::authority::{Actor, Authority};
+        use crate::authority::{Actor, Authority};
         use std::str::FromStr;
 
         // Stable IDs for dev users - these are valid cuid2 format (16 chars, lowercase alphanumeric)
@@ -282,12 +281,14 @@ impl MemoryUserStore {
         for (email, user_id, webauthn_uuid) in dev_users {
             if let Ok(false) = self.email_exists(email).await {
                 let _ = self
-                    .record(UserEvent::Created {
-                        id: user_id,
-                        by: Authority::Direct(Actor::System),
-                        email: Email::try_new(email).expect("dev email should be valid"),
-                        webauthn_uuid,
-                    })
+                    .record(
+                        user_id,
+                        Authority::Direct(Actor::System),
+                        UserEvent::Created {
+                            email: Email::try_new(email).expect("dev email should be valid"),
+                            webauthn_uuid,
+                        },
+                    )
                     .await;
             }
         }
@@ -313,18 +314,23 @@ impl Default for MemoryUserStore {
     }
 }
 
-#[async_trait::async_trait]
-impl UserStore for MemoryUserStore {
+impl EventStore for MemoryUserStore {
+    type Id = UserId;
+    type Event = UserEvent;
     type EventId = ();
     type Error = UserStoreError;
 
-    async fn record(&self, event: UserEvent) -> Result<(), UserStoreError> {
+    async fn record(
+        &self,
+        id: UserId,
+        by: Authority,
+        event: UserEvent,
+    ) -> Result<(), UserStoreError> {
         let mut data = self.data.lock().await;
+        let _ = by; // Store doesn't use authority yet, but will for audit trail
 
         match event {
             UserEvent::Created {
-                id,
-                by: _,
                 email,
                 webauthn_uuid,
             } => {
@@ -337,7 +343,7 @@ impl UserStore for MemoryUserStore {
                 data.user_id_to_webauthn_uuid.insert(id, webauthn_uuid);
                 data.webauthn_uuid_to_user_id.insert(webauthn_uuid, id);
             }
-            UserEvent::Deleted { id, by: _ } => {
+            UserEvent::Deleted => {
                 if let Some(webauthn_uuid) = data.user_id_to_webauthn_uuid.remove(&id) {
                     data.webauthn_uuid_to_user_id.remove(&webauthn_uuid);
                 }
@@ -348,7 +354,9 @@ impl UserStore for MemoryUserStore {
 
         Ok(())
     }
+}
 
+impl UserStore for MemoryUserStore {
     async fn email_exists(&self, email: &str) -> Result<bool, UserStoreError> {
         let data = self.data.lock().await;
         Ok(data.email_to_user_id.contains_key(email))

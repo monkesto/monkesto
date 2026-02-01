@@ -10,8 +10,9 @@ use std::sync::Arc;
 use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Webauthn};
 
 use super::AuthSession;
-use super::authority::{Actor, Authority};
 use super::user::{UserId, UserStore};
+use crate::authority::{Actor, Authority};
+use crate::event::EventStore;
 use crate::id;
 use crate::ident::Ident;
 use crate::known_errors::KnownErrors;
@@ -79,11 +80,11 @@ pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
 
     // Remove the passkey from the user's passkeys
     passkey_store
-        .record(PasskeyEvent::Deleted {
-            id: passkey_id,
-            user_id,
-            by: Authority::Direct(Actor::User(user_id)),
-        })
+        .record(
+            passkey_id,
+            Authority::Direct(Actor::User(user_id)),
+            PasskeyEvent::Deleted { user_id },
+        )
         .await
         .map_err(|e| PasskeyError::StoreError(e.to_string()))?;
 
@@ -130,12 +131,11 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
 
                 // Add the new passkey to the user's existing passkeys
                 if passkey_store
-                    .record(PasskeyEvent::Created {
-                        id: passkey_id,
-                        user_id,
-                        by: Authority::Direct(Actor::User(user_id)),
-                        passkey,
-                    })
+                    .record(
+                        passkey_id,
+                        Authority::Direct(Actor::User(user_id)),
+                        PasskeyEvent::Created { user_id, passkey },
+                    )
                     .await
                     .is_err()
                 {
@@ -313,17 +313,11 @@ pub struct Passkey {
 #[allow(clippy::large_enum_variant)]
 pub enum PasskeyEvent {
     Created {
-        id: PasskeyId,
         user_id: UserId,
-        #[expect(dead_code)]
-        by: Authority,
         passkey: webauthn_rs::prelude::Passkey,
     },
     Deleted {
-        id: PasskeyId,
         user_id: UserId,
-        #[expect(dead_code)]
-        by: Authority,
     },
 }
 
@@ -334,13 +328,7 @@ pub enum PasskeyStoreError {
     OperationFailed(String),
 }
 
-#[async_trait::async_trait]
-pub trait PasskeyStore: Send + Sync {
-    type EventId: Send + Sync + Clone;
-    type Error: std::fmt::Display;
-
-    async fn record(&self, event: PasskeyEvent) -> Result<Self::EventId, Self::Error>;
-
+pub trait PasskeyStore: EventStore<Id = PasskeyId, Event = PasskeyEvent> {
     async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, Self::Error>;
 
     async fn get_all_credentials(&self) -> Result<Vec<webauthn_rs::prelude::Passkey>, Self::Error>;
@@ -384,25 +372,27 @@ impl Default for MemoryPasskeyStore {
     }
 }
 
-#[async_trait::async_trait]
-impl PasskeyStore for MemoryPasskeyStore {
+impl EventStore for MemoryPasskeyStore {
+    type Id = PasskeyId;
+    type Event = PasskeyEvent;
     type EventId = ();
     type Error = PasskeyStoreError;
 
-    async fn record(&self, event: PasskeyEvent) -> Result<(), PasskeyStoreError> {
+    async fn record(
+        &self,
+        id: PasskeyId,
+        by: Authority,
+        event: PasskeyEvent,
+    ) -> Result<(), PasskeyStoreError> {
         let mut data = self.data.lock().await;
+        let _ = by; // Store doesn't use authority yet, but will for audit trail
 
         match event {
-            PasskeyEvent::Created {
-                id,
-                user_id,
-                by: _,
-                passkey,
-            } => {
+            PasskeyEvent::Created { user_id, passkey } => {
                 let passkeys = data.keys.entry(user_id).or_insert_with(Vec::new);
                 passkeys.push(Passkey { id, passkey });
             }
-            PasskeyEvent::Deleted { id, user_id, by: _ } => {
+            PasskeyEvent::Deleted { user_id } => {
                 if let Some(passkeys) = data.keys.get_mut(&user_id) {
                     passkeys.retain(|stored| stored.id != id);
                 }
@@ -411,7 +401,9 @@ impl PasskeyStore for MemoryPasskeyStore {
 
         Ok(())
     }
+}
 
+impl PasskeyStore for MemoryPasskeyStore {
     async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, PasskeyStoreError> {
         let data = self.data.lock().await;
         Ok(data.keys.get(user_id).cloned().unwrap_or_default())
@@ -470,11 +462,11 @@ mod tests {
         // Deleting non-existent passkey should succeed silently
         let passkey_id = PasskeyId::new();
         passkey_store
-            .record(PasskeyEvent::Deleted {
-                id: passkey_id,
-                user_id,
-                by: Authority::Direct(Actor::User(user_id)),
-            })
+            .record(
+                passkey_id,
+                Authority::Direct(Actor::User(user_id)),
+                PasskeyEvent::Deleted { user_id },
+            )
             .await
             .expect("Should succeed even for non-existent passkey");
 

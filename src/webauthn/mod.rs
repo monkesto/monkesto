@@ -1,4 +1,3 @@
-mod authority;
 mod me;
 mod passkey;
 mod signin;
