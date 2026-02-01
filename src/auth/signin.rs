@@ -16,7 +16,7 @@ use webauthn_rs::prelude::{
 use super::AuthSession;
 use super::passkey::PasskeyStore;
 use super::user::{User, UserId, UserStore};
-use crate::maud_header::header;
+use crate::theme::theme;
 
 /// Errors that occur during the signin flow.
 #[derive(Error, Debug)]
@@ -136,7 +136,7 @@ fn auth_page(
     next: Option<&str>,
     dev_users: &[User],
 ) -> Markup {
-    header(html! {
+    theme(html! {
         (DOCTYPE)
         html lang="en" {
             head {

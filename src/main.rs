@@ -3,7 +3,7 @@ mod event;
 mod ident;
 mod journal;
 mod known_errors;
-mod maud_header;
+mod theme;
 mod notfoundpage;
 mod auth;
 

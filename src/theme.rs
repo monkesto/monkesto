@@ -1,6 +1,6 @@
 use maud::{DOCTYPE, Markup, html};
 
-pub fn header(content: Markup) -> Markup {
+pub fn theme(content: Markup) -> Markup {
     html! {
         (DOCTYPE)
         html class="h-full bg-white dark:bg-gray-900 text-gray-900 dark:text-white" {

@@ -8,10 +8,10 @@ use maud::{DOCTYPE, Markup, html};
 use std::collections::HashMap;
 
 use super::AuthSession;
-use crate::maud_header::header;
+use crate::theme::theme;
 
 fn signout_page(message: Option<&str>) -> Markup {
-    header(html! {
+    theme(html! {
         (DOCTYPE)
         html lang="en" {
             head {

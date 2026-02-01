@@ -1,9 +1,9 @@
 use maud::{Markup, html};
 
-use crate::maud_header;
+use crate::theme;
 
 pub async fn not_found_page() -> Markup {
-    maud_header::header(html! {
+    theme::theme(html! {
         p {
             "Page not found"
         }

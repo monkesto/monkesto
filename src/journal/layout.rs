@@ -1,4 +1,4 @@
-use crate::maud_header;
+use crate::theme::theme;
 use maud::{Markup, html};
 
 pub fn maud_layout(
@@ -7,7 +7,7 @@ pub fn maud_layout(
     journal_id: Option<&str>,
     content: Markup,
 ) -> Markup {
-    let main_html = html! {
+    theme(html! {
         div class="min-h-full" {
             // Global Navigation Bar
             nav class="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700" {
@@ -68,7 +68,5 @@ pub fn maud_layout(
                 }
             }
         }
-    };
-
-    maud_header::header(main_html)
+    })
 }

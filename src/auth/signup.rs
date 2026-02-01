@@ -15,7 +15,7 @@ use super::AuthSession;
 use super::passkey::{PasskeyEvent, PasskeyId, PasskeyStore};
 use super::user::{Email, UserEvent, UserId, UserStore};
 use crate::authority::{Actor, Authority};
-use crate::maud_header::header;
+use crate::theme::theme;
 
 /// Errors that occur during the signup flow.
 #[derive(Error, Debug)]
@@ -59,7 +59,7 @@ pub struct SignupQuery {
 }
 
 fn email_form_page(webauthn_url: &str, error_message: Option<&str>, next: Option<&str>) -> Markup {
-    header(html! {
+    theme(html! {
         (DOCTYPE)
         html lang="en" {
             head {
@@ -138,7 +138,7 @@ fn challenge_page(
     challenge_data: &str,
     next: Option<&str>,
 ) -> Markup {
-    header(html! {
+    theme(html! {
         (DOCTYPE)
         html lang="en" {
             head {

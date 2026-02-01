@@ -10,7 +10,7 @@ use super::AuthSession;
 use super::passkey::{Passkey, PasskeyStore};
 use super::user::UserStore;
 use crate::journal::layout::maud_layout;
-use crate::maud_header::header;
+use crate::theme::theme;
 
 fn me_page(email: &str, passkeys: &[Passkey]) -> Markup {
     let content = html! {
@@ -80,7 +80,7 @@ fn me_page(email: &str, passkeys: &[Passkey]) -> Markup {
 }
 
 fn not_logged_in_page() -> Markup {
-    header(html! {
+    theme(html! {
         (DOCTYPE)
         html lang="en" {
             head {
