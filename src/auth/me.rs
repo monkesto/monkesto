@@ -6,8 +6,8 @@ use axum::{
 use maud::{DOCTYPE, Markup, html};
 use std::sync::Arc;
 
-use super::layout::layout;
 use super::AuthSession;
+use super::layout::layout;
 use super::passkey::{Passkey, PasskeyStore};
 use super::user::UserStore;
 use crate::theme::theme;

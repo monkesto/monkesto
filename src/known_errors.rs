@@ -2,9 +2,9 @@ use core::fmt;
 use std::{array::TryFromSliceError, num::ParseIntError, str::Utf8Error};
 
 use crate::{
+    auth::user::Email,
     ident::AccountId,
     journal::{Permissions, transaction::BalanceUpdate},
-    auth::user::Email,
 };
 use axum::response::Redirect;
 use base64::{Engine, engine::general_purpose};

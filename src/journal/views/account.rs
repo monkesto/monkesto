@@ -1,11 +1,11 @@
 use crate::AppState;
 use crate::AuthSession;
+use crate::auth::user;
 use crate::ident::Ident;
 use crate::ident::JournalId;
 use crate::journal::layout::layout;
 use crate::journal::{JournalStore, Permissions};
 use crate::known_errors::{KnownErrors, UrlError};
-use crate::auth::user;
 use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use maud::{Markup, html};

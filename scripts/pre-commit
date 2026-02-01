@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+cargo fmt --all > /dev/null 2>&1
+git diff --quiet || git add -u
+exit 0
