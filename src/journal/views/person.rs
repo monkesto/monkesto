@@ -205,6 +205,17 @@ pub async fn people_list_page(
                     }
                 }
 
+                div class="space-y-4" {
+                    p class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100" {
+                        "Permissions"
+                    }
+                    (permission_checkbox("read", "Read Access", true))
+                    (permission_checkbox("addaccount", "Add Accounts", true))
+                    (permission_checkbox("appendtransaction", "Append Transactions", true))
+                    (permission_checkbox("invite", "Invite Users", false))
+                    (permission_checkbox("delete", "Delete Journal", false))
+                }
+
                 div {
                     button
                     type="submit"

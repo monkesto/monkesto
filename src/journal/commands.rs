@@ -64,6 +64,11 @@ pub async fn create_journal(
 #[derive(Deserialize)]
 pub struct InviteUserForm {
     email: String,
+    pub read: Option<String>,
+    pub addaccount: Option<String>,
+    pub appendtransaction: Option<String>,
+    pub invite: Option<String>,
+    pub delete: Option<String>,
 }
 
 pub async fn invite_user(
@@ -93,8 +98,22 @@ pub async fn invite_user(
             .get_user_permissions(&user.id)
             .contains(Permissions::INVITE)
         {
-            // TODO: add a selector for permissions
-            let invitee_permissions = Permissions::all();
+            let mut invitee_permissions = Permissions::empty();
+            if form.read.is_some() {
+                invitee_permissions.insert(Permissions::READ);
+            }
+            if form.addaccount.is_some() {
+                invitee_permissions.insert(Permissions::ADDACCOUNT);
+            }
+            if form.appendtransaction.is_some() {
+                invitee_permissions.insert(Permissions::APPENDTRANSACTION);
+            }
+            if form.invite.is_some() {
+                invitee_permissions.insert(Permissions::INVITE);
+            }
+            if form.delete.is_some() {
+                invitee_permissions.insert(Permissions::DELETE);
+            }
 
             let tenant_info = JournalTenantInfo {
                 tenant_permissions: invitee_permissions,
