@@ -23,7 +23,7 @@ pub type AuthSession = axum_login::AuthSession<MemoryUserStore>;
 /// Errors that occur during WebAuthn router initialization/configuration.
 /// These are startup-time errors, not request-handling errors.
 #[derive(Error, Debug)]
-pub enum WebauthnConfigError {
+pub enum AuthConfigError {
     #[error("WebAuthn initialization failed: {0}")]
     WebauthnInit(#[from] WebauthnCoreError),
     #[error("Invalid URL for WebAuthn origin: {0}")]
@@ -34,7 +34,7 @@ pub enum WebauthnConfigError {
 
 pub fn router<S: Clone + Send + Sync + 'static>(
     user_store: Arc<MemoryUserStore>,
-) -> Result<Router<S>, WebauthnConfigError> {
+) -> Result<Router<S>, AuthConfigError> {
     // Get base URL from environment variable, defaulting to localhost:3000
     let base_url = env::var("RAILWAY_PUBLIC_DOMAIN")
         .ok()
@@ -49,7 +49,7 @@ pub fn router<S: Clone + Send + Sync + 'static>(
     let rp_origin = Url::parse(&base_url)?;
     let rp_id = rp_origin
         .host_str()
-        .ok_or(WebauthnConfigError::InvalidHost)?;
+        .ok_or(AuthConfigError::InvalidHost)?;
 
     // Create WebAuthn instance and passkey storage
     let webauthn = Arc::new(

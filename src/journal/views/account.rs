@@ -5,7 +5,7 @@ use crate::ident::JournalId;
 use crate::journal::layout::maud_layout;
 use crate::journal::{JournalStore, Permissions};
 use crate::known_errors::{KnownErrors, UrlError};
-use crate::webauthn::user;
+use crate::auth::user;
 use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use maud::{Markup, html};

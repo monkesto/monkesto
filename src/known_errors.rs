@@ -4,7 +4,7 @@ use std::{array::TryFromSliceError, num::ParseIntError, str::Utf8Error};
 use crate::{
     ident::AccountId,
     journal::{Permissions, transaction::BalanceUpdate},
-    webauthn::user::Email,
+    auth::user::Email,
 };
 use axum::response::Redirect;
 use base64::{Engine, engine::general_purpose};

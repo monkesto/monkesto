@@ -5,7 +5,7 @@ mod journal;
 mod known_errors;
 mod maud_header;
 mod notfoundpage;
-mod webauthn;
+mod auth;
 
 use axum::Router;
 use axum::http::{StatusCode, header};
@@ -23,7 +23,7 @@ use tower_sessions_file_store::FileSessionStorage;
 
 use crate::journal::JournalMemoryStore;
 use crate::journal::transaction::TransasctionMemoryStore;
-use crate::webauthn::MemoryUserStore;
+use crate::auth::MemoryUserStore;
 
 pub type AuthSession = axum_login::AuthSession<MemoryUserStore>;
 
@@ -56,7 +56,7 @@ async fn main() {
     let auth_layer = AuthManagerLayerBuilder::new((*user_store).clone(), session_layer).build();
 
     let webauthn_routes =
-        webauthn::router(user_store.clone()).expect("Failed to initialize WebAuthn router");
+        auth::router(user_store.clone()).expect("Failed to initialize WebAuthn router");
 
     let journal_routes = Router::new()
         .route("/journal", get(journal::views::homepage::journal_list))
