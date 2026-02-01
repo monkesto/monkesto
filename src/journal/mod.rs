@@ -201,6 +201,11 @@ impl JournalStore for JournalMemoryStore {
                     .entry(*user_id)
                     .or_default()
                     .insert(*journal_id);
+            } else if let JournalEvent::RemovedTenant { id: user_id } = &event {
+                self.user_journals
+                    .entry(*user_id)
+                    .or_default()
+                    .remove(journal_id);
             }
 
             state.apply(event.clone());
@@ -252,7 +257,7 @@ impl JournalStore for JournalMemoryStore {
     ) -> MonkestoResult<()> {
         if let Some(mut journal) = self.journal_table.get_mut(journal_id) {
             match event {
-                TransactionEvent::Created { .. } => return Err(KnownErrors::InvalidInput),
+                TransactionEvent::Created { .. } => Err(KnownErrors::InvalidInput),
                 TransactionEvent::UpdatedBalancedUpdates {
                     ref new_balanceupdates,
                     ..
@@ -349,7 +354,7 @@ pub enum JournalEvent {
     Created {
         id: JournalId,
         name: String,
-        created_at: chrono::DateTime<Utc>,
+        created_at: DateTime<Utc>,
         creator: UserId,
     },
     Renamed {
@@ -412,7 +417,7 @@ pub struct JournalState {
     pub id: JournalId,
     pub name: String,
     pub creator: UserId,
-    pub created_at: chrono::DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
     pub owner: UserId,
     pub tenants: HashMap<UserId, JournalTenantInfo>,
     pub accounts: HashMap<AccountId, Account>,
@@ -505,7 +510,7 @@ pub struct SharedAndPendingJournals {
 pub struct Account {
     pub name: String,
     pub created_by: UserId,
-    pub created_at: chrono::DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
     pub balance: i64,
 }
 
