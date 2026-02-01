@@ -1,5 +1,6 @@
 use crate::auth::layout as app_layout;
-use maud::{Markup, html};
+use maud::Markup;
+use maud::html;
 
 pub fn layout(
     page_title: Option<&str>,

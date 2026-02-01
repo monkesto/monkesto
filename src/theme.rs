@@ -1,4 +1,6 @@
-use maud::{DOCTYPE, Markup, html};
+use maud::DOCTYPE;
+use maud::Markup;
+use maud::html;
 
 pub fn theme(content: Markup) -> Markup {
     html! {

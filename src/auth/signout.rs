@@ -1,9 +1,11 @@
-use axum::{
-    extract::Form,
-    http::{StatusCode, header},
-    response::{IntoResponse, Redirect},
-};
-use maud::{DOCTYPE, Markup, html};
+use axum::extract::Form;
+use axum::http::StatusCode;
+use axum::http::header;
+use axum::response::IntoResponse;
+use axum::response::Redirect;
+use maud::DOCTYPE;
+use maud::Markup;
+use maud::html;
 
 use std::collections::HashMap;
 

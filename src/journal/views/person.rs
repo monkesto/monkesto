@@ -1,15 +1,21 @@
 use crate::AppState;
 use crate::AuthSession;
-use crate::auth::user::{self, UserStore};
+use crate::auth::user::UserStore;
+use crate::auth::user::{self};
 use crate::authority::UserId;
 use crate::ident::JournalId;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::journal::layout::layout;
-use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
-use axum::extract::{Path, Query, State};
+use crate::known_errors::KnownErrors;
+use crate::known_errors::RedirectOnError;
+use crate::known_errors::UrlError;
+use axum::extract::Path;
+use axum::extract::Query;
+use axum::extract::State;
 use axum::response::Redirect;
-use maud::{Markup, html};
+use maud::Markup;
+use maud::html;
 use std::str::FromStr;
 
 pub async fn person_detail_page(

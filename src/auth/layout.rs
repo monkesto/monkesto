@@ -1,5 +1,6 @@
 use crate::theme::theme;
-use maud::{Markup, html};
+use maud::Markup;
+use maud::html;
 
 pub fn layout(nav_title: Option<Markup>, content: Markup) -> Markup {
     theme(html! {

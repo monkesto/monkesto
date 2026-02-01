@@ -1,21 +1,30 @@
-use axum::{
-    extract::{Extension, Form, Query},
-    http::{StatusCode, header},
-    response::{IntoResponse, Redirect, Response},
-};
-use maud::{DOCTYPE, Markup, PreEscaped, html};
+use axum::extract::Extension;
+use axum::extract::Form;
+use axum::extract::Query;
+use axum::http::StatusCode;
+use axum::http::header;
+use axum::response::IntoResponse;
+use axum::response::Redirect;
+use axum::response::Response;
+use maud::DOCTYPE;
+use maud::Markup;
+use maud::PreEscaped;
+use maud::html;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
-use webauthn_rs::prelude::{
-    AuthenticationResult, PasskeyAuthentication, PublicKeyCredential, RequestChallengeResponse,
-    Webauthn,
-};
+use webauthn_rs::prelude::AuthenticationResult;
+use webauthn_rs::prelude::PasskeyAuthentication;
+use webauthn_rs::prelude::PublicKeyCredential;
+use webauthn_rs::prelude::RequestChallengeResponse;
+use webauthn_rs::prelude::Webauthn;
 
 use super::AuthSession;
 use super::passkey::PasskeyStore;
-use super::user::{User, UserId, UserStore};
+use super::user::User;
+use super::user::UserId;
+use super::user::UserStore;
 use crate::theme::theme;
 
 /// Errors that occur during the signin flow.

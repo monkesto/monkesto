@@ -8,11 +8,13 @@ mod notfoundpage;
 mod theme;
 
 use axum::Router;
-use axum::http::{StatusCode, header};
+use axum::http::StatusCode;
+use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::routing::get;
-use axum_login::{AuthManagerLayerBuilder, login_required};
+use axum_login::AuthManagerLayerBuilder;
+use axum_login::login_required;
 use dotenvy::dotenv;
 use std::env;
 

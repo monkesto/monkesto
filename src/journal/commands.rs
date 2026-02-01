@@ -10,10 +10,13 @@ use crate::journal::transaction::EntryType;
 use crate::journal::transaction::TransactionEvent;
 
 use crate::auth::user::Email;
-use crate::auth::user::{self, UserStore};
+use crate::auth::user::UserStore;
+use crate::auth::user::{self};
 use crate::authority::UserId;
-use crate::journal::{JournalStore, JournalTenantInfo};
-use crate::known_errors::{KnownErrors, RedirectOnError};
+use crate::journal::JournalStore;
+use crate::journal::JournalTenantInfo;
+use crate::known_errors::KnownErrors;
+use crate::known_errors::RedirectOnError;
 use axum::extract::Path;
 use axum::extract::State;
 use axum::response::Redirect;

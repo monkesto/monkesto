@@ -1,4 +1,5 @@
-use maud::{Markup, html};
+use maud::Markup;
+use maud::html;
 
 use crate::theme;
 

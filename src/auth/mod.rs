@@ -6,15 +6,17 @@ mod signout;
 mod signup;
 pub mod user;
 
-use axum::{
-    Router,
-    extract::Extension,
-    routing::{get, post},
-};
+use axum::Router;
+use axum::extract::Extension;
+use axum::routing::get;
+use axum::routing::post;
 use axum_login::login_required;
-use std::{env, sync::Arc};
+use std::env;
+use std::sync::Arc;
 use thiserror::Error;
-use webauthn_rs::prelude::{Url, WebauthnBuilder, WebauthnError as WebauthnCoreError};
+use webauthn_rs::prelude::Url;
+use webauthn_rs::prelude::WebauthnBuilder;
+use webauthn_rs::prelude::WebauthnError as WebauthnCoreError;
 
 pub use layout::layout;
 use passkey::MemoryPasskeyStore;

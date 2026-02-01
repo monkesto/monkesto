@@ -1,23 +1,31 @@
-use axum::{
-    extract::{Extension, Form, Path},
-    http::{StatusCode, header},
-    response::{IntoResponse, Redirect, Response},
-};
+use axum::extract::Extension;
+use axum::extract::Form;
+use axum::extract::Path;
+use axum::http::StatusCode;
+use axum::http::header;
+use axum::response::IntoResponse;
+use axum::response::Redirect;
+use axum::response::Response;
 use thiserror::Error;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Webauthn};
+use webauthn_rs::prelude::PasskeyRegistration;
+use webauthn_rs::prelude::RegisterPublicKeyCredential;
+use webauthn_rs::prelude::Webauthn;
 
 use super::AuthSession;
 use super::layout::layout;
-use super::user::{UserId, UserStore};
-use crate::authority::{Actor, Authority};
+use super::user::UserId;
+use super::user::UserStore;
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::event::EventStore;
 use crate::id;
 use crate::ident::Ident;
 use crate::known_errors::KnownErrors;
-use maud::{PreEscaped, html};
+use maud::PreEscaped;
+use maud::html;
 
 /// Errors that occur during passkey management operations.
 #[derive(Error, Debug)]
@@ -56,8 +64,11 @@ impl IntoResponse for PasskeyError {
     }
 }
 
-use serde::{Deserialize, Serialize};
-use std::{fmt::Display, ops::Deref, str::FromStr};
+use serde::Deserialize;
+use serde::Serialize;
+use std::fmt::Display;
+use std::ops::Deref;
+use std::str::FromStr;
 
 pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
     Extension(passkey_store): Extension<Arc<P>>,

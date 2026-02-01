@@ -1,15 +1,18 @@
 use core::fmt;
-use std::{array::TryFromSliceError, num::ParseIntError, str::Utf8Error};
+use std::array::TryFromSliceError;
+use std::num::ParseIntError;
+use std::str::Utf8Error;
 
-use crate::{
-    auth::user::Email,
-    ident::AccountId,
-    journal::{Permissions, transaction::BalanceUpdate},
-};
+use crate::auth::user::Email;
+use crate::ident::AccountId;
+use crate::journal::Permissions;
+use crate::journal::transaction::BalanceUpdate;
 use axum::response::Redirect;
-use base64::{Engine, engine::general_purpose};
+use base64::Engine;
+use base64::engine::general_purpose;
 use postcard::to_allocvec;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum KnownErrors {

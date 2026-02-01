@@ -2,10 +2,12 @@ use crate::authority::Authority;
 use crate::event::EventStore;
 use crate::id;
 use crate::ident::Ident;
-use crate::known_errors::{KnownErrors, RedirectOnError};
+use crate::known_errors::KnownErrors;
+use crate::known_errors::RedirectOnError;
 use axum::response::Redirect;
 use nutype::nutype;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use serde::Serialize;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -62,7 +64,8 @@ pub fn get_user(session: crate::AuthSession) -> Result<User, Redirect> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::authority::{Actor, Authority};
+    use crate::authority::Actor;
+    use crate::authority::Authority;
     use std::sync::Arc;
 
     #[test]
@@ -225,7 +228,8 @@ pub trait UserStore: EventStore<Id = UserId, Event = UserEvent> {
     async fn lookup_user_id(&self, email: &str) -> Result<Option<UserId>, Self::Error>;
 }
 
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 struct UserData {
@@ -266,7 +270,8 @@ impl MemoryUserStore {
     /// Seeds two dev users for local development.
     /// Uses stable IDs so sessions remain valid across restarts.
     pub async fn seed_dev_users(&self) {
-        use crate::authority::{Actor, Authority};
+        use crate::authority::Actor;
+        use crate::authority::Authority;
         use std::str::FromStr;
 
         // Stable IDs for dev users - these are valid cuid2 format (16 chars, lowercase alphanumeric)

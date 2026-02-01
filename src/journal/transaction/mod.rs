@@ -1,16 +1,23 @@
-use std::{fmt::Display, str::FromStr, sync::Arc};
+use std::fmt::Display;
+use std::str::FromStr;
+use std::sync::Arc;
 
-use crate::{
-    authority::UserId,
-    ident::{AccountId, TransactionId},
-    known_errors::{KnownErrors, MonkestoResult},
-};
+use crate::authority::UserId;
+use crate::ident::AccountId;
+use crate::ident::TransactionId;
+use crate::known_errors::KnownErrors;
+use crate::known_errors::MonkestoResult;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
+use chrono::Utc;
 use dashmap::DashMap;
-use serde::{Deserialize, Serialize};
-use sqlx::{Decode, Encode, Type, postgres::PgValueRef};
+use serde::Deserialize;
+use serde::Serialize;
+use sqlx::Decode;
+use sqlx::Encode;
+use sqlx::Type;
+use sqlx::postgres::PgValueRef;
 
 #[async_trait]
 #[expect(dead_code)]
@@ -241,13 +248,14 @@ impl TransactionState {
 
 #[cfg(test)]
 mod test_transaction {
-    use crate::{
-        authority::UserId,
-        ident::{AccountId, TransactionId},
-        journal::transaction::{BalanceUpdate, EntryType},
-    };
+    use crate::authority::UserId;
+    use crate::ident::AccountId;
+    use crate::ident::TransactionId;
+    use crate::journal::transaction::BalanceUpdate;
+    use crate::journal::transaction::EntryType;
     use chrono::Utc;
-    use sqlx::{PgPool, prelude::FromRow};
+    use sqlx::PgPool;
+    use sqlx::prelude::FromRow;
 
     use super::TransactionEvent;
 

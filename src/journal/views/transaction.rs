@@ -1,13 +1,18 @@
 use crate::AppState;
 use crate::AuthSession;
 use crate::ident::JournalId;
+use crate::journal::JournalStore;
+use crate::journal::layout;
 use crate::journal::transaction::EntryType;
-use crate::journal::{JournalStore, layout};
-use crate::known_errors::{KnownErrors, UrlError};
-use axum::extract::{Path, Query, State};
+use crate::known_errors::KnownErrors;
+use crate::known_errors::UrlError;
+use axum::extract::Path;
+use axum::extract::Query;
+use axum::extract::State;
 use axum::response::Redirect;
 use axum_login::AuthnBackend;
-use maud::{Markup, html};
+use maud::Markup;
+use maud::html;
 use std::str::FromStr;
 
 #[expect(unused_variables)]

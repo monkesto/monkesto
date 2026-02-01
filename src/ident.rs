@@ -1,13 +1,18 @@
 use super::known_errors::KnownErrors;
-use cuid::{Cuid2Constructor, cuid2_slug, is_cuid2};
+use cuid::Cuid2Constructor;
+use cuid::cuid2_slug;
+use cuid::is_cuid2;
 use phf::phf_set;
-use serde::{Deserialize, Serialize};
-use sqlx::{Decode, Encode, Type, postgres::PgValueRef};
-use std::{
-    fmt::{self, Display},
-    ops::Deref,
-    str::FromStr,
-};
+use serde::Deserialize;
+use serde::Serialize;
+use sqlx::Decode;
+use sqlx::Encode;
+use sqlx::Type;
+use sqlx::postgres::PgValueRef;
+use std::fmt::Display;
+use std::fmt::{self};
+use std::ops::Deref;
+use std::str::FromStr;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Ident {
@@ -176,7 +181,8 @@ impl<'r> Decode<'r, sqlx::Postgres> for Ident {
 
 #[cfg(test)]
 mod test_ident {
-    use sqlx::{PgPool, prelude::FromRow};
+    use sqlx::PgPool;
+    use sqlx::prelude::FromRow;
 
     use super::Ident;
 

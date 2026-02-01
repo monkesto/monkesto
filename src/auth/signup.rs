@@ -1,20 +1,36 @@
-use axum::{
-    extract::{Extension, Form, Query},
-    http::{StatusCode, header},
-    response::{IntoResponse, Redirect, Response},
-};
-use maud::{DOCTYPE, Markup, PreEscaped, html};
+use axum::extract::Extension;
+use axum::extract::Form;
+use axum::extract::Query;
+use axum::http::StatusCode;
+use axum::http::header;
+use axum::response::IntoResponse;
+use axum::response::Redirect;
+use axum::response::Response;
+use maud::DOCTYPE;
+use maud::Markup;
+use maud::PreEscaped;
+use maud::html;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
-use webauthn_rs::prelude::{PasskeyRegistration, RegisterPublicKeyCredential, Uuid, Webauthn};
-use webauthn_rs_proto::{AuthenticatorSelectionCriteria, ResidentKeyRequirement};
+use webauthn_rs::prelude::PasskeyRegistration;
+use webauthn_rs::prelude::RegisterPublicKeyCredential;
+use webauthn_rs::prelude::Uuid;
+use webauthn_rs::prelude::Webauthn;
+use webauthn_rs_proto::AuthenticatorSelectionCriteria;
+use webauthn_rs_proto::ResidentKeyRequirement;
 
 use super::AuthSession;
-use super::passkey::{PasskeyEvent, PasskeyId, PasskeyStore};
-use super::user::{Email, UserEvent, UserId, UserStore};
-use crate::authority::{Actor, Authority};
+use super::passkey::PasskeyEvent;
+use super::passkey::PasskeyId;
+use super::passkey::PasskeyStore;
+use super::user::Email;
+use super::user::UserEvent;
+use super::user::UserId;
+use super::user::UserStore;
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::theme::theme;
 
 /// Errors that occur during the signup flow.

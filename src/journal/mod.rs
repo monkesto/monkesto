@@ -3,21 +3,30 @@ pub mod layout;
 pub mod transaction;
 pub mod views;
 
-use crate::{
-    authority::UserId,
-    ident::{AccountId, JournalId, TransactionId},
-    journal::transaction::{
-        EntryType, TransactionEvent, TransactionState, TransactionStore, TransasctionMemoryStore,
-    },
-    known_errors::{KnownErrors, MonkestoResult},
-};
+use crate::authority::UserId;
+use crate::ident::AccountId;
+use crate::ident::JournalId;
+use crate::ident::TransactionId;
+use crate::journal::transaction::EntryType;
+use crate::journal::transaction::TransactionEvent;
+use crate::journal::transaction::TransactionState;
+use crate::journal::transaction::TransactionStore;
+use crate::journal::transaction::TransasctionMemoryStore;
+use crate::known_errors::KnownErrors;
+use crate::known_errors::MonkestoResult;
 use async_trait::async_trait;
 use bitflags::bitflags;
-use chrono::{DateTime, Utc};
+use chrono::DateTime;
+use chrono::Utc;
 use dashmap::DashMap;
-use serde::{Deserialize, Serialize};
-use sqlx::{Decode, Encode, Type, postgres::PgValueRef};
-use std::{collections::HashMap, sync::Arc};
+use serde::Deserialize;
+use serde::Serialize;
+use sqlx::Decode;
+use sqlx::Encode;
+use sqlx::Type;
+use sqlx::postgres::PgValueRef;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[async_trait]
 #[expect(dead_code)]
@@ -513,7 +522,8 @@ mod test_user {
     use crate::authority::UserId;
     use crate::ident::AccountId;
     use chrono::Utc;
-    use sqlx::{PgPool, prelude::FromRow};
+    use sqlx::PgPool;
+    use sqlx::prelude::FromRow;
 
     use super::JournalEvent;
 

@@ -1,14 +1,16 @@
-use axum::{
-    extract::Extension,
-    http::{StatusCode, header},
-    response::IntoResponse,
-};
-use maud::{DOCTYPE, Markup, html};
+use axum::extract::Extension;
+use axum::http::StatusCode;
+use axum::http::header;
+use axum::response::IntoResponse;
+use maud::DOCTYPE;
+use maud::Markup;
+use maud::html;
 use std::sync::Arc;
 
 use super::AuthSession;
 use super::layout::layout;
-use super::passkey::{Passkey, PasskeyStore};
+use super::passkey::Passkey;
+use super::passkey::PasskeyStore;
 use super::user::UserStore;
 use crate::theme::theme;
 
