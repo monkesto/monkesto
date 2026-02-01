@@ -1,7 +1,8 @@
 use std::{fmt::Display, str::FromStr, sync::Arc};
 
 use crate::{
-    ident::{AccountId, TransactionId, UserId},
+    authority::UserId,
+    ident::{AccountId, TransactionId},
     known_errors::{KnownErrors, MonkestoResult},
 };
 
@@ -241,7 +242,8 @@ impl TransactionState {
 #[cfg(test)]
 mod test_transaction {
     use crate::{
-        ident::{AccountId, TransactionId, UserId},
+        authority::UserId,
+        ident::{AccountId, TransactionId},
         journal::transaction::{BalanceUpdate, EntryType},
     };
     use chrono::Utc;

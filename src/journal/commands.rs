@@ -9,11 +9,11 @@ use crate::journal::transaction::BalanceUpdate;
 use crate::journal::transaction::EntryType;
 use crate::journal::transaction::TransactionEvent;
 
-use crate::ident::UserId;
-use crate::journal::{JournalStore, JournalTenantInfo};
-use crate::known_errors::{KnownErrors, RedirectOnError};
 use crate::auth::user::Email;
 use crate::auth::user::{self, UserStore};
+use crate::authority::UserId;
+use crate::journal::{JournalStore, JournalTenantInfo};
+use crate::known_errors::{KnownErrors, RedirectOnError};
 use axum::extract::Path;
 use axum::extract::State;
 use axum::response::Redirect;

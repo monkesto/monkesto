@@ -1,4 +1,4 @@
-pub use crate::ident::UserId;
+pub use crate::auth::user::UserId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Actor {

@@ -1,11 +1,12 @@
 use crate::AppState;
 use crate::AuthSession;
-use crate::ident::{JournalId, UserId};
+use crate::auth::user::{self, UserStore};
+use crate::authority::UserId;
+use crate::ident::JournalId;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::journal::layout::layout;
 use crate::known_errors::{KnownErrors, RedirectOnError, UrlError};
-use crate::auth::user::{self, UserStore};
 use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use maud::{Markup, html};
@@ -117,12 +118,7 @@ pub async fn person_detail_page(
         }
     };
 
-    Ok(layout(
-        Some(&journal_state.name),
-        true,
-        Some(&id),
-        content,
-    ))
+    Ok(layout(Some(&journal_state.name), true, Some(&id), content))
 }
 
 fn permission_checkbox(name: &'static str, label: &'static str, checked: bool) -> Markup {

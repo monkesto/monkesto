@@ -57,11 +57,7 @@ impl IntoResponse for PasskeyError {
 }
 
 use serde::{Deserialize, Serialize};
-use std::{
-    fmt::{self, Display},
-    ops::Deref,
-    str::FromStr,
-};
+use std::{fmt::Display, ops::Deref, str::FromStr};
 
 pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
     Extension(passkey_store): Extension<Arc<P>>,

@@ -1,9 +1,17 @@
 use crate::authority::Authority;
-pub use crate::authority::UserId;
 use crate::event::EventStore;
+use crate::id;
+use crate::ident::Ident;
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use axum::response::Redirect;
 use nutype::nutype;
+use serde::{Deserialize, Serialize};
+use std::fmt::Display;
+use std::ops::Deref;
+use std::str::FromStr;
+
+// Define UserId here in the user module
+id!(UserId, Ident::new16());
 
 #[nutype(
     derive(

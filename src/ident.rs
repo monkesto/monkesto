@@ -138,14 +138,12 @@ macro_rules! id {
         }
 
         impl Display for $name {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}", self.0)
             }
         }
     };
 }
-
-id!(UserId, Ident::new16());
 
 id!(JournalId, Ident::new10());
 

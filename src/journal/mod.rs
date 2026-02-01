@@ -4,7 +4,8 @@ pub mod transaction;
 pub mod views;
 
 use crate::{
-    ident::{AccountId, JournalId, TransactionId, UserId},
+    authority::UserId,
+    ident::{AccountId, JournalId, TransactionId},
     journal::transaction::{
         EntryType, TransactionEvent, TransactionState, TransactionStore, TransasctionMemoryStore,
     },
@@ -509,7 +510,8 @@ pub struct JournalInvite {
 
 #[cfg(test)]
 mod test_user {
-    use crate::ident::{AccountId, UserId};
+    use crate::authority::UserId;
+    use crate::ident::AccountId;
     use chrono::Utc;
     use sqlx::{PgPool, prelude::FromRow};
 
