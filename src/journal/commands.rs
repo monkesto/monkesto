@@ -9,6 +9,7 @@ use crate::journal::transaction::BalanceUpdate;
 use crate::journal::transaction::EntryType;
 use crate::journal::transaction::TransactionEvent;
 
+use crate::ident::UserId;
 use crate::journal::{JournalStore, JournalTenantInfo};
 use crate::known_errors::{KnownErrors, RedirectOnError};
 use crate::webauthn::user::Email;
@@ -312,4 +313,121 @@ pub async fn transact(
 
         Ok(Redirect::to(callback_url))
     }
+}
+
+#[derive(Deserialize)]
+pub struct UpdatePermissionsForm {
+    pub read: Option<String>,
+    pub addaccount: Option<String>,
+    pub appendtransaction: Option<String>,
+    pub invite: Option<String>,
+    pub delete: Option<String>,
+}
+
+pub async fn update_permissions(
+    State(state): State<AppState>,
+    session: AuthSession,
+    Path((id, person_id)): Path<(String, String)>,
+    Form(form): Form<UpdatePermissionsForm>,
+) -> Result<Redirect, Redirect> {
+    let callback_url = &format!("/journal/{}/person/{}", id, person_id);
+
+    let user = user::get_user(session)?;
+    let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
+    let target_user_id = UserId::from_str(&person_id).or_redirect(callback_url)?;
+
+    let journal_state = state
+        .journal_store
+        .get_journal(&journal_id)
+        .await
+        .or_redirect(callback_url)?;
+
+    if !journal_state.deleted {
+        if journal_state
+            .get_user_permissions(&user.id)
+            .contains(Permissions::OWNER)
+        {
+            let mut new_permissions = Permissions::empty();
+            if form.read.is_some() {
+                new_permissions.insert(Permissions::READ);
+            }
+            if form.addaccount.is_some() {
+                new_permissions.insert(Permissions::ADDACCOUNT);
+            }
+            if form.appendtransaction.is_some() {
+                new_permissions.insert(Permissions::APPENDTRANSACTION);
+            }
+            if form.invite.is_some() {
+                new_permissions.insert(Permissions::INVITE);
+            }
+            if form.delete.is_some() {
+                new_permissions.insert(Permissions::DELETE);
+            }
+
+            state
+                .journal_store
+                .push_journal_event(
+                    &journal_id,
+                    JournalEvent::UpdatedTenantPermissions {
+                        id: target_user_id,
+                        permissions: new_permissions,
+                    },
+                )
+                .await
+                .or_redirect(callback_url)?;
+        } else {
+            return Err(KnownErrors::PermissionError {
+                required_permissions: Permissions::OWNER,
+            }
+            .redirect(callback_url));
+        }
+    } else {
+        return Err(KnownErrors::InvalidJournal.redirect(callback_url));
+    }
+
+    Ok(Redirect::to(callback_url))
+}
+
+pub async fn remove_tenant(
+    State(state): State<AppState>,
+    session: AuthSession,
+    Path((id, person_id)): Path<(String, String)>,
+) -> Result<Redirect, Redirect> {
+    let callback_url = &format!("/journal/{}/person", id);
+    let person_detail_url = &format!("/journal/{}/person/{}", id, person_id);
+
+    let user = user::get_user(session)?;
+    let journal_id = JournalId::from_str(&id).or_redirect(person_detail_url)?;
+    let target_user_id = UserId::from_str(&person_id).or_redirect(person_detail_url)?;
+
+    let journal_state = state
+        .journal_store
+        .get_journal(&journal_id)
+        .await
+        .or_redirect(person_detail_url)?;
+
+    if !journal_state.deleted {
+        if journal_state
+            .get_user_permissions(&user.id)
+            .contains(Permissions::OWNER)
+        {
+            state
+                .journal_store
+                .push_journal_event(
+                    &journal_id,
+                    JournalEvent::RemovedTenant { id: target_user_id },
+                )
+                .await
+                .or_redirect(person_detail_url)?;
+        } else {
+            return Err(KnownErrors::PermissionError {
+                required_permissions: Permissions::OWNER,
+            }
+            .redirect(person_detail_url));
+        }
+    } else {
+        return Err(KnownErrors::InvalidJournal.redirect(person_detail_url));
+    }
+
+    Ok(Redirect::to(callback_url))
 }

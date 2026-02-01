@@ -87,6 +87,18 @@ async fn main() {
             axum::routing::post(journal::commands::invite_user),
         )
         .route(
+            "/journal/{id}/person/{person_id}",
+            get(journal::views::person::person_detail_page),
+        )
+        .route(
+            "/journal/{id}/person/{person_id}/update",
+            axum::routing::post(journal::commands::update_permissions),
+        )
+        .route(
+            "/journal/{id}/person/{person_id}/remove",
+            axum::routing::post(journal::commands::remove_tenant),
+        )
+        .route(
             "/journal/{id}/createaccount",
             axum::routing::post(journal::commands::create_account),
         )

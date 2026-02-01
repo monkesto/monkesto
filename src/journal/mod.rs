@@ -364,6 +364,13 @@ pub enum JournalEvent {
     AddedEntry {
         transaction_id: TransactionId,
     },
+    RemovedTenant {
+        id: UserId,
+    },
+    UpdatedTenantPermissions {
+        id: UserId,
+        permissions: Permissions,
+    },
     Deleted,
 }
 
@@ -448,6 +455,14 @@ impl JournalState {
             }
             JournalEvent::AddedEntry { transaction_id } => {
                 self.transactions.push(transaction_id);
+            }
+            JournalEvent::RemovedTenant { id } => {
+                _ = self.tenants.remove(&id);
+            }
+            JournalEvent::UpdatedTenantPermissions { id, permissions } => {
+                if let Some(tenant_info) = self.tenants.get_mut(&id) {
+                    tenant_info.tenant_permissions = permissions;
+                }
             }
             JournalEvent::Deleted => self.deleted = true,
         }
