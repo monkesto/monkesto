@@ -6,7 +6,6 @@ use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
-use maud::DOCTYPE;
 use maud::Markup;
 use maud::PreEscaped;
 use maud::html;
@@ -25,7 +24,7 @@ use super::passkey::PasskeyStore;
 use super::user::User;
 use super::user::UserId;
 use super::user::UserStore;
-use crate::theme::theme;
+use crate::theme::theme_with_head;
 
 /// Errors that occur during the signin flow.
 #[derive(Error, Debug)]
@@ -145,24 +144,20 @@ fn auth_page(
     next: Option<&str>,
     dev_users: &[User],
 ) -> Markup {
-    theme(html! {
-        (DOCTYPE)
-        html lang="en" {
-            head {
-                meta charset="UTF-8";
-                meta name="viewport" content="width=device-width, initial-scale=1";
-                title { "Sign in - Monkesto" }
-                script
-                    src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
-                    crossorigin="anonymous" {}
-                meta name="webauthn_url" content=(webauthn_url);
-                @if let Some(challenge_data) = challenge_data {
-                    script id="challenge-data" type="application/json" {
-                        (PreEscaped(challenge_data))
-                    }
+    theme_with_head(
+        Some("Sign in"),
+        html! {
+            script
+                src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
+                crossorigin="anonymous" {}
+            meta name="webauthn_url" content=(webauthn_url);
+            @if let Some(challenge_data) = challenge_data {
+                script id="challenge-data" type="application/json" {
+                    (PreEscaped(challenge_data))
                 }
-                script {
-                    r#"
+            }
+            script {
+                r#"
                     function signin() {
                         const challengeDataElement = document.getElementById('challenge-data');
                         if (!challengeDataElement) {
@@ -211,10 +206,10 @@ fn auth_page(
                         });
                     }
                     "#
-                }
             }
-            body {
-                div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
+        },
+        html! {
+            div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
 
                     div class="sm:mx-auto sm:w-full sm:max-w-sm" {
                         img src="/logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto";
@@ -288,9 +283,8 @@ fn auth_page(
                         }
                     }
                 }
-            }
-        }
-    })
+        },
+    )
 }
 
 async fn handle_signin_page<P: PasskeyStore>(

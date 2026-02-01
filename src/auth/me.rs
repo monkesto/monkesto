@@ -2,7 +2,6 @@ use axum::extract::Extension;
 use axum::http::StatusCode;
 use axum::http::header;
 use axum::response::IntoResponse;
-use maud::DOCTYPE;
 use maud::Markup;
 use maud::html;
 use std::sync::Arc;
@@ -12,7 +11,7 @@ use super::layout::layout;
 use super::passkey::Passkey;
 use super::passkey::PasskeyStore;
 use super::user::UserStore;
-use crate::theme::theme;
+use crate::theme::theme_with_head;
 
 fn me_page(email: &str, passkeys: &[Passkey]) -> Markup {
     let content = html! {
@@ -88,39 +87,33 @@ fn me_page(email: &str, passkeys: &[Passkey]) -> Markup {
 }
 
 fn not_logged_in_page() -> Markup {
-    theme(html! {
-        (DOCTYPE)
-        html lang="en" {
-            head {
-                meta charset="UTF-8";
-                meta name="viewport" content="width=device-width, initial-scale=1";
-                title { "Not Logged In - Monkesto" }
-            }
-            body {
-                div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
-                    div class="sm:mx-auto sm:w-full sm:max-w-sm" {
-                        img src="/logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto";
+    theme_with_head(
+        Some("Not Logged In"),
+        html! {},
+        html! {
+            div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
+                div class="sm:mx-auto sm:w-full sm:max-w-sm" {
+                    img src="/logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto";
 
-                        h2 class="mt-10 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white" {
-                            "Not Logged In"
-                        }
+                    h2 class="mt-10 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white" {
+                        "Not Logged In"
+                    }
 
-                        p class="mt-4 text-center text-sm text-gray-600 dark:text-gray-400" {
-                            "You need to sign in to view this page."
-                        }
+                    p class="mt-4 text-center text-sm text-gray-600 dark:text-gray-400" {
+                        "You need to sign in to view this page."
+                    }
 
-                        div class="mt-6" {
-                            a
-                            href="signin"
-                            class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500" {
-                                "Sign In"
-                            }
+                    div class="mt-6" {
+                        a
+                        href="signin"
+                        class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500" {
+                            "Sign In"
                         }
                     }
                 }
             }
-        }
-    })
+        },
+    )
 }
 
 pub async fn me_get<U: UserStore + 'static, P: PasskeyStore + 'static>(

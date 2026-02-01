@@ -6,7 +6,6 @@ use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
-use maud::DOCTYPE;
 use maud::Markup;
 use maud::PreEscaped;
 use maud::html;
@@ -31,7 +30,7 @@ use super::user::UserId;
 use super::user::UserStore;
 use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::theme::theme;
+use crate::theme::theme_with_head;
 
 /// Errors that occur during the signup flow.
 #[derive(Error, Debug)]
@@ -75,17 +74,13 @@ pub struct SignupQuery {
 }
 
 fn email_form_page(webauthn_url: &str, error_message: Option<&str>, next: Option<&str>) -> Markup {
-    theme(html! {
-        (DOCTYPE)
-        html lang="en" {
-            head {
-                meta charset="UTF-8";
-                meta name="viewport" content="width=device-width, initial-scale=1";
-                title { "Sign up - Monkesto" }
-                meta name="webauthn_url" content=(webauthn_url);
-            }
-            body {
-                div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
+    theme_with_head(
+        Some("Sign up"),
+        html! {
+            meta name="webauthn_url" content=(webauthn_url);
+        },
+        html! {
+            div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
                     div class="sm:mx-auto sm:w-full sm:max-w-sm" {
                         img src="/logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto";
                         h2 class="mt-10 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white" {
@@ -143,9 +138,8 @@ fn email_form_page(webauthn_url: &str, error_message: Option<&str>, next: Option
                         }
                     }
                 }
-            }
-        }
-    })
+        },
+    )
 }
 
 fn challenge_page(
@@ -154,21 +148,17 @@ fn challenge_page(
     challenge_data: &str,
     next: Option<&str>,
 ) -> Markup {
-    theme(html! {
-        (DOCTYPE)
-        html lang="en" {
-            head {
-                meta charset="UTF-8";
-                meta name="viewport" content="width=device-width, initial-scale=1";
-                title { "Create Passkey - Monkesto" }
-                script
-                    src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
-                    crossorigin="anonymous" {}
-                meta name="webauthn_url" content=(webauthn_url);
-                script id="challenge-data" type="application/json" {
-                    (PreEscaped(challenge_data))
-                }
-                script {
+    theme_with_head(
+        Some("Create Passkey"),
+        html! {
+            script
+                src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
+                crossorigin="anonymous" {}
+            meta name="webauthn_url" content=(webauthn_url);
+            script id="challenge-data" type="application/json" {
+                (PreEscaped(challenge_data))
+            }
+            script {
                     r#"
                     window.addEventListener('load', function() {
                         const challengeDataElement = document.getElementById('challenge-data');
@@ -226,10 +216,10 @@ fn challenge_page(
                         });
                     });
                     "#
-                }
             }
-            body {
-                div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
+        },
+        html! {
+            div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
                     div class="sm:mx-auto sm:w-full sm:max-w-sm" {
                         img src="/logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto";
                         h2 class="mt-10 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white" {
@@ -261,9 +251,8 @@ fn challenge_page(
                         }
                     }
                 }
-            }
-        }
-    })
+        },
+    )
 }
 
 async fn handle_signup_get(
