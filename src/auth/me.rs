@@ -15,6 +15,7 @@ use crate::theme::theme_with_head;
 
 fn me_page(email: &str, passkeys: &[Passkey]) -> Markup {
     let content = html! {
+        div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm" {
         div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 space-y-4" {
             div {
                 h3 class="text-lg font-medium text-gray-900 dark:text-white" {
@@ -74,6 +75,7 @@ fn me_page(email: &str, passkeys: &[Passkey]) -> Markup {
                     }
                 }
             }
+        }
         }
     };
 

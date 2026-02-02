@@ -124,7 +124,18 @@ pub async fn person_detail_page(
         }
     };
 
-    Ok(layout(Some(&journal_state.name), true, Some(&id), content))
+    let wrapped_content = html! {
+        div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm" {
+            (content)
+        }
+    };
+
+    Ok(layout(
+        Some(&journal_state.name),
+        true,
+        Some(&id),
+        wrapped_content,
+    ))
 }
 
 fn permission_checkbox(name: &'static str, label: &'static str, checked: bool) -> Markup {
@@ -233,6 +244,12 @@ pub async fn people_list_page(
         }
     };
 
+    let wrapped_content = html! {
+        div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm" {
+            (content)
+        }
+    };
+
     Ok(layout(
         Some(
             &journal_state_res
@@ -241,6 +258,6 @@ pub async fn people_list_page(
         ),
         true,
         Some(&id),
-        content,
+        wrapped_content,
     ))
 }

@@ -42,9 +42,7 @@ pub fn layout(nav_title: Option<Markup>, content: Markup) -> Markup {
                 // Main Content
                 div class="flex-1 p-6" {
                     div class="max-w-7xl mx-auto" {
-                        div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm" {
-                            (content)
-                        }
+                        (content)
                     }
                 }
             }

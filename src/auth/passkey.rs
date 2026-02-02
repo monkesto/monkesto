@@ -218,6 +218,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
 
 fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup {
     let content = html! {
+        div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm" {
         script
             src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
             crossorigin="anonymous" {}
@@ -301,6 +302,7 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
             div class="mt-6" {
                 p id="flash_message" class="text-center text-sm/6 text-red-500" {}
             }
+        }
         }
     };
 

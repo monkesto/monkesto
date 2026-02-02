@@ -104,6 +104,12 @@ pub async fn account_list_page(
         }
     };
 
+    let wrapped_content = html! {
+        div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm" {
+            (content)
+        }
+    };
+
     Ok(layout(
         Some(
             &journal_state_res
@@ -112,6 +118,6 @@ pub async fn account_list_page(
         ),
         true,
         Some(&id),
-        content,
+        wrapped_content,
     ))
 }
