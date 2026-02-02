@@ -151,6 +151,66 @@ impl JournalMemoryStore {
             transaction_store,
         }
     }
+
+    /// Seeds three dev journals for local development.
+    /// Uses stable IDs so journals remain valid across restarts.
+    /// - All three journals are attached to pacioli
+    /// - Only one journal is attached to wedgwood
+    pub async fn seed_dev_journals(&self) {
+        use std::str::FromStr;
+
+        // Stable user IDs from seed_dev_users
+        let pacioli_id = UserId::from_str("zk8m3p5q7r2n4v6x").expect("pacioli user id");
+        let wedgwood_id = UserId::from_str("yj7l2o4p6q8s0u1w").expect("wedgwood user id");
+
+        // Stable journal IDs - valid cuid2 format (10 chars for journals)
+        let journal_ids = [
+            (
+                JournalId::from_str("ab1cd2ef3g").expect("stable journal id 1"),
+                "Maple Ridge Academy",
+                pacioli_id,
+            ),
+            (
+                JournalId::from_str("hi4jk5lm6n").expect("stable journal id 2"),
+                "Smith & Sons Bakery",
+                pacioli_id,
+            ),
+            (
+                JournalId::from_str("op7qr8st9u").expect("stable journal id 3"),
+                "Green Valley Farm Co.",
+                pacioli_id,
+            ),
+        ];
+
+        let now = Utc::now();
+
+        for (journal_id, name, creator) in journal_ids {
+            // Only create if journal doesn't exist
+            if !self.journal_table.contains_key(&journal_id) {
+                let creation_event = JournalEvent::Created {
+                    id: journal_id,
+                    name: name.to_string(),
+                    created_at: now,
+                    creator,
+                };
+
+                // Create the first journal (Maple Ridge Academy) with wedgwood as tenant
+                let mut events = vec![];
+                if name == "Maple Ridge Academy" {
+                    events.push(JournalEvent::AddedTenant {
+                        id: wedgwood_id,
+                        tenant_info: JournalTenantInfo {
+                            tenant_permissions: Permissions::READ | Permissions::APPENDTRANSACTION,
+                            inviting_user: pacioli_id,
+                            invited_at: now,
+                        },
+                    });
+                }
+
+                let _ = self.seed_journal(creation_event, events).await;
+            }
+        }
+    }
 }
 
 #[async_trait]

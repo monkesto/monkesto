@@ -122,11 +122,15 @@ async fn main() {
         .merge(webauthn_routes)
         .merge(journal_routes)
         .fallback(notfoundpage::not_found_page)
-        .layer(auth_layer)
-        .with_state(AppState {
-            user_store,
-            journal_store: JournalMemoryStore::new(Arc::new(TransasctionMemoryStore::new())),
-        });
+        .layer(auth_layer);
+
+    let journal_store = JournalMemoryStore::new(Arc::new(TransasctionMemoryStore::new()));
+    journal_store.seed_dev_journals().await;
+
+    let app = app.with_state(AppState {
+        user_store,
+        journal_store,
+    });
 
     // run our app with hyper
     println!("listening on http://{}", &addr);
