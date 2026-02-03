@@ -7,6 +7,7 @@ use crate::authority::UserId;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
+use crate::journal::transaction::BalanceUpdate;
 use crate::journal::transaction::EntryType;
 use crate::journal::transaction::TransactionEvent;
 use crate::journal::transaction::TransactionState;
@@ -238,9 +239,181 @@ impl JournalMemoryStore {
                             created_at: now,
                         });
                     }
-                }
 
-                let _ = self.seed_journal(creation_event, events).await;
+                    // Add the account creation events to the journal
+                    let _ = self.seed_journal(creation_event.clone(), events).await;
+
+                    // Now add transactions after accounts exist
+                    let assets_id = AccountId::from_str("ac1assets0").expect("assets account id");
+                    let revenue_id = AccountId::from_str("ac4revenue").expect("revenue account id");
+                    let expenses_id =
+                        AccountId::from_str("ac5expense").expect("expenses account id");
+
+                    // Transaction 1: Tuition payment received - $5,000
+                    let tx1_id =
+                        TransactionId::from_str("t1tuition0000001").expect("stable transaction id");
+                    let tx1_event = TransactionEvent::Created {
+                        id: tx1_id,
+                        author: pacioli_id,
+                        updates: vec![
+                            BalanceUpdate {
+                                account_id: assets_id,
+                                amount: 500000, // $5,000.00 in cents
+                                entry_type: EntryType::Debit,
+                            },
+                            BalanceUpdate {
+                                account_id: revenue_id,
+                                amount: 500000,
+                                entry_type: EntryType::Credit,
+                            },
+                        ],
+                        created_at: now,
+                    };
+                    let _ = self
+                        .transaction_store
+                        .create_transaction(tx1_event.clone())
+                        .await;
+                    events = vec![JournalEvent::AddedEntry {
+                        transaction_id: tx1_id,
+                    }];
+                    let _ = self
+                        .push_journal_event(&journal_id, events[0].clone())
+                        .await;
+
+                    // Transaction 2: Teacher salary payment - $3,200
+                    let tx2_id =
+                        TransactionId::from_str("t2salary00000002").expect("stable transaction id");
+                    let tx2_event = TransactionEvent::Created {
+                        id: tx2_id,
+                        author: pacioli_id,
+                        updates: vec![
+                            BalanceUpdate {
+                                account_id: expenses_id,
+                                amount: 320000, // $3,200.00
+                                entry_type: EntryType::Debit,
+                            },
+                            BalanceUpdate {
+                                account_id: assets_id,
+                                amount: 320000,
+                                entry_type: EntryType::Credit,
+                            },
+                        ],
+                        created_at: now,
+                    };
+                    let _ = self
+                        .transaction_store
+                        .create_transaction(tx2_event.clone())
+                        .await;
+                    let _ = self
+                        .push_journal_event(
+                            &journal_id,
+                            JournalEvent::AddedEntry {
+                                transaction_id: tx2_id,
+                            },
+                        )
+                        .await;
+
+                    // Transaction 3: Textbook purchase - $850
+                    let tx3_id =
+                        TransactionId::from_str("t3textbooks00003").expect("stable transaction id");
+                    let tx3_event = TransactionEvent::Created {
+                        id: tx3_id,
+                        author: pacioli_id,
+                        updates: vec![
+                            BalanceUpdate {
+                                account_id: expenses_id,
+                                amount: 85000, // $850.00
+                                entry_type: EntryType::Debit,
+                            },
+                            BalanceUpdate {
+                                account_id: assets_id,
+                                amount: 85000,
+                                entry_type: EntryType::Credit,
+                            },
+                        ],
+                        created_at: now,
+                    };
+                    let _ = self
+                        .transaction_store
+                        .create_transaction(tx3_event.clone())
+                        .await;
+                    let _ = self
+                        .push_journal_event(
+                            &journal_id,
+                            JournalEvent::AddedEntry {
+                                transaction_id: tx3_id,
+                            },
+                        )
+                        .await;
+
+                    // Transaction 4: Another tuition payment - $4,500
+                    let tx4_id =
+                        TransactionId::from_str("t4tuition2000004").expect("stable transaction id");
+                    let tx4_event = TransactionEvent::Created {
+                        id: tx4_id,
+                        author: wedgwood_id,
+                        updates: vec![
+                            BalanceUpdate {
+                                account_id: assets_id,
+                                amount: 450000, // $4,500.00
+                                entry_type: EntryType::Debit,
+                            },
+                            BalanceUpdate {
+                                account_id: revenue_id,
+                                amount: 450000,
+                                entry_type: EntryType::Credit,
+                            },
+                        ],
+                        created_at: now,
+                    };
+                    let _ = self
+                        .transaction_store
+                        .create_transaction(tx4_event.clone())
+                        .await;
+                    let _ = self
+                        .push_journal_event(
+                            &journal_id,
+                            JournalEvent::AddedEntry {
+                                transaction_id: tx4_id,
+                            },
+                        )
+                        .await;
+
+                    // Transaction 5: Supplies purchase - $425
+                    let tx5_id =
+                        TransactionId::from_str("t5supplies000005").expect("stable transaction id");
+                    let tx5_event = TransactionEvent::Created {
+                        id: tx5_id,
+                        author: pacioli_id,
+                        updates: vec![
+                            BalanceUpdate {
+                                account_id: expenses_id,
+                                amount: 42500, // $425.00
+                                entry_type: EntryType::Debit,
+                            },
+                            BalanceUpdate {
+                                account_id: assets_id,
+                                amount: 42500,
+                                entry_type: EntryType::Credit,
+                            },
+                        ],
+                        created_at: now,
+                    };
+                    let _ = self
+                        .transaction_store
+                        .create_transaction(tx5_event.clone())
+                        .await;
+                    let _ = self
+                        .push_journal_event(
+                            &journal_id,
+                            JournalEvent::AddedEntry {
+                                transaction_id: tx5_id,
+                            },
+                        )
+                        .await;
+                } else {
+                    let _ = self.seed_journal(creation_event, events).await;
+                }
             }
         }
     }
