@@ -110,7 +110,7 @@ pub async fn journal_detail(
     };
 
     let content = html! {
-        div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm" {
+        div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
             @if let Ok(journal_state) = &journal_state_res && journal_state.get_user_permissions(&user.id).contains(Permissions::READ) {
 
                 a
