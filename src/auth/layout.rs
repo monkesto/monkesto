@@ -13,9 +13,11 @@ pub fn layout(nav_title: Option<Markup>, content: Markup) -> Markup {
                     div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" {
                         div class="flex justify-between h-16" {
                             div class="flex items-center" {
-                                img src="/logo.svg" alt="Monkesto" class="h-8 w-auto";
-                                span class="ml-4 text-xl font-bold text-gray-900 dark:text-white" {
-                                    "Monkesto"
+                                a href="/" class="flex items-center" {
+                                    img src="/logo.svg" alt="Monkesto" class="h-8 w-auto";
+                                    span class="ml-4 text-xl font-bold text-gray-900 dark:text-white" {
+                                        "Monkesto"
+                                    }
                                 }
                             }
                             div class="flex items-center gap-4" {
