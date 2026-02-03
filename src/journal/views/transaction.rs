@@ -80,36 +80,36 @@ pub async fn transaction_list_page(
 
                     form method="post" action=(format!("/journal/{}/transaction", id)) class="space-y-6" {
                         @for i in 0..4 {
-                            div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg space-y-3" {
-                                div {
-                                    label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                        (if i < 2 {"Account"} else {"Account (Optional)"})
-                                    }
-                                    select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
-                                    name="account" {
-                                        option value="" { "Select account..." }
-                                        @for (acc_id, acc_state) in journal_state.accounts.iter() {
-                                            option value=(acc_id) { (acc_state.name) }
+                            div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg" {
+                                div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end" {
+                                    div class="md:col-span-6" {
+                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                            (if i < 2 {"Account"} else {"Account (Optional)"})
+                                        }
+                                        select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
+                                        name="account" {
+                                            option value="" { "Select account..." }
+                                            @for (acc_id, acc_state) in journal_state.accounts.iter() {
+                                                option value=(acc_id) { (acc_state.name) }
+                                            }
                                         }
                                     }
-                                }
-                                div class="grid grid-cols-4 gap-2 sm:gap-3" {
-                                    div class="col-span-3" {
+                                    div class="md:col-span-4" {
                                         label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
                                             "Amount"
                                         }
-                                        input class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                        input class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
                                         type="number"
                                         step="0.01" min="0"
                                         placeholder="0.00"
                                         required[i < 2]
                                         name="amount";
                                     }
-                                    div {
+                                    div class="md:col-span-2" {
                                         label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
                                             "Type"
                                         }
-                                        select class="w-full h-10 rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
+                                        select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
                                         name="entry_type" {
                                             option value=(EntryType::Debit) { "Dr" }
                                             option value=(EntryType::Credit) { "Cr" }
@@ -139,7 +139,7 @@ pub async fn transaction_list_page(
     };
 
     let wrapped_content = html! {
-        div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm" {
+        div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
             (content)
         }
     };

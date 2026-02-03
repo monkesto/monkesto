@@ -205,6 +205,39 @@ impl JournalMemoryStore {
                             invited_at: now,
                         },
                     });
+
+                    // Add basic accounts for Maple Ridge Academy
+                    let accounts = [
+                        (
+                            AccountId::from_str("ac1assets0").expect("stable account id"),
+                            "Assets",
+                        ),
+                        (
+                            AccountId::from_str("ac2liabili").expect("stable account id"),
+                            "Liabilities",
+                        ),
+                        (
+                            AccountId::from_str("ac3equity0").expect("stable account id"),
+                            "Equity",
+                        ),
+                        (
+                            AccountId::from_str("ac4revenue").expect("stable account id"),
+                            "Revenue",
+                        ),
+                        (
+                            AccountId::from_str("ac5expense").expect("stable account id"),
+                            "Expenses",
+                        ),
+                    ];
+
+                    for (account_id, account_name) in accounts {
+                        events.push(JournalEvent::CreatedAccount {
+                            id: account_id,
+                            name: account_name.to_string(),
+                            created_by: pacioli_id,
+                            created_at: now,
+                        });
+                    }
                 }
 
                 let _ = self.seed_journal(creation_event, events).await;
