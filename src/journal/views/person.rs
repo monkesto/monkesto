@@ -125,7 +125,7 @@ pub async fn person_detail_page(
     };
 
     let wrapped_content = html! {
-        div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm" {
+        div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
             (content)
         }
     };
@@ -245,7 +245,7 @@ pub async fn people_list_page(
     };
 
     let wrapped_content = html! {
-        div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm" {
+        div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
             (content)
         }
     };
