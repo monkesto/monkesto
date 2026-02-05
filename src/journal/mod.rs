@@ -161,23 +161,23 @@ impl JournalMemoryStore {
         use std::str::FromStr;
 
         // Stable user IDs from seed_dev_users
-        let pacioli_id = UserId::from_str("zk8m3p5q7r2n4v6x").expect("pacioli user id");
-        let wedgwood_id = UserId::from_str("yj7l2o4p6q8s0u1w").expect("wedgwood user id");
+        let pacioli_id = UserId::from_str("zk8m3p5q7r2n4v6x")?;
+        let wedgwood_id = UserId::from_str("yj7l2o4p6q8s0u1w")?;
 
         // Stable journal IDs - valid cuid2 format (10 chars for journals)
         let journal_ids = [
             (
-                JournalId::from_str("ab1cd2ef3g").expect("stable journal id 1"),
+                JournalId::from_str("ab1cd2ef3g")?,
                 "Maple Ridge Academy",
                 pacioli_id,
             ),
             (
-                JournalId::from_str("hi4jk5lm6n").expect("stable journal id 2"),
+                JournalId::from_str("hi4jk5lm6n")?,
                 "Smith & Sons Bakery",
                 pacioli_id,
             ),
             (
-                JournalId::from_str("op7qr8st9u").expect("stable journal id 3"),
+                JournalId::from_str("op7qr8st9u")?,
                 "Green Valley Farm Co.",
                 pacioli_id,
             ),
@@ -209,26 +209,11 @@ impl JournalMemoryStore {
 
                     // Add basic accounts for Maple Ridge Academy
                     let accounts = [
-                        (
-                            AccountId::from_str("ac1assets0").expect("stable account id"),
-                            "Assets",
-                        ),
-                        (
-                            AccountId::from_str("ac2liabili").expect("stable account id"),
-                            "Liabilities",
-                        ),
-                        (
-                            AccountId::from_str("ac3equity0").expect("stable account id"),
-                            "Equity",
-                        ),
-                        (
-                            AccountId::from_str("ac4revenue").expect("stable account id"),
-                            "Revenue",
-                        ),
-                        (
-                            AccountId::from_str("ac5expense").expect("stable account id"),
-                            "Expenses",
-                        ),
+                        (AccountId::from_str("ac1assets0")?, "Assets"),
+                        (AccountId::from_str("ac2liabili")?, "Liabilities"),
+                        (AccountId::from_str("ac3equity0")?, "Equity"),
+                        (AccountId::from_str("ac4revenue")?, "Revenue"),
+                        (AccountId::from_str("ac5expense")?, "Expenses"),
                     ];
 
                     for (account_id, account_name) in accounts {
@@ -244,14 +229,12 @@ impl JournalMemoryStore {
                     self.seed_journal(creation_event.clone(), events).await?;
 
                     // Now add transactions after accounts exist
-                    let assets_id = AccountId::from_str("ac1assets0").expect("assets account id");
-                    let revenue_id = AccountId::from_str("ac4revenue").expect("revenue account id");
-                    let expenses_id =
-                        AccountId::from_str("ac5expense").expect("expenses account id");
+                    let assets_id = AccountId::from_str("ac1assets0")?;
+                    let revenue_id = AccountId::from_str("ac4revenue")?;
+                    let expenses_id = AccountId::from_str("ac5expense")?;
 
                     // Transaction 1: Tuition payment received - $5,000
-                    let tx1_id =
-                        TransactionId::from_str("t1tuition0000001").expect("stable transaction id");
+                    let tx1_id = TransactionId::from_str("t1tuition0000001")?;
                     let tx1_event = TransactionEvent::Created {
                         id: tx1_id,
                         author: pacioli_id,
@@ -269,19 +252,16 @@ impl JournalMemoryStore {
                         ],
                         created_at: now,
                     };
-                    self
-                        .create_transaction(&journal_id, tx1_event.clone())
+                    self.create_transaction(&journal_id, tx1_event.clone())
                         .await?;
                     events = vec![JournalEvent::AddedEntry {
                         transaction_id: tx1_id,
                     }];
-                    self
-                        .push_journal_event(&journal_id, events[0].clone())
+                    self.push_journal_event(&journal_id, events[0].clone())
                         .await?;
 
                     // Transaction 2: Teacher salary payment - $3,200
-                    let tx2_id =
-                        TransactionId::from_str("t2salary00000002").expect("stable transaction id");
+                    let tx2_id = TransactionId::from_str("t2salary00000002")?;
                     let tx2_event = TransactionEvent::Created {
                         id: tx2_id,
                         author: pacioli_id,
@@ -299,21 +279,18 @@ impl JournalMemoryStore {
                         ],
                         created_at: now,
                     };
-                    self
-                        .create_transaction(&journal_id, tx2_event.clone())
+                    self.create_transaction(&journal_id, tx2_event.clone())
                         .await?;
-                    self
-                        .push_journal_event(
-                            &journal_id,
-                            JournalEvent::AddedEntry {
-                                transaction_id: tx2_id,
-                            },
-                        )
-                        .await?;
+                    self.push_journal_event(
+                        &journal_id,
+                        JournalEvent::AddedEntry {
+                            transaction_id: tx2_id,
+                        },
+                    )
+                    .await?;
 
                     // Transaction 3: Textbook purchase - $850
-                    let tx3_id =
-                        TransactionId::from_str("t3textbooks00003").expect("stable transaction id");
+                    let tx3_id = TransactionId::from_str("t3textbooks00003")?;
                     let tx3_event = TransactionEvent::Created {
                         id: tx3_id,
                         author: pacioli_id,
@@ -331,21 +308,18 @@ impl JournalMemoryStore {
                         ],
                         created_at: now,
                     };
-                    self
-                        .create_transaction(&journal_id, tx3_event.clone())
+                    self.create_transaction(&journal_id, tx3_event.clone())
                         .await?;
-                    self
-                        .push_journal_event(
-                            &journal_id,
-                            JournalEvent::AddedEntry {
-                                transaction_id: tx3_id,
-                            },
-                        )
-                        .await?;
+                    self.push_journal_event(
+                        &journal_id,
+                        JournalEvent::AddedEntry {
+                            transaction_id: tx3_id,
+                        },
+                    )
+                    .await?;
 
                     // Transaction 4: Another tuition payment - $4,500
-                    let tx4_id =
-                        TransactionId::from_str("t4tuition2000004").expect("stable transaction id");
+                    let tx4_id = TransactionId::from_str("t4tuition2000004")?;
                     let tx4_event = TransactionEvent::Created {
                         id: tx4_id,
                         author: wedgwood_id,
@@ -363,21 +337,18 @@ impl JournalMemoryStore {
                         ],
                         created_at: now,
                     };
-                    self
-                        .create_transaction(&journal_id, tx4_event.clone())
+                    self.create_transaction(&journal_id, tx4_event.clone())
                         .await?;
-                    self
-                        .push_journal_event(
-                            &journal_id,
-                            JournalEvent::AddedEntry {
-                                transaction_id: tx4_id,
-                            },
-                        )
-                        .await?;
+                    self.push_journal_event(
+                        &journal_id,
+                        JournalEvent::AddedEntry {
+                            transaction_id: tx4_id,
+                        },
+                    )
+                    .await?;
 
                     // Transaction 5: Supplies purchase - $425
-                    let tx5_id =
-                        TransactionId::from_str("t5supplies000005").expect("stable transaction id");
+                    let tx5_id = TransactionId::from_str("t5supplies000005")?;
                     let tx5_event = TransactionEvent::Created {
                         id: tx5_id,
                         author: pacioli_id,
@@ -395,17 +366,15 @@ impl JournalMemoryStore {
                         ],
                         created_at: now,
                     };
-                    self
-                        .create_transaction(&journal_id, tx5_event.clone())
+                    self.create_transaction(&journal_id, tx5_event.clone())
                         .await?;
-                    self
-                        .push_journal_event(
-                            &journal_id,
-                            JournalEvent::AddedEntry {
-                                transaction_id: tx5_id,
-                            },
-                        )
-                        .await?;
+                    self.push_journal_event(
+                        &journal_id,
+                        JournalEvent::AddedEntry {
+                            transaction_id: tx5_id,
+                        },
+                    )
+                    .await?;
                 } else {
                     self.seed_journal(creation_event, events).await?;
                 }

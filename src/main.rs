@@ -125,7 +125,10 @@ async fn main() {
         .layer(auth_layer);
 
     let journal_store = JournalMemoryStore::new(Arc::new(TransasctionMemoryStore::new()));
-    journal_store.seed_dev_journals().await.expect("failed to seed dev journals");
+    journal_store
+        .seed_dev_journals()
+        .await
+        .expect("failed to seed dev journals");
 
     let app = app.with_state(AppState {
         user_store,
