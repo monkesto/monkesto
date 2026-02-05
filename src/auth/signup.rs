@@ -345,7 +345,7 @@ async fn handle_email_submission<U: UserStore>(
 
     // Clear any previous registration state
     let session = &auth_session.session;
-    let _ = session.remove_value("reg_state").await;
+    _ = session.remove_value("reg_state").await;
 
     // Start passkey registration
     match webauthn.start_passkey_registration(webauthn_uuid, &email, &email, exclude_credentials) {
@@ -417,7 +417,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
     match webauthn.finish_passkey_registration(&credential, &reg_state) {
         Ok(passkey) => {
             // Clear the registration state
-            let _ = session.remove_value("reg_state").await;
+            _ = session.remove_value("reg_state").await;
 
             // Generate a PasskeyId for this passkey
             let passkey_id = PasskeyId::new();
@@ -468,7 +468,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
         }
         Err(_) => {
             // Clear the registration state on failure
-            let _ = session.remove_value("reg_state").await;
+            _ = session.remove_value("reg_state").await;
 
             Ok(Redirect::to("/signup?error=registration_failed").into_response())
         }

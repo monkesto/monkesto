@@ -298,8 +298,8 @@ async fn handle_signin_page<P: PasskeyStore>(
 ) -> impl IntoResponse {
     // Clear any previous auth state
     let session = auth_session.session;
-    let _ = session.remove_value("auth_state").await;
-    let _ = session.remove_value("usernameless_auth_state").await;
+    _ = session.remove_value("auth_state").await;
+    _ = session.remove_value("usernameless_auth_state").await;
 
     // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
     let authenticator = SigninAuthenticator::new(&webauthn, passkey_store.as_ref());
@@ -379,8 +379,8 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
     match authenticator.finish(&credential, &auth_state).await {
         Ok((user_id, _auth_result)) => {
             // Clear the auth state
-            let _ = session.remove_value("identifierless_auth_state").await;
-            let _ = session.remove_value("auth_state").await;
+            _ = session.remove_value("identifierless_auth_state").await;
+            _ = session.remove_value("auth_state").await;
 
             // Get the user and log them in via axum_login
             let user = user_store
@@ -400,8 +400,8 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
         }
         Err(_) => {
             // Clear the auth state on failure
-            let _ = session.remove_value("identifierless_auth_state").await;
-            let _ = session.remove_value("auth_state").await;
+            _ = session.remove_value("identifierless_auth_state").await;
+            _ = session.remove_value("auth_state").await;
 
             // Redirect back to login with error
             Ok(Redirect::to("/signin?error=auth_failed").into_response())

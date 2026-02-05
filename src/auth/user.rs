@@ -293,7 +293,7 @@ impl MemoryUserStore {
 
         for (email, user_id, webauthn_uuid) in dev_users {
             if let Ok(false) = self.email_exists(email).await {
-                let _ = self
+                _ = self
                     .record(
                         user_id,
                         Authority::Direct(Actor::System),
@@ -340,7 +340,7 @@ impl EventStore for MemoryUserStore {
         event: UserEvent,
     ) -> Result<(), UserStoreError> {
         let mut data = self.data.lock().await;
-        let _ = by; // Store doesn't use authority yet, but will for audit trail
+        _ = by; // Store doesn't use authority yet, but will for audit trail
 
         match event {
             UserEvent::Created {

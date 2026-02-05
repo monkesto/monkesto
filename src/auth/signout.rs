@@ -71,13 +71,13 @@ pub async fn signout_post(
     _form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     // Log out via axum_login
-    let _ = auth_session.logout().await;
+    _ = auth_session.logout().await;
 
     // Clear any other auth-related session data
     let session = &auth_session.session;
-    let _ = session.remove_value("identifierless_auth_state").await;
-    let _ = session.remove_value("auth_state").await;
-    let _ = session.remove_value("reg_state").await;
+    _ = session.remove_value("identifierless_auth_state").await;
+    _ = session.remove_value("auth_state").await;
+    _ = session.remove_value("reg_state").await;
 
     // Redirect to sign in page
     Redirect::to("/signin")

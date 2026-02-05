@@ -37,7 +37,7 @@ pub trait JournalStore: Clone + Send + Sync + 'static {
     /// it should return an error if the event passed in is not a creation event
     async fn create_journal(&self, creation_event: JournalEvent) -> MonkestoResult<()>;
 
-    /// adds a UserEvent to the event store and updates the cached state
+    /// adds a JournalEvent to the event store and updates the cached state
     async fn push_journal_event(
         &self,
         journal_id: &JournalId,
@@ -157,7 +157,7 @@ impl JournalMemoryStore {
     /// Uses stable IDs so journals remain valid across restarts.
     /// - All three journals are attached to pacioli
     /// - Only one journal is attached to wedgwood
-    pub async fn seed_dev_journals(&self) {
+    pub async fn seed_dev_journals(&self) -> MonkestoResult<()> {
         use std::str::FromStr;
 
         // Stable user IDs from seed_dev_users
@@ -241,7 +241,7 @@ impl JournalMemoryStore {
                     }
 
                     // Add the account creation events to the journal
-                    let _ = self.seed_journal(creation_event.clone(), events).await;
+                    self.seed_journal(creation_event.clone(), events).await?;
 
                     // Now add transactions after accounts exist
                     let assets_id = AccountId::from_str("ac1assets0").expect("assets account id");
@@ -269,16 +269,15 @@ impl JournalMemoryStore {
                         ],
                         created_at: now,
                     };
-                    let _ = self
-                        .transaction_store
-                        .create_transaction(tx1_event.clone())
-                        .await;
+                    self
+                        .create_transaction(&journal_id, tx1_event.clone())
+                        .await?;
                     events = vec![JournalEvent::AddedEntry {
                         transaction_id: tx1_id,
                     }];
-                    let _ = self
+                    self
                         .push_journal_event(&journal_id, events[0].clone())
-                        .await;
+                        .await?;
 
                     // Transaction 2: Teacher salary payment - $3,200
                     let tx2_id =
@@ -300,18 +299,17 @@ impl JournalMemoryStore {
                         ],
                         created_at: now,
                     };
-                    let _ = self
-                        .transaction_store
-                        .create_transaction(tx2_event.clone())
-                        .await;
-                    let _ = self
+                    self
+                        .create_transaction(&journal_id, tx2_event.clone())
+                        .await?;
+                    self
                         .push_journal_event(
                             &journal_id,
                             JournalEvent::AddedEntry {
                                 transaction_id: tx2_id,
                             },
                         )
-                        .await;
+                        .await?;
 
                     // Transaction 3: Textbook purchase - $850
                     let tx3_id =
@@ -333,18 +331,17 @@ impl JournalMemoryStore {
                         ],
                         created_at: now,
                     };
-                    let _ = self
-                        .transaction_store
-                        .create_transaction(tx3_event.clone())
-                        .await;
-                    let _ = self
+                    self
+                        .create_transaction(&journal_id, tx3_event.clone())
+                        .await?;
+                    self
                         .push_journal_event(
                             &journal_id,
                             JournalEvent::AddedEntry {
                                 transaction_id: tx3_id,
                             },
                         )
-                        .await;
+                        .await?;
 
                     // Transaction 4: Another tuition payment - $4,500
                     let tx4_id =
@@ -366,18 +363,17 @@ impl JournalMemoryStore {
                         ],
                         created_at: now,
                     };
-                    let _ = self
-                        .transaction_store
-                        .create_transaction(tx4_event.clone())
-                        .await;
-                    let _ = self
+                    self
+                        .create_transaction(&journal_id, tx4_event.clone())
+                        .await?;
+                    self
                         .push_journal_event(
                             &journal_id,
                             JournalEvent::AddedEntry {
                                 transaction_id: tx4_id,
                             },
                         )
-                        .await;
+                        .await?;
 
                     // Transaction 5: Supplies purchase - $425
                     let tx5_id =
@@ -399,23 +395,23 @@ impl JournalMemoryStore {
                         ],
                         created_at: now,
                     };
-                    let _ = self
-                        .transaction_store
-                        .create_transaction(tx5_event.clone())
-                        .await;
-                    let _ = self
+                    self
+                        .create_transaction(&journal_id, tx5_event.clone())
+                        .await?;
+                    self
                         .push_journal_event(
                             &journal_id,
                             JournalEvent::AddedEntry {
                                 transaction_id: tx5_id,
                             },
                         )
-                        .await;
+                        .await?;
                 } else {
-                    let _ = self.seed_journal(creation_event, events).await;
+                    self.seed_journal(creation_event, events).await?;
                 }
             }
         }
+        Ok(())
     }
 }
 

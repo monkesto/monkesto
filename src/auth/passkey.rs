@@ -133,7 +133,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
         match webauthn.finish_passkey_registration(&credential, &reg_state) {
             Ok(passkey) => {
                 // Clear the registration state
-                let _ = session.remove_value("add_passkey_reg_state").await;
+                _ = session.remove_value("add_passkey_reg_state").await;
 
                 // Generate a PasskeyId for this passkey
                 let passkey_id = PasskeyId::new();
@@ -156,7 +156,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
             }
             Err(_) => {
                 // Clear the registration state on failure
-                let _ = session.remove_value("add_passkey_reg_state").await;
+                _ = session.remove_value("add_passkey_reg_state").await;
                 Ok(Redirect::to("/me?error=registration_failed").into_response())
             }
         }
@@ -186,7 +186,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
             .collect();
 
         // Clear any previous registration state
-        let _ = session.remove_value("add_passkey_reg_state").await;
+        _ = session.remove_value("add_passkey_reg_state").await;
 
         // Start passkey registration
         match webauthn.start_passkey_registration(
@@ -393,7 +393,7 @@ impl EventStore for MemoryPasskeyStore {
         event: PasskeyEvent,
     ) -> Result<(), PasskeyStoreError> {
         let mut data = self.data.lock().await;
-        let _ = by; // Store doesn't use authority yet, but will for audit trail
+        _ = by; // Store doesn't use authority yet, but will for audit trail
 
         match event {
             PasskeyEvent::Created { user_id, passkey } => {
