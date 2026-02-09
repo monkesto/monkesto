@@ -12,7 +12,10 @@ use crate::journal::transaction::TransactionEvent;
 use crate::auth::user::Email;
 use crate::auth::user::UserStore;
 use crate::auth::user::{self};
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::authority::UserId;
+use crate::event::EventStore;
 use crate::journal::JournalStore;
 use crate::journal::JournalTenantInfo;
 use crate::known_errors::KnownErrors;
@@ -49,12 +52,15 @@ pub async fn create_journal(
 
     state
         .journal_store
-        .create_journal(JournalEvent::Created {
-            id: journal_id,
-            name: form.journal_name,
-            creator: user.id,
-            created_at: Utc::now(),
-        })
+        .record(
+            journal_id,
+            Authority::Direct(Actor::Anonymous),
+            JournalEvent::Created {
+                name: form.journal_name,
+                creator: user.id,
+                created_at: Utc::now(),
+            },
+        )
         .await
         .or_redirect(CALLBACK_URL)?;
 
@@ -91,7 +97,8 @@ pub async fn invite_user(
         .journal_store
         .get_journal(&journal_id)
         .await
-        .or_redirect(callback_url)?;
+        .or_redirect(callback_url)?
+        .ok_or(KnownErrors::InvalidJournal.redirect(callback_url))?;
 
     if !journal_state.deleted {
         if journal_state
@@ -138,8 +145,9 @@ pub async fn invite_user(
 
             state
                 .journal_store
-                .push_journal_event(
-                    &journal_id,
+                .record(
+                    journal_id,
+                    Authority::Direct(Actor::Anonymous),
                     JournalEvent::AddedTenant {
                         id: invitee_id,
                         tenant_info,
@@ -185,7 +193,8 @@ pub async fn create_account(
         .journal_store
         .get_journal(&journal_id)
         .await
-        .or_redirect(callback_url)?;
+        .or_redirect(callback_url)?
+        .ok_or(KnownErrors::InvalidJournal.redirect(callback_url))?;
 
     if !journal_state.deleted {
         if journal_state
@@ -194,8 +203,9 @@ pub async fn create_account(
         {
             state
                 .journal_store
-                .push_journal_event(
-                    &journal_id,
+                .record(
+                    journal_id,
+                    Authority::Direct(Actor::Anonymous),
                     JournalEvent::CreatedAccount {
                         id: AccountId::new(),
                         name: form.account_name,
@@ -238,7 +248,8 @@ pub async fn transact(
         .journal_store
         .get_journal(&journal_id)
         .await
-        .or_redirect(callback_url)?;
+        .or_redirect(callback_url)?
+        .ok_or(KnownErrors::InvalidJournal.redirect(callback_url))?;
 
     let user = user::get_user(session)?;
 
@@ -329,7 +340,11 @@ pub async fn transact(
             .or_redirect(callback_url)?;
         state
             .journal_store
-            .push_journal_event(&journal_id, JournalEvent::AddedEntry { transaction_id })
+            .record(
+                journal_id,
+                Authority::Direct(Actor::Anonymous),
+                JournalEvent::AddedEntry { transaction_id },
+            )
             .await
             .or_redirect(callback_url)?;
 
@@ -362,7 +377,8 @@ pub async fn update_permissions(
         .journal_store
         .get_journal(&journal_id)
         .await
-        .or_redirect(callback_url)?;
+        .or_redirect(callback_url)?
+        .ok_or(KnownErrors::InvalidJournal.redirect(callback_url))?;
 
     if !journal_state.deleted {
         if journal_state
@@ -388,8 +404,9 @@ pub async fn update_permissions(
 
             state
                 .journal_store
-                .push_journal_event(
-                    &journal_id,
+                .record(
+                    journal_id,
+                    Authority::Direct(Actor::Anonymous),
                     JournalEvent::UpdatedTenantPermissions {
                         id: target_user_id,
                         permissions: new_permissions,
@@ -426,7 +443,8 @@ pub async fn remove_tenant(
         .journal_store
         .get_journal(&journal_id)
         .await
-        .or_redirect(person_detail_url)?;
+        .or_redirect(person_detail_url)?
+        .ok_or(KnownErrors::InvalidJournal.redirect(person_detail_url))?;
 
     if !journal_state.deleted {
         if journal_state
@@ -435,8 +453,9 @@ pub async fn remove_tenant(
         {
             state
                 .journal_store
-                .push_journal_event(
-                    &journal_id,
+                .record(
+                    journal_id,
+                    Authority::Direct(Actor::Anonymous),
                     JournalEvent::RemovedTenant { id: target_user_id },
                 )
                 .await

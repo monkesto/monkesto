@@ -1,18 +1,18 @@
-use crate::AppState;
-use crate::AuthSession;
 use crate::ident::JournalId;
-use crate::journal::JournalStore;
 use crate::journal::layout;
 use crate::journal::transaction::EntryType;
+use crate::journal::JournalStore;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
+use crate::AppState;
+use crate::AuthSession;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::response::Redirect;
 use axum_login::AuthnBackend;
-use maud::Markup;
 use maud::html;
+use maud::Markup;
 use std::str::FromStr;
 
 #[expect(unused_variables)]
@@ -28,7 +28,7 @@ pub async fn transaction_list_page(
     };
 
     let content = html! {
-        @if let Ok(ref journal_state) = journal_state_res {
+        @if let Ok(Some(ref journal_state)) = journal_state_res {
             @for transaction_id in journal_state.transactions.iter() {
                 a
                 href=(format!("/journal/{}/transaction/{}", id, transaction_id.to_string()))
@@ -149,8 +149,9 @@ pub async fn transaction_list_page(
     Ok(layout::layout(
         Some(
             &journal_state_res
-                .map(|s| s.name)
-                .unwrap_or_else(|_| "unknown journal".to_string()),
+                .map(|s| s.map(|j| j.name))
+                .unwrap_or_else(|_| Some("Unknown journal".to_string()))
+                .unwrap_or_else(|| "unknown journal".to_string()),
         ),
         true,
         Some(&id),

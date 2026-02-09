@@ -3,7 +3,10 @@ pub mod layout;
 pub mod transaction;
 pub mod views;
 
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::authority::UserId;
+use crate::event::EventStore;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
@@ -15,35 +18,27 @@ use crate::journal::transaction::TransactionStore;
 use crate::journal::transaction::TransasctionMemoryStore;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::MonkestoResult;
-use async_trait::async_trait;
 use bitflags::bitflags;
 use chrono::DateTime;
 use chrono::Utc;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::postgres::PgValueRef;
 use sqlx::Decode;
 use sqlx::Encode;
 use sqlx::Type;
-use sqlx::postgres::PgValueRef;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-#[async_trait]
 #[expect(dead_code)]
-pub trait JournalStore: Clone + Send + Sync + 'static {
-    /// creates a new journal state in the event store with the data from the creation event
-    ///
-    /// it should return an error if the event passed in is not a creation event
-    async fn create_journal(&self, creation_event: JournalEvent) -> MonkestoResult<()>;
-
-    /// adds a JournalEvent to the event store and updates the cached state
-    async fn push_journal_event(
-        &self,
-        journal_id: &JournalId,
-        event: JournalEvent,
-    ) -> MonkestoResult<()>;
-
+pub trait JournalStore:
+    Clone
+    + Send
+    + Sync
+    + 'static
+    + EventStore<Id = JournalId, EventId = (), Event = JournalEvent, Error = KnownErrors>
+{
     /// intercept transaction events to update account state
     async fn create_transaction(
         &self,
@@ -65,8 +60,8 @@ pub trait JournalStore: Clone + Send + Sync + 'static {
         transaction_id: &TransactionId,
     ) -> MonkestoResult<TransactionState>;
 
-    /// returns the cached state of the user
-    async fn get_journal(&self, journal_id: &JournalId) -> MonkestoResult<JournalState>;
+    /// returns the cached state of the journal
+    async fn get_journal(&self, journal_id: &JournalId) -> MonkestoResult<Option<JournalState>>;
 
     /// returns all journals that a user is a member of (owner or tenant)
     async fn get_user_journals(&self, user_id: &UserId) -> MonkestoResult<Vec<JournalId>>;
@@ -75,89 +70,68 @@ pub trait JournalStore: Clone + Send + Sync + 'static {
         &self,
         journal_id: &JournalId,
         user_id: &UserId,
-    ) -> MonkestoResult<Permissions> {
-        let state = self.get_journal(journal_id).await?;
-        if state.owner == *user_id {
-            return Ok(Permissions::all());
+    ) -> MonkestoResult<Option<Permissions>> {
+        if let Some(state) = self.get_journal(journal_id).await? {
+            if state.owner == *user_id {
+                return Ok(Some(Permissions::all()));
+            }
+            return Ok(Some(
+                state
+                    .tenants
+                    .get(user_id)
+                    .map(|t| t.tenant_permissions)
+                    .unwrap_or(Permissions::empty()),
+            ));
         }
-        Ok(state
-            .tenants
-            .get(user_id)
-            .map(|t| t.tenant_permissions)
-            .unwrap_or(Permissions::empty()))
+        Ok(None)
     }
 
-    async fn get_name(&self, journal_id: &JournalId) -> MonkestoResult<String> {
-        Ok(self.get_journal(journal_id).await?.name)
+    async fn get_name(&self, journal_id: &JournalId) -> MonkestoResult<Option<String>> {
+        Ok(self.get_journal(journal_id).await?.map(|s| s.name))
     }
 
-    async fn get_creator(&self, journal_id: &JournalId) -> MonkestoResult<UserId> {
-        Ok(self.get_journal(journal_id).await?.creator)
+    async fn get_creator(&self, journal_id: &JournalId) -> MonkestoResult<Option<UserId>> {
+        Ok(self.get_journal(journal_id).await?.map(|s| s.creator))
     }
 
-    async fn get_created_at(&self, journal_id: &JournalId) -> MonkestoResult<DateTime<Utc>> {
-        Ok(self.get_journal(journal_id).await?.created_at)
+    async fn get_created_at(
+        &self,
+        journal_id: &JournalId,
+    ) -> MonkestoResult<Option<DateTime<Utc>>> {
+        Ok(self.get_journal(journal_id).await?.map(|s| s.created_at))
     }
 
     async fn get_accounts(
         &self,
         journal_id: &JournalId,
-    ) -> MonkestoResult<HashMap<AccountId, Account>> {
-        Ok(self.get_journal(journal_id).await?.accounts)
+    ) -> MonkestoResult<Option<HashMap<AccountId, Account>>> {
+        Ok(self.get_journal(journal_id).await?.map(|s| s.accounts))
     }
 
-    async fn get_transactions(&self, journal_id: &JournalId) -> MonkestoResult<Vec<TransactionId>> {
-        Ok(self.get_journal(journal_id).await?.transactions)
-    }
-
-    async fn get_deleted(&self, journal_id: &JournalId) -> MonkestoResult<bool> {
-        Ok(self.get_journal(journal_id).await?.deleted)
-    }
-
-    async fn seed_journal(
+    async fn get_transactions(
         &self,
-        creation_event: JournalEvent,
-        update_events: Vec<JournalEvent>,
-    ) -> MonkestoResult<()> {
-        if let JournalEvent::Created { id, .. } = creation_event {
-            self.create_journal(creation_event).await?;
-
-            for event in update_events {
-                self.push_journal_event(&id, event).await?;
-            }
-        } else {
-            return Err(KnownErrors::IncorrectEventType);
-        }
-
-        Ok(())
+        journal_id: &JournalId,
+    ) -> MonkestoResult<Option<Vec<TransactionId>>> {
+        Ok(self.get_journal(journal_id).await?.map(|s| s.transactions))
     }
-}
 
-#[derive(Clone)]
-pub struct JournalMemoryStore {
-    events: Arc<DashMap<JournalId, Vec<JournalEvent>>>,
-    journal_table: Arc<DashMap<JournalId, JournalState>>,
-    /// Index of user_id -> set of journal_ids they belong to
-    user_journals: Arc<DashMap<UserId, std::collections::HashSet<JournalId>>>,
+    async fn get_deleted(&self, journal_id: &JournalId) -> MonkestoResult<Option<bool>> {
+        Ok(self.get_journal(journal_id).await?.map(|s| s.deleted))
+    }
 
-    transaction_store: Arc<TransasctionMemoryStore>,
-}
-
-impl JournalMemoryStore {
-    pub fn new(transaction_store: Arc<TransasctionMemoryStore>) -> Self {
-        Self {
-            events: Arc::new(DashMap::new()),
-            journal_table: Arc::new(DashMap::new()),
-            user_journals: Arc::new(DashMap::new()),
-            transaction_store,
+    async fn seed_journal(&self, id: JournalId, events: Vec<JournalEvent>) -> MonkestoResult<()> {
+        for event in events {
+            self.record(id, Authority::Direct(Actor::System), event)
+                .await?;
         }
+        Ok(())
     }
 
     /// Seeds three dev journals for local development.
     /// Uses stable IDs so journals remain valid across restarts.
     /// - All three journals are attached to pacioli
     /// - Only one journal is attached to wedgwood
-    pub async fn seed_dev_journals(&self) -> MonkestoResult<()> {
+    async fn seed_dev_journals(&self) -> MonkestoResult<()> {
         use std::str::FromStr;
 
         // Stable user IDs from seed_dev_users
@@ -186,17 +160,16 @@ impl JournalMemoryStore {
         let now = Utc::now();
 
         for (journal_id, name, creator) in journal_ids {
-            // Only create if journal doesn't exist
-            if !self.journal_table.contains_key(&journal_id) {
+            // Only create if a journal doesn't exist
+            if self.get_journal(&journal_id).await?.is_none() {
                 let creation_event = JournalEvent::Created {
-                    id: journal_id,
                     name: name.to_string(),
                     created_at: now,
                     creator,
                 };
 
                 // Create the first journal (Maple Ridge Academy) with wedgwood as tenant
-                let mut events = vec![];
+                let mut events = vec![creation_event];
                 if name == "Maple Ridge Academy" {
                     events.push(JournalEvent::AddedTenant {
                         id: wedgwood_id,
@@ -226,7 +199,7 @@ impl JournalMemoryStore {
                     }
 
                     // Add the account creation events to the journal
-                    self.seed_journal(creation_event.clone(), events).await?;
+                    self.seed_journal(journal_id, events).await?;
 
                     // Now add transactions after accounts exist
                     let assets_id = AccountId::from_str("ac1assets0")?;
@@ -257,8 +230,12 @@ impl JournalMemoryStore {
                     events = vec![JournalEvent::AddedEntry {
                         transaction_id: tx1_id,
                     }];
-                    self.push_journal_event(&journal_id, events[0].clone())
-                        .await?;
+                    self.record(
+                        journal_id,
+                        Authority::Direct(Actor::System),
+                        events[0].clone(),
+                    )
+                    .await?;
 
                     // Transaction 2: Teacher salary payment - $3,200
                     let tx2_id = TransactionId::from_str("t2salary00000002")?;
@@ -281,8 +258,9 @@ impl JournalMemoryStore {
                     };
                     self.create_transaction(&journal_id, tx2_event.clone())
                         .await?;
-                    self.push_journal_event(
-                        &journal_id,
+                    self.record(
+                        journal_id,
+                        Authority::Direct(Actor::System),
                         JournalEvent::AddedEntry {
                             transaction_id: tx2_id,
                         },
@@ -310,8 +288,9 @@ impl JournalMemoryStore {
                     };
                     self.create_transaction(&journal_id, tx3_event.clone())
                         .await?;
-                    self.push_journal_event(
-                        &journal_id,
+                    self.record(
+                        journal_id,
+                        Authority::Direct(Actor::System),
                         JournalEvent::AddedEntry {
                             transaction_id: tx3_id,
                         },
@@ -339,8 +318,9 @@ impl JournalMemoryStore {
                     };
                     self.create_transaction(&journal_id, tx4_event.clone())
                         .await?;
-                    self.push_journal_event(
-                        &journal_id,
+                    self.record(
+                        journal_id,
+                        Authority::Direct(Actor::System),
                         JournalEvent::AddedEntry {
                             transaction_id: tx4_id,
                         },
@@ -368,15 +348,16 @@ impl JournalMemoryStore {
                     };
                     self.create_transaction(&journal_id, tx5_event.clone())
                         .await?;
-                    self.push_journal_event(
-                        &journal_id,
+                    self.record(
+                        journal_id,
+                        Authority::Direct(Actor::System),
                         JournalEvent::AddedEntry {
                             transaction_id: tx5_id,
                         },
                     )
                     .await?;
                 } else {
-                    self.seed_journal(creation_event, events).await?;
+                    self.seed_journal(journal_id, events).await?;
                 }
             }
         }
@@ -384,17 +365,48 @@ impl JournalMemoryStore {
     }
 }
 
-#[async_trait]
-impl JournalStore for JournalMemoryStore {
-    async fn create_journal(&self, creation_event: JournalEvent) -> MonkestoResult<()> {
+#[derive(Clone)]
+pub struct JournalMemoryStore {
+    events: Arc<DashMap<JournalId, Vec<JournalEvent>>>,
+    journal_table: Arc<DashMap<JournalId, JournalState>>,
+    /// Index of user_id -> set of journal_ids they belong to
+    user_journals: Arc<DashMap<UserId, std::collections::HashSet<JournalId>>>,
+
+    transaction_store: Arc<TransasctionMemoryStore>,
+}
+
+impl JournalMemoryStore {
+    pub fn new(transaction_store: Arc<TransasctionMemoryStore>) -> Self {
+        Self {
+            events: Arc::new(DashMap::new()),
+            journal_table: Arc::new(DashMap::new()),
+            user_journals: Arc::new(DashMap::new()),
+            transaction_store,
+        }
+    }
+}
+
+impl EventStore for JournalMemoryStore {
+    type Id = JournalId;
+    type EventId = ();
+    type Event = JournalEvent;
+    type Error = KnownErrors;
+
+    async fn record(
+        &self,
+        id: JournalId,
+        by: Authority,
+        event: JournalEvent,
+    ) -> MonkestoResult<()> {
+        _ = by; // Store doesn't use authority yet, but will for audit trail
+
         if let JournalEvent::Created {
-            id,
             name,
             created_at,
             creator,
-        } = creation_event.clone()
+        } = event.clone()
         {
-            self.events.insert(id, vec![creation_event]);
+            self.events.insert(id, vec![event]);
 
             let state = JournalState {
                 id,
@@ -409,45 +421,31 @@ impl JournalStore for JournalMemoryStore {
             };
             self.journal_table.insert(id, state);
 
-            // Add creator to user_journals index
+            // Add creator to the user_journals index
             self.user_journals.entry(creator).or_default().insert(id);
 
             Ok(())
         } else {
-            Err(KnownErrors::InvalidInput)
-        }
-    }
-
-    async fn push_journal_event(
-        &self,
-        journal_id: &JournalId,
-        event: JournalEvent,
-    ) -> MonkestoResult<()> {
-        if let Some(mut events) = self.events.get_mut(journal_id)
-            && let Some(mut state) = self.journal_table.get_mut(journal_id)
-        {
-            // Update user_journals index for membership changes
-            if let JournalEvent::AddedTenant { id: user_id, .. } = &event {
-                self.user_journals
-                    .entry(*user_id)
-                    .or_default()
-                    .insert(*journal_id);
-            } else if let JournalEvent::RemovedTenant { id: user_id } = &event {
-                self.user_journals
-                    .entry(*user_id)
-                    .or_default()
-                    .remove(journal_id);
+            if let Some(mut events) = self.events.get_mut(&id)
+                && let Some(mut state) = self.journal_table.get_mut(&id)
+            {
+                // Update user_journals index for membership changes
+                if let JournalEvent::AddedTenant { id: user_id, .. } = &event {
+                    self.user_journals.entry(*user_id).or_default().insert(id);
+                } else if let JournalEvent::RemovedTenant { id: user_id } = &event {
+                    self.user_journals.entry(*user_id).or_default().remove(&id);
+                }
+                state.apply(event.clone());
+                events.push(event);
+                Ok(())
+            } else {
+                Err(KnownErrors::InvalidJournal)
             }
-
-            state.apply(event.clone());
-            events.push(event);
-
-            Ok(())
-        } else {
-            Err(KnownErrors::InvalidJournal)
         }
     }
+}
 
+impl JournalStore for JournalMemoryStore {
     async fn create_transaction(
         &self,
         journal_id: &JournalId,
@@ -545,11 +543,11 @@ impl JournalStore for JournalMemoryStore {
         self.transaction_store.get_transaction(transaction_id).await
     }
 
-    async fn get_journal(&self, journal_id: &JournalId) -> MonkestoResult<JournalState> {
-        self.journal_table
+    async fn get_journal(&self, journal_id: &JournalId) -> MonkestoResult<Option<JournalState>> {
+        Ok(self
+            .journal_table
             .get(journal_id)
-            .map(|state| (*state).clone())
-            .ok_or(KnownErrors::InvalidJournal)
+            .map(|state| (*state).clone()))
     }
 
     async fn get_user_journals(&self, user_id: &UserId) -> MonkestoResult<Vec<JournalId>> {
@@ -583,7 +581,6 @@ pub struct JournalTenantInfo {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum JournalEvent {
     Created {
-        id: JournalId,
         name: String,
         created_at: DateTime<Utc>,
         creator: UserId,
@@ -660,12 +657,10 @@ impl JournalState {
     pub fn apply(&mut self, event: JournalEvent) {
         match event {
             JournalEvent::Created {
-                id,
                 name,
                 creator,
                 created_at,
             } => {
-                self.id = id;
                 self.name = name;
                 self.created_at = created_at;
                 self.creator = creator;
@@ -758,8 +753,8 @@ mod test_user {
     use crate::authority::UserId;
     use crate::ident::AccountId;
     use chrono::Utc;
-    use sqlx::PgPool;
     use sqlx::prelude::FromRow;
+    use sqlx::PgPool;
 
     use super::JournalEvent;
 

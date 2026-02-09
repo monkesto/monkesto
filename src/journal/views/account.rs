@@ -36,7 +36,7 @@ pub async fn account_list_page(
     };
 
     let content = html! {
-        @if let Ok(journal_state) = &journal_state_res && journal_state.get_user_permissions(&user.id).contains(Permissions::READ) {
+        @if let Ok(Some(journal_state)) = &journal_state_res && journal_state.get_user_permissions(&user.id).contains(Permissions::READ) {
             @for (acc_id, acc) in journal_state.accounts.clone() {
                 a
                 href=(format!("/journal/{}/account/{}", id, acc_id.to_string()))
@@ -113,7 +113,10 @@ pub async fn account_list_page(
     Ok(layout(
         Some(
             &journal_state_res
-                .map(|s| s.name)
+                .map(|s| {
+                    s.map(|j| j.name.clone())
+                        .unwrap_or_else(|| "unknown journal".to_string())
+                })
                 .unwrap_or_else(|_| "unknown journal".to_string()),
         ),
         true,

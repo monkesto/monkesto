@@ -1,11 +1,11 @@
 use crate::authority::Authority;
-use std::fmt::Display;
+use std::error::Error;
 
 pub trait EventStore: Send + Sync {
     type Id: Send + Sync + Clone;
     type EventId: Send + Sync + Clone;
     type Event: Send + Sync;
-    type Error: Display;
+    type Error: Error;
 
     /// Record an event to storage.
     ///

@@ -1,21 +1,20 @@
-use crate::AppState;
-use crate::AuthSession;
 use crate::auth::user::UserStore;
 use crate::auth::user::{self};
 use crate::authority::UserId;
 use crate::ident::JournalId;
+use crate::journal::layout::layout;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
-use crate::journal::layout::layout;
 use crate::known_errors::KnownErrors;
-use crate::known_errors::RedirectOnError;
 use crate::known_errors::UrlError;
+use crate::AppState;
+use crate::AuthSession;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::response::Redirect;
-use maud::Markup;
 use maud::html;
+use maud::Markup;
 use std::str::FromStr;
 
 pub async fn person_detail_page(
@@ -25,24 +24,106 @@ pub async fn person_detail_page(
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
     let user = user::get_user(session)?;
-    let journal_id = JournalId::from_str(&id).or_redirect(&format!("/journal/{}/person", id))?;
-    let target_user_id =
-        UserId::from_str(&person_id).or_redirect(&format!("/journal/{}/person", id))?;
 
-    let journal_state = state
-        .journal_store
-        .get_journal(&journal_id)
-        .await
-        .or_redirect(&format!("/journal/{}/person", id))?;
+    let journal_id_res = JournalId::from_str(&id);
+    let target_user_id_res = UserId::from_str(&person_id);
+
+    let journal_id = match journal_id_res {
+        Ok(jid) => jid,
+        Err(_) => {
+            return Ok(layout(
+                None,
+                true,
+                None,
+                html! {
+                    div class="max-w-2xl mx-auto py-8 px-4" {
+                        div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
+                            p class="text-sm text-red-700 dark:text-red-200" {
+                                "Invalid journal ID"
+                            }
+                        }
+                    }
+                },
+            ));
+        }
+    };
+
+    let target_user_id = match target_user_id_res {
+        Ok(tuid) => tuid,
+        Err(_) => {
+            return Ok(layout(
+                None,
+                true,
+                Some(&id),
+                html! {
+                    div class="max-w-2xl mx-auto py-8 px-4" {
+                        div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
+                            p class="text-sm text-red-700 dark:text-red-200" {
+                                "Invalid person ID"
+                            }
+                        }
+                    }
+                },
+            ));
+        }
+    };
+
+    let journal_state_res = state.journal_store.get_journal(&journal_id).await;
+
+    let journal_state = match journal_state_res {
+        Ok(Some(js)) => js,
+        Ok(None) => {
+            return Ok(layout(
+                None,
+                true,
+                None,
+                html! {
+                    div class="max-w-2xl mx-auto py-8 px-4" {
+                        div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
+                            p class="text-sm text-red-700 dark:text-red-200" {
+                                "Journal not found"
+                            }
+                        }
+                    }
+                },
+            ));
+        }
+        Err(e) => {
+            return Ok(layout(
+                None,
+                true,
+                None,
+                html! {
+                    div class="max-w-2xl mx-auto py-8 px-4" {
+                        div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
+                            p class="text-sm text-red-700 dark:text-red-200" {
+                                (format!("Error loading journal: {}", e))
+                            }
+                        }
+                    }
+                },
+            ));
+        }
+    };
 
     if !journal_state
         .get_user_permissions(&user.id)
         .contains(Permissions::READ)
     {
-        return Err(KnownErrors::PermissionError {
-            required_permissions: Permissions::READ,
-        }
-        .redirect("/journal"));
+        return Ok(layout(
+            Some(&journal_state.name),
+            true,
+            Some(&id),
+            html! {
+                div class="max-w-2xl mx-auto py-8 px-4" {
+                    div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
+                        p class="text-sm text-red-700 dark:text-red-200" {
+                            "You do not have permission to view this journal."
+                        }
+                    }
+                }
+            },
+        ));
     }
 
     let tenant_info = journal_state.tenants.get(&target_user_id);
@@ -167,11 +248,11 @@ pub async fn people_list_page(
 
     let journal_state_res = match JournalId::from_str(&id) {
         Ok(s) => state.journal_store.get_journal(&s).await,
-        Err(e) => Err(e),
+        Err(e) => Err(e.into()),
     };
 
     let content = html! {
-        @if let Ok(journal_state) = &journal_state_res && journal_state.get_user_permissions(&user.id).contains(Permissions::READ) {
+        @if let Ok(Some(journal_state)) = &journal_state_res && journal_state.get_user_permissions(&user.id).contains(Permissions::READ) {
             @for (tenant_id, _) in journal_state.tenants.clone() {
                 a
                 href=(format!("/journal/{}/person/{}", id, tenant_id))
@@ -253,8 +334,11 @@ pub async fn people_list_page(
     Ok(layout(
         Some(
             &journal_state_res
-                .map(|s| s.name)
-                .unwrap_or_else(|_| "unknown journal".to_string()),
+                .as_ref()
+                .ok()
+                .and_then(|s| s.as_ref())
+                .map(|s| s.name.clone())
+                .unwrap_or_else(|| "unknown journal".to_string()),
         ),
         true,
         Some(&id),
