@@ -97,6 +97,7 @@ pub fn router<S: Clone + Send + Sync + 'static, T: UserStore + 'static>(
         .merge(protected_routes)
         .layer(Extension(webauthn_url))
         .layer(Extension(webauthn))
-        .layer(Extension(user_store))
+        // TODO: When user and journal stores are unified, this shouldn't need to exist
+        .layer(Extension(Arc::new(user_store)))
         .layer(Extension(passkey_store)))
 }
