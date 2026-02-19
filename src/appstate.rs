@@ -28,8 +28,6 @@ use crate::known_errors::KnownErrors;
 use crate::known_errors::KnownErrors::PermissionError;
 use chrono::Utc;
 use std::str::FromStr;
-// we have to implement the userstore for the arc variant because
-// appstate stores it as an Arc<MemoryUserStore>
 
 pub(crate) trait AppState: Sized {
     type UserStore: UserStore;
