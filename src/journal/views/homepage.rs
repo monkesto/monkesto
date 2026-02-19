@@ -1,20 +1,20 @@
+use crate::BackendType;
+use crate::StateType;
+use crate::appstate::AppState;
 use crate::auth::user::{self};
 use crate::ident::Ident;
 use crate::ident::JournalId;
-use crate::journal::layout::layout;
 use crate::journal::JournalNameOrUnknown;
+use crate::journal::layout::layout;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
-use crate::AppState;
-use crate::BackendType;
-use crate::StateType;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::response::Redirect;
 use axum_login::AuthSession;
-use maud::html;
 use maud::Markup;
+use maud::html;
 use std::str::FromStr;
 
 #[expect(dead_code)]
@@ -106,7 +106,7 @@ pub async fn journal_list(
     Ok(layout(None, false, None, content))
 }
 
-pub async fn journal_detail<S, T>(
+pub async fn journal_detail(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path(id): Path<String>,

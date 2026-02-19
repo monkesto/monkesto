@@ -1,4 +1,6 @@
-use crate::AppState;
+use crate::BackendType;
+use crate::StateType;
+use crate::appstate::AppState;
 use crate::auth::user::{self};
 use crate::authority::UserId;
 use crate::ident::JournalId;
@@ -17,16 +19,12 @@ use maud::html;
 use std::str::FromStr;
 
 // TODO: Fix This! Super messy and hard to work with.
-pub async fn person_detail_page<S, T>(
-    State(state): State<S>,
-    session: AuthSession<T>,
+pub async fn person_detail_page(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
     Path((id, person_id)): Path<(String, String)>,
     Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect>
-where
-    S: AppState,
-    T: axum_login::AuthnBackend<User = user::User>,
-{
+) -> Result<Markup, Redirect> {
     let user = user::get_user(session)?;
 
     let journal_id_res = JournalId::from_str(&id);
@@ -242,16 +240,12 @@ fn permission_checkbox(name: &'static str, label: &'static str, checked: bool) -
     }
 }
 
-pub async fn people_list_page<S, T>(
-    State(state): State<S>,
-    session: AuthSession<T>,
+pub async fn people_list_page(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect>
-where
-    S: AppState,
-    T: axum_login::AuthnBackend<User = user::User>,
-{
+) -> Result<Markup, Redirect> {
     let user = user::get_user(session)?;
 
     let journal_id_res = JournalId::from_str(&id);

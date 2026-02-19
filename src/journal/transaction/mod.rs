@@ -2,7 +2,6 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::ident::AccountId;
@@ -17,10 +16,10 @@ use chrono::Utc;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::postgres::PgValueRef;
 use sqlx::Decode;
 use sqlx::Encode;
 use sqlx::Type;
-use sqlx::postgres::PgValueRef;
 
 pub trait TransactionStore:
     Clone
@@ -38,19 +37,6 @@ pub trait TransactionStore:
         &self,
         transaction_id: &TransactionId,
     ) -> MonkestoResult<Option<TransactionState>>;
-
-    async fn seed_transaction(
-        &self,
-        id: TransactionId,
-        events: Vec<TransactionEvent>,
-    ) -> MonkestoResult<()> {
-        for event in events {
-            self.record(id, Authority::Direct(Actor::System), event, None)
-                .await?;
-        }
-
-        Ok(())
-    }
 }
 
 #[derive(Clone)]
@@ -276,8 +262,8 @@ mod test_transaction {
     use crate::journal::transaction::BalanceUpdate;
     use crate::journal::transaction::EntryType;
     use chrono::Utc;
-    use sqlx::PgPool;
     use sqlx::prelude::FromRow;
+    use sqlx::PgPool;
 
     #[sqlx::test]
     async fn test_encode_decode_transaction_event(pool: PgPool) {

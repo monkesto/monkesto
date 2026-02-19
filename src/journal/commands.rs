@@ -1,4 +1,4 @@
-use crate::AppState;
+use crate::appstate::AppState;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
@@ -6,10 +6,10 @@ use crate::journal::Permissions;
 use crate::journal::transaction::BalanceUpdate;
 use crate::journal::transaction::EntryType;
 use axum_login::AuthSession;
-use axum_login::AuthnBackend;
 
+use crate::BackendType;
+use crate::StateType;
 use crate::auth::user::Email;
-use crate::auth::user::User;
 use crate::auth::user::{self};
 use crate::authority::UserId;
 use crate::known_errors::KnownErrors;
@@ -27,15 +27,11 @@ use std::str::FromStr;
 pub struct CreateJournalForm {
     journal_name: String,
 }
-pub async fn create_journal<S, T>(
-    State(state): State<S>,
-    session: AuthSession<T>,
+pub async fn create_journal(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
     Form(form): Form<CreateJournalForm>,
-) -> Result<Redirect, Redirect>
-where
-    S: AppState,
-    T: AuthnBackend<User = User>,
-{
+) -> Result<Redirect, Redirect> {
     const CALLBACK_URL: &str = "/journal";
 
     let user = user::get_user(session)?;
@@ -62,16 +58,12 @@ pub struct InviteUserForm {
     pub delete: Option<String>,
 }
 
-pub async fn invite_user<S, T>(
-    State(state): State<S>,
-    session: AuthSession<T>,
+pub async fn invite_user(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
     Path(id): Path<String>,
     Form(form): Form<InviteUserForm>,
-) -> Result<Redirect, Redirect>
-where
-    S: AppState,
-    T: AuthnBackend<User = User>,
-{
+) -> Result<Redirect, Redirect> {
     let callback_url = &format!("/journal/{}/person", id);
 
     let email = Email::try_new(form.email)
@@ -112,16 +104,12 @@ pub struct CreateAccountForm {
     account_name: String,
 }
 
-pub async fn create_account<S, T>(
-    State(state): State<S>,
-    session: AuthSession<T>,
+pub async fn create_account(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
     Path(id): Path<String>,
     Form(form): Form<CreateAccountForm>,
-) -> Result<Redirect, Redirect>
-where
-    S: AppState,
-    T: AuthnBackend<User = User>,
-{
+) -> Result<Redirect, Redirect> {
     let callback_url = &format!("/journal/{}/account", id);
 
     let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
@@ -147,16 +135,12 @@ pub struct TransactForm {
     entry_type: Vec<String>,
 }
 
-pub async fn transact<S, T>(
-    State(state): State<S>,
-    session: AuthSession<T>,
+pub async fn transact(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
     Path(id): Path<String>,
     Form(form): Form<TransactForm>,
-) -> Result<Redirect, Redirect>
-where
-    S: AppState,
-    T: AuthnBackend<User = User>,
-{
+) -> Result<Redirect, Redirect> {
     let callback_url = &format!("/journal/{}/transaction", id);
 
     let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
@@ -247,16 +231,12 @@ pub struct UpdatePermissionsForm {
     pub delete: Option<String>,
 }
 
-pub async fn update_permissions<S, T>(
-    State(state): State<S>,
-    session: AuthSession<T>,
+pub async fn update_permissions(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
     Path((id, person_id)): Path<(String, String)>,
     Form(form): Form<UpdatePermissionsForm>,
-) -> Result<Redirect, Redirect>
-where
-    S: AppState,
-    T: AuthnBackend<User = User>,
-{
+) -> Result<Redirect, Redirect> {
     let callback_url = &format!("/journal/{}/person/{}", id, person_id);
 
     let user = user::get_user(session)?;
@@ -288,15 +268,11 @@ where
     Ok(Redirect::to(callback_url))
 }
 
-pub async fn remove_tenant<S, T>(
-    State(state): State<S>,
-    session: AuthSession<T>,
+pub async fn remove_tenant(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
     Path((id, person_id)): Path<(String, String)>,
-) -> Result<Redirect, Redirect>
-where
-    S: AppState,
-    T: AuthnBackend<User = User>,
-{
+) -> Result<Redirect, Redirect> {
     let callback_url = &format!("/journal/{}/person", id);
     let person_detail_url = &format!("/journal/{}/person/{}", id, person_id);
 

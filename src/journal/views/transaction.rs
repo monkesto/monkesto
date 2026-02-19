@@ -1,33 +1,28 @@
-use crate::AppState;
+use crate::appstate::AppState;
 use crate::auth::user;
-use crate::auth::user::User;
 use crate::ident::JournalId;
-use crate::journal::JournalNameOrUnknown;
 use crate::journal::layout;
 use crate::journal::transaction::EntryType;
+use crate::journal::JournalNameOrUnknown;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
+use crate::BackendType;
+use crate::StateType;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::response::Redirect;
 use axum_login::AuthSession;
-use axum_login::AuthnBackend;
-use maud::Markup;
 use maud::html;
+use maud::Markup;
 use std::str::FromStr;
 
-#[expect(unused_variables)]
-pub async fn transaction_list_page<S, T>(
-    State(state): State<S>,
-    session: AuthSession<T>,
+pub async fn transaction_list_page(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect>
-where
-    S: AppState,
-    T: AuthnBackend<User = User>,
-{
+) -> Result<Markup, Redirect> {
     let user = user::get_user(session)?;
 
     let journal_id_res = JournalId::from_str(&id);

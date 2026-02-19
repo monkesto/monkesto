@@ -1,14 +1,14 @@
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Query;
-use axum::http::header;
 use axum::http::StatusCode;
+use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
-use maud::html;
 use maud::Markup;
 use maud::PreEscaped;
+use maud::html;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::ops::Deref;
@@ -20,11 +20,12 @@ use webauthn_rs::prelude::PublicKeyCredential;
 use webauthn_rs::prelude::RequestChallengeResponse;
 use webauthn_rs::prelude::Webauthn;
 
+use super::AuthSession;
 use super::passkey::PasskeyStore;
+use super::user::DEV_USERS;
 use super::user::User;
 use super::user::UserId;
 use super::user::UserStore;
-use super::AuthSession;
 use crate::theme::theme_with_head;
 
 /// Errors that occur during the signin flow.
@@ -481,7 +482,7 @@ async fn handle_dev_login<U: UserStore>(
     };
 
     // Verify this is a dev user
-    if !super::MemoryUserStore::DEV_USERS.contains(&user.email.as_ref()) {
+    if !DEV_USERS.contains(&user.email.as_ref()) {
         return Redirect::to("/signin?error=auth_failed").into_response();
     }
 

@@ -218,6 +218,7 @@ pub enum UserStoreError {
     UserNotFound,
     #[error("Email already exists")]
     EmailAlreadyExists,
+    #[expect(dead_code)]
     #[error("Storage operation failed: {0}")]
     OperationFailed(String),
 }

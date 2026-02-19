@@ -1,4 +1,3 @@
-use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::event::EventStore;
@@ -7,7 +6,6 @@ use crate::ident::JournalId;
 use crate::journal::transaction::EntryType;
 use crate::journal::transaction::TransactionEvent;
 use crate::journal::transaction::TransactionState;
-use crate::journal::transaction::TransactionStore;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::MonkestoResult;
 use chrono::DateTime;
@@ -15,11 +13,11 @@ use chrono::Utc;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::postgres::PgValueRef;
 use sqlx::Decode;
 use sqlx::Encode;
 use sqlx::PgTransaction;
 use sqlx::Type;
-use sqlx::postgres::PgValueRef;
 use std::collections::HashSet;
 use std::ops::Add;
 use std::ops::Sub;
@@ -90,14 +88,6 @@ pub trait AccountStore:
     ) -> MonkestoResult<HashSet<AccountId>>;
 
     async fn get_account(&self, account_id: &AccountId) -> MonkestoResult<Option<AccountState>>;
-
-    async fn seed_account(&self, id: AccountId, events: Vec<AccountEvent>) -> MonkestoResult<()> {
-        for event in events {
-            self.record(id, Authority::Direct(Actor::System), event, None)
-                .await?;
-        }
-        Ok(())
-    }
 
     async fn update_balances(
         &self,
@@ -190,7 +180,7 @@ impl AccountStore for AccountMemoryStore {
             .map(|s| (*s).clone())
             .unwrap_or_else(|| Vec::new())
             .iter()
-            .map(|id| *id)
+            .copied()
             .collect::<HashSet<AccountId>>())
     }
 
@@ -209,10 +199,10 @@ impl AccountStore for AccountMemoryStore {
                     if let Some(account_state) = self.account_table.get(&update.account_id) {
                         match update.entry_type {
                             EntryType::Debit => {
-                                account_state.balance.sub(update.amount as i64);
+                                _ = account_state.balance.sub(update.amount as i64);
                             }
                             EntryType::Credit => {
-                                account_state.balance.add(update.amount as i64);
+                                _ = account_state.balance.add(update.amount as i64);
                             }
                         }
                     } else {
@@ -231,10 +221,10 @@ impl AccountStore for AccountMemoryStore {
                         if let Some(account_state) = self.account_table.get(&update.account_id) {
                             match update.entry_type {
                                 EntryType::Debit => {
-                                    account_state.balance.add(update.amount as i64);
+                                    _ = account_state.balance.add(update.amount as i64);
                                 }
                                 EntryType::Credit => {
-                                    account_state.balance.sub(update.amount as i64);
+                                    _ = account_state.balance.sub(update.amount as i64);
                                 }
                             }
                         } else {
@@ -248,10 +238,10 @@ impl AccountStore for AccountMemoryStore {
                         if let Some(account_state) = self.account_table.get(&update.account_id) {
                             match update.entry_type {
                                 EntryType::Debit => {
-                                    account_state.balance.sub(update.amount as i64);
+                                    _ = account_state.balance.sub(update.amount as i64);
                                 }
                                 EntryType::Credit => {
-                                    account_state.balance.add(update.amount as i64);
+                                    _ = account_state.balance.add(update.amount as i64);
                                 }
                             }
                         } else {
@@ -300,8 +290,8 @@ impl<'r> Decode<'r, sqlx::Postgres> for AccountEvent {
 mod test_account {
     use super::AccountEvent;
     use crate::authority::UserId;
-    use sqlx::PgPool;
     use sqlx::prelude::FromRow;
+    use sqlx::PgPool;
 
     #[sqlx::test]
     async fn test_encode_decode_account_event(pool: PgPool) {

@@ -9,14 +9,14 @@ mod notfoundpage;
 mod theme;
 
 use appstate::AppState;
-use axum::http::header;
+use axum::Router;
 use axum::http::StatusCode;
+use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::routing::get;
-use axum::Router;
-use axum_login::login_required;
 use axum_login::AuthManagerLayerBuilder;
+use axum_login::login_required;
 use dotenvy::dotenv;
 use std::env;
 
@@ -58,10 +58,11 @@ async fn main() {
     let session_layer = SessionManagerLayer::new(session_store);
 
     // use the app_state's user_store so that the data syncs
-    let auth_layer = AuthManagerLayerBuilder::new(app_state.user_store(), session_layer).build();
+    let auth_layer =
+        AuthManagerLayerBuilder::new(app_state.user_store.clone(), session_layer).build();
 
     let webauthn_routes =
-        auth::router(app_state.user_store()).expect("Failed to initialize WebAuthn routes");
+        auth::router(app_state.user_store.clone()).expect("Failed to initialize WebAuthn routes");
 
     let journal_routes = Router::new()
         .route("/journal", get(journal::views::homepage::journal_list))

@@ -6,10 +6,10 @@ mod signout;
 mod signup;
 pub mod user;
 
+use axum::Router;
 use axum::extract::Extension;
 use axum::routing::get;
 use axum::routing::post;
-use axum::Router;
 use axum_login::login_required;
 use std::env;
 use std::sync::Arc;

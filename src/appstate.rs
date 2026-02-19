@@ -1,6 +1,6 @@
+use crate::auth::MemoryUserStore;
 use crate::auth::user::Email;
 use crate::auth::user::UserStore;
-use crate::auth::MemoryUserStore;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
@@ -8,6 +8,12 @@ use crate::event::EventStore;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
+use crate::journal::JournalEvent;
+use crate::journal::JournalMemoryStore;
+use crate::journal::JournalState;
+use crate::journal::JournalStore;
+use crate::journal::JournalTenantInfo;
+use crate::journal::Permissions;
 use crate::journal::account::AccountEvent;
 use crate::journal::account::AccountMemoryStore;
 use crate::journal::account::AccountState;
@@ -18,12 +24,6 @@ use crate::journal::transaction::TransactionEvent;
 use crate::journal::transaction::TransactionMemoryStore;
 use crate::journal::transaction::TransactionState;
 use crate::journal::transaction::TransactionStore;
-use crate::journal::JournalEvent;
-use crate::journal::JournalMemoryStore;
-use crate::journal::JournalState;
-use crate::journal::JournalStore;
-use crate::journal::JournalTenantInfo;
-use crate::journal::Permissions;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::KnownErrors::PermissionError;
 use chrono::Utc;
@@ -31,14 +31,19 @@ use std::str::FromStr;
 // we have to implement the userstore for the arc variant because
 // appstate stores it as an Arc<MemoryUserStore>
 
-pub(crate) trait AppState {
-    fn user_store(&self) -> impl UserStore;
+pub(crate) trait AppState: Sized {
+    type UserStore: UserStore;
+    type JournalStore: JournalStore;
+    type TransactionStore: TransactionStore;
+    type AccountStore: AccountStore;
 
-    fn journal_store(&self) -> impl JournalStore;
+    fn user_store(&self) -> &Self::UserStore;
 
-    fn transaction_store(&self) -> impl TransactionStore;
+    fn journal_store(&self) -> &Self::JournalStore;
 
-    fn account_store(&self) -> impl AccountStore;
+    fn transaction_store(&self) -> &Self::TransactionStore;
+
+    fn account_store(&self) -> &Self::AccountStore;
 
     async fn journal_create(
         &self,
@@ -804,19 +809,24 @@ where
     T: TransactionStore,
     A: AccountStore,
 {
-    fn user_store(&self) -> impl UserStore {
-        self.user_store.clone()
+    type UserStore = U;
+    type JournalStore = J;
+    type TransactionStore = T;
+    type AccountStore = A;
+
+    fn user_store(&self) -> &Self::UserStore {
+        &self.user_store
     }
 
-    fn journal_store(&self) -> impl JournalStore {
-        self.journal_store.clone()
+    fn journal_store(&self) -> &Self::JournalStore {
+        &self.journal_store
     }
 
-    fn transaction_store(&self) -> impl TransactionStore {
-        self.transaction_store.clone()
+    fn transaction_store(&self) -> &Self::TransactionStore {
+        &self.transaction_store
     }
 
-    fn account_store(&self) -> impl AccountStore {
-        self.account_store.clone()
+    fn account_store(&self) -> &Self::AccountStore {
+        &self.account_store
     }
 }

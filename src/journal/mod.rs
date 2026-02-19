@@ -334,14 +334,6 @@ pub struct SharedAndPendingJournals {
     pub pending: HashMap<JournalId, JournalTenantInfo>,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Account {
-    pub name: String,
-    pub created_by: UserId,
-    pub created_at: DateTime<Utc>,
-    pub balance: i64,
-}
-
 #[expect(dead_code)]
 #[derive(Serialize, Deserialize, Clone)]
 pub struct JournalInvite {
