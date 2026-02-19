@@ -1,20 +1,20 @@
+use crate::BackendType;
+use crate::StateType;
 use crate::appstate::AppState;
 use crate::auth::user;
 use crate::ident::Ident;
 use crate::ident::JournalId;
-use crate::journal::layout::layout;
 use crate::journal::JournalNameOrUnknown;
+use crate::journal::layout::layout;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
-use crate::BackendType;
-use crate::StateType;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::response::Redirect;
 use axum_login::AuthSession;
-use maud::html;
 use maud::Markup;
+use maud::html;
 use std::str::FromStr;
 
 struct AccountItem {

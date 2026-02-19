@@ -16,10 +16,10 @@ use chrono::Utc;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::postgres::PgValueRef;
 use sqlx::Decode;
 use sqlx::Encode;
 use sqlx::Type;
+use sqlx::postgres::PgValueRef;
 
 pub trait TransactionStore:
     Clone
@@ -262,8 +262,8 @@ mod test_transaction {
     use crate::journal::transaction::BalanceUpdate;
     use crate::journal::transaction::EntryType;
     use chrono::Utc;
-    use sqlx::prelude::FromRow;
     use sqlx::PgPool;
+    use sqlx::prelude::FromRow;
 
     #[sqlx::test]
     async fn test_encode_decode_transaction_event(pool: PgPool) {

@@ -13,11 +13,11 @@ use chrono::Utc;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::postgres::PgValueRef;
 use sqlx::Decode;
 use sqlx::Encode;
 use sqlx::PgTransaction;
 use sqlx::Type;
+use sqlx::postgres::PgValueRef;
 use std::collections::HashSet;
 use std::ops::Add;
 use std::ops::Sub;
@@ -290,8 +290,8 @@ impl<'r> Decode<'r, sqlx::Postgres> for AccountEvent {
 mod test_account {
     use super::AccountEvent;
     use crate::authority::UserId;
-    use sqlx::prelude::FromRow;
     use sqlx::PgPool;
+    use sqlx::prelude::FromRow;
 
     #[sqlx::test]
     async fn test_encode_decode_account_event(pool: PgPool) {
