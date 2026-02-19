@@ -309,11 +309,11 @@ mod test_account {
         )
         .execute(&pool)
         .await
-        .expect("failed to create mock transaction table");
+        .expect("failed to create mock account table");
 
         sqlx::query(
             r#"
-            INSERT INTO test_account_table -(
+            INSERT INTO test_account_table (
             event
             )
             VALUES ($1)
@@ -322,7 +322,7 @@ mod test_account {
         .bind(&original_event)
         .execute(&pool)
         .await
-        .expect("failed to insert transaction into mock table");
+        .expect("failed to insert account into mock table");
 
         let event: AccountEvent = sqlx::query_scalar(
             r#"
@@ -332,7 +332,7 @@ mod test_account {
         )
         .fetch_one(&pool)
         .await
-        .expect("failed to fetch transaction from mock table");
+        .expect("failed to fetch account from mock table");
 
         assert_eq!(event, original_event);
 
@@ -349,7 +349,7 @@ mod test_account {
         )
         .fetch_one(&pool)
         .await
-        .expect("failed to fetch transaction from mock table");
+        .expect("failed to fetch account from mock table");
 
         assert_eq!(event_wrapper.event, original_event)
     }
