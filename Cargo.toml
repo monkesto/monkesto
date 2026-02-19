@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 axum = { version = "0.8.0", features = ["macros"] }
-tower-sessions = {version = "0.14" }
+tower-sessions = {version = "0.15" }
 tower-sessions-sqlx-store = { version = "0.15", features = ["postgres"] }
 sqlx = { version = "0.8.6", features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "macros"] }
 serde = { version = "1", features = ["derive"] }
