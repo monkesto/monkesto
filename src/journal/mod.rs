@@ -16,10 +16,10 @@ use chrono::Utc;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::postgres::PgValueRef;
 use sqlx::Decode;
 use sqlx::Encode;
 use sqlx::Type;
+use sqlx::postgres::PgValueRef;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -326,8 +326,8 @@ impl JournalState {
 mod test_user {
     use crate::authority::UserId;
     use chrono::Utc;
-    use sqlx::prelude::FromRow;
     use sqlx::PgPool;
+    use sqlx::prelude::FromRow;
 
     use super::JournalEvent;
 
