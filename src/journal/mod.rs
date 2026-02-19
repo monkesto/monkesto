@@ -16,10 +16,10 @@ use chrono::Utc;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::postgres::PgValueRef;
 use sqlx::Decode;
 use sqlx::Encode;
 use sqlx::Type;
-use sqlx::postgres::PgValueRef;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -322,32 +322,12 @@ impl JournalState {
     }
 }
 
-#[expect(dead_code)]
-pub struct SharedJournal {
-    pub id: JournalId,
-    pub info: JournalTenantInfo,
-}
-
-#[expect(dead_code)]
-pub struct SharedAndPendingJournals {
-    pub shared: HashMap<JournalId, JournalTenantInfo>,
-    pub pending: HashMap<JournalId, JournalTenantInfo>,
-}
-
-#[expect(dead_code)]
-#[derive(Serialize, Deserialize, Clone)]
-pub struct JournalInvite {
-    pub id: UserId,
-    pub name: String,
-    pub tenant_info: JournalTenantInfo,
-}
-
 #[cfg(test)]
 mod test_user {
     use crate::authority::UserId;
     use chrono::Utc;
-    use sqlx::PgPool;
     use sqlx::prelude::FromRow;
+    use sqlx::PgPool;
 
     use super::JournalEvent;
 
