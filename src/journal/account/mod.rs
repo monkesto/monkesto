@@ -151,7 +151,7 @@ impl EventStore for AccountMemoryStore {
 
             self.account_lookup_table
                 .entry(journal_id)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(id);
 
             Ok(())
@@ -178,7 +178,7 @@ impl AccountStore for AccountMemoryStore {
             .account_lookup_table
             .get(&journal_id)
             .map(|s| (*s).clone())
-            .unwrap_or_else(|| Vec::new())
+            .unwrap_or_default()
             .iter()
             .copied()
             .collect::<HashSet<AccountId>>())

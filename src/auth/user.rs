@@ -224,7 +224,7 @@ pub enum UserStoreError {
 }
 
 /// The list of dev user emails (stable across restarts).
-pub const DEV_USERS: &'static [&'static str] = &["pacioli@monkesto.com", "wedgwood@monkesto.com"];
+pub const DEV_USERS: &[&str] = &["pacioli@monkesto.com", "wedgwood@monkesto.com"];
 
 pub trait UserStore:
     Clone

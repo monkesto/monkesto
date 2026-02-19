@@ -92,7 +92,7 @@ impl EventStore for TransactionMemoryStore {
 
             self.journal_lookup_table
                 .entry(journal_id)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(id);
 
             Ok(())
@@ -119,7 +119,7 @@ impl TransactionStore for TransactionMemoryStore {
             .journal_lookup_table
             .get(&journal_id)
             .map(|s| (*s).clone())
-            .unwrap_or_else(|| Vec::new()))
+            .unwrap_or_default())
     }
 
     async fn get_transaction(

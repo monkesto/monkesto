@@ -399,7 +399,7 @@ pub(crate) trait AppState: Sized {
             .await?;
 
         for update in &updates {
-            if journal_accounts.get(&update.account_id).is_none() {
+            if !journal_accounts.contains(&update.account_id) {
                 return Err(KnownErrors::AccountDoesntExist {
                     id: update.account_id,
                 });
@@ -475,7 +475,7 @@ pub(crate) trait AppState: Sized {
                 self.transaction_store()
                     .get_transaction(&id)
                     .await?
-                    .ok_or_else(|| KnownErrors::InvalidTransaction { id })?,
+                    .ok_or(KnownErrors::InvalidTransaction { id })?,
             ));
         }
 
@@ -507,7 +507,7 @@ pub(crate) trait AppState: Sized {
         let wedgwood_email = Email::try_new(
             self.user_get_email(wedgwood_id)
                 .await?
-                .ok_or_else(|| KnownErrors::UserDoesntExist)?,
+                .ok_or(KnownErrors::UserDoesntExist)?,
         )
         .map_err(|e| KnownErrors::InternalError {
             context: e.to_string(),
