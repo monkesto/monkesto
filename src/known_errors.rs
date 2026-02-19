@@ -5,6 +5,7 @@ use std::str::Utf8Error;
 
 use crate::auth::user::Email;
 use crate::ident::AccountId;
+use crate::ident::TransactionId;
 use crate::journal::Permissions;
 use crate::journal::transaction::BalanceUpdate;
 use axum::response::Redirect;
@@ -64,6 +65,10 @@ pub enum KnownErrors {
 
     PermissionError {
         required_permissions: Permissions,
+    },
+
+    InvalidTransaction {
+        id: TransactionId,
     },
 
     TenantDoesntExist,

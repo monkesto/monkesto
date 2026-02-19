@@ -1,3 +1,4 @@
+mod appstate;
 mod auth;
 mod authority;
 mod event;
@@ -7,6 +8,7 @@ mod known_errors;
 mod notfoundpage;
 mod theme;
 
+use appstate::AppState;
 use axum::http::header;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -18,23 +20,15 @@ use axum_login::AuthManagerLayerBuilder;
 use dotenvy::dotenv;
 use std::env;
 
-use std::sync::Arc;
+use crate::appstate::MemoryAppState;
+use crate::auth::MemoryUserStore;
 use tower_http::services::ServeFile;
 use tower_sessions::SessionManagerLayer;
 use tower_sessions_file_store::FileSessionStorage;
 
-use crate::auth::MemoryUserStore;
-use crate::journal::transaction::TransasctionMemoryStore;
-use crate::journal::JournalMemoryStore;
-use crate::journal::JournalStore;
+type StateType = MemoryAppState;
 
-pub type AuthSession = axum_login::AuthSession<MemoryUserStore>;
-
-#[derive(Clone)]
-pub struct AppState {
-    user_store: Arc<MemoryUserStore>,
-    journal_store: JournalMemoryStore,
-}
+type BackendType = MemoryUserStore;
 
 #[tokio::main]
 async fn main() {
@@ -51,15 +45,23 @@ async fn main() {
 
     let addr = env::var("SITE_ADDR").unwrap_or("0.0.0.0:3000".to_string());
 
-    let user_store = Arc::new(MemoryUserStore::new());
-    user_store.seed_dev_users().await;
+    // this handles creation of all the stores journal stores and the base user store
+    let app_state = MemoryAppState::default();
+
+    // this will seed the users and journals
+    app_state
+        .seed_dev_data()
+        .await
+        .expect("Failed to seed dev data");
 
     let session_store = FileSessionStorage::new();
     let session_layer = SessionManagerLayer::new(session_store);
-    let auth_layer = AuthManagerLayerBuilder::new((*user_store).clone(), session_layer).build();
+
+    // use the app_state's user_store so that the data syncs
+    let auth_layer = AuthManagerLayerBuilder::new(app_state.user_store(), session_layer).build();
 
     let webauthn_routes =
-        auth::router(user_store.clone()).expect("Failed to initialize WebAuthn router");
+        auth::router(app_state.user_store()).expect("Failed to initialize WebAuthn routes");
 
     let journal_routes = Router::new()
         .route("/journal", get(journal::views::homepage::journal_list))
@@ -110,7 +112,7 @@ async fn main() {
         .route_layer(login_required!(MemoryUserStore, login_url = "/signin"));
 
     // the dockerfile defines this for production deployments
-    let site_root = std::env::var("SITE_ROOT").unwrap_or_else(|_| "target/site".to_string());
+    let site_root = env::var("SITE_ROOT").unwrap_or_else(|_| "target/site".to_string());
 
     let app = Router::new()
         .route("/favicon.ico", get(serve_favicon))
@@ -125,16 +127,7 @@ async fn main() {
         .fallback(notfoundpage::not_found_page)
         .layer(auth_layer);
 
-    let journal_store = JournalMemoryStore::new(Arc::new(TransasctionMemoryStore::new()));
-    journal_store
-        .seed_dev_journals()
-        .await
-        .expect("failed to seed dev journals");
-
-    let app = app.with_state(AppState {
-        user_store,
-        journal_store,
-    });
+    let app = app.with_state(app_state);
 
     // run our app with hyper
     println!("listening on http://{}", &addr);

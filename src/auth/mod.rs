@@ -1,15 +1,15 @@
 mod layout;
 mod me;
-mod passkey;
+pub mod passkey;
 mod signin;
 mod signout;
 mod signup;
 pub mod user;
 
-use axum::Router;
 use axum::extract::Extension;
 use axum::routing::get;
 use axum::routing::post;
+use axum::Router;
 use axum_login::login_required;
 use std::env;
 use std::sync::Arc;
@@ -18,6 +18,7 @@ use webauthn_rs::prelude::Url;
 use webauthn_rs::prelude::WebauthnBuilder;
 use webauthn_rs::prelude::WebauthnError as WebauthnCoreError;
 
+use crate::auth::user::UserStore;
 pub use layout::layout;
 use passkey::MemoryPasskeyStore;
 pub use user::MemoryUserStore;
@@ -36,8 +37,8 @@ pub enum AuthConfigError {
     InvalidHost,
 }
 
-pub fn router<S: Clone + Send + Sync + 'static>(
-    user_store: Arc<MemoryUserStore>,
+pub fn router<S: Clone + Send + Sync + 'static, T: UserStore + 'static>(
+    user_store: T,
 ) -> Result<Router<S>, AuthConfigError> {
     // Get base URL from environment variable, defaulting to localhost:3000
     let base_url = env::var("RAILWAY_PUBLIC_DOMAIN")

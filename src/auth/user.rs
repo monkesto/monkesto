@@ -54,7 +54,10 @@ impl axum_login::AuthUser for User {
     }
 }
 
-pub fn get_user(session: crate::AuthSession) -> Result<User, Redirect> {
+pub fn get_user<T>(session: AuthSession<T>) -> Result<User, Redirect>
+where
+    T: AuthnBackend<User = User>,
+{
     session
         .user
         .ok_or(KnownErrors::NotLoggedIn)
@@ -106,7 +109,7 @@ mod tests {
         let webauthn_uuid = Uuid::new_v4();
         let email = "test@example.com".to_string();
 
-        // Initially email should not exist
+        // Initially, email should not exist
         assert!(
             !user_store
                 .email_exists(&email)
@@ -123,6 +126,7 @@ mod tests {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid,
                 },
+                None,
             )
             .await
             .expect("Should create user successfully");
@@ -136,14 +140,14 @@ mod tests {
         );
         assert_eq!(
             user_store
-                .get_user_email(&user_id)
+                .get_user_email(user_id)
                 .await
                 .expect("Should get user email"),
-            email
+            Some(email)
         );
         assert_eq!(
             user_store
-                .get_webauthn_uuid(&user_id)
+                .get_webauthn_uuid(user_id)
                 .await
                 .expect("Should get webauthn UUID"),
             webauthn_uuid
@@ -169,6 +173,7 @@ mod tests {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid: webauthn_uuid_1,
                 },
+                None,
             )
             .await
             .expect("Should create first user successfully");
@@ -182,6 +187,7 @@ mod tests {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid: webauthn_uuid_2,
                 },
+                None,
             )
             .await;
 
@@ -216,60 +222,36 @@ pub enum UserStoreError {
     OperationFailed(String),
 }
 
-pub trait UserStore: EventStore<Id = UserId, Event = UserEvent> {
-    async fn email_exists(&self, email: &str) -> Result<bool, Self::Error>;
+/// The list of dev user emails (stable across restarts).
+pub const DEV_USERS: &'static [&'static str] = &["pacioli@monkesto.com", "wedgwood@monkesto.com"];
 
-    async fn get_user(&self, user_id: &UserId) -> Result<Option<User>, Self::Error>;
+pub trait UserStore:
+    Clone
+    + Sync
+    + Send
+    + EventStore<Id = UserId, Event = UserEvent, Error = UserStoreError>
+    + AuthnBackend
+{
+    async fn email_exists(&self, email: &str) -> Result<bool, <Self as EventStore>::Error>;
 
-    async fn get_user_email(&self, user_id: &UserId) -> Result<String, Self::Error>;
+    async fn get_user(&self, user_id: UserId) -> Result<Option<User>, <Self as EventStore>::Error>;
 
-    async fn get_webauthn_uuid(&self, user_id: &UserId) -> Result<Uuid, Self::Error>;
+    async fn get_user_email(
+        &self,
+        user_id: UserId,
+    ) -> Result<Option<String>, <Self as EventStore>::Error>;
 
-    async fn lookup_user_id(&self, email: &str) -> Result<Option<UserId>, Self::Error>;
-}
+    async fn get_webauthn_uuid(&self, user_id: UserId)
+    -> Result<Uuid, <Self as EventStore>::Error>;
 
-use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-
-struct UserData {
-    email_to_user_id: HashMap<String, UserId>,
-    user_id_to_email: HashMap<UserId, Email>,
-    user_id_to_webauthn_uuid: HashMap<UserId, Uuid>,
-    webauthn_uuid_to_user_id: HashMap<Uuid, UserId>,
-}
-
-impl UserData {
-    fn new() -> Self {
-        Self {
-            email_to_user_id: HashMap::new(),
-            user_id_to_email: HashMap::new(),
-            user_id_to_webauthn_uuid: HashMap::new(),
-            webauthn_uuid_to_user_id: HashMap::new(),
-        }
-    }
-}
-
-/// In-memory storage implementation for users using HashMap
-#[derive(Clone)]
-pub struct MemoryUserStore {
-    data: Arc<Mutex<UserData>>,
-}
-
-impl MemoryUserStore {
-    pub fn new() -> Self {
-        Self {
-            data: Arc::new(Mutex::new(UserData::new())),
-        }
-    }
-
-    /// The list of dev user emails (stable across restarts).
-    pub const DEV_USERS: &'static [&'static str] =
-        &["pacioli@monkesto.com", "wedgwood@monkesto.com"];
+    async fn lookup_user_id(
+        &self,
+        email: &str,
+    ) -> Result<Option<UserId>, <Self as EventStore>::Error>;
 
     /// Seeds two dev users for local development.
     /// Uses stable IDs so sessions remain valid across restarts.
-    pub async fn seed_dev_users(&self) {
+    async fn seed_dev_users(&self) -> Result<(), <Self as EventStore>::Error> {
         use crate::authority::Actor;
         use crate::authority::Authority;
         use std::str::FromStr;
@@ -293,31 +275,58 @@ impl MemoryUserStore {
 
         for (email, user_id, webauthn_uuid) in dev_users {
             if let Ok(false) = self.email_exists(email).await {
-                _ = self
-                    .record(
-                        user_id,
-                        Authority::Direct(Actor::System),
-                        UserEvent::Created {
-                            email: Email::try_new(email).expect("dev email should be valid"),
-                            webauthn_uuid,
-                        },
-                    )
-                    .await;
+                self.record(
+                    user_id,
+                    Authority::Direct(Actor::System),
+                    UserEvent::Created {
+                        email: Email::try_new(email).expect("dev email should be valid"),
+                        webauthn_uuid,
+                    },
+                    None,
+                )
+                .await?;
             }
         }
+        Ok(())
     }
 
     /// Returns dev users for displaying in the dev login form.
-    pub async fn get_dev_users(&self) -> Vec<User> {
+    async fn get_dev_users(&self) -> Vec<User> {
         let mut users = Vec::new();
-        for email in Self::DEV_USERS {
+        for email in DEV_USERS {
             if let Ok(Some(user_id)) = self.lookup_user_id(email).await
-                && let Ok(Some(user)) = UserStore::get_user(self, &user_id).await
+                && let Ok(Some(user)) = UserStore::get_user(self, user_id).await
             {
                 users.push(user);
             }
         }
         users
+    }
+}
+
+use axum_login::AuthSession;
+use axum_login::AuthnBackend;
+use dashmap::DashMap;
+use sqlx::PgTransaction;
+use std::sync::Arc;
+
+/// In-memory storage implementation for users using HashMap
+#[derive(Clone)]
+pub struct MemoryUserStore {
+    email_to_user_id: Arc<DashMap<String, UserId>>,
+    user_id_to_email: Arc<DashMap<UserId, Email>>,
+    user_id_to_webauthn_uuid: Arc<DashMap<UserId, Uuid>>,
+    webauthn_uuid_to_user_id: Arc<DashMap<Uuid, UserId>>,
+}
+
+impl MemoryUserStore {
+    pub fn new() -> Self {
+        Self {
+            email_to_user_id: Arc::new(DashMap::new()),
+            user_id_to_email: Arc::new(DashMap::new()),
+            user_id_to_webauthn_uuid: Arc::new(DashMap::new()),
+            webauthn_uuid_to_user_id: Arc::new(DashMap::new()),
+        }
     }
 }
 
@@ -336,32 +345,30 @@ impl EventStore for MemoryUserStore {
     async fn record(
         &self,
         id: UserId,
-        by: Authority,
+        _by: Authority,
         event: UserEvent,
+        _tx: Option<&mut PgTransaction<'_>>,
     ) -> Result<(), UserStoreError> {
-        let mut data = self.data.lock().await;
-        _ = by; // Store doesn't use authority yet, but will for audit trail
-
         match event {
             UserEvent::Created {
                 email,
                 webauthn_uuid,
             } => {
                 let email_str = email.to_string();
-                if data.email_to_user_id.contains_key(&email_str) {
+                if self.email_to_user_id.contains_key(&email_str) {
                     return Err(UserStoreError::EmailAlreadyExists);
                 }
-                data.email_to_user_id.insert(email_str, id);
-                data.user_id_to_email.insert(id, email);
-                data.user_id_to_webauthn_uuid.insert(id, webauthn_uuid);
-                data.webauthn_uuid_to_user_id.insert(webauthn_uuid, id);
+                self.email_to_user_id.insert(email_str, id);
+                self.user_id_to_email.insert(id, email);
+                self.user_id_to_webauthn_uuid.insert(id, webauthn_uuid);
+                self.webauthn_uuid_to_user_id.insert(webauthn_uuid, id);
             }
             UserEvent::Deleted => {
-                if let Some(webauthn_uuid) = data.user_id_to_webauthn_uuid.remove(&id) {
-                    data.webauthn_uuid_to_user_id.remove(&webauthn_uuid);
+                if let Some((_, webauthn_uuid)) = self.user_id_to_webauthn_uuid.remove(&id) {
+                    self.webauthn_uuid_to_user_id.remove(&webauthn_uuid);
                 }
-                data.user_id_to_email.remove(&id);
-                data.email_to_user_id.retain(|_, user_id| user_id != &id);
+                self.user_id_to_email.remove(&id);
+                self.email_to_user_id.retain(|_, user_id| user_id != &id);
             }
         }
 
@@ -371,37 +378,29 @@ impl EventStore for MemoryUserStore {
 
 impl UserStore for MemoryUserStore {
     async fn email_exists(&self, email: &str) -> Result<bool, UserStoreError> {
-        let data = self.data.lock().await;
-        Ok(data.email_to_user_id.contains_key(email))
+        Ok(self.email_to_user_id.contains_key(email))
     }
 
-    async fn get_user(&self, user_id: &UserId) -> Result<Option<User>, UserStoreError> {
-        let data = self.data.lock().await;
-        Ok(data.user_id_to_email.get(user_id).map(|email| User {
-            id: *user_id,
+    async fn get_user(&self, user_id: UserId) -> Result<Option<User>, UserStoreError> {
+        Ok(self.user_id_to_email.get(&user_id).map(|email| User {
+            id: user_id,
             email: email.clone(),
         }))
     }
 
-    async fn get_user_email(&self, user_id: &UserId) -> Result<String, UserStoreError> {
-        let data = self.data.lock().await;
-        data.user_id_to_email
-            .get(user_id)
-            .map(|e| e.to_string())
-            .ok_or(UserStoreError::UserNotFound)
+    async fn get_user_email(&self, user_id: UserId) -> Result<Option<String>, UserStoreError> {
+        Ok(self.user_id_to_email.get(&user_id).map(|e| e.to_string()))
     }
 
-    async fn get_webauthn_uuid(&self, user_id: &UserId) -> Result<Uuid, UserStoreError> {
-        let data = self.data.lock().await;
-        data.user_id_to_webauthn_uuid
-            .get(user_id)
-            .copied()
+    async fn get_webauthn_uuid(&self, user_id: UserId) -> Result<Uuid, UserStoreError> {
+        self.user_id_to_webauthn_uuid
+            .get(&user_id)
+            .map(|u| *u)
             .ok_or(UserStoreError::UserNotFound)
     }
 
     async fn lookup_user_id(&self, email: &str) -> Result<Option<UserId>, UserStoreError> {
-        let data = self.data.lock().await;
-        Ok(data.email_to_user_id.get(email).copied())
+        Ok(self.email_to_user_id.get(email).map(|id| *id))
     }
 }
 
@@ -409,7 +408,7 @@ impl UserStore for MemoryUserStore {
 #[derive(Clone)]
 pub struct WebauthnCredentials;
 
-impl axum_login::AuthnBackend for MemoryUserStore {
+impl AuthnBackend for MemoryUserStore {
     type User = User;
     type Credentials = WebauthnCredentials;
     type Error = UserStoreError;
@@ -424,6 +423,6 @@ impl axum_login::AuthnBackend for MemoryUserStore {
     }
 
     async fn get_user(&self, user_id: &UserId) -> Result<Option<Self::User>, Self::Error> {
-        UserStore::get_user(self, user_id).await
+        UserStore::get_user(self, *user_id).await
     }
 }

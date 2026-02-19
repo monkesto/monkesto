@@ -1,13 +1,8 @@
 # Get started with a build env with Rust nightly
-FROM rustlang/rust:nightly-bookworm as builder
+FROM rustlang/rust:nightly-trixie as builder
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs
-
-# Install required tools
-RUN apt-get update -y \
-    && apt-get install -y --no-install-recommends clang \
-    && apt-get clean
 
 # Make an /app dir, which everything will eventually live in
 RUN mkdir -p /app
@@ -20,7 +15,7 @@ COPY . .
 RUN npx tailwindcss -i ./style/input.css -o ./target/site/pkg/monkesto.css --minify
 RUN cargo build --release
 
-FROM debian:bookworm-slim as runtime
+FROM debian:trixie-slim as runtime
 WORKDIR /app
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends openssl ca-certificates \

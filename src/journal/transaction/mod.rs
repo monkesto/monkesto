@@ -2,13 +2,16 @@ use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::ident::AccountId;
+use crate::ident::JournalId;
 use crate::ident::TransactionId;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::MonkestoResult;
 
-use async_trait::async_trait;
+use crate::event::EventStore;
 use chrono::DateTime;
 use chrono::Utc;
 use dashmap::DashMap;
@@ -19,39 +22,31 @@ use sqlx::Encode;
 use sqlx::Type;
 use sqlx::postgres::PgValueRef;
 
-#[async_trait]
-#[expect(dead_code)]
-pub trait TransactionStore: Clone + Send + Sync + 'static {
-    /// creates a new transaction state in the event store with the data from the creation event
-    ///
-    /// it should return an error if the event passed in is not a creation event
-    async fn create_transaction(&self, creation_event: TransactionEvent) -> MonkestoResult<()>;
-
-    /// applies a TransactionEvent to the event store and updates the cached state
-    async fn push_event(
+pub trait TransactionStore:
+    Clone
+    + Send
+    + Sync
+    + 'static
+    + EventStore<Id = TransactionId, Event = TransactionEvent, Error = KnownErrors>
+{
+    async fn get_journal_transactions(
         &self,
-        transaction_id: &TransactionId,
-        event: TransactionEvent,
-    ) -> MonkestoResult<()>;
+        journal_id: JournalId,
+    ) -> MonkestoResult<Vec<TransactionId>>;
 
     async fn get_transaction(
         &self,
         transaction_id: &TransactionId,
-    ) -> MonkestoResult<TransactionState>;
+    ) -> MonkestoResult<Option<TransactionState>>;
 
     async fn seed_transaction(
         &self,
-        creation_event: TransactionEvent,
-        update_events: Vec<TransactionEvent>,
+        id: TransactionId,
+        events: Vec<TransactionEvent>,
     ) -> MonkestoResult<()> {
-        if let TransactionEvent::Created { id, .. } = creation_event {
-            self.create_transaction(creation_event).await?;
-
-            for event in update_events {
-                self.push_event(&id, event).await?;
-            }
-        } else {
-            return Err(KnownErrors::IncorrectEventType);
+        for event in events {
+            self.record(id, Authority::Direct(Actor::System), event, None)
+                .await?;
         }
 
         Ok(())
@@ -59,71 +54,96 @@ pub trait TransactionStore: Clone + Send + Sync + 'static {
 }
 
 #[derive(Clone)]
-pub struct TransasctionMemoryStore {
+pub struct TransactionMemoryStore {
     events: Arc<DashMap<TransactionId, Vec<TransactionEvent>>>,
     transaction_table: Arc<DashMap<TransactionId, TransactionState>>,
+
+    journal_lookup_table: Arc<DashMap<JournalId, Vec<TransactionId>>>,
 }
 
-impl TransasctionMemoryStore {
+impl TransactionMemoryStore {
     pub fn new() -> Self {
         Self {
             events: Arc::new(DashMap::new()),
             transaction_table: Arc::new(DashMap::new()),
+            journal_lookup_table: Arc::new(DashMap::new()),
         }
     }
 }
 
-#[async_trait]
-impl TransactionStore for TransasctionMemoryStore {
-    async fn create_transaction(&self, creation_event: TransactionEvent) -> MonkestoResult<()> {
-        if let TransactionEvent::Created {
-            id,
-            author,
-            ref updates,
-            created_at,
-        } = creation_event
-        {
-            self.transaction_table.insert(
-                id,
-                TransactionState {
-                    id,
-                    author,
-                    updates: updates.clone(),
-                    created_at,
-                },
-            );
+impl EventStore for TransactionMemoryStore {
+    type Id = TransactionId;
+    type EventId = ();
 
-            self.events.insert(id, vec![creation_event]);
+    type Event = TransactionEvent;
+    type Error = KnownErrors;
+
+    async fn record(
+        &self,
+        id: Self::Id,
+        _by: Authority,
+        event: Self::Event,
+        _tx: Option<&mut sqlx::postgres::PgTransaction<'_>>,
+    ) -> Result<Self::EventId, Self::Error> {
+        if let TransactionEvent::CreatedTransaction {
+            journal_id,
+            author,
+            updates,
+            created_at,
+        } = event.clone()
+        {
+            self.events.insert(id, vec![event]);
+
+            let state = TransactionState {
+                id,
+                journal_id,
+                author,
+                updates,
+                created_at,
+            };
+
+            self.transaction_table.insert(id, state);
+
+            self.journal_lookup_table
+                .entry(journal_id)
+                .or_insert_with(Vec::new)
+                .push(id);
 
             Ok(())
         } else {
-            Err(KnownErrors::InvalidInput)
+            if let Some(mut events) = self.events.get_mut(&id)
+                && let Some(mut state) = self.transaction_table.get_mut(&id)
+            {
+                state.apply(event.clone());
+                events.push(event);
+                Ok(())
+            } else {
+                Err(KnownErrors::InvalidJournal)
+            }
         }
     }
+}
 
-    async fn push_event(
+impl TransactionStore for TransactionMemoryStore {
+    async fn get_journal_transactions(
         &self,
-        transaction_id: &TransactionId,
-        event: TransactionEvent,
-    ) -> MonkestoResult<()> {
-        if let Some(mut events) = self.events.get_mut(transaction_id)
-            && let Some(mut state) = self.transaction_table.get_mut(transaction_id)
-        {
-            events.push(event.clone());
-            state.apply(event);
-        }
-
-        Ok(())
+        journal_id: JournalId,
+    ) -> MonkestoResult<Vec<TransactionId>> {
+        Ok(self
+            .journal_lookup_table
+            .get(&journal_id)
+            .map(|s| (*s).clone())
+            .unwrap_or_else(|| Vec::new()))
     }
 
     async fn get_transaction(
         &self,
         transaction_id: &TransactionId,
-    ) -> MonkestoResult<TransactionState> {
-        self.transaction_table
+    ) -> MonkestoResult<Option<TransactionState>> {
+        Ok(self
+            .transaction_table
             .get(transaction_id)
-            .map(|s| (*s).clone())
-            .ok_or(KnownErrors::TransactionDoesntExist)
+            .map(|s| (*s).clone()))
     }
 }
 
@@ -162,8 +182,8 @@ pub struct BalanceUpdate {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum TransactionEvent {
-    Created {
-        id: TransactionId,
+    CreatedTransaction {
+        journal_id: JournalId,
         author: UserId,
         updates: Vec<BalanceUpdate>,
         created_at: DateTime<Utc>,
@@ -188,7 +208,7 @@ impl TransactionEvent {
     fn get_type(&self) -> TransactionEventType {
         use TransactionEventType::*;
         match self {
-            Self::Created { .. } => Created,
+            Self::CreatedTransaction { .. } => Created,
             Self::UpdatedBalancedUpdates { .. } => UpdatedBalanceUpdates,
         }
     }
@@ -220,21 +240,22 @@ impl<'r> Decode<'r, sqlx::Postgres> for TransactionEvent {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TransactionState {
     pub id: TransactionId,
+    journal_id: JournalId,
     pub author: UserId,
     pub updates: Vec<BalanceUpdate>,
-    pub created_at: chrono::DateTime<Utc>,
+    pub created_at: DateTime<Utc>,
 }
 
 impl TransactionState {
     pub fn apply(&mut self, event: TransactionEvent) {
         match event {
-            TransactionEvent::Created {
-                id,
+            TransactionEvent::CreatedTransaction {
+                journal_id,
                 author,
                 updates,
                 created_at,
             } => {
-                self.id = id;
+                self.journal_id = journal_id;
                 self.author = author;
                 self.updates = updates;
                 self.created_at = created_at;
@@ -248,21 +269,20 @@ impl TransactionState {
 
 #[cfg(test)]
 mod test_transaction {
+    use super::TransactionEvent;
     use crate::authority::UserId;
     use crate::ident::AccountId;
-    use crate::ident::TransactionId;
+    use crate::ident::JournalId;
     use crate::journal::transaction::BalanceUpdate;
     use crate::journal::transaction::EntryType;
     use chrono::Utc;
     use sqlx::PgPool;
     use sqlx::prelude::FromRow;
 
-    use super::TransactionEvent;
-
     #[sqlx::test]
-    async fn test_encode_decode_transactionevent(pool: PgPool) {
-        let original_event = TransactionEvent::Created {
-            id: TransactionId::new(),
+    async fn test_encode_decode_transaction_event(pool: PgPool) {
+        let original_event = TransactionEvent::CreatedTransaction {
+            journal_id: JournalId::new(),
             author: UserId::new(),
             updates: vec![BalanceUpdate {
                 account_id: AccountId::new(),

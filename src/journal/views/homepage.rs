@@ -1,18 +1,18 @@
-use crate::auth::user::UserStore;
 use crate::auth::user::{self};
 use crate::ident::Ident;
 use crate::ident::JournalId;
 use crate::journal::layout::layout;
-use crate::journal::JournalStore;
-use crate::journal::Permissions;
+use crate::journal::JournalNameOrUnknown;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
 use crate::AppState;
-use crate::AuthSession;
+use crate::BackendType;
+use crate::StateType;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::response::Redirect;
+use axum_login::AuthSession;
 use maud::html;
 use maud::Markup;
 use std::str::FromStr;
@@ -26,55 +26,51 @@ pub struct Journal {
 }
 
 pub async fn journal_list(
-    State(state): State<AppState>,
-    session: AuthSession,
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
     let user = user::get_user(session)?;
 
-    let journals_res = state.journal_store.get_user_journals(&user.id).await;
     let content = html! {
         div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" {
-            @if let Ok(journals) = journals_res {
-                @for journal_id in journals {
-                    @match state.journal_store.get_journal(&journal_id).await {
-                        Ok(Some(journal)) => {
-                            a
-                            href=(format! ("/journal/{}", journal_id))
-                            class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
-                                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                    (state.journal_store.get_name(&journal_id).await.unwrap_or_else(|_| Some("unknown journal".to_string())).unwrap_or_else(|| "unknown journal".to_string()))
+            @match state.journal_list(user.id).await {
+                Ok(journals) => {
+                    @for (journal_id, journal_state) in journals {
+                        a
+                        href=(format! ("/journal/{}", journal_id))
+                        class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
+                            h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                (journal_state.name)
+                            }
+
+                            div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
+                                "Created by "
+
+                                @match state.user_get_email(journal_state.creator).await {
+                                    Ok(Some(email)) => (email),
+                                    Ok(None) => {"unknown user"},
+                                    Err(e) => (format!("failed to fetch email: {:?}", e)),
                                 }
 
-                                div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
-                                    "Created by "
-                                    (state.user_store.get_user_email(&journal.creator).await.map(|e| e.to_string()).unwrap_or_else(|_| "unknown user".to_string()))
-                                    " on "
-                                    (journal.created_at
-                                        .with_timezone(&chrono_tz::America::Chicago)
-                                        .format("%Y-%m-%d %H:%M:%S %Z")
-                                    )
-                                }
+                                " on "
+                                (journal_state.created_at
+                                    .with_timezone(&chrono_tz::America::Chicago)
+                                    .format("%Y-%m-%d %H:%M:%S %Z")
+                                )
                             }
-                        }
-                        Ok(None) => {
-                            p {
-                                "No journal found with id: " (journal_id)
-                            }
-                        }
-                        Err(e) => {
-                            "Error getting journal: " (e)
                         }
                     }
                 }
-            } @else {
-                div class="flex justify-center items-center h-full" {
-                    p class="text-gray-500 dark:text-gray-400" {
-                        "No journals found"
+
+                Err(e) => {
+                    div class="flex justify-center items-center h-full" {
+                        p class="text-gray-500 dark:text-gray-400" {
+                            (format!("Failed to fetch journals: {:?}", e))
+                        }
                     }
                 }
             }
-
 
             form action="/createjournal" method="post" class="self-start rounded-xl transition-colors space-y-4" {
                 h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
@@ -110,77 +106,89 @@ pub async fn journal_list(
     Ok(layout(None, false, None, content))
 }
 
-pub async fn journal_detail(
-    State(state): State<AppState>,
-    session: AuthSession,
+pub async fn journal_detail<S, T>(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
     Path(id): Path<String>,
 ) -> Result<Markup, Redirect> {
     let user = user::get_user(session)?;
 
     let journal_state_res = match JournalId::from_str(&id) {
-        Ok(s) => state.journal_store.get_journal(&s).await,
+        Ok(s) => state.journal_get(s, user.id).await,
         Err(e) => Err(e),
     };
 
     let content = html! {
         div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
-            @if let Ok(Some(journal_state)) = &journal_state_res && journal_state.get_user_permissions(&user.id).contains(Permissions::READ) {
-
-                a
-                href=(format!("/journal/{}/transaction", &id))
-                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                    h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                        "Transactions"
+            @match &journal_state_res {
+                Ok(Some(journal_state)) => {
+                    a
+                    href=(format!("/journal/{}/transaction", &id))
+                    class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                        h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                            "Transactions"
+                        }
                     }
-                }
 
-                a
-                href=(format!("/journal/{}/account", &id))
-                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                    h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                        "Accounts"
+                    a
+                    href=(format!("/journal/{}/account", &id))
+                    class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                        h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                            "Accounts"
+                        }
                     }
-                }
 
-                a
-                href=(format!("/journal/{}/person", &id))
-                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                    h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                        "People"
+                    a
+                    href=(format!("/journal/{}/person", &id))
+                    class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                        h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                            "People"
+                        }
                     }
-                }
 
-                div class="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg" {
-                    div class="space-y-2" {
-                        div class="text-sm text-gray-600 dark:text-gray-400" {
-                            "Created by "
-                            (state.user_store.get_user_email(&journal_state.creator).await.map(|e| e.to_string()).unwrap_or_else(|_| "unknown user".to_string()).to_string())
-                            " on "
-                            (journal_state.created_at
-                                .with_timezone(&chrono_tz::America::Chicago)
-                                .format("%Y-%m-%d %H:%M:%S %Z")
-                            )
+                    div class="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg" {
+                        div class="space-y-2" {
+                            div class="text-sm text-gray-600 dark:text-gray-400" {
+                                "Created by "
+
+                                 @match state.user_get_email(journal_state.creator).await {
+                                    Ok(Some(email)) => (email),
+                                    Ok(None) => {"unknown user"},
+                                    Err(e) => (format!("failed to fetch email: {:?}", e)),
+                                }
+
+                                " on "
+                                (journal_state.created_at
+                                    .with_timezone(&chrono_tz::America::Chicago)
+                                    .format("%Y-%m-%d %H:%M:%S %Z")
+                                )
+                            }
                         }
                     }
                 }
-            }
-            @else {
-                div class="flex justify-center items-center h-full" {
-                    p class="text-gray-500 dark:text-gray-400" {
-                        "Invalid journal"
+
+                Ok(None) => {
+                    div class="flex justify-center items-center h-full" {
+                        p class="text-gray-500 dark:text-gray-400" {
+                            "Unknown journal"
+                        }
                     }
                 }
+
+                Err(e) => {
+                    div class="flex justify-center items-center h-full" {
+                        p class="text-gray-500 dark:text-gray-400" {
+                            (format!("Failed to fetch journal: {:?}", e))
+                        }
+                    }
+                }
+
             }
         }
     };
 
     Ok(layout(
-        Some(
-            &journal_state_res
-                .map(|s| s.map(|j| j.name))
-                .unwrap_or_else(|_| Some("unknown journal".to_string()))
-                .unwrap_or_else(|| "unknown journal".to_string()),
-        ),
+        Some(&journal_state_res.map(|s| s.map(|s| s.name)).or_unknown()),
         true,
         Some(&id),
         content,

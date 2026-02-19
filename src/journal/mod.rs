@@ -1,21 +1,13 @@
+pub mod account;
 pub mod commands;
 pub mod layout;
 pub mod transaction;
 pub mod views;
 
-use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::event::EventStore;
-use crate::ident::AccountId;
 use crate::ident::JournalId;
-use crate::ident::TransactionId;
-use crate::journal::transaction::BalanceUpdate;
-use crate::journal::transaction::EntryType;
-use crate::journal::transaction::TransactionEvent;
-use crate::journal::transaction::TransactionState;
-use crate::journal::transaction::TransactionStore;
-use crate::journal::transaction::TransasctionMemoryStore;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::MonkestoResult;
 use bitflags::bitflags;
@@ -39,46 +31,25 @@ pub trait JournalStore:
     + 'static
     + EventStore<Id = JournalId, EventId = (), Event = JournalEvent, Error = KnownErrors>
 {
-    /// intercept transaction events to update account state
-    async fn create_transaction(
-        &self,
-        journal_id: &JournalId,
-        creation_event: TransactionEvent,
-    ) -> MonkestoResult<()>;
-
-    /// intercept transaction events to update account state
-    async fn push_transaction_event(
-        &self,
-        journal_id: &JournalId,
-        transaction_id: &TransactionId,
-        event: TransactionEvent,
-    ) -> MonkestoResult<()>;
-
-    /// helper function to remove the requirement for directly storing the transaction store in the state
-    async fn get_transaction_state(
-        &self,
-        transaction_id: &TransactionId,
-    ) -> MonkestoResult<TransactionState>;
-
     /// returns the cached state of the journal
-    async fn get_journal(&self, journal_id: &JournalId) -> MonkestoResult<Option<JournalState>>;
+    async fn get_journal(&self, journal_id: JournalId) -> MonkestoResult<Option<JournalState>>;
 
     /// returns all journals that a user is a member of (owner or tenant)
-    async fn get_user_journals(&self, user_id: &UserId) -> MonkestoResult<Vec<JournalId>>;
+    async fn get_user_journals(&self, user_id: UserId) -> MonkestoResult<Vec<JournalId>>;
 
     async fn get_permissions(
         &self,
-        journal_id: &JournalId,
-        user_id: &UserId,
+        journal_id: JournalId,
+        user_id: UserId,
     ) -> MonkestoResult<Option<Permissions>> {
         if let Some(state) = self.get_journal(journal_id).await? {
-            if state.owner == *user_id {
+            if state.owner == user_id {
                 return Ok(Some(Permissions::all()));
             }
             return Ok(Some(
                 state
                     .tenants
-                    .get(user_id)
+                    .get(&user_id)
                     .map(|t| t.tenant_permissions)
                     .unwrap_or(Permissions::empty()),
             ));
@@ -86,282 +57,20 @@ pub trait JournalStore:
         Ok(None)
     }
 
-    async fn get_name(&self, journal_id: &JournalId) -> MonkestoResult<Option<String>> {
+    async fn get_name(&self, journal_id: JournalId) -> MonkestoResult<Option<String>> {
         Ok(self.get_journal(journal_id).await?.map(|s| s.name))
     }
 
-    async fn get_creator(&self, journal_id: &JournalId) -> MonkestoResult<Option<UserId>> {
+    async fn get_creator(&self, journal_id: JournalId) -> MonkestoResult<Option<UserId>> {
         Ok(self.get_journal(journal_id).await?.map(|s| s.creator))
     }
 
-    async fn get_created_at(
-        &self,
-        journal_id: &JournalId,
-    ) -> MonkestoResult<Option<DateTime<Utc>>> {
+    async fn get_created_at(&self, journal_id: JournalId) -> MonkestoResult<Option<DateTime<Utc>>> {
         Ok(self.get_journal(journal_id).await?.map(|s| s.created_at))
     }
 
-    async fn get_accounts(
-        &self,
-        journal_id: &JournalId,
-    ) -> MonkestoResult<Option<HashMap<AccountId, Account>>> {
-        Ok(self.get_journal(journal_id).await?.map(|s| s.accounts))
-    }
-
-    async fn get_transactions(
-        &self,
-        journal_id: &JournalId,
-    ) -> MonkestoResult<Option<Vec<TransactionId>>> {
-        Ok(self.get_journal(journal_id).await?.map(|s| s.transactions))
-    }
-
-    async fn get_deleted(&self, journal_id: &JournalId) -> MonkestoResult<Option<bool>> {
+    async fn get_deleted(&self, journal_id: JournalId) -> MonkestoResult<Option<bool>> {
         Ok(self.get_journal(journal_id).await?.map(|s| s.deleted))
-    }
-
-    async fn seed_journal(&self, id: JournalId, events: Vec<JournalEvent>) -> MonkestoResult<()> {
-        for event in events {
-            self.record(id, Authority::Direct(Actor::System), event)
-                .await?;
-        }
-        Ok(())
-    }
-
-    /// Seeds three dev journals for local development.
-    /// Uses stable IDs so journals remain valid across restarts.
-    /// - All three journals are attached to pacioli
-    /// - Only one journal is attached to wedgwood
-    async fn seed_dev_journals(&self) -> MonkestoResult<()> {
-        use std::str::FromStr;
-
-        // Stable user IDs from seed_dev_users
-        let pacioli_id = UserId::from_str("zk8m3p5q7r2n4v6x")?;
-        let wedgwood_id = UserId::from_str("yj7l2o4p6q8s0u1w")?;
-
-        // Stable journal IDs - valid cuid2 format (10 chars for journals)
-        let journal_ids = [
-            (
-                JournalId::from_str("ab1cd2ef3g")?,
-                "Maple Ridge Academy",
-                pacioli_id,
-            ),
-            (
-                JournalId::from_str("hi4jk5lm6n")?,
-                "Smith & Sons Bakery",
-                pacioli_id,
-            ),
-            (
-                JournalId::from_str("op7qr8st9u")?,
-                "Green Valley Farm Co.",
-                pacioli_id,
-            ),
-        ];
-
-        let now = Utc::now();
-
-        for (journal_id, name, creator) in journal_ids {
-            // Only create if a journal doesn't exist
-            if self.get_journal(&journal_id).await?.is_none() {
-                let creation_event = JournalEvent::Created {
-                    name: name.to_string(),
-                    created_at: now,
-                    creator,
-                };
-
-                // Create the first journal (Maple Ridge Academy) with wedgwood as tenant
-                let mut events = vec![creation_event];
-                if name == "Maple Ridge Academy" {
-                    events.push(JournalEvent::AddedTenant {
-                        id: wedgwood_id,
-                        tenant_info: JournalTenantInfo {
-                            tenant_permissions: Permissions::READ | Permissions::APPENDTRANSACTION,
-                            inviting_user: pacioli_id,
-                            invited_at: now,
-                        },
-                    });
-
-                    // Add basic accounts for Maple Ridge Academy
-                    let accounts = [
-                        (AccountId::from_str("ac1assets0")?, "Assets"),
-                        (AccountId::from_str("ac2liabili")?, "Liabilities"),
-                        (AccountId::from_str("ac3equity0")?, "Equity"),
-                        (AccountId::from_str("ac4revenue")?, "Revenue"),
-                        (AccountId::from_str("ac5expense")?, "Expenses"),
-                    ];
-
-                    for (account_id, account_name) in accounts {
-                        events.push(JournalEvent::CreatedAccount {
-                            id: account_id,
-                            name: account_name.to_string(),
-                            created_by: pacioli_id,
-                            created_at: now,
-                        });
-                    }
-
-                    // Add the account creation events to the journal
-                    self.seed_journal(journal_id, events).await?;
-
-                    // Now add transactions after accounts exist
-                    let assets_id = AccountId::from_str("ac1assets0")?;
-                    let revenue_id = AccountId::from_str("ac4revenue")?;
-                    let expenses_id = AccountId::from_str("ac5expense")?;
-
-                    // Transaction 1: Tuition payment received - $5,000
-                    let tx1_id = TransactionId::from_str("t1tuition0000001")?;
-                    let tx1_event = TransactionEvent::Created {
-                        id: tx1_id,
-                        author: pacioli_id,
-                        updates: vec![
-                            BalanceUpdate {
-                                account_id: assets_id,
-                                amount: 500000, // $5,000.00 in cents
-                                entry_type: EntryType::Debit,
-                            },
-                            BalanceUpdate {
-                                account_id: revenue_id,
-                                amount: 500000,
-                                entry_type: EntryType::Credit,
-                            },
-                        ],
-                        created_at: now,
-                    };
-                    self.create_transaction(&journal_id, tx1_event.clone())
-                        .await?;
-                    events = vec![JournalEvent::AddedEntry {
-                        transaction_id: tx1_id,
-                    }];
-                    self.record(
-                        journal_id,
-                        Authority::Direct(Actor::System),
-                        events[0].clone(),
-                    )
-                    .await?;
-
-                    // Transaction 2: Teacher salary payment - $3,200
-                    let tx2_id = TransactionId::from_str("t2salary00000002")?;
-                    let tx2_event = TransactionEvent::Created {
-                        id: tx2_id,
-                        author: pacioli_id,
-                        updates: vec![
-                            BalanceUpdate {
-                                account_id: expenses_id,
-                                amount: 320000, // $3,200.00
-                                entry_type: EntryType::Debit,
-                            },
-                            BalanceUpdate {
-                                account_id: assets_id,
-                                amount: 320000,
-                                entry_type: EntryType::Credit,
-                            },
-                        ],
-                        created_at: now,
-                    };
-                    self.create_transaction(&journal_id, tx2_event.clone())
-                        .await?;
-                    self.record(
-                        journal_id,
-                        Authority::Direct(Actor::System),
-                        JournalEvent::AddedEntry {
-                            transaction_id: tx2_id,
-                        },
-                    )
-                    .await?;
-
-                    // Transaction 3: Textbook purchase - $850
-                    let tx3_id = TransactionId::from_str("t3textbooks00003")?;
-                    let tx3_event = TransactionEvent::Created {
-                        id: tx3_id,
-                        author: pacioli_id,
-                        updates: vec![
-                            BalanceUpdate {
-                                account_id: expenses_id,
-                                amount: 85000, // $850.00
-                                entry_type: EntryType::Debit,
-                            },
-                            BalanceUpdate {
-                                account_id: assets_id,
-                                amount: 85000,
-                                entry_type: EntryType::Credit,
-                            },
-                        ],
-                        created_at: now,
-                    };
-                    self.create_transaction(&journal_id, tx3_event.clone())
-                        .await?;
-                    self.record(
-                        journal_id,
-                        Authority::Direct(Actor::System),
-                        JournalEvent::AddedEntry {
-                            transaction_id: tx3_id,
-                        },
-                    )
-                    .await?;
-
-                    // Transaction 4: Another tuition payment - $4,500
-                    let tx4_id = TransactionId::from_str("t4tuition2000004")?;
-                    let tx4_event = TransactionEvent::Created {
-                        id: tx4_id,
-                        author: wedgwood_id,
-                        updates: vec![
-                            BalanceUpdate {
-                                account_id: assets_id,
-                                amount: 450000, // $4,500.00
-                                entry_type: EntryType::Debit,
-                            },
-                            BalanceUpdate {
-                                account_id: revenue_id,
-                                amount: 450000,
-                                entry_type: EntryType::Credit,
-                            },
-                        ],
-                        created_at: now,
-                    };
-                    self.create_transaction(&journal_id, tx4_event.clone())
-                        .await?;
-                    self.record(
-                        journal_id,
-                        Authority::Direct(Actor::System),
-                        JournalEvent::AddedEntry {
-                            transaction_id: tx4_id,
-                        },
-                    )
-                    .await?;
-
-                    // Transaction 5: Supplies purchase - $425
-                    let tx5_id = TransactionId::from_str("t5supplies000005")?;
-                    let tx5_event = TransactionEvent::Created {
-                        id: tx5_id,
-                        author: pacioli_id,
-                        updates: vec![
-                            BalanceUpdate {
-                                account_id: expenses_id,
-                                amount: 42500, // $425.00
-                                entry_type: EntryType::Debit,
-                            },
-                            BalanceUpdate {
-                                account_id: assets_id,
-                                amount: 42500,
-                                entry_type: EntryType::Credit,
-                            },
-                        ],
-                        created_at: now,
-                    };
-                    self.create_transaction(&journal_id, tx5_event.clone())
-                        .await?;
-                    self.record(
-                        journal_id,
-                        Authority::Direct(Actor::System),
-                        JournalEvent::AddedEntry {
-                            transaction_id: tx5_id,
-                        },
-                    )
-                    .await?;
-                } else {
-                    self.seed_journal(journal_id, events).await?;
-                }
-            }
-        }
-        Ok(())
     }
 }
 
@@ -371,17 +80,14 @@ pub struct JournalMemoryStore {
     journal_table: Arc<DashMap<JournalId, JournalState>>,
     /// Index of user_id -> set of journal_ids they belong to
     user_journals: Arc<DashMap<UserId, std::collections::HashSet<JournalId>>>,
-
-    transaction_store: Arc<TransasctionMemoryStore>,
 }
 
 impl JournalMemoryStore {
-    pub fn new(transaction_store: Arc<TransasctionMemoryStore>) -> Self {
+    pub fn new() -> Self {
         Self {
             events: Arc::new(DashMap::new()),
             journal_table: Arc::new(DashMap::new()),
             user_journals: Arc::new(DashMap::new()),
-            transaction_store,
         }
     }
 }
@@ -397,6 +103,7 @@ impl EventStore for JournalMemoryStore {
         id: JournalId,
         by: Authority,
         event: JournalEvent,
+        _tx: Option<&mut sqlx::PgTransaction<'_>>,
     ) -> MonkestoResult<()> {
         _ = by; // Store doesn't use authority yet, but will for audit trail
 
@@ -415,8 +122,6 @@ impl EventStore for JournalMemoryStore {
                 creator,
                 owner: creator,
                 tenants: HashMap::new(),
-                accounts: HashMap::new(),
-                transactions: Vec::new(),
                 deleted: false,
             };
             self.journal_table.insert(id, state);
@@ -446,114 +151,17 @@ impl EventStore for JournalMemoryStore {
 }
 
 impl JournalStore for JournalMemoryStore {
-    async fn create_transaction(
-        &self,
-        journal_id: &JournalId,
-        creation_event: TransactionEvent,
-    ) -> MonkestoResult<()> {
-        if let TransactionEvent::Created { ref updates, .. } = creation_event {
-            if let Some(mut journal) = self.journal_table.get_mut(journal_id) {
-                for update in updates {
-                    if let Some(account) = journal.accounts.get_mut(&update.account_id) {
-                        if update.entry_type == EntryType::Credit {
-                            account.balance += update.amount as i64
-                        } else {
-                            account.balance -= update.amount as i64
-                        }
-                    } else {
-                        return Err(KnownErrors::AccountDoesntExist {
-                            id: update.account_id,
-                        });
-                    }
-                }
-            } else {
-                return Err(KnownErrors::InvalidJournal);
-            }
-
-            self.transaction_store
-                .create_transaction(creation_event)
-                .await
-        } else {
-            Err(KnownErrors::InvalidInput)
-        }
-    }
-
-    async fn push_transaction_event(
-        &self,
-        journal_id: &JournalId,
-        transaction_id: &TransactionId,
-        event: TransactionEvent,
-    ) -> MonkestoResult<()> {
-        if let Some(mut journal) = self.journal_table.get_mut(journal_id) {
-            match event {
-                TransactionEvent::Created { .. } => Err(KnownErrors::InvalidInput),
-                TransactionEvent::UpdatedBalancedUpdates {
-                    ref new_balanceupdates,
-                    ..
-                } => {
-                    // undo old updates
-                    for old_update in self
-                        .transaction_store
-                        .get_transaction(transaction_id)
-                        .await?
-                        .updates
-                    {
-                        if let Some(account) = journal.accounts.get_mut(&old_update.account_id) {
-                            if old_update.entry_type == EntryType::Credit {
-                                account.balance -= old_update.amount as i64
-                            } else {
-                                account.balance += old_update.amount as i64
-                            }
-                        } else {
-                            return Err(KnownErrors::AccountDoesntExist {
-                                id: old_update.account_id,
-                            });
-                        }
-                    }
-
-                    // apply new updates
-                    for update in new_balanceupdates {
-                        if let Some(account) = journal.accounts.get_mut(&update.account_id) {
-                            if update.entry_type == EntryType::Credit {
-                                account.balance += update.amount as i64
-                            } else {
-                                account.balance -= update.amount as i64
-                            }
-                        } else {
-                            return Err(KnownErrors::AccountDoesntExist {
-                                id: update.account_id,
-                            });
-                        }
-                    }
-
-                    self.transaction_store
-                        .push_event(transaction_id, event)
-                        .await
-                }
-            }
-        } else {
-            Err(KnownErrors::InvalidJournal)
-        }
-    }
-
-    async fn get_transaction_state(
-        &self,
-        transaction_id: &TransactionId,
-    ) -> MonkestoResult<TransactionState> {
-        self.transaction_store.get_transaction(transaction_id).await
-    }
-
-    async fn get_journal(&self, journal_id: &JournalId) -> MonkestoResult<Option<JournalState>> {
+    async fn get_journal(&self, journal_id: JournalId) -> MonkestoResult<Option<JournalState>> {
         Ok(self
             .journal_table
-            .get(journal_id)
+            .get(&journal_id)
             .map(|state| (*state).clone()))
     }
 
-    async fn get_user_journals(&self, user_id: &UserId) -> MonkestoResult<Vec<JournalId>> {
+    async fn get_user_journals(&self, user_id: UserId) -> MonkestoResult<Vec<JournalId>> {
         Ok(self
             .user_journals
-            .get(user_id)
+            .get(&user_id)
             .map(|set| set.iter().copied().collect())
             .unwrap_or_default())
     }
@@ -594,18 +202,6 @@ pub enum JournalEvent {
     },
     TransferredOwnership {
         new_owner: UserId,
-    },
-    CreatedAccount {
-        name: String,
-        id: AccountId,
-        created_by: UserId,
-        created_at: DateTime<Utc>,
-    },
-    DeletedAccount {
-        account_id: AccountId,
-    },
-    AddedEntry {
-        transaction_id: TransactionId,
     },
     RemovedTenant {
         id: UserId,
@@ -648,9 +244,37 @@ pub struct JournalState {
     pub created_at: DateTime<Utc>,
     pub owner: UserId,
     pub tenants: HashMap<UserId, JournalTenantInfo>,
-    pub accounts: HashMap<AccountId, Account>,
-    pub transactions: Vec<TransactionId>,
     pub deleted: bool,
+}
+
+pub trait JournalNameOrUnknown {
+    fn or_unknown(&self) -> String;
+}
+
+impl<E> JournalNameOrUnknown for Result<Option<JournalState>, E>
+where
+    E: std::error::Error,
+{
+    fn or_unknown(&self) -> String {
+        match self {
+            Ok(Some(journal)) => journal.name.to_owned(),
+            Ok(None) => "Unknown Journal".into(),
+            Err(e) => format!("Error loading journal: {}", e),
+        }
+    }
+}
+
+impl<E> JournalNameOrUnknown for Result<Option<String>, E>
+where
+    E: std::error::Error,
+{
+    fn or_unknown(&self) -> String {
+        match self {
+            Ok(Some(journal)) => journal.to_owned(),
+            Ok(None) => "Unknown Journal".into(),
+            Err(e) => format!("Error loading journal: {}", e),
+        }
+    }
 }
 
 impl JournalState {
@@ -675,28 +299,6 @@ impl JournalState {
 
             JournalEvent::TransferredOwnership { new_owner } => self.owner = new_owner,
 
-            JournalEvent::CreatedAccount {
-                name,
-                id,
-                created_at,
-                created_by,
-            } => {
-                _ = self.accounts.insert(
-                    id,
-                    Account {
-                        name,
-                        created_by,
-                        created_at,
-                        balance: 0,
-                    },
-                )
-            }
-            JournalEvent::DeletedAccount { account_id } => {
-                _ = self.accounts.remove(&account_id);
-            }
-            JournalEvent::AddedEntry { transaction_id } => {
-                self.transactions.push(transaction_id);
-            }
             JournalEvent::RemovedTenant { id } => {
                 _ = self.tenants.remove(&id);
             }
@@ -709,10 +311,10 @@ impl JournalState {
         }
     }
 
-    pub fn get_user_permissions(&self, user_id: &UserId) -> Permissions {
-        if self.owner == *user_id {
+    pub fn get_user_permissions(&self, user_id: UserId) -> Permissions {
+        if self.owner == user_id {
             Permissions::all()
-        } else if let Some(tenant_info) = self.tenants.get(user_id) {
+        } else if let Some(tenant_info) = self.tenants.get(&user_id) {
             tenant_info.tenant_permissions
         } else {
             Permissions::empty()
@@ -751,7 +353,6 @@ pub struct JournalInvite {
 #[cfg(test)]
 mod test_user {
     use crate::authority::UserId;
-    use crate::ident::AccountId;
     use chrono::Utc;
     use sqlx::prelude::FromRow;
     use sqlx::PgPool;
@@ -760,10 +361,9 @@ mod test_user {
 
     #[sqlx::test]
     async fn test_encode_decode_journalevent(pool: PgPool) {
-        let original_event = JournalEvent::CreatedAccount {
+        let original_event = JournalEvent::Created {
             name: "test".into(),
-            id: AccountId::new(),
-            created_by: UserId::new(),
+            creator: UserId::new(),
             created_at: Utc::now(),
         };
 

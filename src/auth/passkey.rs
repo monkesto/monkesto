@@ -66,6 +66,7 @@ impl IntoResponse for PasskeyError {
 
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::PgTransaction;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -93,6 +94,7 @@ pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
             passkey_id,
             Authority::Direct(Actor::User(user_id)),
             PasskeyEvent::Deleted { user_id },
+            None,
         )
         .await
         .map_err(|e| PasskeyError::StoreError(e.to_string()))?;
@@ -144,6 +146,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
                         passkey_id,
                         Authority::Direct(Actor::User(user_id)),
                         PasskeyEvent::Created { user_id, passkey },
+                        None,
                     )
                     .await
                     .is_err()
@@ -170,13 +173,14 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
 
         // Get user's email
         let email = user_store
-            .get_user_email(&user_id)
+            .get_user_email(user_id)
             .await
-            .unwrap_or_else(|_| "unknown@example.com".to_string());
+            .unwrap_or_else(|_| Some("unknown@example.com".to_string()))
+            .unwrap_or_else(|| "unknown@example.com".to_string());
 
         // Get the webauthn UUID for this user
         let webauthn_uuid = user_store
-            .get_webauthn_uuid(&user_id)
+            .get_webauthn_uuid(user_id)
             .await
             .map_err(|e| PasskeyError::StoreError(e.to_string()))?;
 
@@ -391,6 +395,7 @@ impl EventStore for MemoryPasskeyStore {
         id: PasskeyId,
         by: Authority,
         event: PasskeyEvent,
+        _tx: Option<&mut PgTransaction<'_>>,
     ) -> Result<(), PasskeyStoreError> {
         let mut data = self.data.lock().await;
         _ = by; // Store doesn't use authority yet, but will for audit trail
@@ -474,6 +479,7 @@ mod tests {
                 passkey_id,
                 Authority::Direct(Actor::User(user_id)),
                 PasskeyEvent::Deleted { user_id },
+                None,
             )
             .await
             .expect("Should succeed even for non-existent passkey");

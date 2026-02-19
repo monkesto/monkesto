@@ -1,30 +1,23 @@
-use super::JournalEvent;
 use crate::AppState;
-use crate::AuthSession;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
 use crate::journal::Permissions;
 use crate::journal::transaction::BalanceUpdate;
 use crate::journal::transaction::EntryType;
-use crate::journal::transaction::TransactionEvent;
+use axum_login::AuthSession;
+use axum_login::AuthnBackend;
 
 use crate::auth::user::Email;
-use crate::auth::user::UserStore;
+use crate::auth::user::User;
 use crate::auth::user::{self};
-use crate::authority::Actor;
-use crate::authority::Authority;
 use crate::authority::UserId;
-use crate::event::EventStore;
-use crate::journal::JournalStore;
-use crate::journal::JournalTenantInfo;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::RedirectOnError;
 use axum::extract::Path;
 use axum::extract::State;
 use axum::response::Redirect;
 use axum_extra::extract::Form;
-use chrono::Utc;
 use rust_decimal::dec;
 use rust_decimal::prelude::*;
 use serde::Deserialize;
@@ -34,12 +27,15 @@ use std::str::FromStr;
 pub struct CreateJournalForm {
     journal_name: String,
 }
-
-pub async fn create_journal(
-    State(state): State<AppState>,
-    session: AuthSession,
+pub async fn create_journal<S, T>(
+    State(state): State<S>,
+    session: AuthSession<T>,
     Form(form): Form<CreateJournalForm>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, Redirect>
+where
+    S: AppState,
+    T: AuthnBackend<User = User>,
+{
     const CALLBACK_URL: &str = "/journal";
 
     let user = user::get_user(session)?;
@@ -48,19 +44,8 @@ pub async fn create_journal(
         return Err(KnownErrors::InvalidInput.redirect("/journal"));
     }
 
-    let journal_id = JournalId::new();
-
     state
-        .journal_store
-        .record(
-            journal_id,
-            Authority::Direct(Actor::Anonymous),
-            JournalEvent::Created {
-                name: form.journal_name,
-                creator: user.id,
-                created_at: Utc::now(),
-            },
-        )
+        .journal_create(JournalId::new(), form.journal_name, user.id)
         .await
         .or_redirect(CALLBACK_URL)?;
 
@@ -77,12 +62,16 @@ pub struct InviteUserForm {
     pub delete: Option<String>,
 }
 
-pub async fn invite_user(
-    State(state): State<AppState>,
-    session: AuthSession,
+pub async fn invite_user<S, T>(
+    State(state): State<S>,
+    session: AuthSession<T>,
     Path(id): Path<String>,
     Form(form): Form<InviteUserForm>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, Redirect>
+where
+    S: AppState,
+    T: AuthnBackend<User = User>,
+{
     let callback_url = &format!("/journal/{}/person", id);
 
     let email = Email::try_new(form.email)
@@ -93,77 +82,27 @@ pub async fn invite_user(
 
     let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
 
-    let journal_state = state
-        .journal_store
-        .get_journal(&journal_id)
-        .await
-        .or_redirect(callback_url)?
-        .ok_or(KnownErrors::InvalidJournal.redirect(callback_url))?;
-
-    if !journal_state.deleted {
-        if journal_state
-            .get_user_permissions(&user.id)
-            .contains(Permissions::INVITE)
-        {
-            let mut invitee_permissions = Permissions::empty();
-            if form.read.is_some() {
-                invitee_permissions.insert(Permissions::READ);
-            }
-            if form.addaccount.is_some() {
-                invitee_permissions.insert(Permissions::ADDACCOUNT);
-            }
-            if form.appendtransaction.is_some() {
-                invitee_permissions.insert(Permissions::APPENDTRANSACTION);
-            }
-            if form.invite.is_some() {
-                invitee_permissions.insert(Permissions::INVITE);
-            }
-            if form.delete.is_some() {
-                invitee_permissions.insert(Permissions::DELETE);
-            }
-
-            let tenant_info = JournalTenantInfo {
-                tenant_permissions: invitee_permissions,
-                inviting_user: user.id,
-                invited_at: Utc::now(),
-            };
-
-            let invitee_id = state
-                .user_store
-                .lookup_user_id(email.as_ref())
-                .await
-                .map_err(|e| KnownErrors::InternalError {
-                    context: e.to_string(),
-                })
-                .or_redirect(callback_url)?
-                .ok_or(KnownErrors::UserDoesntExist)
-                .or_redirect(callback_url)?;
-
-            if !journal_state.get_user_permissions(&invitee_id).is_empty() {
-                return Err(KnownErrors::UserCanAccessJournal.redirect(callback_url));
-            }
-
-            state
-                .journal_store
-                .record(
-                    journal_id,
-                    Authority::Direct(Actor::Anonymous),
-                    JournalEvent::AddedTenant {
-                        id: invitee_id,
-                        tenant_info,
-                    },
-                )
-                .await
-                .or_redirect(callback_url)?;
-        } else {
-            return Err(KnownErrors::PermissionError {
-                required_permissions: Permissions::INVITE,
-            }
-            .redirect(callback_url));
-        }
-    } else {
-        return Err(KnownErrors::InvalidJournal.redirect(callback_url));
+    let mut invitee_permissions = Permissions::empty();
+    if form.read.is_some() {
+        invitee_permissions.insert(Permissions::READ);
     }
+    if form.addaccount.is_some() {
+        invitee_permissions.insert(Permissions::ADDACCOUNT);
+    }
+    if form.appendtransaction.is_some() {
+        invitee_permissions.insert(Permissions::APPENDTRANSACTION);
+    }
+    if form.invite.is_some() {
+        invitee_permissions.insert(Permissions::INVITE);
+    }
+    if form.delete.is_some() {
+        invitee_permissions.insert(Permissions::DELETE);
+    }
+
+    state
+        .journal_invite_tenant(journal_id, user.id, email, invitee_permissions)
+        .await
+        .or_redirect(callback_url)?;
 
     Ok(Redirect::to(callback_url))
 }
@@ -173,57 +112,30 @@ pub struct CreateAccountForm {
     account_name: String,
 }
 
-pub async fn create_account(
-    State(state): State<AppState>,
-    session: AuthSession,
+pub async fn create_account<S, T>(
+    State(state): State<S>,
+    session: AuthSession<T>,
     Path(id): Path<String>,
     Form(form): Form<CreateAccountForm>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, Redirect>
+where
+    S: AppState,
+    T: AuthnBackend<User = User>,
+{
     let callback_url = &format!("/journal/{}/account", id);
 
     let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
 
     let user = user::get_user(session)?;
 
-    if form.account_name.trim().is_empty() {
+    if form.account_name.trim().is_empty() || form.account_name.len() > 64 {
         return Err(KnownErrors::InvalidInput).or_redirect(callback_url)?;
     }
 
-    let journal_state = state
-        .journal_store
-        .get_journal(&journal_id)
+    state
+        .account_create(AccountId::new(), journal_id, user.id, form.account_name)
         .await
-        .or_redirect(callback_url)?
-        .ok_or(KnownErrors::InvalidJournal.redirect(callback_url))?;
-
-    if !journal_state.deleted {
-        if journal_state
-            .get_user_permissions(&user.id)
-            .contains(Permissions::ADDACCOUNT)
-        {
-            state
-                .journal_store
-                .record(
-                    journal_id,
-                    Authority::Direct(Actor::Anonymous),
-                    JournalEvent::CreatedAccount {
-                        id: AccountId::new(),
-                        name: form.account_name,
-                        created_by: user.id,
-                        created_at: Utc::now(),
-                    },
-                )
-                .await
-                .or_redirect(callback_url)?;
-        } else {
-            return Err(KnownErrors::PermissionError {
-                required_permissions: Permissions::ADDACCOUNT,
-            }
-            .redirect(callback_url));
-        }
-    } else {
-        return Err(KnownErrors::InvalidJournal.redirect(callback_url));
-    }
+        .or_redirect(callback_url)?;
 
     Ok(Redirect::to(callback_url))
 }
@@ -235,21 +147,19 @@ pub struct TransactForm {
     entry_type: Vec<String>,
 }
 
-pub async fn transact(
-    State(state): State<AppState>,
-    session: AuthSession,
+pub async fn transact<S, T>(
+    State(state): State<S>,
+    session: AuthSession<T>,
     Path(id): Path<String>,
     Form(form): Form<TransactForm>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, Redirect>
+where
+    S: AppState,
+    T: AuthnBackend<User = User>,
+{
     let callback_url = &format!("/journal/{}/transaction", id);
 
     let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
-    let journal_state = state
-        .journal_store
-        .get_journal(&journal_id)
-        .await
-        .or_redirect(callback_url)?
-        .ok_or(KnownErrors::InvalidJournal.redirect(callback_url))?;
 
     let user = user::get_user(session)?;
 
@@ -260,11 +170,6 @@ pub async fn transact(
         // if the id isn't valid, assume that the user just didn't select an account
         if let Ok(acc_id) = AccountId::from_str(acc_id_str) {
             // if the id doesn't map to an account, return an error
-            journal_state
-                .accounts
-                .get(&acc_id)
-                .ok_or(KnownErrors::AccountDoesntExist { id: acc_id })
-                .or_redirect(callback_url)?;
 
             let dec_amt = Decimal::from_str(
                 form.amount
@@ -324,27 +229,8 @@ pub async fn transact(
     } else if updates.is_empty() {
         Err(KnownErrors::InvalidInput).or_redirect(callback_url)
     } else {
-        let transaction_id = TransactionId::new();
         state
-            .journal_store
-            .create_transaction(
-                &journal_id,
-                TransactionEvent::Created {
-                    id: transaction_id,
-                    author: user.id,
-                    updates,
-                    created_at: Utc::now(),
-                },
-            )
-            .await
-            .or_redirect(callback_url)?;
-        state
-            .journal_store
-            .record(
-                journal_id,
-                Authority::Direct(Actor::Anonymous),
-                JournalEvent::AddedEntry { transaction_id },
-            )
+            .transaction_create(TransactionId::new(), journal_id, user.id, updates)
             .await
             .or_redirect(callback_url)?;
 
@@ -361,77 +247,56 @@ pub struct UpdatePermissionsForm {
     pub delete: Option<String>,
 }
 
-pub async fn update_permissions(
-    State(state): State<AppState>,
-    session: AuthSession,
+pub async fn update_permissions<S, T>(
+    State(state): State<S>,
+    session: AuthSession<T>,
     Path((id, person_id)): Path<(String, String)>,
     Form(form): Form<UpdatePermissionsForm>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, Redirect>
+where
+    S: AppState,
+    T: AuthnBackend<User = User>,
+{
     let callback_url = &format!("/journal/{}/person/{}", id, person_id);
 
     let user = user::get_user(session)?;
     let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
     let target_user_id = UserId::from_str(&person_id).or_redirect(callback_url)?;
 
-    let journal_state = state
-        .journal_store
-        .get_journal(&journal_id)
-        .await
-        .or_redirect(callback_url)?
-        .ok_or(KnownErrors::InvalidJournal.redirect(callback_url))?;
-
-    if !journal_state.deleted {
-        if journal_state
-            .get_user_permissions(&user.id)
-            .contains(Permissions::OWNER)
-        {
-            let mut new_permissions = Permissions::empty();
-            if form.read.is_some() {
-                new_permissions.insert(Permissions::READ);
-            }
-            if form.addaccount.is_some() {
-                new_permissions.insert(Permissions::ADDACCOUNT);
-            }
-            if form.appendtransaction.is_some() {
-                new_permissions.insert(Permissions::APPENDTRANSACTION);
-            }
-            if form.invite.is_some() {
-                new_permissions.insert(Permissions::INVITE);
-            }
-            if form.delete.is_some() {
-                new_permissions.insert(Permissions::DELETE);
-            }
-
-            state
-                .journal_store
-                .record(
-                    journal_id,
-                    Authority::Direct(Actor::Anonymous),
-                    JournalEvent::UpdatedTenantPermissions {
-                        id: target_user_id,
-                        permissions: new_permissions,
-                    },
-                )
-                .await
-                .or_redirect(callback_url)?;
-        } else {
-            return Err(KnownErrors::PermissionError {
-                required_permissions: Permissions::OWNER,
-            }
-            .redirect(callback_url));
-        }
-    } else {
-        return Err(KnownErrors::InvalidJournal.redirect(callback_url));
+    let mut new_permissions = Permissions::empty();
+    if form.read.is_some() {
+        new_permissions.insert(Permissions::READ);
     }
+    if form.addaccount.is_some() {
+        new_permissions.insert(Permissions::ADDACCOUNT);
+    }
+    if form.appendtransaction.is_some() {
+        new_permissions.insert(Permissions::APPENDTRANSACTION);
+    }
+    if form.invite.is_some() {
+        new_permissions.insert(Permissions::INVITE);
+    }
+    if form.delete.is_some() {
+        new_permissions.insert(Permissions::DELETE);
+    }
+
+    state
+        .journal_update_tenant_permissions(journal_id, target_user_id, new_permissions, user.id)
+        .await
+        .or_redirect(callback_url)?;
 
     Ok(Redirect::to(callback_url))
 }
 
-pub async fn remove_tenant(
-    State(state): State<AppState>,
-    session: AuthSession,
+pub async fn remove_tenant<S, T>(
+    State(state): State<S>,
+    session: AuthSession<T>,
     Path((id, person_id)): Path<(String, String)>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, Redirect>
+where
+    S: AppState,
+    T: AuthnBackend<User = User>,
+{
     let callback_url = &format!("/journal/{}/person", id);
     let person_detail_url = &format!("/journal/{}/person/{}", id, person_id);
 
@@ -439,36 +304,10 @@ pub async fn remove_tenant(
     let journal_id = JournalId::from_str(&id).or_redirect(person_detail_url)?;
     let target_user_id = UserId::from_str(&person_id).or_redirect(person_detail_url)?;
 
-    let journal_state = state
-        .journal_store
-        .get_journal(&journal_id)
+    state
+        .journal_remove_tenant(journal_id, target_user_id, user.id)
         .await
-        .or_redirect(person_detail_url)?
-        .ok_or(KnownErrors::InvalidJournal.redirect(person_detail_url))?;
-
-    if !journal_state.deleted {
-        if journal_state
-            .get_user_permissions(&user.id)
-            .contains(Permissions::OWNER)
-        {
-            state
-                .journal_store
-                .record(
-                    journal_id,
-                    Authority::Direct(Actor::Anonymous),
-                    JournalEvent::RemovedTenant { id: target_user_id },
-                )
-                .await
-                .or_redirect(person_detail_url)?;
-        } else {
-            return Err(KnownErrors::PermissionError {
-                required_permissions: Permissions::OWNER,
-            }
-            .redirect(person_detail_url));
-        }
-    } else {
-        return Err(KnownErrors::InvalidJournal.redirect(person_detail_url));
-    }
+        .or_redirect(callback_url)?;
 
     Ok(Redirect::to(callback_url))
 }

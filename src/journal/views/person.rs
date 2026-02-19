@@ -1,28 +1,32 @@
-use crate::auth::user::UserStore;
+use crate::AppState;
 use crate::auth::user::{self};
 use crate::authority::UserId;
 use crate::ident::JournalId;
-use crate::journal::layout::layout;
-use crate::journal::JournalStore;
+use crate::journal::JournalNameOrUnknown;
 use crate::journal::Permissions;
+use crate::journal::layout::layout;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
-use crate::AppState;
-use crate::AuthSession;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::response::Redirect;
-use maud::html;
+use axum_login::AuthSession;
 use maud::Markup;
+use maud::html;
 use std::str::FromStr;
 
-pub async fn person_detail_page(
-    State(state): State<AppState>,
-    session: AuthSession,
+// TODO: Fix This! Super messy and hard to work with.
+pub async fn person_detail_page<S, T>(
+    State(state): State<S>,
+    session: AuthSession<T>,
     Path((id, person_id)): Path<(String, String)>,
     Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect> {
+) -> Result<Markup, Redirect>
+where
+    S: AppState,
+    T: axum_login::AuthnBackend<User = user::User>,
+{
     let user = user::get_user(session)?;
 
     let journal_id_res = JournalId::from_str(&id);
@@ -68,7 +72,7 @@ pub async fn person_detail_page(
         }
     };
 
-    let journal_state_res = state.journal_store.get_journal(&journal_id).await;
+    let journal_state_res = state.journal_get(journal_id, user.id).await;
 
     let journal_state = match journal_state_res {
         Ok(Some(js)) => js,
@@ -107,7 +111,7 @@ pub async fn person_detail_page(
     };
 
     if !journal_state
-        .get_user_permissions(&user.id)
+        .get_user_permissions(user.id)
         .contains(Permissions::READ)
     {
         return Ok(layout(
@@ -129,11 +133,11 @@ pub async fn person_detail_page(
     let tenant_info = journal_state.tenants.get(&target_user_id);
     let is_owner = journal_state.owner == target_user_id;
 
-    let target_email = state
-        .user_store
-        .get_user_email(&target_user_id)
-        .await
-        .unwrap_or_else(|_| "Unknown".to_string());
+    let target_email = match state.user_get_email(target_user_id).await {
+        Ok(Some(email)) => email,
+        Ok(None) => "Unknown User".to_string(),
+        Err(e) => format!("Error fetching email: {}", e),
+    };
 
     let content = html! {
         div class="max-w-2xl mx-auto py-8 px-4" {
@@ -238,35 +242,47 @@ fn permission_checkbox(name: &'static str, label: &'static str, checked: bool) -
     }
 }
 
-pub async fn people_list_page(
-    State(state): State<AppState>,
-    session: AuthSession,
+pub async fn people_list_page<S, T>(
+    State(state): State<S>,
+    session: AuthSession<T>,
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect> {
+) -> Result<Markup, Redirect>
+where
+    S: AppState,
+    T: axum_login::AuthnBackend<User = user::User>,
+{
     let user = user::get_user(session)?;
 
-    let journal_state_res = match JournalId::from_str(&id) {
-        Ok(s) => state.journal_store.get_journal(&s).await,
-        Err(e) => Err(e.into()),
-    };
+    let journal_id_res = JournalId::from_str(&id);
 
     let content = html! {
-        @if let Ok(Some(journal_state)) = &journal_state_res && journal_state.get_user_permissions(&user.id).contains(Permissions::READ) {
-            @for (tenant_id, _) in journal_state.tenants.clone() {
-                a
-                href=(format!("/journal/{}/person/{}", id, tenant_id))
-                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
-                    h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                        @match state.user_store.get_user_email(&tenant_id).await {
-                            Ok(email) => (email),
-                            Err(e) => (format!("An error occurred while fetching username: {}", e)),
+        @if let Ok(journal_id) = journal_id_res {
+            @match state.journal_get_users(journal_id, user.id).await {
+                Ok(users) => {
+                    @for user_id in users {
+                        a
+                        href=(format!("/journal/{}/person/{}", id, user_id))
+                        class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
+                            h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                @match state.user_get_email(user_id).await {
+                                    Ok(Some(email)) => (email),
+                                    Ok(None) => {"unknown user"},
+                                    Err(e) => (format!("failed to fetch email: {:?}", e)),
+                                }
+                            }
+                        }
+                    }
+                },
+                Err(e) => {
+                    div class="flex justify-center items-center h-full" {
+                        p class="text-gray-500 dark:text-gray-400" {
+                            (format!("An error occurred while fetching users: {}", e))
                         }
                     }
                 }
             }
-        }
-        @else {
+        } @else {
             div class="flex justify-center items-center h-full" {
                 p class="text-gray-500 dark:text-gray-400" {
                     "Invalid journal id"
@@ -333,12 +349,10 @@ pub async fn people_list_page(
 
     Ok(layout(
         Some(
-            &journal_state_res
-                .as_ref()
-                .ok()
-                .and_then(|s| s.as_ref())
-                .map(|s| s.name.clone())
-                .unwrap_or_else(|| "unknown journal".to_string()),
+            &state
+                .journal_get_name_from_res(journal_id_res)
+                .await
+                .or_unknown(),
         ),
         true,
         Some(&id),

@@ -1,16 +1,17 @@
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Query;
-use axum::http::StatusCode;
 use axum::http::header;
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
+use maud::html;
 use maud::Markup;
 use maud::PreEscaped;
-use maud::html;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::Arc;
 use thiserror::Error;
 use webauthn_rs::prelude::AuthenticationResult;
@@ -19,11 +20,11 @@ use webauthn_rs::prelude::PublicKeyCredential;
 use webauthn_rs::prelude::RequestChallengeResponse;
 use webauthn_rs::prelude::Webauthn;
 
-use super::AuthSession;
 use super::passkey::PasskeyStore;
 use super::user::User;
 use super::user::UserId;
 use super::user::UserStore;
+use super::AuthSession;
 use crate::theme::theme_with_head;
 
 /// Errors that occur during the signin flow.
@@ -352,7 +353,7 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
     mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
-) -> Result<axum::response::Response, SigninError> {
+) -> Result<Response, SigninError> {
     // Extract credential from form
     let credential_json = form_data
         .get("credential")
@@ -383,8 +384,7 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
             _ = session.remove_value("auth_state").await;
 
             // Get the user and log them in via axum_login
-            let user = user_store
-                .get_user(&user_id)
+            let user = UserStore::get_user(user_store.deref(), user_id)
                 .await
                 .map_err(|e| SigninError::StoreError(e.to_string()))?
                 .ok_or(SigninError::UserNotFound)?;
@@ -464,7 +464,7 @@ async fn handle_dev_login<U: UserStore>(
     mut auth_session: AuthSession,
     dev_user_id: &str,
     next: Option<String>,
-) -> axum::response::Response {
+) -> Response {
     use super::user::UserId;
     use std::str::FromStr;
 
@@ -475,7 +475,7 @@ async fn handle_dev_login<U: UserStore>(
     };
 
     // Look up the user
-    let user = match user_store.get_user(&user_id).await {
+    let user = match UserStore::get_user(user_store.deref(), user_id).await {
         Ok(Some(user)) => user,
         _ => return Redirect::to("/signin?error=auth_failed").into_response(),
     };

@@ -21,5 +21,6 @@ pub trait EventStore: Send + Sync {
         id: Self::Id,
         by: Authority,
         event: Self::Event,
+        tx: Option<&mut sqlx::PgTransaction<'_>>,
     ) -> Result<Self::EventId, Self::Error>;
 }

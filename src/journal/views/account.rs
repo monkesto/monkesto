@@ -1,10 +1,9 @@
-use crate::AppState;
-use crate::AuthSession;
+use crate::appstate::AppState;
 use crate::auth::user;
+use crate::auth::user::User;
 use crate::ident::Ident;
 use crate::ident::JournalId;
-use crate::journal::JournalStore;
-use crate::journal::Permissions;
+use crate::journal::JournalNameOrUnknown;
 use crate::journal::layout::layout;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
@@ -12,6 +11,9 @@ use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
 use axum::response::Redirect;
+use axum_login::AuthSession;
+use axum_login::AuthUser;
+use axum_login::AuthnBackend;
 use maud::Markup;
 use maud::html;
 use std::str::FromStr;
@@ -22,35 +24,48 @@ struct AccountItem {
     pub balance: i64, // in cents
 }
 
-pub async fn account_list_page(
-    State(state): State<AppState>,
-    session: AuthSession,
+pub async fn account_list_page<S, T>(
+    State(state): State<S>,
+    session: AuthSession<T>,
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect> {
+) -> Result<Markup, Redirect>
+where
+    S: AppState,
+    T: AuthnBackend<User = User>,
+{
     let user = user::get_user(session)?;
 
-    let journal_state_res = match JournalId::from_str(&id) {
-        Ok(s) => state.journal_store.get_journal(&s).await,
-        Err(e) => Err(e),
-    };
+    let journal_id_res = JournalId::from_str(&id);
 
     let content = html! {
-        @if let Ok(Some(journal_state)) = &journal_state_res && journal_state.get_user_permissions(&user.id).contains(Permissions::READ) {
-            @for (acc_id, acc) in journal_state.accounts.clone() {
-                a
-                href=(format!("/journal/{}/account/{}", id, acc_id.to_string()))
-                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
-                    div
-                    class="flex justify-between items-center" {
-                        h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                            (acc.name)
-                        }
-                        @let balance = acc.balance.abs();
-                        div class="text-right" {
-                            div class="text-lg font-medium text-gray-900 dark:text-white" {
-                                (format!("${}.{:02} {}", balance / 100, balance % 100, if acc.balance < 0 { "Dr" } else { "Cr" }))
+        @if let Ok(journal_id) = journal_id_res {
+            @match state.account_get_all_in_journal(journal_id, user.id()).await {
+                Ok(accounts) => {
+                    @for (acc_id, acc) in accounts {
+                        a
+                        href=(format!("/journal/{}/account/{}", id, acc_id.to_string()))
+                        class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
+                            div
+                            class="flex justify-between items-center" {
+                                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                    (acc.name)
+                                }
+                                @let balance = acc.balance.abs();
+                                div class="text-right" {
+                                    div class="text-lg font-medium text-gray-900 dark:text-white" {
+                                        (format!("${}.{:02} {}", balance / 100, balance % 100, if acc.balance < 0 { "Dr" } else { "Cr" }))
+                                    }
+                                }
                             }
+                        }
+                    }
+                }
+
+                Err(e) => {
+                    div class="flex justify-center items-center h-full" {
+                        p class="text-gray-500 dark:text-gray-400" {
+                            (format!("Failed to fetch accounts: {:?}", e))
                         }
                     }
                 }
@@ -59,7 +74,7 @@ pub async fn account_list_page(
         @else {
             div class="flex justify-center items-center h-full" {
                 p class="text-gray-500 dark:text-gray-400" {
-                    "Invalid journal"
+                    "Invalid journal Id"
                 }
             }
         }
@@ -112,12 +127,10 @@ pub async fn account_list_page(
 
     Ok(layout(
         Some(
-            &journal_state_res
-                .map(|s| {
-                    s.map(|j| j.name.clone())
-                        .unwrap_or_else(|| "unknown journal".to_string())
-                })
-                .unwrap_or_else(|_| "unknown journal".to_string()),
+            &state
+                .journal_get_name_from_res(journal_id_res)
+                .await
+                .or_unknown(),
         ),
         true,
         Some(&id),

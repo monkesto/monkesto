@@ -1,14 +1,14 @@
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Query;
-use axum::http::StatusCode;
 use axum::http::header;
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
+use maud::html;
 use maud::Markup;
 use maud::PreEscaped;
-use maud::html;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -20,7 +20,6 @@ use webauthn_rs::prelude::Webauthn;
 use webauthn_rs_proto::AuthenticatorSelectionCriteria;
 use webauthn_rs_proto::ResidentKeyRequirement;
 
-use super::AuthSession;
 use super::passkey::PasskeyEvent;
 use super::passkey::PasskeyId;
 use super::passkey::PasskeyStore;
@@ -28,6 +27,7 @@ use super::user::Email;
 use super::user::UserEvent;
 use super::user::UserId;
 use super::user::UserStore;
+use super::AuthSession;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::theme::theme_with_head;
@@ -394,7 +394,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
     mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
-) -> Result<axum::response::Response, SignupError> {
+) -> Result<Response, SignupError> {
     // Extract credential from form
     let credential_json = form_data
         .get("credential")
@@ -433,6 +433,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                         email: email_validated.clone(),
                         webauthn_uuid,
                     },
+                    None,
                 )
                 .await
                 .is_err()
@@ -445,6 +446,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                     passkey_id,
                     Authority::Direct(Actor::User(user_id)),
                     PasskeyEvent::Created { user_id, passkey },
+                    None,
                 )
                 .await
                 .is_err()
