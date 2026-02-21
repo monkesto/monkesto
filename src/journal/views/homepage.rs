@@ -119,34 +119,36 @@ pub async fn journal_detail(
     };
 
     let content = html! {
-        div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
+        div class="flex flex-col gap-6" {
             @match &journal_state_res {
                 Ok(Some(journal_state)) => {
-                    a
-                    href=(format!("/journal/{}/transaction", &id))
-                    class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                        h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                            "Transactions"
+                    div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" {
+                        a
+                        href=(format!("/journal/{}/transaction", &id))
+                        class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                            h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                "Transactions"
+                            }
+                        }
+
+                        a
+                        href=(format!("/journal/{}/account", &id))
+                        class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                            h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                "Accounts"
+                            }
+                        }
+
+                        a
+                        href=(format!("/journal/{}/person", &id))
+                        class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                            h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                "People"
+                            }
                         }
                     }
 
-                    a
-                    href=(format!("/journal/{}/account", &id))
-                    class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                        h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                            "Accounts"
-                        }
-                    }
-
-                    a
-                    href=(format!("/journal/{}/person", &id))
-                    class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                        h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                            "People"
-                        }
-                    }
-
-                    div class="mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg" {
+                    div class="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg" {
                         div class="space-y-2" {
                             div class="text-sm text-gray-600 dark:text-gray-400" {
                                 "Created by "
