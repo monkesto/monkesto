@@ -155,16 +155,14 @@ impl EventStore for AccountMemoryStore {
                 .push(id);
 
             Ok(())
+        } else if let Some(mut events) = self.events.get_mut(&id)
+            && let Some(mut state) = self.account_table.get_mut(&id)
+        {
+            state.apply(event.clone());
+            events.push(event);
+            Ok(())
         } else {
-            if let Some(mut events) = self.events.get_mut(&id)
-                && let Some(mut state) = self.account_table.get_mut(&id)
-            {
-                state.apply(event.clone());
-                events.push(event);
-                Ok(())
-            } else {
-                Err(KnownErrors::InvalidJournal)
-            }
+            Err(KnownErrors::InvalidJournal)
         }
     }
 }

@@ -130,22 +130,20 @@ impl EventStore for JournalMemoryStore {
             self.user_journals.entry(creator).or_default().insert(id);
 
             Ok(())
-        } else {
-            if let Some(mut events) = self.events.get_mut(&id)
-                && let Some(mut state) = self.journal_table.get_mut(&id)
-            {
-                // Update user_journals index for membership changes
-                if let JournalEvent::AddedTenant { id: user_id, .. } = &event {
-                    self.user_journals.entry(*user_id).or_default().insert(id);
-                } else if let JournalEvent::RemovedTenant { id: user_id } = &event {
-                    self.user_journals.entry(*user_id).or_default().remove(&id);
-                }
-                state.apply(event.clone());
-                events.push(event);
-                Ok(())
-            } else {
-                Err(KnownErrors::InvalidJournal)
+        } else if let Some(mut events) = self.events.get_mut(&id)
+            && let Some(mut state) = self.journal_table.get_mut(&id)
+        {
+            // Update user_journals index for membership changes
+            if let JournalEvent::AddedTenant { id: user_id, .. } = &event {
+                self.user_journals.entry(*user_id).or_default().insert(id);
+            } else if let JournalEvent::RemovedTenant { id: user_id } = &event {
+                self.user_journals.entry(*user_id).or_default().remove(&id);
             }
+            state.apply(event.clone());
+            events.push(event);
+            Ok(())
+        } else {
+            Err(KnownErrors::InvalidJournal)
         }
     }
 }
