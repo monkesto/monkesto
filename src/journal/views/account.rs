@@ -17,6 +17,7 @@ use maud::Markup;
 use maud::html;
 use std::str::FromStr;
 
+#[expect(dead_code)]
 struct AccountItem {
     pub id: Ident,
     pub name: String,
