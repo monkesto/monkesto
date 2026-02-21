@@ -257,8 +257,8 @@ mod test_transaction {
     use crate::authority::UserId;
     use crate::ident::AccountId;
     use crate::ident::JournalId;
-    use crate::journal::transaction::BalanceUpdate;
-    use crate::journal::transaction::EntryType;
+    use crate::transaction::BalanceUpdate;
+    use crate::transaction::EntryType;
     use chrono::Utc;
     use sqlx::PgPool;
     use sqlx::prelude::FromRow;

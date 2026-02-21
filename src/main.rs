@@ -1,3 +1,4 @@
+mod account;
 mod appstate;
 mod auth;
 mod authority;
@@ -7,6 +8,7 @@ mod journal;
 mod known_errors;
 mod notfoundpage;
 mod theme;
+mod transaction;
 
 use appstate::AppState;
 use axum::Router;

@@ -3,8 +3,8 @@ use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
 use crate::journal::Permissions;
-use crate::journal::transaction::BalanceUpdate;
-use crate::journal::transaction::EntryType;
+use crate::transaction::BalanceUpdate;
+use crate::transaction::EntryType;
 use axum_login::AuthSession;
 
 use crate::BackendType;

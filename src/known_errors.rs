@@ -7,7 +7,7 @@ use crate::auth::user::Email;
 use crate::ident::AccountId;
 use crate::ident::TransactionId;
 use crate::journal::Permissions;
-use crate::journal::transaction::BalanceUpdate;
+use crate::transaction::BalanceUpdate;
 use axum::response::Redirect;
 use base64::Engine;
 use base64::engine::general_purpose;

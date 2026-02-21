@@ -1,7 +1,5 @@
-pub mod account;
 pub mod commands;
 pub mod layout;
-pub mod transaction;
 pub mod views;
 
 use crate::authority::Authority;
