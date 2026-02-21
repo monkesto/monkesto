@@ -65,14 +65,14 @@ async fn main() {
         auth::router(app_state.user_store.clone()).expect("Failed to initialize WebAuthn routes");
 
     let journal_routes = Router::new()
-        .route("/journal", get(journal::views::homepage::journal_list))
+        .route("/journal", get(journal::views::journal::journal_list))
         .route(
             "/createjournal",
             axum::routing::post(journal::commands::create_journal),
         )
         .route(
             "/journal/{id}",
-            get(journal::views::homepage::journal_detail),
+            get(journal::views::journal::journal_detail),
         )
         .route(
             "/journal/{id}/transaction",
@@ -92,7 +92,7 @@ async fn main() {
         )
         .route(
             "/journal/{id}/subjournals",
-            get(journal::views::homepage::sub_journal_list_page),
+            get(journal::views::journal::sub_journal_list_page),
         )
         .route(
             "/journal/{id}/createsubjournal",
