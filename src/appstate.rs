@@ -295,6 +295,7 @@ pub(crate) trait AppState: Sized {
         journal_id: JournalId,
         creator_id: UserId,
         account_name: String,
+        parent_account_id: Option<AccountId>,
     ) -> Result<(), KnownErrors> {
         let journal_state = self
             .journal_store()
@@ -333,6 +334,7 @@ pub(crate) trait AppState: Sized {
                     name: account_name,
                     creator: creator_id,
                     created_at: Utc::now(),
+                    parent_account_id,
                 },
                 None,
             )
@@ -585,6 +587,7 @@ pub(crate) trait AppState: Sized {
                 maple_ridge_academy_id,
                 pacioli_id,
                 "Assets".to_owned(),
+                None,
             )
             .await?;
 
@@ -593,6 +596,7 @@ pub(crate) trait AppState: Sized {
                 maple_ridge_academy_id,
                 pacioli_id,
                 "Liabilities".to_owned(),
+                None,
             )
             .await?;
 
@@ -601,6 +605,7 @@ pub(crate) trait AppState: Sized {
                 maple_ridge_academy_id,
                 pacioli_id,
                 "Equity".to_owned(),
+                None,
             )
             .await?;
 
@@ -609,6 +614,7 @@ pub(crate) trait AppState: Sized {
                 maple_ridge_academy_id,
                 pacioli_id,
                 "Revenue".to_owned(),
+                None,
             )
             .await?;
 
@@ -617,6 +623,7 @@ pub(crate) trait AppState: Sized {
                 maple_ridge_academy_id,
                 pacioli_id,
                 "Expenses".to_owned(),
+                None,
             )
             .await?;
         }

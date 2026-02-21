@@ -38,12 +38,12 @@ pub async fn account_list_page(
         @if let Ok(journal_id) = journal_id_res {
             @match state.account_get_all_in_journal(journal_id, user.id).await {
                 Ok(accounts) => {
-                    @for (acc_id, acc) in accounts {
+                    // Render top-level accounts, then their children indented beneath them
+                    @for (acc_id, acc) in accounts.iter().filter(|(_, a)| a.parent_account_id.is_none()) {
                         a
                         href=(format!("/journal/{}/account/{}", id, acc_id.to_string()))
                         class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
-                            div
-                            class="flex justify-between items-center" {
+                            div class="flex justify-between items-center" {
                                 h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
                                     (acc.name)
                                 }
@@ -51,6 +51,26 @@ pub async fn account_list_page(
                                 div class="text-right" {
                                     div class="text-lg font-medium text-gray-900 dark:text-white" {
                                         (format!("${}.{:02} {}", balance / 100, balance % 100, if acc.balance < 0 { "Dr" } else { "Cr" }))
+                                    }
+                                }
+                            }
+                        }
+                        @for (sub_id, sub) in accounts.iter().filter(|(_, a)| a.parent_account_id == Some(*acc_id)) {
+                            div class="ml-6" {
+                                a
+                                href=(format!("/journal/{}/account/{}", id, sub_id.to_string()))
+                                class="flex items-center gap-2 p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
+                                    span class="text-gray-400 dark:text-gray-500 select-none" { "↳" }
+                                    div class="flex justify-between items-center flex-1" {
+                                        h3 class="text-base font-medium text-gray-800 dark:text-gray-200" {
+                                            (sub.name)
+                                        }
+                                        @let balance = sub.balance.abs();
+                                        div class="text-right" {
+                                            div class="text-base font-medium text-gray-900 dark:text-white" {
+                                                (format!("${}.{:02} {}", balance / 100, balance % 100, if sub.balance < 0 { "Dr" } else { "Cr" }))
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -78,12 +98,14 @@ pub async fn account_list_page(
         hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600";
 
         div class="mt-10" {
-            form action=(format!("/journal/{}/createaccount", id)) method="post" class="space-y-6" {
+            form action=(format!("/journal/{}/createaccount", id)) method="post" class="space-y-4" {
+                h3 class="text-base font-semibold text-gray-900 dark:text-gray-100" { "Create New Account" }
+
                 div {
                     label
                     for="account_name"
                     class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100" {
-                        "Create New Account"
+                        "Name"
                     }
 
                     div class="mt-2" {
@@ -94,6 +116,30 @@ pub async fn account_list_page(
                         required
                         class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                         ;
+                    }
+                }
+
+                @if let Ok(journal_id) = journal_id_res && let Ok(accounts) = state.account_get_all_in_journal(journal_id, user.id).await {
+                    div {
+                        label
+                        for="parent_account_id"
+                        class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100" {
+                            "Parent Account (optional)"
+                        }
+                        div class="mt-2" {
+                            select
+                            id="parent_account_id"
+                            name="parent_account_id"
+                            class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:focus:outline-indigo-500" {
+                                option value="" { "None" }
+                                @for (acc_id, acc) in accounts.iter().filter(|(_, a)| a.parent_account_id.is_none()) {
+                                    option value=(acc_id) { (acc.name) }
+                                    @for (sub_id, sub) in accounts.iter().filter(|(_, a)| a.parent_account_id == Some(*acc_id)) {
+                                        option value=(sub_id) { "↳ " (sub.name) }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 

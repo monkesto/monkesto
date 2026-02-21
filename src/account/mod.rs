@@ -30,6 +30,7 @@ pub enum AccountEvent {
         name: String,
         creator: UserId,
         created_at: DateTime<Utc>,
+        parent_account_id: Option<AccountId>,
     },
     Renamed {
         new_name: String,
@@ -49,6 +50,7 @@ pub struct AccountState {
     pub balance: i64,
     pub created_at: DateTime<Utc>,
     pub deleted: bool,
+    pub parent_account_id: Option<AccountId>,
 }
 
 impl AccountState {
@@ -59,11 +61,13 @@ impl AccountState {
                 name,
                 creator,
                 created_at,
+                parent_account_id,
             } => {
                 self.journal_id = journal_id;
                 self.name = name;
                 self.author = creator;
                 self.created_at = created_at;
+                self.parent_account_id = parent_account_id;
             }
             AccountEvent::Renamed { new_name, .. } => {
                 self.name = new_name;
@@ -133,6 +137,7 @@ impl EventStore for AccountMemoryStore {
             name,
             creator,
             created_at,
+            parent_account_id,
         } = event.clone()
         {
             self.events.insert(id, vec![event]);
@@ -145,6 +150,7 @@ impl EventStore for AccountMemoryStore {
                 balance: 0,
                 created_at,
                 deleted: false,
+                parent_account_id,
             };
 
             self.account_table.insert(id, state);

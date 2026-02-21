@@ -102,6 +102,7 @@ pub async fn invite_user(
 #[derive(Deserialize)]
 pub struct CreateAccountForm {
     account_name: String,
+    parent_account_id: Option<String>,
 }
 
 pub async fn create_account(
@@ -120,8 +121,20 @@ pub async fn create_account(
         return Err(KnownErrors::InvalidInput).or_redirect(callback_url)?;
     }
 
+    let parent_account_id = form
+        .parent_account_id
+        .filter(|s| !s.is_empty())
+        .map(|s| AccountId::from_str(&s).or_redirect(callback_url))
+        .transpose()?;
+
     state
-        .account_create(AccountId::new(), journal_id, user.id, form.account_name)
+        .account_create(
+            AccountId::new(),
+            journal_id,
+            user.id,
+            form.account_name,
+            parent_account_id,
+        )
         .await
         .or_redirect(callback_url)?;
 
