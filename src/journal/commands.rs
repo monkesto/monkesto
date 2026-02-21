@@ -268,6 +268,28 @@ pub async fn update_permissions(
     Ok(Redirect::to(callback_url))
 }
 
+#[derive(Deserialize)]
+pub struct CreateSubJournalForm {
+    subjournal_name: String,
+}
+
+/// Stub handler — not yet implemented.
+/// TODO: create a child journal (subjournal) with `parent_journal_id` set to `id` once the data model supports it.
+pub async fn create_sub_journal(
+    session: AuthSession<BackendType>,
+    Path(id): Path<String>,
+    Form(form): Form<CreateSubJournalForm>,
+) -> Result<Redirect, Redirect> {
+    let callback_url = format!("/journal/{}/subjournals", id);
+
+    let _user = user::get_user(session)?;
+
+    let _ = form.subjournal_name;
+
+    // TODO: implement subjournal creation
+    Ok(Redirect::to(&callback_url))
+}
+
 pub async fn remove_tenant(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,

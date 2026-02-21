@@ -146,6 +146,14 @@ pub async fn journal_detail(
                                 "People"
                             }
                         }
+
+                        a
+                        href=(format!("/journal/{}/subjournals", &id))
+                        class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                            h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                "Subjournals"
+                            }
+                        }
                     }
 
                     div class="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg" {
@@ -194,5 +202,96 @@ pub async fn journal_detail(
         true,
         Some(&id),
         content,
+    ))
+}
+
+pub async fn sub_journal_list_page(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
+    Path(id): Path<String>,
+) -> Result<Markup, Redirect> {
+    let user = user::get_user(session)?;
+
+    let journal_state_res = match JournalId::from_str(&id) {
+        Ok(s) => state.journal_get(s, user.id).await,
+        Err(e) => Err(e),
+    };
+
+    let content = html! {
+        div class="flex flex-col gap-6" {
+            @match &journal_state_res {
+                Ok(Some(_journal_state)) => {
+                    // TODO: fetch and display actual subjournals when the data model supports parent_journal_id
+                    p class="text-sm text-gray-500 dark:text-gray-400" {
+                        "No subjournals yet."
+                    }
+
+                    hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600";
+
+                    div class="mt-10" {
+                        div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6" {
+                            h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6" {
+                                "Create Subjournal"
+                            }
+
+                            // TODO: wire up to POST /journal/{id}/createsubjournal once backend logic is implemented
+                            form method="post" action=(format!("/journal/{}/createsubjournal", id)) class="space-y-4" {
+                                div {
+                                    label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                        "Name"
+                                    }
+                                    input
+                                        type="text"
+                                        name="subjournal_name"
+                                        placeholder="Subjournal name"
+                                        required
+                                        class="block w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400";
+                                }
+
+                                div class="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-600" {
+                                    p class="text-sm text-gray-500 dark:text-gray-400" {
+                                        "Subjournals let you scope transactions to a subset of this journal."
+                                    }
+                                    button
+                                        type="submit"
+                                        class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" {
+                                        "Create Subjournal"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Ok(None) => {
+                    div class="flex justify-center items-center h-full" {
+                        p class="text-gray-500 dark:text-gray-400" {
+                            "Unknown journal"
+                        }
+                    }
+                }
+
+                Err(e) => {
+                    div class="flex justify-center items-center h-full" {
+                        p class="text-gray-500 dark:text-gray-400" {
+                            (format!("Failed to fetch journal: {:?}", e))
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    let wrapped_content = html! {
+        div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
+            (content)
+        }
+    };
+
+    Ok(layout(
+        Some(&journal_state_res.map(|s| s.map(|s| s.name)).or_unknown()),
+        true,
+        Some(&id),
+        wrapped_content,
     ))
 }

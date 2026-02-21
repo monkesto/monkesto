@@ -41,12 +41,17 @@ pub async fn transaction_list_page(
                                         @let entry_amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
 
                                         div class="flex justify-between items-center" {
-                                            span class="text-base font-medium text-gray-900 dark:text-white" {
-                                                @match state.account_get_name(entry.account_id).await {
-                                                    Ok(Some(name)) => (name),
-                                                    Ok(None) => "Unknown Account",
-                                                    Err(e) => (format! ("Failed to get account name: {}", e)),
+                                            div class="flex items-baseline gap-2" {
+                                                span class="text-base font-medium text-gray-900 dark:text-white" {
+                                                    @match state.account_get_name(entry.account_id).await {
+                                                        Ok(Some(name)) => (name),
+                                                        Ok(None) => "Unknown Account",
+                                                        Err(e) => (format! ("Failed to get account name: {}", e)),
+                                                    }
                                                 }
+                                                // TODO: show subjournal annotation when BalanceUpdate includes journal_id.
+                                                // If entry.journal_id != current journal_id, render:
+                                                //   span class="text-xs text-gray-400 dark:text-gray-500" { "· " (subjournal_name) }
                                             }
 
                                             span class="text-base text-gray-700 dark:text-gray-300" {
@@ -87,11 +92,23 @@ pub async fn transaction_list_page(
             }
 
             @if let Ok(journal_id) = journal_id_res && let Ok(accounts) = state.account_get_all_in_journal(journal_id, user.id).await {
+                @let journal_name = state.journal_get_name_from_res(journal_id_res.clone()).await.or_unknown();
                 form method="post" action=(format!("/journal/{}/transaction", id)) class="space-y-6" {
                     @for i in 0..4 {
                         div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg" {
-                            div class="space-y-3 md:space-y-0 md:grid md:grid-cols-12 md:gap-3" {
-                                div class="md:col-span-6" {
+                            div class="grid grid-cols-4 gap-3 md:grid-cols-12" {
+                                div class="col-span-4 md:col-span-3" {
+                                    label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                        "Journal"
+                                    }
+                                    // TODO: populate subjournals into the journal dropdown when the data model supports parent_journal_id.
+                                    // Each subjournal should be listed as an additional option here, with the parent journal as the default.
+                                    select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
+                                    name="entry_journal" {
+                                        option value=(id) selected { (journal_name) }
+                                    }
+                                }
+                                div class="col-span-4 md:col-span-5" {
                                     label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
                                         (if i < 2 {"Account"} else {"Account (Optional)"})
                                     }
@@ -103,27 +120,25 @@ pub async fn transaction_list_page(
                                         }
                                     }
                                 }
-                                div class="grid grid-cols-4 gap-3 md:col-span-6 md:grid-cols-6" {
-                                    div class="col-span-3 md:col-span-4" {
-                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                            "Amount"
-                                        }
-                                        input class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-                                        type="number"
-                                        step="0.01" min="0"
-                                        placeholder="0.00"
-                                        required[i < 2]
-                                        name="amount";
+                                div class="col-span-3 md:col-span-3" {
+                                    label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                        "Amount"
                                     }
-                                    div class="col-span-1 md:col-span-2" {
-                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                            "Type"
-                                        }
-                                        select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
-                                        name="entry_type" {
-                                            option value=(EntryType::Debit) { "Dr" }
-                                            option value=(EntryType::Credit) { "Cr" }
-                                        }
+                                    input class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                    type="number"
+                                    step="0.01" min="0"
+                                    placeholder="0.00"
+                                    required[i < 2]
+                                    name="amount";
+                                }
+                                div class="col-span-1 md:col-span-1" {
+                                    label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                        "Type"
+                                    }
+                                    select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
+                                    name="entry_type" {
+                                        option value=(EntryType::Debit) { "Dr" }
+                                        option value=(EntryType::Credit) { "Cr" }
                                     }
                                 }
                             }
@@ -132,7 +147,7 @@ pub async fn transaction_list_page(
 
                     div class="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-600" {
                         div class="text-sm text-gray-500 dark:text-gray-400" {
-                            "Debits must equal credits"
+                            "Debits must equal credits within each journal"
                         }
                         button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
                             "Create Transaction"

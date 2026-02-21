@@ -91,6 +91,14 @@ async fn main() {
             get(journal::views::person::people_list_page),
         )
         .route(
+            "/journal/{id}/subjournals",
+            get(journal::views::homepage::sub_journal_list_page),
+        )
+        .route(
+            "/journal/{id}/createsubjournal",
+            axum::routing::post(journal::commands::create_sub_journal),
+        )
+        .route(
             "/journal/{id}/invite",
             axum::routing::post(journal::commands::invite_user),
         )
