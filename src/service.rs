@@ -29,7 +29,7 @@ use crate::transaction::TransactionStore;
 use chrono::Utc;
 use std::str::FromStr;
 
-pub(crate) trait AppState: Sized {
+pub(crate) trait Service: Sized {
     type UserStore: UserStore;
     type JournalStore: JournalStore;
     type TransactionStore: TransactionStore;
@@ -759,7 +759,7 @@ pub(crate) trait AppState: Sized {
 }
 
 #[derive(Clone)]
-pub struct DefaultAppState<U, J, T, A>
+pub struct DefaultService<U, J, T, A>
 where
     U: UserStore,
     J: JournalStore,
@@ -772,7 +772,7 @@ where
     pub(crate) account_store: A,
 }
 
-impl<U, J, T, A> DefaultAppState<U, J, T, A>
+impl<U, J, T, A> DefaultService<U, J, T, A>
 where
     U: UserStore,
     J: JournalStore,
@@ -789,14 +789,10 @@ where
     }
 }
 
-pub type MemoryAppState = DefaultAppState<
-    MemoryUserStore,
-    JournalMemoryStore,
-    TransactionMemoryStore,
-    AccountMemoryStore,
->;
+pub type MemoryService =
+    DefaultService<MemoryUserStore, JournalMemoryStore, TransactionMemoryStore, AccountMemoryStore>;
 
-impl Default for MemoryAppState {
+impl Default for MemoryService {
     fn default() -> Self {
         Self::new(
             MemoryUserStore::new(),
@@ -807,7 +803,7 @@ impl Default for MemoryAppState {
     }
 }
 
-impl<U, J, T, A> AppState for DefaultAppState<U, J, T, A>
+impl<U, J, T, A> Service for DefaultService<U, J, T, A>
 where
     U: UserStore,
     J: JournalStore,

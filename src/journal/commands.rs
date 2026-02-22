@@ -1,8 +1,8 @@
-use crate::appstate::AppState;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
 use crate::journal::Permissions;
+use crate::service::Service;
 use crate::transaction::BalanceUpdate;
 use crate::transaction::EntryType;
 use axum_login::AuthSession;

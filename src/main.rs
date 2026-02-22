@@ -1,5 +1,4 @@
 mod account;
-mod appstate;
 mod auth;
 mod authority;
 mod event;
@@ -7,10 +6,10 @@ mod ident;
 mod journal;
 mod known_errors;
 mod notfoundpage;
+mod service;
 mod theme;
 mod transaction;
 
-use appstate::AppState;
 use axum::Router;
 use axum::http::StatusCode;
 use axum::http::header;
@@ -20,15 +19,16 @@ use axum::routing::get;
 use axum_login::AuthManagerLayerBuilder;
 use axum_login::login_required;
 use dotenvy::dotenv;
+use service::Service;
 use std::env;
 
-use crate::appstate::MemoryAppState;
 use crate::auth::MemoryUserStore;
+use crate::service::MemoryService;
 use tower_http::services::ServeFile;
 use tower_sessions::SessionManagerLayer;
 use tower_sessions_file_store::FileSessionStorage;
 
-type StateType = MemoryAppState;
+type StateType = MemoryService;
 
 type BackendType = MemoryUserStore;
 
@@ -48,7 +48,7 @@ async fn main() {
     let addr = env::var("SITE_ADDR").unwrap_or("0.0.0.0:3000".to_string());
 
     // this handles creation of all the stores journal stores and the base user store
-    let app_state = MemoryAppState::default();
+    let app_state = MemoryService::default();
 
     // this will seed the users and journals
     app_state
