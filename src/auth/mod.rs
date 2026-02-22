@@ -6,6 +6,8 @@ mod signout;
 mod signup;
 pub mod user;
 
+pub use user::UserService;
+
 use axum::Router;
 use axum::extract::Extension;
 use axum::routing::get;

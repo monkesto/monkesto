@@ -3,6 +3,7 @@ use crate::account::AccountMemoryStore;
 use crate::account::AccountState;
 use crate::account::AccountStore;
 use crate::auth::MemoryUserStore;
+use crate::auth::UserService;
 use crate::auth::user::Email;
 use crate::auth::user::UserStore;
 use crate::authority::Actor;
@@ -33,7 +34,7 @@ where
     T: TransactionStore,
     A: AccountStore,
 {
-    user_store: U,
+    user_service: UserService<U>,
     journal_service: JournalService<J, U>,
     transaction_store: T,
     account_store: A,
@@ -47,9 +48,10 @@ where
     A: AccountStore,
 {
     pub fn new(user_store: U, journal_store: J, transaction_store: T, account_store: A) -> Self {
-        let journal_service = JournalService::new(journal_store, user_store.clone());
+        let user_service = UserService::new(user_store.clone());
+        let journal_service = JournalService::new(journal_store, user_store);
         Self {
-            user_store,
+            user_service,
             journal_service,
             transaction_store,
             account_store,
@@ -57,7 +59,7 @@ where
     }
 
     pub(crate) fn user_store(&self) -> &U {
-        &self.user_store
+        self.user_service.store()
     }
 
     pub(crate) async fn journal_create(
@@ -345,12 +347,7 @@ where
         &self,
         userid: UserId,
     ) -> Result<Option<String>, KnownErrors> {
-        self.user_store
-            .get_user_email(userid)
-            .await
-            .map_err(|e| KnownErrors::InternalError {
-                context: e.to_string(),
-            })
+        self.user_service.user_get_email(userid).await
     }
 }
 

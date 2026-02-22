@@ -28,7 +28,7 @@ where
     J: JournalStore,
     U: UserStore,
 {
-    pub(crate) fn new(journal_store: J, user_store: U) -> Self {
+    pub fn new(journal_store: J, user_store: U) -> Self {
         Self {
             journal_store,
             user_store,

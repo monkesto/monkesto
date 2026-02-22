@@ -427,3 +427,27 @@ impl AuthnBackend for MemoryUserStore {
         UserStore::get_user(self, *user_id).await
     }
 }
+
+#[derive(Clone)]
+pub struct UserService<U: UserStore> {
+    user_store: U,
+}
+
+impl<U: UserStore> UserService<U> {
+    pub fn new(user_store: U) -> Self {
+        Self { user_store }
+    }
+
+    pub fn store(&self) -> &U {
+        &self.user_store
+    }
+
+    pub async fn user_get_email(&self, userid: UserId) -> Result<Option<String>, KnownErrors> {
+        self.user_store
+            .get_user_email(userid)
+            .await
+            .map_err(|e| KnownErrors::InternalError {
+                context: e.to_string(),
+            })
+    }
+}
