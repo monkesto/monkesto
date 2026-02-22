@@ -1,5 +1,8 @@
 pub mod commands;
+pub mod service;
 pub mod views;
+
+pub use service::TransactionService;
 
 use axum::Router;
 use axum::routing::get;

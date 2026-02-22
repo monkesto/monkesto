@@ -6,8 +6,6 @@ use crate::auth::MemoryUserStore;
 use crate::auth::UserService;
 use crate::auth::user::Email;
 use crate::auth::user::UserStore;
-use crate::authority::Actor;
-use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
@@ -18,13 +16,11 @@ use crate::journal::JournalState;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::known_errors::KnownErrors;
-use crate::known_errors::KnownErrors::PermissionError;
 use crate::transaction::BalanceUpdate;
-use crate::transaction::TransactionEvent;
 use crate::transaction::TransactionMemoryStore;
+use crate::transaction::TransactionService;
 use crate::transaction::TransactionState;
 use crate::transaction::TransactionStore;
-use chrono::Utc;
 
 #[derive(Clone)]
 pub struct Service<U, J, T, A>
@@ -37,7 +33,7 @@ where
     user_service: UserService<U>,
     journal_service: JournalService<J, U>,
     account_service: AccountService<A, J, U>,
-    transaction_store: T,
+    transaction_service: TransactionService<T, A, J, U>,
 }
 
 impl<U, J, T, A> Service<U, J, T, A>
@@ -51,11 +47,16 @@ where
         let user_service = UserService::new(user_store.clone());
         let journal_service = JournalService::new(journal_store, user_store);
         let account_service = AccountService::new(account_store, journal_service.clone());
+        let transaction_service = TransactionService::new(
+            transaction_store,
+            account_service.clone(),
+            journal_service.clone(),
+        );
         Self {
             user_service,
             journal_service,
             account_service,
-            transaction_store,
+            transaction_service,
         }
     }
 
@@ -189,62 +190,9 @@ where
         creator_id: UserId,
         updates: Vec<BalanceUpdate>,
     ) -> Result<(), KnownErrors> {
-        let journal_accounts = self
-            .account_service
-            .store()
-            .get_journal_accounts(journal_id)
-            .await?;
-
-        for update in &updates {
-            if !journal_accounts.contains(&update.account_id) {
-                return Err(KnownErrors::AccountDoesntExist {
-                    id: update.account_id,
-                });
-            }
-        }
-
-        let journal = self
-            .journal_service
-            .journal_get(journal_id, creator_id)
-            .await?
-            .ok_or(KnownErrors::InvalidJournal)?;
-
-        if journal.deleted {
-            return Err(KnownErrors::InvalidJournal);
-        }
-
-        if !journal
-            .get_user_permissions(creator_id)
-            .contains(Permissions::APPENDTRANSACTION)
-        {
-            return Err(PermissionError {
-                required_permissions: Permissions::APPENDTRANSACTION,
-            });
-        }
-
-        let event = TransactionEvent::CreatedTransaction {
-            journal_id,
-            author: creator_id,
-            updates,
-            created_at: Utc::now(),
-        };
-
-        // update the balances first: this will check if the accounts actually exist
-        self.account_service
-            .store()
-            .update_balances(&event, None)
-            .await?;
-
-        self.transaction_store
-            .record(
-                transaction_id,
-                Authority::Direct(Actor::Anonymous),
-                event,
-                None,
-            )
-            .await?;
-
-        Ok(())
+        self.transaction_service
+            .transaction_create(transaction_id, journal_id, creator_id, updates)
+            .await
     }
 
     pub async fn transaction_get_all_in_journal(
@@ -252,35 +200,9 @@ where
         journal_id: JournalId,
         actor: UserId,
     ) -> Result<Vec<(TransactionId, TransactionState)>, KnownErrors> {
-        let journal_state = self.journal_service.journal_get(journal_id, actor).await?;
-
-        if !journal_state
-            .as_ref()
-            .is_some_and(|s| s.get_user_permissions(actor).contains(Permissions::READ))
-        {
-            return Err(PermissionError {
-                required_permissions: Permissions::READ,
-            });
-        }
-
-        let transaction_ids = self
-            .transaction_store
-            .get_journal_transactions(journal_id)
-            .await?;
-
-        let mut transactions = Vec::new();
-
-        for id in transaction_ids {
-            transactions.push((
-                id,
-                self.transaction_store
-                    .get_transaction(&id)
-                    .await?
-                    .ok_or(KnownErrors::InvalidTransaction { id })?,
-            ));
-        }
-
-        Ok(transactions)
+        self.transaction_service
+            .transaction_get_all_in_journal(journal_id, actor)
+            .await
     }
 
     pub async fn user_get_email(&self, userid: UserId) -> Result<Option<String>, KnownErrors> {
