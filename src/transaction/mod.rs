@@ -1,3 +1,4 @@
+pub mod commands;
 pub mod views;
 
 use std::fmt::Display;

@@ -82,7 +82,7 @@ async fn main() {
         )
         .route(
             "/journal/{id}/transaction",
-            axum::routing::post(journal::commands::transact),
+            axum::routing::post(transaction::commands::transact),
         )
         .route(
             "/journal/{id}/account",
@@ -118,7 +118,7 @@ async fn main() {
         )
         .route(
             "/journal/{id}/createaccount",
-            axum::routing::post(journal::commands::create_account),
+            axum::routing::post(account::commands::create_account),
         )
         .route_layer(login_required!(MemoryUserStore, login_url = "/signin"));
 
