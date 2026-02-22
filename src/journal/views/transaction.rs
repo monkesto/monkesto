@@ -4,6 +4,7 @@ use crate::auth::user;
 use crate::ident::JournalId;
 use crate::journal::JournalNameOrUnknown;
 use crate::journal::layout;
+use crate::journal::views::account::render_account_options;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
 use crate::service::Service;
@@ -43,10 +44,17 @@ pub async fn transaction_list_page(
                                         div class="flex justify-between items-center" {
                                             div class="flex items-baseline gap-2" {
                                                 span class="text-base font-medium text-gray-900 dark:text-white" {
-                                                    @match state.account_get_name(entry.account_id).await {
-                                                        Ok(Some(name)) => (name),
+                                                    @match state.account_get_full_path(entry.account_id).await {
+                                                        Ok(Some(segments)) => {
+                                                            @for (i, segment) in segments.iter().enumerate() {
+                                                                @if i > 0 {
+                                                                    span class="text-gray-400 dark:text-gray-500 mx-1" { "›" }
+                                                                }
+                                                                (segment)
+                                                            }
+                                                        }
                                                         Ok(None) => "Unknown Account",
-                                                        Err(e) => (format! ("Failed to get account name: {}", e)),
+                                                        Err(e) => (format!("Failed to get account name: {}", e)),
                                                     }
                                                 }
                                                 // TODO: show subjournal annotation when BalanceUpdate includes journal_id.
@@ -115,12 +123,7 @@ pub async fn transaction_list_page(
                                     select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
                                     name="account" {
                                         option value="" { "Select account..." }
-                                        @for (acc_id, acc_state) in accounts.iter().filter(|(_, a)| a.parent_account_id.is_none()) {
-                                            option value=(acc_id) { (acc_state.name) }
-                                            @for (sub_id, sub_state) in accounts.iter().filter(|(_, a)| a.parent_account_id == Some(*acc_id)) {
-                                                option value=(sub_id) { "↳ " (sub_state.name) }
-                                            }
-                                        }
+                                        (render_account_options(&accounts, None, 0))
                                     }
                                 }
                                 div class="col-span-3 md:col-span-3" {

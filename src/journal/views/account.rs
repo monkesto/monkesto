@@ -1,6 +1,8 @@
 use crate::BackendType;
 use crate::StateType;
+use crate::account::AccountState;
 use crate::auth::user;
+use crate::ident::AccountId;
 use crate::ident::Ident;
 use crate::ident::JournalId;
 use crate::journal::JournalNameOrUnknown;
@@ -24,6 +26,71 @@ struct AccountItem {
     pub balance: i64, // in cents
 }
 
+fn render_account_tree(
+    accounts: &[(AccountId, AccountState)],
+    parent_id: Option<AccountId>,
+    depth: usize,
+    journal_id: &str,
+) -> Markup {
+    let indent_class = match depth {
+        0 => "",
+        1 => "ml-6",
+        2 => "ml-12",
+        _ => "ml-16",
+    };
+    html! {
+        @for (acc_id, acc) in accounts.iter().filter(|(_, a)| a.parent_account_id == parent_id) {
+            @if depth == 0 {
+                a
+                href=(format!("/journal/{}/account/{}", journal_id, acc_id))
+                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
+                    div class="flex justify-between items-center" {
+                        h3 class="text-lg font-semibold text-gray-900 dark:text-white" { (acc.name) }
+                        @let balance = acc.balance.abs();
+                        div class="text-right" {
+                            div class="text-lg font-medium text-gray-900 dark:text-white" {
+                                (format!("${}.{:02} {}", balance / 100, balance % 100, if acc.balance < 0 { "Dr" } else { "Cr" }))
+                            }
+                        }
+                    }
+                }
+            } @else {
+                div class=(indent_class) {
+                    a
+                    href=(format!("/journal/{}/account/{}", journal_id, acc_id))
+                    class="flex items-center gap-2 p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
+                        span class="text-gray-400 dark:text-gray-500 select-none" { "↳" }
+                        div class="flex justify-between items-center flex-1" {
+                            h3 class="text-base font-medium text-gray-800 dark:text-gray-200" { (acc.name) }
+                            @let balance = acc.balance.abs();
+                            div class="text-right" {
+                                div class="text-base font-medium text-gray-900 dark:text-white" {
+                                    (format!("${}.{:02} {}", balance / 100, balance % 100, if acc.balance < 0 { "Dr" } else { "Cr" }))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            (render_account_tree(accounts, Some(*acc_id), depth + 1, journal_id))
+        }
+    }
+}
+
+pub(crate) fn render_account_options(
+    accounts: &[(AccountId, AccountState)],
+    parent_id: Option<AccountId>,
+    depth: usize,
+) -> Markup {
+    let prefix = "↳ ".repeat(depth);
+    html! {
+        @for (acc_id, acc) in accounts.iter().filter(|(_, a)| a.parent_account_id == parent_id) {
+            option value=(acc_id) { (format!("{}{}", prefix, acc.name)) }
+            (render_account_options(accounts, Some(*acc_id), depth + 1))
+        }
+    }
+}
+
 pub async fn account_list_page(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
@@ -38,44 +105,7 @@ pub async fn account_list_page(
         @if let Ok(journal_id) = journal_id_res {
             @match state.account_get_all_in_journal(journal_id, user.id).await {
                 Ok(accounts) => {
-                    // Render top-level accounts, then their children indented beneath them
-                    @for (acc_id, acc) in accounts.iter().filter(|(_, a)| a.parent_account_id.is_none()) {
-                        a
-                        href=(format!("/journal/{}/account/{}", id, acc_id.to_string()))
-                        class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
-                            div class="flex justify-between items-center" {
-                                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                    (acc.name)
-                                }
-                                @let balance = acc.balance.abs();
-                                div class="text-right" {
-                                    div class="text-lg font-medium text-gray-900 dark:text-white" {
-                                        (format!("${}.{:02} {}", balance / 100, balance % 100, if acc.balance < 0 { "Dr" } else { "Cr" }))
-                                    }
-                                }
-                            }
-                        }
-                        @for (sub_id, sub) in accounts.iter().filter(|(_, a)| a.parent_account_id == Some(*acc_id)) {
-                            div class="ml-6" {
-                                a
-                                href=(format!("/journal/{}/account/{}", id, sub_id.to_string()))
-                                class="flex items-center gap-2 p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
-                                    span class="text-gray-400 dark:text-gray-500 select-none" { "↳" }
-                                    div class="flex justify-between items-center flex-1" {
-                                        h3 class="text-base font-medium text-gray-800 dark:text-gray-200" {
-                                            (sub.name)
-                                        }
-                                        @let balance = sub.balance.abs();
-                                        div class="text-right" {
-                                            div class="text-base font-medium text-gray-900 dark:text-white" {
-                                                (format!("${}.{:02} {}", balance / 100, balance % 100, if sub.balance < 0 { "Dr" } else { "Cr" }))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    (render_account_tree(&accounts, None, 0, &id))
                 }
 
                 Err(e) => {
@@ -132,12 +162,7 @@ pub async fn account_list_page(
                             name="parent_account_id"
                             class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:focus:outline-indigo-500" {
                                 option value="" { "None" }
-                                @for (acc_id, acc) in accounts.iter().filter(|(_, a)| a.parent_account_id.is_none()) {
-                                    option value=(acc_id) { (acc.name) }
-                                    @for (sub_id, sub) in accounts.iter().filter(|(_, a)| a.parent_account_id == Some(*acc_id)) {
-                                        option value=(sub_id) { "↳ " (sub.name) }
-                                    }
-                                }
+                                (render_account_options(&accounts, None, 0))
                             }
                         }
                     }

@@ -377,11 +377,26 @@ pub(crate) trait Service: Sized {
         Ok(accounts)
     }
 
-    async fn account_get_name(&self, account_id: AccountId) -> Result<Option<String>, KnownErrors> {
-        self.account_store()
-            .get_account(&account_id)
-            .await
-            .map(|a| a.map(|a| a.name))
+    async fn account_get_full_path(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Option<Vec<String>>, KnownErrors> {
+        let mut parts = Vec::new();
+        let mut current_id = account_id;
+        loop {
+            match self.account_store().get_account(&current_id).await? {
+                None => return Ok(None),
+                Some(acc) => {
+                    parts.push(acc.name);
+                    match acc.parent_account_id {
+                        Some(parent_id) => current_id = parent_id,
+                        None => break,
+                    }
+                }
+            }
+        }
+        parts.reverse();
+        Ok(Some(parts))
     }
 
     async fn transaction_create(
