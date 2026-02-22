@@ -1,3 +1,5 @@
+pub mod views;
+
 use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::event::EventStore;

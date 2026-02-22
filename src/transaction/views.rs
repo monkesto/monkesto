@@ -1,10 +1,10 @@
 use crate::BackendType;
 use crate::StateType;
+use crate::account::views::render_account_options;
 use crate::auth::user;
 use crate::ident::JournalId;
 use crate::journal::JournalNameOrUnknown;
 use crate::journal::layout;
-use crate::journal::views::account::render_account_options;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
 use crate::service::Service;

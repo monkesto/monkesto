@@ -1,3 +1,5 @@
+pub mod views;
+
 use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::Arc;

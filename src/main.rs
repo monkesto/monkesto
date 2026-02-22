@@ -78,7 +78,7 @@ async fn main() {
         )
         .route(
             "/journal/{id}/transaction",
-            get(journal::views::transaction::transaction_list_page),
+            get(transaction::views::transaction_list_page),
         )
         .route(
             "/journal/{id}/transaction",
@@ -86,7 +86,7 @@ async fn main() {
         )
         .route(
             "/journal/{id}/account",
-            get(journal::views::account::account_list_page),
+            get(account::views::account_list_page),
         )
         .route(
             "/journal/{id}/person",
