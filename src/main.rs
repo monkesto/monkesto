@@ -18,7 +18,6 @@ use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::routing::get;
 use axum_login::AuthManagerLayerBuilder;
-use axum_login::login_required;
 use dotenvy::dotenv;
 use std::env;
 
@@ -66,58 +65,9 @@ async fn main() {
     let webauthn_routes =
         auth::router(app_state.user_store.clone()).expect("Failed to initialize WebAuthn routes");
 
-    let journal_routes = Router::new()
-        .route("/journal", get(journal::views::journal_list))
-        .route(
-            "/createjournal",
-            axum::routing::post(journal::commands::create_journal),
-        )
-        .route("/journal/{id}", get(journal::views::journal_detail))
-        .route(
-            "/journal/{id}/transaction",
-            get(transaction::views::transaction_list_page),
-        )
-        .route(
-            "/journal/{id}/transaction",
-            axum::routing::post(transaction::commands::transact),
-        )
-        .route(
-            "/journal/{id}/account",
-            get(account::views::account_list_page),
-        )
-        .route(
-            "/journal/{id}/person",
-            get(journal::person::people_list_page),
-        )
-        .route(
-            "/journal/{id}/subjournals",
-            get(journal::views::sub_journal_list_page),
-        )
-        .route(
-            "/journal/{id}/createsubjournal",
-            axum::routing::post(journal::commands::create_sub_journal),
-        )
-        .route(
-            "/journal/{id}/invite",
-            axum::routing::post(journal::commands::invite_user),
-        )
-        .route(
-            "/journal/{id}/person/{person_id}",
-            get(journal::person::person_detail_page),
-        )
-        .route(
-            "/journal/{id}/person/{person_id}/update",
-            axum::routing::post(journal::commands::update_permissions),
-        )
-        .route(
-            "/journal/{id}/person/{person_id}/remove",
-            axum::routing::post(journal::commands::remove_tenant),
-        )
-        .route(
-            "/journal/{id}/createaccount",
-            axum::routing::post(account::commands::create_account),
-        )
-        .route_layer(login_required!(MemoryUserStore, login_url = "/signin"));
+    let journal_routes = journal::router()
+        .merge(account::router())
+        .merge(transaction::router());
 
     // the dockerfile defines this for production deployments
     let site_root = env::var("SITE_ROOT").unwrap_or_else(|_| "target/site".to_string());

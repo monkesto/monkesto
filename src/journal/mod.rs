@@ -3,6 +3,46 @@ pub mod layout;
 pub mod person;
 pub mod views;
 
+use axum::Router;
+use axum::routing::get;
+use axum_login::login_required;
+
+pub fn router() -> Router<crate::StateType> {
+    Router::new()
+        .route("/journal", get(views::journal_list))
+        .route(
+            "/createjournal",
+            axum::routing::post(commands::create_journal),
+        )
+        .route("/journal/{id}", get(views::journal_detail))
+        .route("/journal/{id}/person", get(person::people_list_page))
+        .route(
+            "/journal/{id}/subjournals",
+            get(views::sub_journal_list_page),
+        )
+        .route(
+            "/journal/{id}/createsubjournal",
+            axum::routing::post(commands::create_sub_journal),
+        )
+        .route(
+            "/journal/{id}/invite",
+            axum::routing::post(commands::invite_user),
+        )
+        .route(
+            "/journal/{id}/person/{person_id}",
+            get(person::person_detail_page),
+        )
+        .route(
+            "/journal/{id}/person/{person_id}/update",
+            axum::routing::post(commands::update_permissions),
+        )
+        .route(
+            "/journal/{id}/person/{person_id}/remove",
+            axum::routing::post(commands::remove_tenant),
+        )
+        .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
+}
+
 use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::event::EventStore;

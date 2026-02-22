@@ -1,6 +1,20 @@
 pub mod commands;
 pub mod views;
 
+use axum::Router;
+use axum::routing::get;
+use axum_login::login_required;
+
+pub fn router() -> Router<crate::StateType> {
+    Router::new()
+        .route("/journal/{id}/account", get(views::account_list_page))
+        .route(
+            "/journal/{id}/createaccount",
+            axum::routing::post(commands::create_account),
+        )
+        .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
+}
+
 use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::event::EventStore;

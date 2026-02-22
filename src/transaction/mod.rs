@@ -1,6 +1,23 @@
 pub mod commands;
 pub mod views;
 
+use axum::Router;
+use axum::routing::get;
+use axum_login::login_required;
+
+pub fn router() -> Router<crate::StateType> {
+    Router::new()
+        .route(
+            "/journal/{id}/transaction",
+            get(views::transaction_list_page),
+        )
+        .route(
+            "/journal/{id}/transaction",
+            axum::routing::post(commands::transact),
+        )
+        .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
+}
+
 use std::fmt::Display;
 use std::str::FromStr;
 use std::sync::Arc;
