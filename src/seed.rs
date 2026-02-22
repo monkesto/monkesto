@@ -165,26 +165,6 @@ pub(crate) async fn seed_dev_data<S: Service>(service: &S) -> Result<(), KnownEr
         .await?
         .is_empty()
     {
-        service
-            .transaction_create(
-                TransactionId::from_str("t1tuition0000001")?,
-                maple_ridge_academy_id,
-                pacioli_id,
-                vec![
-                    BalanceUpdate {
-                        account_id: assets_id,
-                        amount: 500000, // $5,000.00 in cents
-                        entry_type: EntryType::Debit,
-                    },
-                    BalanceUpdate {
-                        account_id: revenue_id,
-                        amount: 500000,
-                        entry_type: EntryType::Credit,
-                    },
-                ],
-            )
-            .await?;
-
         // Transaction 1: Tuition payment received - $5,000
         service
             .transaction_create(
@@ -251,7 +231,7 @@ pub(crate) async fn seed_dev_data<S: Service>(service: &S) -> Result<(), KnownEr
         // Transaction 4: Another tuition payment - $4,500
         service
             .transaction_create(
-                TransactionId::from_str("t3textbooks00003")?,
+                TransactionId::from_str("t4tuition0000004")?,
                 maple_ridge_academy_id,
                 pacioli_id,
                 vec![

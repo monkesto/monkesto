@@ -19,8 +19,6 @@ use sqlx::PgTransaction;
 use sqlx::Type;
 use sqlx::postgres::PgValueRef;
 use std::collections::HashSet;
-use std::ops::Add;
-use std::ops::Sub;
 use std::sync::Arc;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -200,13 +198,14 @@ impl AccountStore for AccountMemoryStore {
         match transaction_event {
             TransactionEvent::CreatedTransaction { updates, .. } => {
                 for update in updates {
-                    if let Some(account_state) = self.account_table.get(&update.account_id) {
+                    if let Some(mut account_state) = self.account_table.get_mut(&update.account_id)
+                    {
                         match update.entry_type {
                             EntryType::Debit => {
-                                _ = account_state.balance.sub(update.amount as i64);
+                                account_state.balance -= update.amount as i64;
                             }
                             EntryType::Credit => {
-                                _ = account_state.balance.add(update.amount as i64);
+                                account_state.balance += update.amount as i64;
                             }
                         }
                     } else {
@@ -222,13 +221,15 @@ impl AccountStore for AccountMemoryStore {
                 if let Some(transaction) = old_transaction {
                     // reverse the old transaction
                     for update in transaction.updates.iter() {
-                        if let Some(account_state) = self.account_table.get(&update.account_id) {
+                        if let Some(mut account_state) =
+                            self.account_table.get_mut(&update.account_id)
+                        {
                             match update.entry_type {
                                 EntryType::Debit => {
-                                    _ = account_state.balance.add(update.amount as i64);
+                                    account_state.balance += update.amount as i64;
                                 }
                                 EntryType::Credit => {
-                                    _ = account_state.balance.sub(update.amount as i64);
+                                    account_state.balance -= update.amount as i64;
                                 }
                             }
                         } else {
@@ -239,13 +240,15 @@ impl AccountStore for AccountMemoryStore {
                     }
 
                     for update in new_balanceupdates {
-                        if let Some(account_state) = self.account_table.get(&update.account_id) {
+                        if let Some(mut account_state) =
+                            self.account_table.get_mut(&update.account_id)
+                        {
                             match update.entry_type {
                                 EntryType::Debit => {
-                                    _ = account_state.balance.sub(update.amount as i64);
+                                    account_state.balance -= update.amount as i64;
                                 }
                                 EntryType::Credit => {
-                                    _ = account_state.balance.add(update.amount as i64);
+                                    account_state.balance += update.amount as i64;
                                 }
                             }
                         } else {
