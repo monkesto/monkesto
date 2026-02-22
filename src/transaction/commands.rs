@@ -6,7 +6,6 @@ use crate::ident::JournalId;
 use crate::ident::TransactionId;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::RedirectOnError;
-use crate::service::Service;
 use crate::transaction::BalanceUpdate;
 use crate::transaction::EntryType;
 use axum::extract::Path;

@@ -8,7 +8,6 @@ use crate::journal::Permissions;
 use crate::journal::layout::layout;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
-use crate::service::Service;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;

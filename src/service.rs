@@ -8,7 +8,6 @@ use crate::auth::user::UserStore;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
-use crate::event::EventStore;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
@@ -27,27 +26,47 @@ use crate::transaction::TransactionState;
 use crate::transaction::TransactionStore;
 use chrono::Utc;
 
-pub(crate) trait Service: Sized {
-    type UserStore: UserStore;
-    type JournalStore: JournalStore;
-    type TransactionStore: TransactionStore;
-    type AccountStore: AccountStore;
+#[derive(Clone)]
+pub struct Service<U, J, T, A>
+where
+    U: UserStore,
+    J: JournalStore,
+    T: TransactionStore,
+    A: AccountStore,
+{
+    user_store: U,
+    journal_store: J,
+    transaction_store: T,
+    account_store: A,
+}
 
-    fn user_store(&self) -> &Self::UserStore;
+impl<U, J, T, A> Service<U, J, T, A>
+where
+    U: UserStore,
+    J: JournalStore,
+    T: TransactionStore,
+    A: AccountStore,
+{
+    pub fn new(user_store: U, journal_store: J, transaction_store: T, account_store: A) -> Self {
+        Self {
+            user_store,
+            journal_store,
+            transaction_store,
+            account_store,
+        }
+    }
 
-    fn journal_store(&self) -> &Self::JournalStore;
+    pub(crate) fn user_store(&self) -> &U {
+        &self.user_store
+    }
 
-    fn transaction_store(&self) -> &Self::TransactionStore;
-
-    fn account_store(&self) -> &Self::AccountStore;
-
-    async fn journal_create(
+    pub(crate) async fn journal_create(
         &self,
         journal_id: JournalId,
         name: String,
         actor: UserId,
     ) -> Result<(), KnownErrors> {
-        self.journal_store()
+        self.journal_store
             .record(
                 journal_id,
                 Authority::Direct(Actor::Anonymous),
@@ -61,18 +80,18 @@ pub(crate) trait Service: Sized {
             .await
     }
 
-    async fn journal_list(
+    pub(crate) async fn journal_list(
         &self,
         actor: UserId,
     ) -> Result<Vec<(JournalId, JournalState)>, KnownErrors> {
-        let ids = self.journal_store().get_user_journals(actor).await?;
+        let ids = self.journal_store.get_user_journals(actor).await?;
 
         let mut journals = Vec::new();
 
         for id in ids {
             journals.push((
                 id,
-                self.journal_store()
+                self.journal_store
                     .get_journal(id)
                     .await?
                     .ok_or(KnownErrors::InvalidJournal)?,
@@ -82,12 +101,12 @@ pub(crate) trait Service: Sized {
         Ok(journals)
     }
 
-    async fn journal_get(
+    pub(crate) async fn journal_get(
         &self,
         journal_id: JournalId,
         actor: UserId,
     ) -> Result<Option<JournalState>, KnownErrors> {
-        let state = self.journal_store().get_journal(journal_id).await;
+        let state = self.journal_store.get_journal(journal_id).await;
 
         match state {
             Ok(Some(s)) => {
@@ -102,13 +121,13 @@ pub(crate) trait Service: Sized {
         }
     }
 
-    async fn journal_get_users(
+    pub(crate) async fn journal_get_users(
         &self,
         journal_id: JournalId,
         actor: UserId,
     ) -> Result<Vec<UserId>, KnownErrors> {
         let journal_state = self
-            .journal_store()
+            .journal_store
             .get_journal(journal_id)
             .await?
             .ok_or(KnownErrors::InvalidJournal)?;
@@ -133,21 +152,24 @@ pub(crate) trait Service: Sized {
         Ok(users)
     }
 
-    async fn journal_get_name(&self, journal_id: JournalId) -> Result<Option<String>, KnownErrors> {
-        self.journal_store().get_name(journal_id).await
+    pub(crate) async fn journal_get_name(
+        &self,
+        journal_id: JournalId,
+    ) -> Result<Option<String>, KnownErrors> {
+        self.journal_store.get_name(journal_id).await
     }
 
-    async fn journal_get_name_from_res<T>(
+    pub(crate) async fn journal_get_name_from_res<E>(
         &self,
-        journal_id_res: Result<JournalId, T>,
+        journal_id_res: Result<JournalId, E>,
     ) -> Result<Option<String>, KnownErrors>
     where
-        KnownErrors: From<T>,
+        KnownErrors: From<E>,
     {
         self.journal_get_name(journal_id_res?).await
     }
 
-    async fn journal_invite_tenant(
+    pub(crate) async fn journal_invite_tenant(
         &self,
         journal_id: JournalId,
         actor: UserId,
@@ -155,7 +177,7 @@ pub(crate) trait Service: Sized {
         permissions: Permissions,
     ) -> Result<(), KnownErrors> {
         let journal_state = self
-            .journal_store()
+            .journal_store
             .get_journal(journal_id)
             .await?
             .ok_or(KnownErrors::InvalidJournal)?;
@@ -165,7 +187,7 @@ pub(crate) trait Service: Sized {
         }
 
         let invitee_id = self
-            .user_store()
+            .user_store
             .lookup_user_id(invitee.as_ref())
             .await
             .map_err(|e| KnownErrors::InternalError {
@@ -192,7 +214,7 @@ pub(crate) trait Service: Sized {
             invited_at: Utc::now(),
         };
 
-        self.journal_store()
+        self.journal_store
             .record(
                 journal_id,
                 Authority::Direct(Actor::Anonymous),
@@ -205,7 +227,7 @@ pub(crate) trait Service: Sized {
             .await
     }
 
-    async fn journal_update_tenant_permissions(
+    pub(crate) async fn journal_update_tenant_permissions(
         &self,
         journal_id: JournalId,
         target_user: UserId,
@@ -213,7 +235,7 @@ pub(crate) trait Service: Sized {
         actor: UserId,
     ) -> Result<(), KnownErrors> {
         let journal_state = self
-            .journal_store()
+            .journal_store
             .get_journal(journal_id)
             .await?
             .ok_or(KnownErrors::InvalidJournal)?;
@@ -235,7 +257,7 @@ pub(crate) trait Service: Sized {
             });
         }
 
-        self.journal_store()
+        self.journal_store
             .record(
                 journal_id,
                 Authority::Direct(Actor::Anonymous),
@@ -248,14 +270,14 @@ pub(crate) trait Service: Sized {
             .await
     }
 
-    async fn journal_remove_tenant(
+    pub(crate) async fn journal_remove_tenant(
         &self,
         journal_id: JournalId,
         target_user: UserId,
         actor: UserId,
     ) -> Result<(), KnownErrors> {
         let journal_state = self
-            .journal_store()
+            .journal_store
             .get_journal(journal_id)
             .await?
             .ok_or(KnownErrors::InvalidJournal)?;
@@ -277,7 +299,7 @@ pub(crate) trait Service: Sized {
             });
         }
 
-        self.journal_store()
+        self.journal_store
             .record(
                 journal_id,
                 Authority::Direct(Actor::Anonymous),
@@ -287,7 +309,7 @@ pub(crate) trait Service: Sized {
             .await
     }
 
-    async fn account_create(
+    pub(crate) async fn account_create(
         &self,
         account_id: AccountId,
         journal_id: JournalId,
@@ -296,7 +318,7 @@ pub(crate) trait Service: Sized {
         parent_account_id: Option<AccountId>,
     ) -> Result<(), KnownErrors> {
         let journal_state = self
-            .journal_store()
+            .journal_store
             .get_journal(journal_id)
             .await?
             .ok_or(KnownErrors::InvalidJournal)?;
@@ -314,16 +336,11 @@ pub(crate) trait Service: Sized {
             });
         }
 
-        if self
-            .account_store()
-            .get_account(&account_id)
-            .await?
-            .is_some()
-        {
+        if self.account_store.get_account(&account_id).await?.is_some() {
             return Err(KnownErrors::AccountExists);
         }
 
-        self.account_store()
+        self.account_store
             .record(
                 account_id,
                 Authority::Direct(Actor::Anonymous),
@@ -341,13 +358,13 @@ pub(crate) trait Service: Sized {
         Ok(())
     }
 
-    async fn account_get_all_in_journal(
+    pub(crate) async fn account_get_all_in_journal(
         &self,
         journal_id: JournalId,
         actor: UserId,
     ) -> Result<Vec<(AccountId, AccountState)>, KnownErrors> {
         if !self
-            .journal_store()
+            .journal_store
             .get_permissions(journal_id, actor)
             .await?
             .is_some_and(|p| p.contains(Permissions::READ))
@@ -357,17 +374,14 @@ pub(crate) trait Service: Sized {
             });
         }
 
-        let ids = self
-            .account_store()
-            .get_journal_accounts(journal_id)
-            .await?;
+        let ids = self.account_store.get_journal_accounts(journal_id).await?;
 
         let mut accounts = Vec::new();
 
         for id in ids {
             accounts.push((
                 id,
-                self.account_store()
+                self.account_store
                     .get_account(&id)
                     .await?
                     .ok_or(KnownErrors::AccountDoesntExist { id })?,
@@ -377,14 +391,14 @@ pub(crate) trait Service: Sized {
         Ok(accounts)
     }
 
-    async fn account_get_full_path(
+    pub(crate) async fn account_get_full_path(
         &self,
         account_id: AccountId,
     ) -> Result<Option<Vec<String>>, KnownErrors> {
         let mut parts = Vec::new();
         let mut current_id = account_id;
         loop {
-            match self.account_store().get_account(&current_id).await? {
+            match self.account_store.get_account(&current_id).await? {
                 None => return Ok(None),
                 Some(acc) => {
                     parts.push(acc.name);
@@ -399,17 +413,14 @@ pub(crate) trait Service: Sized {
         Ok(Some(parts))
     }
 
-    async fn transaction_create(
+    pub(crate) async fn transaction_create(
         &self,
         transaction_id: TransactionId,
         journal_id: JournalId,
         creator_id: UserId,
         updates: Vec<BalanceUpdate>,
     ) -> Result<(), KnownErrors> {
-        let journal_accounts = self
-            .account_store()
-            .get_journal_accounts(journal_id)
-            .await?;
+        let journal_accounts = self.account_store.get_journal_accounts(journal_id).await?;
 
         for update in &updates {
             if !journal_accounts.contains(&update.account_id) {
@@ -419,7 +430,7 @@ pub(crate) trait Service: Sized {
             }
         }
 
-        if let Some(journal) = self.journal_store().get_journal(journal_id).await?
+        if let Some(journal) = self.journal_store.get_journal(journal_id).await?
             && !journal.deleted
         {
             if !journal
@@ -442,9 +453,9 @@ pub(crate) trait Service: Sized {
         };
 
         // update the balances first: this will check if the accounts actually exist
-        self.account_store().update_balances(&event, None).await?;
+        self.account_store.update_balances(&event, None).await?;
 
-        self.transaction_store()
+        self.transaction_store
             .record(
                 transaction_id,
                 Authority::Direct(Actor::Anonymous),
@@ -456,13 +467,13 @@ pub(crate) trait Service: Sized {
         Ok(())
     }
 
-    async fn transaction_get_all_in_journal(
+    pub(crate) async fn transaction_get_all_in_journal(
         &self,
         journal_id: JournalId,
         actor: UserId,
     ) -> Result<Vec<(TransactionId, TransactionState)>, KnownErrors> {
         if !self
-            .journal_store()
+            .journal_store
             .get_permissions(journal_id, actor)
             .await?
             .ok_or(PermissionError {
@@ -476,7 +487,7 @@ pub(crate) trait Service: Sized {
         }
 
         let transaction_ids = self
-            .transaction_store()
+            .transaction_store
             .get_journal_transactions(journal_id)
             .await?;
 
@@ -485,7 +496,7 @@ pub(crate) trait Service: Sized {
         for id in transaction_ids {
             transactions.push((
                 id,
-                self.transaction_store()
+                self.transaction_store
                     .get_transaction(&id)
                     .await?
                     .ok_or(KnownErrors::InvalidTransaction { id })?,
@@ -495,8 +506,11 @@ pub(crate) trait Service: Sized {
         Ok(transactions)
     }
 
-    async fn user_get_email(&self, userid: UserId) -> Result<Option<String>, KnownErrors> {
-        self.user_store()
+    pub(crate) async fn user_get_email(
+        &self,
+        userid: UserId,
+    ) -> Result<Option<String>, KnownErrors> {
+        self.user_store
             .get_user_email(userid)
             .await
             .map_err(|e| KnownErrors::InternalError {
@@ -505,39 +519,8 @@ pub(crate) trait Service: Sized {
     }
 }
 
-#[derive(Clone)]
-pub struct DefaultService<U, J, T, A>
-where
-    U: UserStore,
-    J: JournalStore,
-    T: TransactionStore,
-    A: AccountStore,
-{
-    pub(crate) user_store: U,
-    pub(crate) journal_store: J,
-    pub(crate) transaction_store: T,
-    pub(crate) account_store: A,
-}
-
-impl<U, J, T, A> DefaultService<U, J, T, A>
-where
-    U: UserStore,
-    J: JournalStore,
-    T: TransactionStore,
-    A: AccountStore,
-{
-    pub fn new(user_store: U, journal_store: J, transaction_store: T, account_store: A) -> Self {
-        Self {
-            user_store,
-            journal_store,
-            transaction_store,
-            account_store,
-        }
-    }
-}
-
 pub type MemoryService =
-    DefaultService<MemoryUserStore, JournalMemoryStore, TransactionMemoryStore, AccountMemoryStore>;
+    Service<MemoryUserStore, JournalMemoryStore, TransactionMemoryStore, AccountMemoryStore>;
 
 impl Default for MemoryService {
     fn default() -> Self {
@@ -547,34 +530,5 @@ impl Default for MemoryService {
             TransactionMemoryStore::new(),
             AccountMemoryStore::new(),
         )
-    }
-}
-
-impl<U, J, T, A> Service for DefaultService<U, J, T, A>
-where
-    U: UserStore,
-    J: JournalStore,
-    T: TransactionStore,
-    A: AccountStore,
-{
-    type UserStore = U;
-    type JournalStore = J;
-    type TransactionStore = T;
-    type AccountStore = A;
-
-    fn user_store(&self) -> &Self::UserStore {
-        &self.user_store
-    }
-
-    fn journal_store(&self) -> &Self::JournalStore {
-        &self.journal_store
-    }
-
-    fn transaction_store(&self) -> &Self::TransactionStore {
-        &self.transaction_store
-    }
-
-    fn account_store(&self) -> &Self::AccountStore {
-        &self.account_store
     }
 }

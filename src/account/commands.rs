@@ -5,7 +5,6 @@ use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::RedirectOnError;
-use crate::service::Service;
 use axum::extract::Path;
 use axum::extract::State;
 use axum::response::Redirect;

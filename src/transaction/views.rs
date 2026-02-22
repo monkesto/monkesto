@@ -7,7 +7,6 @@ use crate::journal::JournalNameOrUnknown;
 use crate::journal::layout;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
-use crate::service::Service;
 use crate::transaction::EntryType;
 use axum::extract::Path;
 use axum::extract::Query;

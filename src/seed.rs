@@ -1,17 +1,28 @@
+use crate::account::AccountStore;
 use crate::auth::user::Email;
 use crate::auth::user::UserStore;
 use crate::authority::UserId;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
+use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::known_errors::KnownErrors;
 use crate::service::Service;
 use crate::transaction::BalanceUpdate;
 use crate::transaction::EntryType;
+use crate::transaction::TransactionStore;
 use std::str::FromStr;
 
-pub(crate) async fn seed_dev_data<S: Service>(service: &S) -> Result<(), KnownErrors> {
+pub(crate) async fn seed_dev_data<U, J, T, A>(
+    service: &Service<U, J, T, A>,
+) -> Result<(), KnownErrors>
+where
+    U: UserStore,
+    J: JournalStore,
+    T: TransactionStore,
+    A: AccountStore,
+{
     // TODO: Unify user seeding
 
     service

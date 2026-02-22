@@ -1,6 +1,5 @@
 use crate::ident::JournalId;
 use crate::journal::Permissions;
-use crate::service::Service;
 use axum_login::AuthSession;
 
 use crate::BackendType;

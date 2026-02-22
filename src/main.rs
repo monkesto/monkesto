@@ -60,10 +60,10 @@ async fn main() {
 
     // use the service's user_store so that the data syncs
     let auth_layer =
-        AuthManagerLayerBuilder::new(service.user_store.clone(), session_layer).build();
+        AuthManagerLayerBuilder::new(service.user_store().clone(), session_layer).build();
 
     let webauthn_routes =
-        auth::router(service.user_store.clone()).expect("Failed to initialize WebAuthn routes");
+        auth::router(service.user_store().clone()).expect("Failed to initialize WebAuthn routes");
 
     let journal_routes = journal::router()
         .merge(account::router())
