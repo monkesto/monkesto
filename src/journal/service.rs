@@ -35,7 +35,7 @@ where
         }
     }
 
-    pub(crate) async fn journal_create(
+    pub async fn journal_create(
         &self,
         journal_id: JournalId,
         name: String,
@@ -55,7 +55,7 @@ where
             .await
     }
 
-    pub(crate) async fn journal_list(
+    pub async fn journal_list(
         &self,
         actor: UserId,
     ) -> Result<Vec<(JournalId, JournalState)>, KnownErrors> {
@@ -76,7 +76,7 @@ where
         Ok(journals)
     }
 
-    pub(crate) async fn journal_get(
+    pub async fn journal_get(
         &self,
         journal_id: JournalId,
         actor: UserId,
@@ -96,7 +96,7 @@ where
         }
     }
 
-    pub(crate) async fn journal_get_users(
+    pub async fn journal_get_users(
         &self,
         journal_id: JournalId,
         actor: UserId,
@@ -127,14 +127,14 @@ where
         Ok(users)
     }
 
-    pub(crate) async fn journal_get_name(
+    pub async fn journal_get_name(
         &self,
         journal_id: JournalId,
     ) -> Result<Option<String>, KnownErrors> {
         self.journal_store.get_name(journal_id).await
     }
 
-    pub(crate) async fn journal_get_name_from_res<E>(
+    pub async fn journal_get_name_from_res<E>(
         &self,
         journal_id_res: Result<JournalId, E>,
     ) -> Result<Option<String>, KnownErrors>
@@ -144,7 +144,7 @@ where
         self.journal_get_name(journal_id_res?).await
     }
 
-    pub(crate) async fn journal_invite_tenant(
+    pub async fn journal_invite_tenant(
         &self,
         journal_id: JournalId,
         actor: UserId,
@@ -202,7 +202,7 @@ where
             .await
     }
 
-    pub(crate) async fn journal_update_tenant_permissions(
+    pub async fn journal_update_tenant_permissions(
         &self,
         journal_id: JournalId,
         target_user: UserId,
@@ -245,7 +245,7 @@ where
             .await
     }
 
-    pub(crate) async fn journal_remove_tenant(
+    pub async fn journal_remove_tenant(
         &self,
         journal_id: JournalId,
         target_user: UserId,

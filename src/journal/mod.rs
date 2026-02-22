@@ -1,10 +1,10 @@
 pub mod commands;
 pub mod layout;
 pub mod person;
-pub(crate) mod service;
+pub mod service;
 pub mod views;
 
-pub(crate) use service::JournalService;
+pub use service::JournalService;
 
 use axum::Router;
 use axum::routing::get;
