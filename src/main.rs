@@ -48,22 +48,22 @@ async fn main() {
     let addr = env::var("SITE_ADDR").unwrap_or("0.0.0.0:3000".to_string());
 
     // this handles creation of all the stores journal stores and the base user store
-    let app_state: MemoryService = MemoryService::default();
+    let service: MemoryService = MemoryService::default();
 
     // this will seed the users and journals
-    seed_dev_data(&app_state)
+    seed_dev_data(&service)
         .await
         .expect("Failed to seed dev data");
 
     let session_store = FileSessionStorage::new();
     let session_layer = SessionManagerLayer::new(session_store);
 
-    // use the app_state's user_store so that the data syncs
+    // use the service's user_store so that the data syncs
     let auth_layer =
-        AuthManagerLayerBuilder::new(app_state.user_store.clone(), session_layer).build();
+        AuthManagerLayerBuilder::new(service.user_store.clone(), session_layer).build();
 
     let webauthn_routes =
-        auth::router(app_state.user_store.clone()).expect("Failed to initialize WebAuthn routes");
+        auth::router(service.user_store.clone()).expect("Failed to initialize WebAuthn routes");
 
     let journal_routes = journal::router()
         .merge(account::router())
@@ -85,7 +85,7 @@ async fn main() {
         .fallback(notfoundpage::not_found_page)
         .layer(auth_layer);
 
-    let app = app.with_state(app_state);
+    let app = app.with_state(service);
 
     // run our app with hyper
     println!("listening on http://{}", &addr);
