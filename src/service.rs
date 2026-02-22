@@ -11,11 +11,10 @@ use crate::authority::UserId;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
-use crate::journal::JournalEvent;
 use crate::journal::JournalMemoryStore;
+use crate::journal::JournalService;
 use crate::journal::JournalState;
 use crate::journal::JournalStore;
-use crate::journal::JournalTenantInfo;
 use crate::journal::Permissions;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::KnownErrors::PermissionError;
@@ -35,7 +34,7 @@ where
     A: AccountStore,
 {
     user_store: U,
-    journal_store: J,
+    journal_service: JournalService<J, U>,
     transaction_store: T,
     account_store: A,
 }
@@ -48,9 +47,10 @@ where
     A: AccountStore,
 {
     pub fn new(user_store: U, journal_store: J, transaction_store: T, account_store: A) -> Self {
+        let journal_service = JournalService::new(journal_store, user_store.clone());
         Self {
             user_store,
-            journal_store,
+            journal_service,
             transaction_store,
             account_store,
         }
@@ -66,17 +66,8 @@ where
         name: String,
         actor: UserId,
     ) -> Result<(), KnownErrors> {
-        self.journal_store
-            .record(
-                journal_id,
-                Authority::Direct(Actor::Anonymous),
-                JournalEvent::Created {
-                    name,
-                    creator: actor,
-                    created_at: Utc::now(),
-                },
-                None,
-            )
+        self.journal_service
+            .journal_create(journal_id, name, actor)
             .await
     }
 
@@ -84,21 +75,7 @@ where
         &self,
         actor: UserId,
     ) -> Result<Vec<(JournalId, JournalState)>, KnownErrors> {
-        let ids = self.journal_store.get_user_journals(actor).await?;
-
-        let mut journals = Vec::new();
-
-        for id in ids {
-            journals.push((
-                id,
-                self.journal_store
-                    .get_journal(id)
-                    .await?
-                    .ok_or(KnownErrors::InvalidJournal)?,
-            ))
-        }
-
-        Ok(journals)
+        self.journal_service.journal_list(actor).await
     }
 
     pub(crate) async fn journal_get(
@@ -106,19 +83,7 @@ where
         journal_id: JournalId,
         actor: UserId,
     ) -> Result<Option<JournalState>, KnownErrors> {
-        let state = self.journal_store.get_journal(journal_id).await;
-
-        match state {
-            Ok(Some(s)) => {
-                if s.get_user_permissions(actor).contains(Permissions::READ) {
-                    Ok(Some(s))
-                } else {
-                    Ok(None)
-                }
-            }
-            Ok(None) => Ok(None),
-            Err(e) => Err(e),
-        }
+        self.journal_service.journal_get(journal_id, actor).await
     }
 
     pub(crate) async fn journal_get_users(
@@ -126,37 +91,9 @@ where
         journal_id: JournalId,
         actor: UserId,
     ) -> Result<Vec<UserId>, KnownErrors> {
-        let journal_state = self
-            .journal_store
-            .get_journal(journal_id)
-            .await?
-            .ok_or(KnownErrors::InvalidJournal)?;
-
-        if !journal_state
-            .get_user_permissions(actor)
-            .contains(Permissions::READ)
-        {
-            return Err(PermissionError {
-                required_permissions: Permissions::READ,
-            });
-        }
-
-        let mut users = Vec::new();
-
-        for (user_id, _) in journal_state.tenants.iter() {
-            users.push(*user_id);
-        }
-
-        users.push(journal_state.creator);
-
-        Ok(users)
-    }
-
-    pub(crate) async fn journal_get_name(
-        &self,
-        journal_id: JournalId,
-    ) -> Result<Option<String>, KnownErrors> {
-        self.journal_store.get_name(journal_id).await
+        self.journal_service
+            .journal_get_users(journal_id, actor)
+            .await
     }
 
     pub(crate) async fn journal_get_name_from_res<E>(
@@ -166,7 +103,9 @@ where
     where
         KnownErrors: From<E>,
     {
-        self.journal_get_name(journal_id_res?).await
+        self.journal_service
+            .journal_get_name_from_res(journal_id_res)
+            .await
     }
 
     pub(crate) async fn journal_invite_tenant(
@@ -176,54 +115,8 @@ where
         invitee: Email,
         permissions: Permissions,
     ) -> Result<(), KnownErrors> {
-        let journal_state = self
-            .journal_store
-            .get_journal(journal_id)
-            .await?
-            .ok_or(KnownErrors::InvalidJournal)?;
-
-        if journal_state.deleted {
-            return Err(KnownErrors::InvalidJournal);
-        }
-
-        let invitee_id = self
-            .user_store
-            .lookup_user_id(invitee.as_ref())
-            .await
-            .map_err(|e| KnownErrors::InternalError {
-                context: e.to_string(),
-            })?
-            .ok_or(KnownErrors::UserDoesntExist)?;
-
-        if journal_state.tenants.contains_key(&invitee_id) {
-            return Err(KnownErrors::UserCanAccessJournal);
-        }
-
-        if !journal_state
-            .get_user_permissions(actor)
-            .contains(Permissions::INVITE)
-        {
-            return Err(PermissionError {
-                required_permissions: Permissions::INVITE,
-            });
-        }
-
-        let tenant_info = JournalTenantInfo {
-            tenant_permissions: permissions,
-            inviting_user: actor,
-            invited_at: Utc::now(),
-        };
-
-        self.journal_store
-            .record(
-                journal_id,
-                Authority::Direct(Actor::Anonymous),
-                JournalEvent::AddedTenant {
-                    id: invitee_id,
-                    tenant_info,
-                },
-                None,
-            )
+        self.journal_service
+            .journal_invite_tenant(journal_id, actor, invitee, permissions)
             .await
     }
 
@@ -234,39 +127,8 @@ where
         permissions: Permissions,
         actor: UserId,
     ) -> Result<(), KnownErrors> {
-        let journal_state = self
-            .journal_store
-            .get_journal(journal_id)
-            .await?
-            .ok_or(KnownErrors::InvalidJournal)?;
-
-        if journal_state.deleted {
-            return Err(KnownErrors::InvalidJournal);
-        }
-
-        if !journal_state.tenants.contains_key(&target_user) {
-            return Err(KnownErrors::UserDoesntExist);
-        }
-
-        if !journal_state
-            .get_user_permissions(actor)
-            .contains(Permissions::OWNER)
-        {
-            return Err(PermissionError {
-                required_permissions: Permissions::OWNER,
-            });
-        }
-
-        self.journal_store
-            .record(
-                journal_id,
-                Authority::Direct(Actor::Anonymous),
-                JournalEvent::UpdatedTenantPermissions {
-                    id: target_user,
-                    permissions,
-                },
-                None,
-            )
+        self.journal_service
+            .journal_update_tenant_permissions(journal_id, target_user, permissions, actor)
             .await
     }
 
@@ -276,36 +138,8 @@ where
         target_user: UserId,
         actor: UserId,
     ) -> Result<(), KnownErrors> {
-        let journal_state = self
-            .journal_store
-            .get_journal(journal_id)
-            .await?
-            .ok_or(KnownErrors::InvalidJournal)?;
-
-        if journal_state.deleted {
-            return Err(KnownErrors::InvalidJournal);
-        }
-
-        if !journal_state.tenants.contains_key(&target_user) {
-            return Err(KnownErrors::UserDoesntExist);
-        }
-
-        if !journal_state
-            .get_user_permissions(actor)
-            .contains(Permissions::OWNER)
-        {
-            return Err(PermissionError {
-                required_permissions: Permissions::OWNER,
-            });
-        }
-
-        self.journal_store
-            .record(
-                journal_id,
-                Authority::Direct(Actor::Anonymous),
-                JournalEvent::RemovedTenant { id: target_user },
-                None,
-            )
+        self.journal_service
+            .journal_remove_tenant(journal_id, target_user, actor)
             .await
     }
 
@@ -318,8 +152,8 @@ where
         parent_account_id: Option<AccountId>,
     ) -> Result<(), KnownErrors> {
         let journal_state = self
-            .journal_store
-            .get_journal(journal_id)
+            .journal_service
+            .journal_get(journal_id, creator_id)
             .await?
             .ok_or(KnownErrors::InvalidJournal)?;
 
@@ -363,11 +197,11 @@ where
         journal_id: JournalId,
         actor: UserId,
     ) -> Result<Vec<(AccountId, AccountState)>, KnownErrors> {
-        if !self
-            .journal_store
-            .get_permissions(journal_id, actor)
-            .await?
-            .is_some_and(|p| p.contains(Permissions::READ))
+        let journal_state = self.journal_service.journal_get(journal_id, actor).await?;
+
+        if !journal_state
+            .as_ref()
+            .is_some_and(|s| s.get_user_permissions(actor).contains(Permissions::READ))
         {
             return Err(PermissionError {
                 required_permissions: Permissions::READ,
@@ -430,19 +264,23 @@ where
             }
         }
 
-        if let Some(journal) = self.journal_store.get_journal(journal_id).await?
-            && !journal.deleted
-        {
-            if !journal
-                .get_user_permissions(creator_id)
-                .contains(Permissions::APPENDTRANSACTION)
-            {
-                return Err(PermissionError {
-                    required_permissions: Permissions::APPENDTRANSACTION,
-                });
-            }
-        } else {
+        let journal = self
+            .journal_service
+            .journal_get(journal_id, creator_id)
+            .await?
+            .ok_or(KnownErrors::InvalidJournal)?;
+
+        if journal.deleted {
             return Err(KnownErrors::InvalidJournal);
+        }
+
+        if !journal
+            .get_user_permissions(creator_id)
+            .contains(Permissions::APPENDTRANSACTION)
+        {
+            return Err(PermissionError {
+                required_permissions: Permissions::APPENDTRANSACTION,
+            });
         }
 
         let event = TransactionEvent::CreatedTransaction {
@@ -472,14 +310,11 @@ where
         journal_id: JournalId,
         actor: UserId,
     ) -> Result<Vec<(TransactionId, TransactionState)>, KnownErrors> {
-        if !self
-            .journal_store
-            .get_permissions(journal_id, actor)
-            .await?
-            .ok_or(PermissionError {
-                required_permissions: Permissions::READ,
-            })?
-            .contains(Permissions::READ)
+        let journal_state = self.journal_service.journal_get(journal_id, actor).await?;
+
+        if !journal_state
+            .as_ref()
+            .is_some_and(|s| s.get_user_permissions(actor).contains(Permissions::READ))
         {
             return Err(PermissionError {
                 required_permissions: Permissions::READ,
