@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod layout;
+pub mod person;
 pub mod views;
 
 use crate::authority::Authority;
