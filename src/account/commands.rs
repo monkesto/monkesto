@@ -42,6 +42,7 @@ pub async fn create_account(
         .transpose()?;
 
     state
+        .account_service
         .account_create(
             AccountId::new(),
             journal_id,

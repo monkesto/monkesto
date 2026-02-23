@@ -34,6 +34,7 @@ pub async fn create_journal(
     }
 
     state
+        .journal_service
         .journal_create(JournalId::new(), form.journal_name, user.id)
         .await
         .or_redirect(CALLBACK_URL)?;
@@ -85,6 +86,7 @@ pub async fn invite_user(
     }
 
     state
+        .journal_service
         .journal_invite_tenant(journal_id, user.id, email, invitee_permissions)
         .await
         .or_redirect(callback_url)?;
@@ -131,6 +133,7 @@ pub async fn update_permissions(
     }
 
     state
+        .journal_service
         .journal_update_tenant_permissions(journal_id, target_user_id, new_permissions, user.id)
         .await
         .or_redirect(callback_url)?;
@@ -173,6 +176,7 @@ pub async fn remove_tenant(
     let target_user_id = UserId::from_str(&person_id).or_redirect(person_detail_url)?;
 
     state
+        .journal_service
         .journal_remove_tenant(journal_id, target_user_id, user.id)
         .await
         .or_redirect(callback_url)?;

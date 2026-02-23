@@ -7,11 +7,11 @@ mod journal;
 mod known_errors;
 mod notfoundpage;
 mod seed;
-mod service;
 mod theme;
 mod transaction;
 
 use axum::Router;
+use axum::extract::FromRef;
 use axum::http::StatusCode;
 use axum::http::header;
 use axum::response::IntoResponse;
@@ -21,15 +21,87 @@ use axum_login::AuthManagerLayerBuilder;
 use dotenvy::dotenv;
 use std::env;
 
+use crate::account::AccountMemoryStore;
+use crate::account::AccountService;
 use crate::auth::MemoryUserStore;
-use crate::service::MemoryService;
+use crate::auth::UserService;
+use crate::journal::JournalMemoryStore;
+use crate::journal::JournalService;
+use crate::transaction::TransactionMemoryStore;
+use crate::transaction::TransactionService;
 use seed::seed_dev_data;
 use tower_http::services::ServeFile;
 use tower_sessions::SessionManagerLayer;
 use tower_sessions_file_store::FileSessionStorage;
 
-type StateType = MemoryService;
+type MemoryJournalService = JournalService<JournalMemoryStore, MemoryUserStore>;
+type MemoryUserService = UserService<MemoryUserStore>;
+type MemoryAccountService = AccountService<AccountMemoryStore, JournalMemoryStore, MemoryUserStore>;
+type MemoryTransactionService = TransactionService<
+    TransactionMemoryStore,
+    AccountMemoryStore,
+    JournalMemoryStore,
+    MemoryUserStore,
+>;
 
+#[derive(Clone)]
+struct AppState {
+    user_service: MemoryUserService,
+    journal_service: MemoryJournalService,
+    account_service: MemoryAccountService,
+    transaction_service: MemoryTransactionService,
+}
+
+impl AppState {
+    fn new() -> Self {
+        let user_store = MemoryUserStore::new();
+        let journal_store = JournalMemoryStore::new();
+        let account_store = AccountMemoryStore::new();
+        let transaction_store = TransactionMemoryStore::new();
+
+        let user_service = UserService::new(user_store.clone());
+        let journal_service = JournalService::new(journal_store, user_store);
+        let account_service = AccountService::new(account_store, journal_service.clone());
+        let transaction_service = TransactionService::new(
+            transaction_store,
+            account_service.clone(),
+            journal_service.clone(),
+        );
+
+        Self {
+            user_service,
+            journal_service,
+            account_service,
+            transaction_service,
+        }
+    }
+}
+
+impl FromRef<AppState> for MemoryUserService {
+    fn from_ref(state: &AppState) -> Self {
+        state.user_service.clone()
+    }
+}
+
+impl FromRef<AppState> for MemoryJournalService {
+    fn from_ref(state: &AppState) -> Self {
+        state.journal_service.clone()
+    }
+}
+
+impl FromRef<AppState> for MemoryAccountService {
+    fn from_ref(state: &AppState) -> Self {
+        state.account_service.clone()
+    }
+}
+
+impl FromRef<AppState> for MemoryTransactionService {
+    fn from_ref(state: &AppState) -> Self {
+        state.transaction_service.clone()
+    }
+}
+
+type StateType = AppState;
 type BackendType = MemoryUserStore;
 
 #[tokio::main]
@@ -47,11 +119,9 @@ async fn main() {
 
     let addr = env::var("SITE_ADDR").unwrap_or("0.0.0.0:3000".to_string());
 
-    // this handles creation of all the stores journal stores and the base user store
-    let service: MemoryService = MemoryService::default();
+    let state = AppState::new();
 
-    // this will seed the users and journals
-    seed_dev_data(&service)
+    seed_dev_data(&state)
         .await
         .expect("Failed to seed dev data");
 
@@ -60,10 +130,10 @@ async fn main() {
 
     // use the service's user_store so that the data syncs
     let auth_layer =
-        AuthManagerLayerBuilder::new(service.user_store().clone(), session_layer).build();
+        AuthManagerLayerBuilder::new(state.user_service.store().clone(), session_layer).build();
 
-    let webauthn_routes =
-        auth::router(service.user_store().clone()).expect("Failed to initialize WebAuthn routes");
+    let webauthn_routes = auth::router(state.user_service.store().clone())
+        .expect("Failed to initialize WebAuthn routes");
 
     let journal_routes = journal::router()
         .merge(account::router())
@@ -85,7 +155,7 @@ async fn main() {
         .fallback(notfoundpage::not_found_page)
         .layer(auth_layer);
 
-    let app = app.with_state(service);
+    let app = app.with_state(state);
 
     // run our app with hyper
     println!("listening on http://{}", &addr);

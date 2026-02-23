@@ -69,7 +69,7 @@ pub async fn person_detail_page(
         }
     };
 
-    let journal_state_res = state.journal_get(journal_id, user.id).await;
+    let journal_state_res = state.journal_service.journal_get(journal_id, user.id).await;
 
     let journal_state = match journal_state_res {
         Ok(Some(js)) => js,
@@ -130,7 +130,7 @@ pub async fn person_detail_page(
     let tenant_info = journal_state.tenants.get(&target_user_id);
     let is_owner = journal_state.owner == target_user_id;
 
-    let target_email = match state.user_get_email(target_user_id).await {
+    let target_email = match state.user_service.user_get_email(target_user_id).await {
         Ok(Some(email)) => email,
         Ok(None) => "Unknown User".to_string(),
         Err(e) => format!("Error fetching email: {}", e),
@@ -251,14 +251,14 @@ pub async fn people_list_page(
 
     let content = html! {
         @if let Ok(journal_id) = journal_id_res {
-            @match state.journal_get_users(journal_id, user.id).await {
+            @match state.journal_service.journal_get_users(journal_id, user.id).await {
                 Ok(users) => {
                     @for user_id in users {
                         a
                         href=(format!("/journal/{}/person/{}", id, user_id))
                         class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
                             h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                @match state.user_get_email(user_id).await {
+                                @match state.user_service.user_get_email(user_id).await {
                                     Ok(Some(email)) => (email),
                                     Ok(None) => {"unknown user"},
                                     Err(e) => (format!("failed to fetch email: {:?}", e)),
@@ -343,6 +343,7 @@ pub async fn people_list_page(
     Ok(layout(
         Some(
             &state
+                .journal_service
                 .journal_get_name_from_res(journal_id_res)
                 .await
                 .or_unknown(),

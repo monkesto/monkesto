@@ -33,7 +33,7 @@ pub async fn journal_list(
 
     let content = html! {
         div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" {
-            @match state.journal_list(user.id).await {
+            @match state.journal_service.journal_list(user.id).await {
                 Ok(journals) => {
                     @for (journal_id, journal_state) in journals {
                         a
@@ -46,7 +46,7 @@ pub async fn journal_list(
                             div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
                                 "Created by "
 
-                                @match state.user_get_email(journal_state.creator).await {
+                                @match state.user_service.user_get_email(journal_state.creator).await {
                                     Ok(Some(email)) => (email),
                                     Ok(None) => {"unknown user"},
                                     Err(e) => (format!("failed to fetch email: {:?}", e)),
@@ -113,7 +113,7 @@ pub async fn journal_detail(
     let user = user::get_user(session)?;
 
     let journal_state_res = match JournalId::from_str(&id) {
-        Ok(s) => state.journal_get(s, user.id).await,
+        Ok(s) => state.journal_service.journal_get(s, user.id).await,
         Err(e) => Err(e),
     };
 
@@ -160,7 +160,7 @@ pub async fn journal_detail(
                             div class="text-sm text-gray-600 dark:text-gray-400" {
                                 "Created by "
 
-                                 @match state.user_get_email(journal_state.creator).await {
+                                 @match state.user_service.user_get_email(journal_state.creator).await {
                                     Ok(Some(email)) => (email),
                                     Ok(None) => {"unknown user"},
                                     Err(e) => (format!("failed to fetch email: {:?}", e)),
@@ -212,7 +212,7 @@ pub async fn sub_journal_list_page(
     let user = user::get_user(session)?;
 
     let journal_state_res = match JournalId::from_str(&id) {
-        Ok(s) => state.journal_get(s, user.id).await,
+        Ok(s) => state.journal_service.journal_get(s, user.id).await,
         Err(e) => Err(e),
     };
 

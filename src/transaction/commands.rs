@@ -104,6 +104,7 @@ pub async fn transact(
         Err(KnownErrors::InvalidInput).or_redirect(callback_url)
     } else {
         state
+            .transaction_service
             .transaction_create(TransactionId::new(), journal_id, user.id, updates)
             .await
             .or_redirect(callback_url)?;

@@ -29,7 +29,7 @@ pub async fn transaction_list_page(
 
     let content = html! {
         @if let Ok(journal_id) = journal_id_res {
-            @match state.transaction_get_all_in_journal(journal_id, user.id).await {
+            @match state.transaction_service.transaction_get_all_in_journal(journal_id, user.id).await {
                 Ok(transactions) => {
                     @for (transaction_id, transaction_state) in transactions {
                         a
@@ -43,7 +43,7 @@ pub async fn transaction_list_page(
                                         div class="flex justify-between items-center" {
                                             div class="flex items-baseline gap-2" {
                                                 span class="text-base font-medium text-gray-900 dark:text-white" {
-                                                    @match state.account_get_full_path(entry.account_id).await {
+                                                    @match state.account_service.account_get_full_path(entry.account_id).await {
                                                         Ok(Some(segments)) => {
                                                             @for (i, segment) in segments.iter().enumerate() {
                                                                 @if i > 0 {
@@ -68,7 +68,7 @@ pub async fn transaction_list_page(
                                     }
 
                                     div class="text-xs text-gray-400 dark:text-gray-500" {
-                                        @match state.user_get_email(transaction_state.author).await {
+                                        @match state.user_service.user_get_email(transaction_state.author).await {
                                             Ok(Some(email)) => (email),
                                             Ok(None) => "Unknown User",
                                             Err(e) => (format! ("Failed to get user: {}", e)),
@@ -98,8 +98,8 @@ pub async fn transaction_list_page(
                 }
             }
 
-            @if let Ok(journal_id) = journal_id_res && let Ok(accounts) = state.account_get_all_in_journal(journal_id, user.id).await {
-                @let journal_name = state.journal_get_name_from_res(journal_id_res.clone()).await.or_unknown();
+            @if let Ok(journal_id) = journal_id_res && let Ok(accounts) = state.account_service.account_get_all_in_journal(journal_id, user.id).await {
+                @let journal_name = state.journal_service.journal_get_name_from_res(journal_id_res.clone()).await.or_unknown();
                 form method="post" action=(format!("/journal/{}/transaction", id)) class="space-y-6" {
                     @for i in 0..4 {
                         div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg" {
@@ -178,6 +178,7 @@ pub async fn transaction_list_page(
     Ok(layout::layout(
         Some(
             &state
+                .journal_service
                 .journal_get_name_from_res(journal_id_res)
                 .await
                 .or_unknown(),
