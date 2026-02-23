@@ -182,6 +182,7 @@ impl FromStr for EntryType {
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BalanceUpdate {
+    pub journal_id: JournalId,
     pub account_id: AccountId,
     pub amount: u64,
     pub entry_type: EntryType,
@@ -292,6 +293,7 @@ mod test_transaction {
             journal_id: JournalId::new(),
             author: UserId::new(),
             updates: vec![BalanceUpdate {
+                journal_id: JournalId::new(),
                 account_id: AccountId::new(),
                 amount: 45,
                 entry_type: EntryType::Debit,

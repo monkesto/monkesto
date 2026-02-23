@@ -79,6 +79,9 @@ pub trait JournalStore:
     /// returns all journals that a user is a member of (owner or tenant)
     async fn get_user_journals(&self, user_id: UserId) -> MonkestoResult<Vec<JournalId>>;
 
+    /// returns all direct child journals of the given journal
+    async fn get_subjournals(&self, journal_id: JournalId) -> MonkestoResult<Vec<JournalId>>;
+
     async fn get_permissions(
         &self,
         journal_id: JournalId,
@@ -122,6 +125,8 @@ pub struct JournalMemoryStore {
     journal_table: Arc<DashMap<JournalId, JournalState>>,
     /// Index of user_id -> set of journal_ids they belong to
     user_journals: Arc<DashMap<UserId, std::collections::HashSet<JournalId>>>,
+    /// Index of parent_journal_id -> set of child journal_ids
+    subjournals: Arc<DashMap<JournalId, std::collections::HashSet<JournalId>>>,
 }
 
 impl JournalMemoryStore {
@@ -130,6 +135,7 @@ impl JournalMemoryStore {
             events: Arc::new(DashMap::new()),
             journal_table: Arc::new(DashMap::new()),
             user_journals: Arc::new(DashMap::new()),
+            subjournals: Arc::new(DashMap::new()),
         }
     }
 }
@@ -153,6 +159,7 @@ impl EventStore for JournalMemoryStore {
             name,
             created_at,
             creator,
+            parent_journal_id,
         } = event.clone()
         {
             self.events.insert(id, vec![event]);
@@ -165,11 +172,17 @@ impl EventStore for JournalMemoryStore {
                 owner: creator,
                 tenants: HashMap::new(),
                 deleted: false,
+                parent_journal_id,
             };
             self.journal_table.insert(id, state);
 
             // Add creator to the user_journals index
             self.user_journals.entry(creator).or_default().insert(id);
+
+            // Add to subjournal index if this is a child journal
+            if let Some(parent_id) = parent_journal_id {
+                self.subjournals.entry(parent_id).or_default().insert(id);
+            }
 
             Ok(())
         } else if let Some(mut events) = self.events.get_mut(&id)
@@ -205,6 +218,14 @@ impl JournalStore for JournalMemoryStore {
             .map(|set| set.iter().copied().collect())
             .unwrap_or_default())
     }
+
+    async fn get_subjournals(&self, journal_id: JournalId) -> MonkestoResult<Vec<JournalId>> {
+        Ok(self
+            .subjournals
+            .get(&journal_id)
+            .map(|set| set.iter().copied().collect())
+            .unwrap_or_default())
+    }
 }
 
 bitflags! {
@@ -232,6 +253,7 @@ pub enum JournalEvent {
         name: String,
         created_at: DateTime<Utc>,
         creator: UserId,
+        parent_journal_id: Option<JournalId>,
     },
     Renamed {
         name: String,
@@ -285,6 +307,7 @@ pub struct JournalState {
     pub owner: UserId,
     pub tenants: HashMap<UserId, JournalTenantInfo>,
     pub deleted: bool,
+    pub parent_journal_id: Option<JournalId>,
 }
 
 pub trait JournalNameOrUnknown {
@@ -324,11 +347,13 @@ impl JournalState {
                 name,
                 creator,
                 created_at,
+                parent_journal_id,
             } => {
                 self.name = name;
                 self.created_at = created_at;
                 self.creator = creator;
                 self.owner = creator;
+                self.parent_journal_id = parent_journal_id;
             }
 
             JournalEvent::Renamed { name } => self.name = name,
@@ -377,6 +402,7 @@ mod test_user {
             name: "test".into(),
             creator: UserId::new(),
             created_at: Utc::now(),
+            parent_journal_id: None,
         };
 
         sqlx::query(

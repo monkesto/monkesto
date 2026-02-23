@@ -146,20 +146,28 @@ pub struct CreateSubJournalForm {
     subjournal_name: String,
 }
 
-/// Stub handler — not yet implemented.
-/// TODO: create a child journal (subjournal) with `parent_journal_id` set to `id` once the data model supports it.
 pub async fn create_sub_journal(
+    State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
     Form(form): Form<CreateSubJournalForm>,
 ) -> Result<Redirect, Redirect> {
     let callback_url = format!("/journal/{}/subjournals", id);
 
-    let _user = user::get_user(session)?;
+    let user = user::get_user(session)?;
 
-    let _ = form.subjournal_name;
+    if form.subjournal_name.trim().is_empty() {
+        return Err(KnownErrors::InvalidInput.redirect(&callback_url));
+    }
 
-    // TODO: implement subjournal creation
+    let journal_id = JournalId::from_str(&id).or_redirect(&callback_url)?;
+
+    state
+        .journal_service
+        .journal_create_subjournal(journal_id, form.subjournal_name, user.id)
+        .await
+        .or_redirect(&callback_url)?;
+
     Ok(Redirect::to(&callback_url))
 }
 

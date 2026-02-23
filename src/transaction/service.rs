@@ -56,20 +56,7 @@ where
         creator_id: UserId,
         updates: Vec<BalanceUpdate>,
     ) -> Result<(), KnownErrors> {
-        let journal_accounts = self
-            .account_service
-            .store()
-            .get_journal_accounts(journal_id)
-            .await?;
-
-        for update in &updates {
-            if !journal_accounts.contains(&update.account_id) {
-                return Err(KnownErrors::AccountDoesntExist {
-                    id: update.account_id,
-                });
-            }
-        }
-
+        // Check permission on the top-level journal (inherited by subjournals)
         let journal = self
             .journal_service
             .journal_get(journal_id, creator_id)
@@ -80,13 +67,43 @@ where
             return Err(KnownErrors::InvalidJournal);
         }
 
-        if !journal
-            .get_user_permissions(creator_id)
-            .contains(Permissions::APPENDTRANSACTION)
-        {
+        let perms = self
+            .journal_service
+            .effective_permissions(journal_id, creator_id)
+            .await?;
+
+        if !perms.contains(Permissions::APPENDTRANSACTION) {
             return Err(PermissionError {
                 required_permissions: Permissions::APPENDTRANSACTION,
             });
+        }
+
+        // For each update, the account must belong to the entry's journal or any of its
+        // ancestors (up to and including the root). Build the valid account set per entry.
+        for update in &updates {
+            let ancestor_ids = self
+                .journal_service
+                .journal_get_ancestor_ids(update.journal_id)
+                .await?;
+
+            let mut valid = false;
+            for ancestor_id in ancestor_ids {
+                let accounts = self
+                    .account_service
+                    .store()
+                    .get_journal_accounts(ancestor_id)
+                    .await?;
+                if accounts.contains(&update.account_id) {
+                    valid = true;
+                    break;
+                }
+            }
+
+            if !valid {
+                return Err(KnownErrors::AccountDoesntExist {
+                    id: update.account_id,
+                });
+            }
         }
 
         let event = TransactionEvent::CreatedTransaction {

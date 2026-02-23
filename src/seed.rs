@@ -330,11 +330,13 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 pacioli_id,
                 vec![
                     BalanceUpdate {
+                        journal_id: maple_ridge_academy_id,
                         account_id: checking_id,
                         amount: 500000,
                         entry_type: EntryType::Debit,
                     },
                     BalanceUpdate {
+                        journal_id: maple_ridge_academy_id,
                         account_id: revenue_id,
                         amount: 500000,
                         entry_type: EntryType::Credit,
@@ -353,11 +355,13 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 pacioli_id,
                 vec![
                     BalanceUpdate {
+                        journal_id: maple_ridge_academy_id,
                         account_id: salaries_id,
                         amount: 320000,
                         entry_type: EntryType::Debit,
                     },
                     BalanceUpdate {
+                        journal_id: maple_ridge_academy_id,
                         account_id: checking_id,
                         amount: 320000,
                         entry_type: EntryType::Credit,
@@ -376,11 +380,13 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 pacioli_id,
                 vec![
                     BalanceUpdate {
+                        journal_id: maple_ridge_academy_id,
                         account_id: supplies_id,
                         amount: 85000,
                         entry_type: EntryType::Debit,
                     },
                     BalanceUpdate {
+                        journal_id: maple_ridge_academy_id,
                         account_id: checking_id,
                         amount: 85000,
                         entry_type: EntryType::Credit,
@@ -399,11 +405,13 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 pacioli_id,
                 vec![
                     BalanceUpdate {
+                        journal_id: maple_ridge_academy_id,
                         account_id: checking_id,
                         amount: 450000,
                         entry_type: EntryType::Debit,
                     },
                     BalanceUpdate {
+                        journal_id: maple_ridge_academy_id,
                         account_id: revenue_id,
                         amount: 450000,
                         entry_type: EntryType::Credit,
@@ -422,11 +430,13 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 pacioli_id,
                 vec![
                     BalanceUpdate {
+                        journal_id: maple_ridge_academy_id,
                         account_id: savings_id,
                         amount: 200000,
                         entry_type: EntryType::Debit,
                     },
                     BalanceUpdate {
+                        journal_id: maple_ridge_academy_id,
                         account_id: checking_id,
                         amount: 200000,
                         entry_type: EntryType::Credit,
@@ -446,11 +456,13 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 pacioli_id,
                 vec![
                     BalanceUpdate {
+                        journal_id: maple_ridge_academy_id,
                         account_id: benefits_id,
                         amount: 64000,
                         entry_type: EntryType::Debit,
                     },
                     BalanceUpdate {
+                        journal_id: maple_ridge_academy_id,
                         account_id: checking_id,
                         amount: 64000,
                         entry_type: EntryType::Credit,

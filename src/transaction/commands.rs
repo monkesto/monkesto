@@ -20,6 +20,7 @@ use std::str::FromStr;
 
 #[derive(Deserialize)]
 pub struct TransactForm {
+    entry_journal: Vec<String>,
     account: Vec<String>,
     amount: Vec<String>,
     entry_type: Vec<String>,
@@ -44,6 +45,14 @@ pub async fn transact(
         // if the id isn't valid, assume that the user just didn't select an account
         if let Ok(acc_id) = AccountId::from_str(acc_id_str) {
             // if the id doesn't map to an account, return an error
+
+            let entry_journal_id = JournalId::from_str(
+                form.entry_journal
+                    .get(idx)
+                    .ok_or(KnownErrors::InvalidInput)
+                    .or_redirect(callback_url)?,
+            )
+            .or_redirect(callback_url)?;
 
             let dec_amt = Decimal::from_str(
                 form.amount
@@ -79,6 +88,7 @@ pub async fn transact(
                 .or_redirect(callback_url)?;
 
                 updates.push(BalanceUpdate {
+                    journal_id: entry_journal_id,
                     account_id: acc_id,
                     amount: amt as u64,
                     entry_type,

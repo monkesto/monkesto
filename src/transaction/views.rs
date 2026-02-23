@@ -4,6 +4,7 @@ use crate::account::views::render_account_options;
 use crate::auth::user;
 use crate::ident::JournalId;
 use crate::journal::JournalNameOrUnknown;
+use crate::journal::JournalState;
 use crate::journal::layout;
 use crate::known_errors::KnownErrors;
 use crate::known_errors::UrlError;
@@ -16,6 +17,23 @@ use axum_login::AuthSession;
 use maud::Markup;
 use maud::html;
 use std::str::FromStr;
+
+/// Recursively renders `<option>` elements for a journal and all its subjournals.
+/// `depth` controls the `↳ ` prefix count (0 = no prefix, 1 = one arrow, etc.).
+fn render_journal_options(
+    all_subjournals: &[(JournalId, JournalState)],
+    parent_id: JournalId,
+    parent_name: &str,
+    depth: usize,
+) -> Markup {
+    let prefix = "↳ ".repeat(depth);
+    html! {
+        option value=(parent_id) { (format!("{}{}", prefix, parent_name)) }
+        @for (sub_id, sub_state) in all_subjournals.iter().filter(|(_, s)| s.parent_journal_id == Some(parent_id)) {
+            (render_journal_options(all_subjournals, *sub_id, &sub_state.name, depth + 1))
+        }
+    }
+}
 
 pub async fn transaction_list_page(
     State(state): State<StateType>,
@@ -56,9 +74,20 @@ pub async fn transaction_list_page(
                                                         Err(e) => (format!("Failed to get account name: {}", e)),
                                                     }
                                                 }
-                                                // TODO: show subjournal annotation when BalanceUpdate includes journal_id.
-                                                // If entry.journal_id != current journal_id, render:
-                                                //   span class="text-xs text-gray-400 dark:text-gray-500" { "· " (subjournal_name) }
+                                                @if entry.journal_id != journal_id {
+                                                    @match state.journal_service.journal_get_relative_name_path(entry.journal_id, journal_id).await {
+                                                        Ok(Some(parts)) if !parts.is_empty() => {
+                                                            span class="text-xs text-gray-400 dark:text-gray-500" {
+                                                                "· "
+                                                                @for (i, part) in parts.iter().enumerate() {
+                                                                    @if i > 0 { " › " }
+                                                                    (part)
+                                                                }
+                                                            }
+                                                        }
+                                                        _ => {}
+                                                    }
+                                                }
                                             }
 
                                             span class="text-base text-gray-700 dark:text-gray-300" {
@@ -100,50 +129,88 @@ pub async fn transaction_list_page(
 
             @if let Ok(journal_id) = journal_id_res && let Ok(accounts) = state.account_service.account_get_all_in_journal(journal_id, user.id).await {
                 @let journal_name = state.journal_service.journal_get_name_from_res(journal_id_res.clone()).await.or_unknown();
+                @let subjournals = state.journal_service.journal_get_subjournals(journal_id, user.id).await.unwrap_or_default();
+                @let has_subjournals = !subjournals.is_empty();
                 form method="post" action=(format!("/journal/{}/transaction", id)) class="space-y-6" {
                     @for i in 0..4 {
                         div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg" {
-                            div class="grid grid-cols-4 gap-3 md:grid-cols-12" {
-                                div class="col-span-4 md:col-span-3" {
-                                    label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                        "Journal"
+                            @if has_subjournals {
+                                div class="grid grid-cols-4 gap-3 md:grid-cols-12" {
+                                    div class="col-span-4 md:col-span-3" {
+                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                            "Journal"
+                                        }
+                                        select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
+                                        name="entry_journal" {
+                                            (render_journal_options(&subjournals, journal_id, &journal_name, 0))
+                                        }
                                     }
-                                    // TODO: populate subjournals into the journal dropdown when the data model supports parent_journal_id.
-                                    // Each subjournal should be listed as an additional option here, with the parent journal as the default.
-                                    select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
-                                    name="entry_journal" {
-                                        option value=(id) selected { (journal_name) }
+                                    div class="col-span-4 md:col-span-5" {
+                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                            (if i < 2 {"Account"} else {"Account (Optional)"})
+                                        }
+                                        select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
+                                        name="account" {
+                                            option value="" { "Select account..." }
+                                            (render_account_options(&accounts, None, 0))
+                                        }
+                                    }
+                                    div class="col-span-3 md:col-span-3" {
+                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                            "Amount"
+                                        }
+                                        input class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                        type="number"
+                                        step="0.01" min="0"
+                                        placeholder="0.00"
+                                        required[i < 2]
+                                        name="amount";
+                                    }
+                                    div class="col-span-1 md:col-span-1" {
+                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                            "Type"
+                                        }
+                                        select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
+                                        name="entry_type" {
+                                            option value=(EntryType::Debit) { "Dr" }
+                                            option value=(EntryType::Credit) { "Cr" }
+                                        }
                                     }
                                 }
-                                div class="col-span-4 md:col-span-5" {
-                                    label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                        (if i < 2 {"Account"} else {"Account (Optional)"})
+                            } @else {
+                                // No subjournals — journal is implicit, omit the column
+                                input type="hidden" name="entry_journal" value=(id);
+                                div class="grid grid-cols-4 gap-3 md:grid-cols-12" {
+                                    div class="col-span-4 md:col-span-6" {
+                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                            (if i < 2 {"Account"} else {"Account (Optional)"})
+                                        }
+                                        select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
+                                        name="account" {
+                                            option value="" { "Select account..." }
+                                            (render_account_options(&accounts, None, 0))
+                                        }
                                     }
-                                    select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
-                                    name="account" {
-                                        option value="" { "Select account..." }
-                                        (render_account_options(&accounts, None, 0))
+                                    div class="col-span-3 md:col-span-5" {
+                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                            "Amount"
+                                        }
+                                        input class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                        type="number"
+                                        step="0.01" min="0"
+                                        placeholder="0.00"
+                                        required[i < 2]
+                                        name="amount";
                                     }
-                                }
-                                div class="col-span-3 md:col-span-3" {
-                                    label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                        "Amount"
-                                    }
-                                    input class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-                                    type="number"
-                                    step="0.01" min="0"
-                                    placeholder="0.00"
-                                    required[i < 2]
-                                    name="amount";
-                                }
-                                div class="col-span-1 md:col-span-1" {
-                                    label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                        "Type"
-                                    }
-                                    select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
-                                    name="entry_type" {
-                                        option value=(EntryType::Debit) { "Dr" }
-                                        option value=(EntryType::Credit) { "Cr" }
+                                    div class="col-span-1 md:col-span-1" {
+                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                            "Type"
+                                        }
+                                        select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
+                                        name="entry_type" {
+                                            option value=(EntryType::Debit) { "Dr" }
+                                            option value=(EntryType::Credit) { "Cr" }
+                                        }
                                     }
                                 }
                             }

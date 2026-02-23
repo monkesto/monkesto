@@ -216,13 +216,44 @@ pub async fn sub_journal_list_page(
         Err(e) => Err(e),
     };
 
+    let subjournals_res = match JournalId::from_str(&id) {
+        Ok(s) => {
+            state
+                .journal_service
+                .journal_get_direct_subjournals(s, user.id)
+                .await
+        }
+        Err(e) => Err(e),
+    };
+
     let content = html! {
         div class="flex flex-col gap-6" {
             @match &journal_state_res {
                 Ok(Some(_journal_state)) => {
-                    // TODO: fetch and display actual subjournals when the data model supports parent_journal_id
-                    p class="text-sm text-gray-500 dark:text-gray-400" {
-                        "No subjournals yet."
+                    @match &subjournals_res {
+                        Ok(subjournals) if subjournals.is_empty() => {
+                            p class="text-sm text-gray-500 dark:text-gray-400" {
+                                "No subjournals yet."
+                            }
+                        }
+                        Ok(subjournals) => {
+                            div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" {
+                                @for (subjournal_id, subjournal_state) in subjournals {
+                                    a
+                                    href=(format!("/journal/{}", subjournal_id))
+                                    class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
+                                        h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                            (subjournal_state.name)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            p class="text-sm text-red-500 dark:text-red-400" {
+                                (format!("Failed to load subjournals: {:?}", e))
+                            }
+                        }
                     }
 
                     hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600";
@@ -233,7 +264,6 @@ pub async fn sub_journal_list_page(
                                 "Create Subjournal"
                             }
 
-                            // TODO: wire up to POST /journal/{id}/createsubjournal once backend logic is implemented
                             form method="post" action=(format!("/journal/{}/createsubjournal", id)) class="space-y-4" {
                                 div {
                                     label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
