@@ -126,7 +126,6 @@ mod tests {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid,
                 },
-                None,
             )
             .await
             .expect("Should create user successfully");
@@ -173,7 +172,6 @@ mod tests {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid: webauthn_uuid_1,
                 },
-                None,
             )
             .await
             .expect("Should create first user successfully");
@@ -187,7 +185,6 @@ mod tests {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid: webauthn_uuid_2,
                 },
-                None,
             )
             .await;
 
@@ -283,7 +280,6 @@ pub trait UserStore:
                         email: Email::try_new(email).expect("dev email should be valid"),
                         webauthn_uuid,
                     },
-                    None,
                 )
                 .await?;
             }
@@ -308,7 +304,6 @@ pub trait UserStore:
 use axum_login::AuthSession;
 use axum_login::AuthnBackend;
 use dashmap::DashMap;
-use sqlx::PgTransaction;
 use std::sync::Arc;
 
 /// In-memory storage implementation for users using HashMap
@@ -348,7 +343,6 @@ impl EventStore for MemoryUserStore {
         id: UserId,
         _by: Authority,
         event: UserEvent,
-        _tx: Option<&mut PgTransaction<'_>>,
     ) -> Result<(), UserStoreError> {
         match event {
             UserEvent::Created {
@@ -374,6 +368,15 @@ impl EventStore for MemoryUserStore {
         }
 
         Ok(())
+    }
+
+    async fn get_events(
+        &self,
+        _id: UserId,
+        _after: usize,
+        _limit: usize,
+    ) -> Result<Vec<UserEvent>, Self::Error> {
+        todo!("get_events not yet implemented for MemoryUserStore")
     }
 }
 

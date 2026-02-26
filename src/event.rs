@@ -21,6 +21,20 @@ pub trait EventStore: Send + Sync {
         id: Self::Id,
         by: Authority,
         event: Self::Event,
-        tx: Option<&mut sqlx::PgTransaction<'_>>,
     ) -> Result<Self::EventId, Self::Error>;
+
+    /// Get all events after the specified event number
+    ///
+    /// # Parameters
+    /// - `id`: The id of the aggregate
+    /// - `after`: The start event version number (exclusive)
+    /// - `limit`: The maximum number of events to return
+    // TODO: Use an event id of some sort instead of a usize
+    #[allow(dead_code)]
+    async fn get_events(
+        &self,
+        id: Self::Id,
+        after: usize,
+        limit: usize,
+    ) -> Result<Vec<Self::Event>, Self::Error>;
 }

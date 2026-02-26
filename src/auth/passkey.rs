@@ -66,7 +66,6 @@ impl IntoResponse for PasskeyError {
 
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::PgTransaction;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -94,7 +93,6 @@ pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
             passkey_id,
             Authority::Direct(Actor::User(user_id)),
             PasskeyEvent::Deleted { user_id },
-            None,
         )
         .await
         .map_err(|e| PasskeyError::StoreError(e.to_string()))?;
@@ -146,7 +144,6 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
                         passkey_id,
                         Authority::Direct(Actor::User(user_id)),
                         PasskeyEvent::Created { user_id, passkey },
-                        None,
                     )
                     .await
                     .is_err()
@@ -333,7 +330,7 @@ pub enum PasskeyEvent {
     },
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 pub enum PasskeyStoreError {
     #[error("Storage operation failed: {0}")]
     #[expect(dead_code)]
@@ -393,12 +390,10 @@ impl EventStore for MemoryPasskeyStore {
     async fn record(
         &self,
         id: PasskeyId,
-        by: Authority,
+        _by: Authority,
         event: PasskeyEvent,
-        _tx: Option<&mut PgTransaction<'_>>,
     ) -> Result<(), PasskeyStoreError> {
         let mut data = self.data.lock().await;
-        _ = by; // Store doesn't use authority yet, but will for audit trail
 
         match event {
             PasskeyEvent::Created { user_id, passkey } => {
@@ -413,6 +408,15 @@ impl EventStore for MemoryPasskeyStore {
         }
 
         Ok(())
+    }
+
+    async fn get_events(
+        &self,
+        _id: PasskeyId,
+        _after: usize,
+        _limit: usize,
+    ) -> Result<Vec<PasskeyEvent>, Self::Error> {
+        todo!("get_events is not yet implemented for MemoryPasskeyStore")
     }
 }
 
@@ -479,7 +483,6 @@ mod tests {
                 passkey_id,
                 Authority::Direct(Actor::User(user_id)),
                 PasskeyEvent::Deleted { user_id },
-                None,
             )
             .await
             .expect("Should succeed even for non-existent passkey");

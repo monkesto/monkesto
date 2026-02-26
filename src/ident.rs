@@ -87,7 +87,7 @@ impl FromStr for Ident {
 }
 
 // this has the potential to panic if the id is created manually rather than with helper functions
-impl fmt::Display for Ident {
+impl Display for Ident {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Ident::Cuid10(id) => write!(

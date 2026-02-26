@@ -51,7 +51,6 @@ where
                     created_at: Utc::now(),
                     parent_journal_id: None,
                 },
-                None,
             )
             .await
     }
@@ -92,7 +91,6 @@ where
                     created_at: Utc::now(),
                     parent_journal_id: Some(parent_journal_id),
                 },
-                None,
             )
             .await?;
         Ok(subjournal_id)
@@ -376,7 +374,6 @@ where
                     id: invitee_id,
                     tenant_info,
                 },
-                None,
             )
             .await
     }
@@ -419,7 +416,6 @@ where
                     id: target_user,
                     permissions,
                 },
-                None,
             )
             .await
     }
@@ -458,7 +454,6 @@ where
                 journal_id,
                 Authority::Direct(Actor::Anonymous),
                 JournalEvent::RemovedTenant { id: target_user },
-                None,
             )
             .await
     }
