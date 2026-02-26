@@ -338,6 +338,7 @@ pub enum PasskeyStoreError {
     OperationFailed(String),
 
     #[error("Invalid PasskeyId: {0}")]
+    #[expect(dead_code)]
     InvalidPasskey(PasskeyId),
 }
 
@@ -416,8 +417,6 @@ impl EventStore for MemoryPasskeyStore {
             PasskeyEvent::Deleted { user_id } => {
                 if let Some(mut events) = self.events.get_mut(&id) {
                     events.push(event);
-                } else {
-                    return Err(PasskeyStoreError::InvalidPasskey(id));
                 }
 
                 if let Some(passkeys) = data.keys.get_mut(&user_id) {
