@@ -309,6 +309,7 @@ use std::sync::Arc;
 /// In-memory storage implementation for users using HashMap
 #[derive(Clone)]
 pub struct MemoryUserStore {
+    events: Arc<DashMap<UserId, Vec<UserEvent>>>,
     email_to_user_id: Arc<DashMap<String, UserId>>,
     user_id_to_email: Arc<DashMap<UserId, Email>>,
     user_id_to_webauthn_uuid: Arc<DashMap<UserId, Uuid>>,
@@ -318,6 +319,7 @@ pub struct MemoryUserStore {
 impl MemoryUserStore {
     pub fn new() -> Self {
         Self {
+            events: Arc::new(DashMap::new()),
             email_to_user_id: Arc::new(DashMap::new()),
             user_id_to_email: Arc::new(DashMap::new()),
             user_id_to_webauthn_uuid: Arc::new(DashMap::new()),
@@ -346,19 +348,27 @@ impl EventStore for MemoryUserStore {
     ) -> Result<(), UserStoreError> {
         match event {
             UserEvent::Created {
-                email,
+                ref email,
                 webauthn_uuid,
             } => {
+                self.events.entry(id).or_default().push(event.clone());
+
                 let email_str = email.to_string();
                 if self.email_to_user_id.contains_key(&email_str) {
                     return Err(UserStoreError::EmailAlreadyExists);
                 }
                 self.email_to_user_id.insert(email_str, id);
-                self.user_id_to_email.insert(id, email);
+                self.user_id_to_email.insert(id, email.clone());
                 self.user_id_to_webauthn_uuid.insert(id, webauthn_uuid);
                 self.webauthn_uuid_to_user_id.insert(webauthn_uuid, id);
             }
             UserEvent::Deleted => {
+                if let Some(mut events) = self.events.get_mut(&id) {
+                    events.push(event);
+                } else {
+                    return Err(UserStoreError::UserNotFound);
+                }
+
                 if let Some((_, webauthn_uuid)) = self.user_id_to_webauthn_uuid.remove(&id) {
                     self.webauthn_uuid_to_user_id.remove(&webauthn_uuid);
                 }
@@ -372,11 +382,21 @@ impl EventStore for MemoryUserStore {
 
     async fn get_events(
         &self,
-        _id: UserId,
-        _after: usize,
-        _limit: usize,
+        id: UserId,
+        after: usize,
+        limit: usize,
     ) -> Result<Vec<UserEvent>, Self::Error> {
-        todo!("get_events not yet implemented for MemoryUserStore")
+        let events = self.events.get(&id).ok_or(UserStoreError::UserNotFound)?;
+
+        // avoid a panic if start > len
+        if after >= events.len() {
+            return Ok(Vec::new());
+        }
+
+        // clamp the end value to the vector length
+        let end = std::cmp::min(after + limit + 1, events.len());
+
+        Ok(events[after + 1..end].to_vec())
     }
 }
 

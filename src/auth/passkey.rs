@@ -64,6 +64,7 @@ impl IntoResponse for PasskeyError {
     }
 }
 
+use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
 use std::fmt::Display;
@@ -335,6 +336,9 @@ pub enum PasskeyStoreError {
     #[error("Storage operation failed: {0}")]
     #[expect(dead_code)]
     OperationFailed(String),
+
+    #[error("Invalid PasskeyId: {0}")]
+    InvalidPasskey(PasskeyId),
 }
 
 pub trait PasskeyStore: EventStore<Id = PasskeyId, Event = PasskeyEvent> {
@@ -365,12 +369,14 @@ impl PasskeyData {
 /// In-memory storage implementation for passkeys using HashMap
 pub struct MemoryPasskeyStore {
     data: Arc<Mutex<PasskeyData>>,
+    events: Arc<DashMap<PasskeyId, Vec<PasskeyEvent>>>,
 }
 
 impl MemoryPasskeyStore {
     pub fn new() -> Self {
         Self {
             data: Arc::new(Mutex::new(PasskeyData::new())),
+            events: Arc::new(DashMap::new()),
         }
     }
 }
@@ -396,11 +402,24 @@ impl EventStore for MemoryPasskeyStore {
         let mut data = self.data.lock().await;
 
         match event {
-            PasskeyEvent::Created { user_id, passkey } => {
-                let passkeys = data.keys.entry(user_id).or_insert_with(Vec::new);
-                passkeys.push(Passkey { id, passkey });
+            PasskeyEvent::Created {
+                user_id,
+                ref passkey,
+            } => {
+                let passkeys = data.keys.entry(user_id).or_default();
+                passkeys.push(Passkey {
+                    id,
+                    passkey: passkey.clone(),
+                });
+                self.events.entry(id).or_default().push(event);
             }
             PasskeyEvent::Deleted { user_id } => {
+                if let Some(mut events) = self.events.get_mut(&id) {
+                    events.push(event);
+                } else {
+                    return Err(PasskeyStoreError::InvalidPasskey(id));
+                }
+
                 if let Some(passkeys) = data.keys.get_mut(&user_id) {
                     passkeys.retain(|stored| stored.id != id);
                 }
@@ -412,11 +431,24 @@ impl EventStore for MemoryPasskeyStore {
 
     async fn get_events(
         &self,
-        _id: PasskeyId,
-        _after: usize,
-        _limit: usize,
+        id: PasskeyId,
+        after: usize,
+        limit: usize,
     ) -> Result<Vec<PasskeyEvent>, Self::Error> {
-        todo!("get_events is not yet implemented for MemoryPasskeyStore")
+        let events = self
+            .events
+            .get(&id)
+            .ok_or(PasskeyStoreError::InvalidPasskey(id))?;
+
+        // avoid a panic if start > len
+        if after >= events.len() {
+            return Ok(Vec::new());
+        }
+
+        // clamp the end value to the vector length
+        let end = std::cmp::min(after + limit + 1, events.len());
+
+        Ok(events[after + 1..end].to_vec())
     }
 }
 
