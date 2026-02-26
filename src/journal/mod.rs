@@ -63,7 +63,9 @@ use sqlx::Encode;
 use sqlx::Type;
 use sqlx::postgres::PgValueRef;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::Arc;
+use tokio::sync::RwLock;
 
 #[expect(dead_code)]
 pub trait JournalStore:
@@ -121,7 +123,9 @@ pub trait JournalStore:
 
 #[derive(Clone)]
 pub struct JournalMemoryStore {
-    events: Arc<DashMap<JournalId, Vec<JournalEvent>>>,
+    global_events: Arc<RwLock<Vec<Arc<JournalEvent>>>>,
+    namespaced_events: Arc<DashMap<JournalId, Vec<Arc<JournalEvent>>>>,
+
     journal_table: Arc<DashMap<JournalId, JournalState>>,
     /// Index of user_id -> set of journal_ids they belong to
     user_journals: Arc<DashMap<UserId, std::collections::HashSet<JournalId>>>,
@@ -132,7 +136,8 @@ pub struct JournalMemoryStore {
 impl JournalMemoryStore {
     pub fn new() -> Self {
         Self {
-            events: Arc::new(DashMap::new()),
+            global_events: Arc::new(RwLock::new(Vec::new())),
+            namespaced_events: Arc::new(DashMap::new()),
             journal_table: Arc::new(DashMap::new()),
             user_journals: Arc::new(DashMap::new()),
             subjournals: Arc::new(DashMap::new()),
@@ -159,7 +164,11 @@ impl EventStore for JournalMemoryStore {
             parent_journal_id,
         } = event.clone()
         {
-            self.events.insert(id, vec![event]);
+            let arc_event = Arc::new(event);
+
+            self.global_events.write().await.push(arc_event.clone());
+
+            self.namespaced_events.insert(id, vec![arc_event]);
 
             let state = JournalState {
                 id,
@@ -182,17 +191,22 @@ impl EventStore for JournalMemoryStore {
             }
 
             Ok(())
-        } else if let Some(mut events) = self.events.get_mut(&id)
+        } else if let Some(mut events) = self.namespaced_events.get_mut(&id)
             && let Some(mut state) = self.journal_table.get_mut(&id)
         {
+            let arc_event = Arc::new(event.clone());
+
             // Update user_journals index for membership changes
             if let JournalEvent::AddedTenant { id: user_id, .. } = &event {
                 self.user_journals.entry(*user_id).or_default().insert(id);
             } else if let JournalEvent::RemovedTenant { id: user_id } = &event {
                 self.user_journals.entry(*user_id).or_default().remove(&id);
             }
+
+            self.global_events.write().await.push(arc_event.clone());
+            events.push(arc_event);
             state.apply(event.clone());
-            events.push(event);
+
             Ok(())
         } else {
             Err(KnownErrors::InvalidJournal)
@@ -205,7 +219,10 @@ impl EventStore for JournalMemoryStore {
         after: usize,
         limit: usize,
     ) -> Result<Vec<JournalEvent>, Self::Error> {
-        let events = self.events.get(&id).ok_or(KnownErrors::InvalidJournal)?;
+        let events = self
+            .namespaced_events
+            .get(&id)
+            .ok_or(KnownErrors::InvalidJournal)?;
 
         // avoid a panic fn start > len
         if after >= events.len() {
@@ -215,7 +232,10 @@ impl EventStore for JournalMemoryStore {
         // clamp the end value to the vector length
         let end = std::cmp::min(events.len(), after + limit + 1);
 
-        Ok(events[after + 1..end].to_vec())
+        Ok(events[after + 1..end]
+            .iter()
+            .map(|s| s.deref().clone())
+            .collect())
     }
 }
 
