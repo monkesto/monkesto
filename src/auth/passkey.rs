@@ -64,9 +64,9 @@ impl IntoResponse for PasskeyError {
     }
 }
 
+use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::PgTransaction;
 use std::fmt::Display;
 use std::ops::Deref;
 use std::str::FromStr;
@@ -94,7 +94,6 @@ pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
             passkey_id,
             Authority::Direct(Actor::User(user_id)),
             PasskeyEvent::Deleted { user_id },
-            None,
         )
         .await
         .map_err(|e| PasskeyError::StoreError(e.to_string()))?;
@@ -146,7 +145,6 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
                         passkey_id,
                         Authority::Direct(Actor::User(user_id)),
                         PasskeyEvent::Created { user_id, passkey },
-                        None,
                     )
                     .await
                     .is_err()
@@ -333,11 +331,15 @@ pub enum PasskeyEvent {
     },
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 pub enum PasskeyStoreError {
     #[error("Storage operation failed: {0}")]
     #[expect(dead_code)]
     OperationFailed(String),
+
+    #[error("Invalid PasskeyId: {0}")]
+    #[allow(dead_code)]
+    InvalidPasskey(PasskeyId),
 }
 
 pub trait PasskeyStore: EventStore<Id = PasskeyId, Event = PasskeyEvent> {
@@ -368,12 +370,14 @@ impl PasskeyData {
 /// In-memory storage implementation for passkeys using HashMap
 pub struct MemoryPasskeyStore {
     data: Arc<Mutex<PasskeyData>>,
+    events: Arc<DashMap<PasskeyId, Vec<PasskeyEvent>>>,
 }
 
 impl MemoryPasskeyStore {
     pub fn new() -> Self {
         Self {
             data: Arc::new(Mutex::new(PasskeyData::new())),
+            events: Arc::new(DashMap::new()),
         }
     }
 }
@@ -393,19 +397,28 @@ impl EventStore for MemoryPasskeyStore {
     async fn record(
         &self,
         id: PasskeyId,
-        by: Authority,
+        _by: Authority,
         event: PasskeyEvent,
-        _tx: Option<&mut PgTransaction<'_>>,
     ) -> Result<(), PasskeyStoreError> {
         let mut data = self.data.lock().await;
-        _ = by; // Store doesn't use authority yet, but will for audit trail
 
         match event {
-            PasskeyEvent::Created { user_id, passkey } => {
-                let passkeys = data.keys.entry(user_id).or_insert_with(Vec::new);
-                passkeys.push(Passkey { id, passkey });
+            PasskeyEvent::Created {
+                user_id,
+                ref passkey,
+            } => {
+                let passkeys = data.keys.entry(user_id).or_default();
+                passkeys.push(Passkey {
+                    id,
+                    passkey: passkey.clone(),
+                });
+                self.events.entry(id).or_default().push(event);
             }
             PasskeyEvent::Deleted { user_id } => {
+                if let Some(mut events) = self.events.get_mut(&id) {
+                    events.push(event);
+                }
+
                 if let Some(passkeys) = data.keys.get_mut(&user_id) {
                     passkeys.retain(|stored| stored.id != id);
                 }
@@ -413,6 +426,28 @@ impl EventStore for MemoryPasskeyStore {
         }
 
         Ok(())
+    }
+
+    async fn get_events(
+        &self,
+        id: PasskeyId,
+        after: usize,
+        limit: usize,
+    ) -> Result<Vec<PasskeyEvent>, Self::Error> {
+        let events = self
+            .events
+            .get(&id)
+            .ok_or(PasskeyStoreError::InvalidPasskey(id))?;
+
+        // avoid a panic if start > len
+        if after >= events.len() {
+            return Ok(Vec::new());
+        }
+
+        // clamp the end value to the vector length
+        let end = std::cmp::min(after + limit + 1, events.len());
+
+        Ok(events[after + 1..end].to_vec())
     }
 }
 
@@ -479,7 +514,6 @@ mod tests {
                 passkey_id,
                 Authority::Direct(Actor::User(user_id)),
                 PasskeyEvent::Deleted { user_id },
-                None,
             )
             .await
             .expect("Should succeed even for non-existent passkey");

@@ -287,7 +287,7 @@ async fn handle_signup_post<U: UserStore, P: PasskeyStore>(
     webauthn_url: String,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
-) -> Result<axum::response::Response, SignupError> {
+) -> Result<Response, SignupError> {
     // Check if this is an email submission or credential submission
     if let Some(_credential_json) = form_data.get("credential") {
         // This is step 2: credential submission
@@ -323,7 +323,7 @@ async fn handle_email_submission<U: UserStore>(
     webauthn_url: String,
     email: String,
     next: Option<String>,
-) -> Result<axum::response::Response, SignupError> {
+) -> Result<Response, SignupError> {
     // Validate email format (basic validation)
     if email.is_empty() || email.len() > 254 || !email.contains('@') || !email.contains('.') {
         return Ok(Redirect::to("/signup?error=invalid_email").into_response());
@@ -433,7 +433,6 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                         email: email_validated.clone(),
                         webauthn_uuid,
                     },
-                    None,
                 )
                 .await
                 .is_err()
@@ -446,7 +445,6 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                     passkey_id,
                     Authority::Direct(Actor::User(user_id)),
                     PasskeyEvent::Created { user_id, passkey },
-                    None,
                 )
                 .await
                 .is_err()

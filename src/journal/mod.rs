@@ -149,12 +149,9 @@ impl EventStore for JournalMemoryStore {
     async fn record(
         &self,
         id: JournalId,
-        by: Authority,
+        _by: Authority,
         event: JournalEvent,
-        _tx: Option<&mut sqlx::PgTransaction<'_>>,
     ) -> MonkestoResult<()> {
-        _ = by; // Store doesn't use authority yet, but will for audit trail
-
         if let JournalEvent::Created {
             name,
             created_at,
@@ -200,6 +197,25 @@ impl EventStore for JournalMemoryStore {
         } else {
             Err(KnownErrors::InvalidJournal)
         }
+    }
+
+    async fn get_events(
+        &self,
+        id: JournalId,
+        after: usize,
+        limit: usize,
+    ) -> Result<Vec<JournalEvent>, Self::Error> {
+        let events = self.events.get(&id).ok_or(KnownErrors::InvalidJournal)?;
+
+        // avoid a panic fn start > len
+        if after >= events.len() {
+            return Ok(Vec::new());
+        }
+
+        // clamp the end value to the vector length
+        let end = std::cmp::min(events.len(), after + limit + 1);
+
+        Ok(events[after + 1..end].to_vec())
     }
 }
 

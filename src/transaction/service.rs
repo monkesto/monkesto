@@ -120,12 +120,7 @@ where
             .await?;
 
         self.transaction_store
-            .record(
-                transaction_id,
-                Authority::Direct(Actor::Anonymous),
-                event,
-                None,
-            )
+            .record(transaction_id, Authority::Direct(Actor::Anonymous), event)
             .await?;
 
         Ok(())

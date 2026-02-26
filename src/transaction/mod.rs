@@ -92,7 +92,6 @@ impl EventStore for TransactionMemoryStore {
         id: Self::Id,
         _by: Authority,
         event: Self::Event,
-        _tx: Option<&mut sqlx::postgres::PgTransaction<'_>>,
     ) -> Result<Self::EventId, Self::Error> {
         if let TransactionEvent::CreatedTransaction {
             journal_id,
@@ -128,6 +127,28 @@ impl EventStore for TransactionMemoryStore {
         } else {
             Err(KnownErrors::InvalidJournal)
         }
+    }
+
+    async fn get_events(
+        &self,
+        id: TransactionId,
+        after: usize,
+        limit: usize,
+    ) -> Result<Vec<TransactionEvent>, Self::Error> {
+        let events = self
+            .events
+            .get(&id)
+            .ok_or(KnownErrors::InvalidTransaction { id })?;
+
+        // avoid a panic fn start > len
+        if after >= events.len() {
+            return Ok(Vec::new());
+        }
+
+        // clamp the end value to the vector length
+        let end = std::cmp::min(events.len(), after + limit + 1);
+
+        Ok(events[after + 1..end].to_vec())
     }
 }
 

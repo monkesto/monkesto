@@ -35,7 +35,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use sqlx::Decode;
 use sqlx::Encode;
-use sqlx::PgTransaction;
 use sqlx::Type;
 use sqlx::postgres::PgValueRef;
 use std::collections::HashSet;
@@ -148,7 +147,6 @@ impl EventStore for AccountMemoryStore {
         id: AccountId,
         _by: Authority,
         event: AccountEvent,
-        _tx: Option<&mut PgTransaction<'_>>,
     ) -> Result<(), KnownErrors> {
         if let AccountEvent::Created {
             journal_id,
@@ -188,6 +186,28 @@ impl EventStore for AccountMemoryStore {
         } else {
             Err(KnownErrors::InvalidJournal)
         }
+    }
+
+    async fn get_events(
+        &self,
+        id: AccountId,
+        after: usize,
+        limit: usize,
+    ) -> Result<Vec<AccountEvent>, KnownErrors> {
+        let events = self
+            .events
+            .get(&id)
+            .ok_or(KnownErrors::AccountDoesntExist { id })?;
+
+        // avoid a panic if start > len
+        if after >= events.len() {
+            return Ok(Vec::new());
+        }
+
+        // clamp the end value to the vector length
+        let end = std::cmp::min(events.len(), after + limit + 1);
+
+        Ok(events[after + 1..end].to_vec())
     }
 }
 
