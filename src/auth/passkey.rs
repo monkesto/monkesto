@@ -338,7 +338,7 @@ pub enum PasskeyStoreError {
     OperationFailed(String),
 
     #[error("Invalid PasskeyId: {0}")]
-    #[expect(dead_code)]
+    #[allow(dead_code)]
     InvalidPasskey(PasskeyId),
 }
 
