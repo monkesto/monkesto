@@ -305,11 +305,13 @@ use axum_login::AuthSession;
 use axum_login::AuthnBackend;
 use dashmap::DashMap;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 /// In-memory storage implementation for users using HashMap
 #[derive(Clone)]
 pub struct MemoryUserStore {
-    events: Arc<DashMap<UserId, Vec<UserEvent>>>,
+    global_events: Arc<Mutex<Vec<Arc<UserEvent>>>>,
+    local_events: Arc<DashMap<UserId, Vec<Arc<UserEvent>>>>,
     email_to_user_id: Arc<DashMap<String, UserId>>,
     user_id_to_email: Arc<DashMap<UserId, Email>>,
     user_id_to_webauthn_uuid: Arc<DashMap<UserId, Uuid>>,
@@ -319,7 +321,8 @@ pub struct MemoryUserStore {
 impl MemoryUserStore {
     pub fn new() -> Self {
         Self {
-            events: Arc::new(DashMap::new()),
+            global_events: Arc::new(Mutex::new(Vec::new())),
+            local_events: Arc::new(DashMap::new()),
             email_to_user_id: Arc::new(DashMap::new()),
             user_id_to_email: Arc::new(DashMap::new()),
             user_id_to_webauthn_uuid: Arc::new(DashMap::new()),
@@ -346,12 +349,19 @@ impl EventStore for MemoryUserStore {
         _by: Authority,
         event: UserEvent,
     ) -> Result<usize, UserStoreError> {
+        let arc_event = Arc::new(event.clone());
+        let event_id = {
+            let mut global_events = self.global_events.lock().await;
+            global_events.push(arc_event.clone());
+            global_events.len()
+        };
+
         match event {
             UserEvent::Created {
-                ref email,
+                email,
                 webauthn_uuid,
             } => {
-                self.events.entry(id).or_default().push(event.clone());
+                self.local_events.entry(id).or_default().push(arc_event);
 
                 let email_str = email.to_string();
                 if self.email_to_user_id.contains_key(&email_str) {
@@ -363,8 +373,8 @@ impl EventStore for MemoryUserStore {
                 self.webauthn_uuid_to_user_id.insert(webauthn_uuid, id);
             }
             UserEvent::Deleted => {
-                if let Some(mut events) = self.events.get_mut(&id) {
-                    events.push(event);
+                if let Some(mut local_events) = self.local_events.get_mut(&id) {
+                    local_events.push(arc_event);
                 } else {
                     return Err(UserStoreError::UserNotFound);
                 }
@@ -377,7 +387,7 @@ impl EventStore for MemoryUserStore {
             }
         }
 
-        Ok(self.events.len())
+        Ok(event_id)
     }
 
     async fn get_events(
@@ -386,7 +396,10 @@ impl EventStore for MemoryUserStore {
         after: usize,
         limit: usize,
     ) -> Result<Vec<UserEvent>, Self::Error> {
-        let events = self.events.get(&id).ok_or(UserStoreError::UserNotFound)?;
+        let events = self
+            .local_events
+            .get(&id)
+            .ok_or(UserStoreError::UserNotFound)?;
 
         // avoid a panic if start > len
         if after >= events.len() {
@@ -396,7 +409,10 @@ impl EventStore for MemoryUserStore {
         // clamp the end value to the vector length
         let end = std::cmp::min(after + limit + 1, events.len());
 
-        Ok(events[after + 1..end].to_vec())
+        Ok(events[after + 1..end]
+            .iter()
+            .map(|u| u.deref().clone())
+            .collect())
     }
 }
 

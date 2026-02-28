@@ -370,14 +370,16 @@ impl PasskeyData {
 /// In-memory storage implementation for passkeys using HashMap
 pub struct MemoryPasskeyStore {
     data: Arc<Mutex<PasskeyData>>,
-    events: Arc<DashMap<PasskeyId, Vec<PasskeyEvent>>>,
+    global_events: Arc<Mutex<Vec<Arc<PasskeyEvent>>>>,
+    local_events: Arc<DashMap<PasskeyId, Vec<Arc<PasskeyEvent>>>>,
 }
 
 impl MemoryPasskeyStore {
     pub fn new() -> Self {
         Self {
             data: Arc::new(Mutex::new(PasskeyData::new())),
-            events: Arc::new(DashMap::new()),
+            local_events: Arc::new(DashMap::new()),
+            global_events: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -401,6 +403,12 @@ impl EventStore for MemoryPasskeyStore {
         event: PasskeyEvent,
     ) -> Result<usize, PasskeyStoreError> {
         let mut data = self.data.lock().await;
+        let arc_event = Arc::new(event.clone());
+        let event_id = {
+            let mut global_events = self.global_events.lock().await;
+            global_events.push(arc_event.clone());
+            global_events.len()
+        };
 
         match event {
             PasskeyEvent::Created {
@@ -412,11 +420,11 @@ impl EventStore for MemoryPasskeyStore {
                     id,
                     passkey: passkey.clone(),
                 });
-                self.events.entry(id).or_default().push(event);
+                self.local_events.entry(id).or_default().push(arc_event);
             }
             PasskeyEvent::Deleted { user_id } => {
-                if let Some(mut events) = self.events.get_mut(&id) {
-                    events.push(event);
+                if let Some(mut local_events) = self.local_events.get_mut(&id) {
+                    local_events.push(arc_event);
                 }
 
                 if let Some(passkeys) = data.keys.get_mut(&user_id) {
@@ -425,7 +433,7 @@ impl EventStore for MemoryPasskeyStore {
             }
         }
 
-        Ok(self.events.len())
+        Ok(event_id)
     }
 
     async fn get_events(
@@ -435,7 +443,7 @@ impl EventStore for MemoryPasskeyStore {
         limit: usize,
     ) -> Result<Vec<PasskeyEvent>, Self::Error> {
         let events = self
-            .events
+            .local_events
             .get(&id)
             .ok_or(PasskeyStoreError::InvalidPasskey(id))?;
 
@@ -447,7 +455,10 @@ impl EventStore for MemoryPasskeyStore {
         // clamp the end value to the vector length
         let end = std::cmp::min(after + limit + 1, events.len());
 
-        Ok(events[after + 1..end].to_vec())
+        Ok(events[after + 1..end]
+            .iter()
+            .map(|p| p.deref().clone())
+            .collect())
     }
 }
 

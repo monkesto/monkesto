@@ -158,9 +158,11 @@ impl EventStore for JournalMemoryStore {
         event: JournalEvent,
     ) -> MonkestoResult<usize> {
         let arc_event = Arc::new(event.clone());
-        let mut global_events = self.global_events.write().await;
-        global_events.push(arc_event.clone());
-        let event_id = global_events.len();
+        let event_id = {
+            let mut global_events = self.global_events.write().await;
+            global_events.push(arc_event.clone());
+            global_events.len()
+        };
 
         if let JournalEvent::Created {
             name,
