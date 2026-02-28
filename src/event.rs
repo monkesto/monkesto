@@ -34,7 +34,23 @@ pub trait EventStore: Send + Sync {
     async fn get_events(
         &self,
         id: Self::Id,
-        after: usize,
-        limit: usize,
+        after: Self::EventId,
+        limit: Self::EventId,
     ) -> Result<Vec<Self::Event>, Self::Error>;
+}
+
+#[expect(dead_code)]
+pub trait ViewModel {
+    type Id: Send + Sync + Clone;
+
+    type Receiver: Send + Sync;
+    type EventId: Send + Sync + Clone;
+    type Event: Send + Sync;
+    type Error: Error;
+
+    /// Subscribes to a receiver provided by the event store
+    /// This function should never return; it should loop forever waiting to receive events
+    async fn subscribe_events(&self, receiver: Self::Receiver) -> Result<(), Self::Error>;
+
+    // TODO: setup a function to wait for a specific event to be received and a manual insert function
 }

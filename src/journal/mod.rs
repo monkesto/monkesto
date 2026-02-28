@@ -73,7 +73,7 @@ pub trait JournalStore:
     + Send
     + Sync
     + 'static
-    + EventStore<Id = JournalId, EventId = (), Event = JournalEvent, Error = KnownErrors>
+    + EventStore<Id = JournalId, EventId = usize, Event = JournalEvent, Error = KnownErrors>
 {
     /// returns the cached state of the journal
     async fn get_journal(&self, journal_id: JournalId) -> MonkestoResult<Option<JournalState>>;
@@ -124,7 +124,7 @@ pub trait JournalStore:
 #[derive(Clone)]
 pub struct JournalMemoryStore {
     global_events: Arc<RwLock<Vec<Arc<JournalEvent>>>>,
-    namespaced_events: Arc<DashMap<JournalId, Vec<Arc<JournalEvent>>>>,
+    local_events: Arc<DashMap<JournalId, Vec<Arc<JournalEvent>>>>,
 
     journal_table: Arc<DashMap<JournalId, JournalState>>,
     /// Index of user_id -> set of journal_ids they belong to
@@ -137,7 +137,7 @@ impl JournalMemoryStore {
     pub fn new() -> Self {
         Self {
             global_events: Arc::new(RwLock::new(Vec::new())),
-            namespaced_events: Arc::new(DashMap::new()),
+            local_events: Arc::new(DashMap::new()),
             journal_table: Arc::new(DashMap::new()),
             user_journals: Arc::new(DashMap::new()),
             subjournals: Arc::new(DashMap::new()),
@@ -147,7 +147,7 @@ impl JournalMemoryStore {
 
 impl EventStore for JournalMemoryStore {
     type Id = JournalId;
-    type EventId = ();
+    type EventId = usize;
     type Event = JournalEvent;
     type Error = KnownErrors;
 
@@ -156,19 +156,20 @@ impl EventStore for JournalMemoryStore {
         id: JournalId,
         _by: Authority,
         event: JournalEvent,
-    ) -> MonkestoResult<()> {
+    ) -> MonkestoResult<usize> {
+        let arc_event = Arc::new(event.clone());
+        let mut global_events = self.global_events.write().await;
+        global_events.push(arc_event.clone());
+        let event_id = global_events.len();
+
         if let JournalEvent::Created {
             name,
             created_at,
             creator,
             parent_journal_id,
-        } = event.clone()
+        } = event
         {
-            let arc_event = Arc::new(event);
-
-            self.global_events.write().await.push(arc_event.clone());
-
-            self.namespaced_events.insert(id, vec![arc_event]);
+            self.local_events.insert(id, vec![arc_event]);
 
             let state = JournalState {
                 id,
@@ -190,12 +191,10 @@ impl EventStore for JournalMemoryStore {
                 self.subjournals.entry(parent_id).or_default().insert(id);
             }
 
-            Ok(())
-        } else if let Some(mut events) = self.namespaced_events.get_mut(&id)
+            Ok(event_id)
+        } else if let Some(mut local_events) = self.local_events.get_mut(&id)
             && let Some(mut state) = self.journal_table.get_mut(&id)
         {
-            let arc_event = Arc::new(event.clone());
-
             // Update user_journals index for membership changes
             if let JournalEvent::AddedTenant { id: user_id, .. } = &event {
                 self.user_journals.entry(*user_id).or_default().insert(id);
@@ -203,11 +202,10 @@ impl EventStore for JournalMemoryStore {
                 self.user_journals.entry(*user_id).or_default().remove(&id);
             }
 
-            self.global_events.write().await.push(arc_event.clone());
-            events.push(arc_event);
+            local_events.push(arc_event);
             state.apply(event.clone());
 
-            Ok(())
+            Ok(event_id)
         } else {
             Err(KnownErrors::InvalidJournal)
         }
@@ -220,7 +218,7 @@ impl EventStore for JournalMemoryStore {
         limit: usize,
     ) -> Result<Vec<JournalEvent>, Self::Error> {
         let events = self
-            .namespaced_events
+            .local_events
             .get(&id)
             .ok_or(KnownErrors::InvalidJournal)?;
 
@@ -234,7 +232,7 @@ impl EventStore for JournalMemoryStore {
 
         Ok(events[after + 1..end]
             .iter()
-            .map(|s| s.deref().clone())
+            .map(|j| j.deref().clone())
             .collect())
     }
 }

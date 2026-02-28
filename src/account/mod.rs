@@ -38,7 +38,9 @@ use sqlx::Encode;
 use sqlx::Type;
 use sqlx::postgres::PgValueRef;
 use std::collections::HashSet;
+use std::ops::Deref;
 use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum AccountEvent {
@@ -119,7 +121,8 @@ pub trait AccountStore:
 
 #[derive(Clone)]
 pub struct AccountMemoryStore {
-    events: Arc<DashMap<AccountId, Vec<AccountEvent>>>,
+    global_events: Arc<Mutex<Vec<Arc<AccountEvent>>>>,
+    local_events: Arc<DashMap<AccountId, Vec<Arc<AccountEvent>>>>,
     account_table: Arc<DashMap<AccountId, AccountState>>,
 
     account_lookup_table: Arc<DashMap<JournalId, Vec<AccountId>>>,
@@ -128,7 +131,8 @@ pub struct AccountMemoryStore {
 impl AccountMemoryStore {
     pub fn new() -> Self {
         Self {
-            events: Arc::new(DashMap::new()),
+            global_events: Arc::new(Mutex::new(Vec::new())),
+            local_events: Arc::new(DashMap::new()),
             account_table: Arc::new(DashMap::new()),
             account_lookup_table: Arc::new(DashMap::new()),
         }
@@ -137,7 +141,7 @@ impl AccountMemoryStore {
 
 impl EventStore for AccountMemoryStore {
     type Id = AccountId;
-    type EventId = ();
+    type EventId = usize;
 
     type Event = AccountEvent;
     type Error = KnownErrors;
@@ -147,16 +151,21 @@ impl EventStore for AccountMemoryStore {
         id: AccountId,
         _by: Authority,
         event: AccountEvent,
-    ) -> Result<(), KnownErrors> {
+    ) -> Result<usize, KnownErrors> {
+        let arc_event = Arc::new(event.clone());
+        let mut global_events = self.global_events.lock().await;
+        global_events.push(arc_event.clone());
+        let event_id = global_events.len();
+
         if let AccountEvent::Created {
             journal_id,
             name,
             creator,
             created_at,
             parent_account_id,
-        } = event.clone()
+        } = event
         {
-            self.events.insert(id, vec![event]);
+            self.local_events.insert(id, vec![arc_event]);
 
             let state = AccountState {
                 id,
@@ -176,13 +185,14 @@ impl EventStore for AccountMemoryStore {
                 .or_default()
                 .push(id);
 
-            Ok(())
-        } else if let Some(mut events) = self.events.get_mut(&id)
+            Ok(event_id)
+        } else if let Some(mut local_events) = self.local_events.get_mut(&id)
             && let Some(mut state) = self.account_table.get_mut(&id)
         {
+            local_events.push(arc_event);
             state.apply(event.clone());
-            events.push(event);
-            Ok(())
+
+            Ok(event_id)
         } else {
             Err(KnownErrors::InvalidJournal)
         }
@@ -195,7 +205,7 @@ impl EventStore for AccountMemoryStore {
         limit: usize,
     ) -> Result<Vec<AccountEvent>, KnownErrors> {
         let events = self
-            .events
+            .local_events
             .get(&id)
             .ok_or(KnownErrors::AccountDoesntExist { id })?;
 
@@ -207,7 +217,10 @@ impl EventStore for AccountMemoryStore {
         // clamp the end value to the vector length
         let end = std::cmp::min(events.len(), after + limit + 1);
 
-        Ok(events[after + 1..end].to_vec())
+        Ok(events[after + 1..end]
+            .iter()
+            .map(|acc| acc.deref().clone())
+            .collect())
     }
 }
 

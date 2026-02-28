@@ -21,7 +21,9 @@ pub fn router() -> Router<crate::StateType> {
         .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
 }
 
+use std::fmt::Debug;
 use std::fmt::Display;
+use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -43,6 +45,7 @@ use sqlx::Decode;
 use sqlx::Encode;
 use sqlx::Type;
 use sqlx::postgres::PgValueRef;
+use tokio::sync::Mutex;
 
 pub trait TransactionStore:
     Clone
@@ -64,16 +67,18 @@ pub trait TransactionStore:
 
 #[derive(Clone)]
 pub struct TransactionMemoryStore {
-    events: Arc<DashMap<TransactionId, Vec<TransactionEvent>>>,
-    transaction_table: Arc<DashMap<TransactionId, TransactionState>>,
+    global_events: Arc<Mutex<Vec<Arc<TransactionEvent>>>>,
+    local_events: Arc<DashMap<TransactionId, Vec<Arc<TransactionEvent>>>>,
 
+    transaction_table: Arc<DashMap<TransactionId, TransactionState>>,
     journal_lookup_table: Arc<DashMap<JournalId, Vec<TransactionId>>>,
 }
 
 impl TransactionMemoryStore {
     pub fn new() -> Self {
         Self {
-            events: Arc::new(DashMap::new()),
+            global_events: Arc::new(Mutex::new(Vec::new())),
+            local_events: Arc::new(DashMap::new()),
             transaction_table: Arc::new(DashMap::new()),
             journal_lookup_table: Arc::new(DashMap::new()),
         }
@@ -82,7 +87,7 @@ impl TransactionMemoryStore {
 
 impl EventStore for TransactionMemoryStore {
     type Id = TransactionId;
-    type EventId = ();
+    type EventId = usize;
 
     type Event = TransactionEvent;
     type Error = KnownErrors;
@@ -93,15 +98,18 @@ impl EventStore for TransactionMemoryStore {
         _by: Authority,
         event: Self::Event,
     ) -> Result<Self::EventId, Self::Error> {
+        let arc_event = Arc::new(event.clone());
+        let mut global_events = self.global_events.lock().await;
+        global_events.push(arc_event.clone());
+        let event_id = global_events.len();
+
         if let TransactionEvent::CreatedTransaction {
             journal_id,
             author,
             updates,
             created_at,
-        } = event.clone()
+        } = event
         {
-            self.events.insert(id, vec![event]);
-
             let state = TransactionState {
                 id,
                 journal_id,
@@ -110,6 +118,7 @@ impl EventStore for TransactionMemoryStore {
                 created_at,
             };
 
+            self.local_events.insert(id, vec![arc_event]);
             self.transaction_table.insert(id, state);
 
             self.journal_lookup_table
@@ -117,13 +126,13 @@ impl EventStore for TransactionMemoryStore {
                 .or_default()
                 .push(id);
 
-            Ok(())
-        } else if let Some(mut events) = self.events.get_mut(&id)
+            Ok(event_id)
+        } else if let Some(mut local_events) = self.local_events.get_mut(&id)
             && let Some(mut state) = self.transaction_table.get_mut(&id)
         {
             state.apply(event.clone());
-            events.push(event);
-            Ok(())
+            local_events.push(arc_event);
+            Ok(event_id)
         } else {
             Err(KnownErrors::InvalidJournal)
         }
@@ -136,7 +145,7 @@ impl EventStore for TransactionMemoryStore {
         limit: usize,
     ) -> Result<Vec<TransactionEvent>, Self::Error> {
         let events = self
-            .events
+            .local_events
             .get(&id)
             .ok_or(KnownErrors::InvalidTransaction { id })?;
 
@@ -148,7 +157,10 @@ impl EventStore for TransactionMemoryStore {
         // clamp the end value to the vector length
         let end = std::cmp::min(events.len(), after + limit + 1);
 
-        Ok(events[after + 1..end].to_vec())
+        Ok(events[after + 1..end]
+            .iter()
+            .map(|t| t.deref().clone())
+            .collect())
     }
 }
 

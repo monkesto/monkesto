@@ -391,7 +391,7 @@ impl Default for MemoryPasskeyStore {
 impl EventStore for MemoryPasskeyStore {
     type Id = PasskeyId;
     type Event = PasskeyEvent;
-    type EventId = ();
+    type EventId = usize;
     type Error = PasskeyStoreError;
 
     async fn record(
@@ -399,7 +399,7 @@ impl EventStore for MemoryPasskeyStore {
         id: PasskeyId,
         _by: Authority,
         event: PasskeyEvent,
-    ) -> Result<(), PasskeyStoreError> {
+    ) -> Result<usize, PasskeyStoreError> {
         let mut data = self.data.lock().await;
 
         match event {
@@ -425,7 +425,7 @@ impl EventStore for MemoryPasskeyStore {
             }
         }
 
-        Ok(())
+        Ok(self.events.len())
     }
 
     async fn get_events(

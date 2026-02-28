@@ -40,7 +40,7 @@ where
         journal_id: JournalId,
         name: String,
         actor: UserId,
-    ) -> Result<(), KnownErrors> {
+    ) -> Result<usize, KnownErrors> {
         self.journal_store
             .record(
                 journal_id,
@@ -327,7 +327,7 @@ where
         actor: UserId,
         invitee: Email,
         permissions: Permissions,
-    ) -> Result<(), KnownErrors> {
+    ) -> Result<usize, KnownErrors> {
         let journal_state = self
             .journal_store
             .get_journal(journal_id)
@@ -384,7 +384,7 @@ where
         target_user: UserId,
         permissions: Permissions,
         actor: UserId,
-    ) -> Result<(), KnownErrors> {
+    ) -> Result<usize, KnownErrors> {
         let journal_state = self
             .journal_store
             .get_journal(journal_id)
@@ -425,7 +425,7 @@ where
         journal_id: JournalId,
         target_user: UserId,
         actor: UserId,
-    ) -> Result<(), KnownErrors> {
+    ) -> Result<usize, KnownErrors> {
         let journal_state = self
             .journal_store
             .get_journal(journal_id)

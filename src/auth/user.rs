@@ -337,7 +337,7 @@ impl Default for MemoryUserStore {
 impl EventStore for MemoryUserStore {
     type Id = UserId;
     type Event = UserEvent;
-    type EventId = ();
+    type EventId = usize;
     type Error = UserStoreError;
 
     async fn record(
@@ -345,7 +345,7 @@ impl EventStore for MemoryUserStore {
         id: UserId,
         _by: Authority,
         event: UserEvent,
-    ) -> Result<(), UserStoreError> {
+    ) -> Result<usize, UserStoreError> {
         match event {
             UserEvent::Created {
                 ref email,
@@ -377,7 +377,7 @@ impl EventStore for MemoryUserStore {
             }
         }
 
-        Ok(())
+        Ok(self.events.len())
     }
 
     async fn get_events(
