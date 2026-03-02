@@ -6,6 +6,7 @@ mod ident;
 mod journal;
 mod known_errors;
 mod notfoundpage;
+mod queue;
 mod seed;
 mod theme;
 mod transaction;
