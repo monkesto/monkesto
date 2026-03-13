@@ -41,7 +41,7 @@ pub trait GetError: GetLocation {
     }
 
     /// Asserts that the response does not have an error.
-    fn assert_no_error(&self) {
+    fn assert_ok(&self) {
         assert!(self.get_error().is_none());
     }
 }
