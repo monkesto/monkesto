@@ -11,6 +11,7 @@ mod notfoundpage;
 mod seed;
 mod theme;
 mod transaction;
+pub mod util;
 
 use axum::Router;
 use axum::extract::FromRef;

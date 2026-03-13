@@ -24,7 +24,7 @@ impl Display for Name {
     }
 }
 
-#[derive(Error, Debug, Serialize, Deserialize)]
+#[derive(Error, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum NameError {
     #[error("The name {0} is too short")]
     TooShort(String),

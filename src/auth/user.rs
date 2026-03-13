@@ -209,7 +209,7 @@ pub enum UserEvent {
 
 use webauthn_rs::prelude::Uuid;
 
-#[derive(Debug, thiserror::Error, Serialize, Deserialize)]
+#[derive(Debug, thiserror::Error, Serialize, Deserialize, Eq, PartialEq)]
 pub enum UserStoreError {
     #[error("User not found")]
     UserNotFound,

@@ -8,7 +8,7 @@ use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
 
-#[derive(Error, Debug, Serialize, Deserialize)]
+#[derive(Error, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum AccountStoreError {
     #[error("An account with the id {0} doesn't exist")]
     InvalidAccount(AccountId),

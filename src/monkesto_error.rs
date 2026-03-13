@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
 
-#[derive(Debug, Error, Serialize, Deserialize)]
+#[derive(Debug, Error, Serialize, Deserialize, Eq, PartialEq)]
 pub enum MonkestoError {
     #[error("failed to decode an error")]
     Decode,

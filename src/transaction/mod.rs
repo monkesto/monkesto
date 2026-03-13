@@ -52,7 +52,7 @@ use sqlx::postgres::PgValueRef;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-#[derive(Debug, Error, Serialize, Deserialize)]
+#[derive(Debug, Error, Serialize, Deserialize, Eq, PartialEq)]
 pub enum TransactionStoreError {
     #[error("Invalid transaction: {0}")]
     InvalidTransaction(TransactionId),

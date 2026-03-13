@@ -21,7 +21,7 @@ pub enum Ident {
     Custom([u8; 5]),
 }
 
-#[derive(Debug, Error, Serialize, Deserialize, Clone)]
+#[derive(Debug, Error, Serialize, Deserialize, Clone, Eq, PartialEq)]
 pub enum IdentError {
     #[error("Failed to parse the provided bytes: {0}")]
     Parse(String),

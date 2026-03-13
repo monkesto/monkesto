@@ -10,7 +10,7 @@ use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
 
-#[derive(Error, Debug, Serialize, Deserialize)]
+#[derive(Error, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum JournalStoreError {
     #[error("invalid journal: {0}")]
     InvalidJournal(JournalId),
@@ -298,7 +298,7 @@ impl JournalStore for JournalMemoryStore {
 }
 
 bitflags! {
-    #[derive(Serialize, Deserialize, Hash, Default, Debug, Clone, Copy, PartialEq)]
+    #[derive(Serialize, Deserialize, Hash, Default, Debug, Clone, Copy, PartialEq, Eq)]
     pub struct Permissions: i16 {
         const READ = 1 << 0;
         const ADDACCOUNT = 1 << 1;
