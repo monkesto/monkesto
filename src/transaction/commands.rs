@@ -4,10 +4,18 @@ use crate::auth::user::{self};
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::RedirectOnError;
+use crate::monkesto_error::OrRedirect;
 use crate::transaction::BalanceUpdate;
 use crate::transaction::EntryType;
+use crate::transaction::TransactionStoreError::AmountNotSupplied;
+use crate::transaction::TransactionStoreError::BalanceUpdateTooLarge;
+use crate::transaction::TransactionStoreError::EntryTypeNotSupplied;
+use crate::transaction::TransactionStoreError::JournalIdNotSupplied;
+use crate::transaction::TransactionStoreError::NegativeBalanceUpdate;
+use crate::transaction::TransactionStoreError::NoBalanceUpdatesSupplied;
+use crate::transaction::TransactionStoreError::ParseDecimal;
+use crate::transaction::TransactionStoreError::PartialCentValue;
+use crate::transaction::TransactionStoreError::TransactionNotBalanced;
 use axum::extract::Path;
 use axum::extract::State;
 use axum::response::Redirect;
@@ -49,40 +57,43 @@ pub async fn transact(
             let entry_journal_id = JournalId::from_str(
                 form.entry_journal
                     .get(idx)
-                    .ok_or(KnownErrors::InvalidInput)
+                    .ok_or(JournalIdNotSupplied)
                     .or_redirect(callback_url)?,
             )
             .or_redirect(callback_url)?;
 
-            let dec_amt = Decimal::from_str(
-                form.amount
-                    .get(idx)
-                    .ok_or(KnownErrors::InvalidInput)
-                    .or_redirect(callback_url)?,
-            )
-            .or_redirect(callback_url)?
+            let str_decimal_amt = form
+                .amount
+                .get(idx)
+                .ok_or(AmountNotSupplied)
+                .or_redirect(callback_url)?;
+
+            let dec_amt = Decimal::from_str(str_decimal_amt)
+                .map_err(|_| ParseDecimal(str_decimal_amt.to_string()))
+                .or_redirect(callback_url)?
                 * dec!(100);
 
             // this will reject inputs with partial cent values
             // this should not be possible unless a user uses the
             //  inspector tool to change their HTML
             if !dec_amt.is_integer() {
-                return Err(KnownErrors::InvalidInput.redirect(callback_url));
+                return Err(PartialCentValue(dec_amt / dec!(100))).or_redirect(callback_url);
             } else {
                 let amt = dec_amt
                     .to_i64()
-                    .ok_or(KnownErrors::InvalidInput)
+                    .ok_or_else(|| BalanceUpdateTooLarge(dec_amt / dec!(100)))
                     .or_redirect(callback_url)?;
 
                 // error when the amount is below zero to prevent confusion with the credit/debit selector
                 if amt <= 0 {
-                    return Err(KnownErrors::InvalidInput).or_redirect(callback_url);
+                    return Err(NegativeBalanceUpdate(dec_amt / dec!(100)))
+                        .or_redirect(callback_url);
                 }
 
                 let entry_type = EntryType::from_str(
                     form.entry_type
                         .get(idx)
-                        .ok_or(KnownErrors::InvalidInput)
+                        .ok_or(EntryTypeNotSupplied)
                         .or_redirect(callback_url)?,
                 )
                 .or_redirect(callback_url)?;
@@ -106,12 +117,9 @@ pub async fn transact(
 
     // if total change isn't zero, return an error
     if total_change != 0 {
-        Err(KnownErrors::BalanceMismatch {
-            attempted_transaction: updates,
-        })
-        .or_redirect(callback_url)
+        Err(TransactionNotBalanced).or_redirect(callback_url)
     } else if updates.is_empty() {
-        Err(KnownErrors::InvalidInput).or_redirect(callback_url)
+        Err(NoBalanceUpdatesSupplied).or_redirect(callback_url)
     } else {
         state
             .transaction_service

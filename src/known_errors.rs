@@ -1,20 +1,4 @@
-use core::fmt;
-use std::array::TryFromSliceError;
-use std::num::ParseIntError;
-use std::str::Utf8Error;
-
-use crate::auth::user::Email;
-use crate::ident::AccountId;
-use crate::ident::TransactionId;
-use crate::journal::Permissions;
-use crate::transaction::BalanceUpdate;
-use axum::response::Redirect;
-use base64::Engine;
-use base64::engine::general_purpose;
-use postcard::to_allocvec;
-use serde::Deserialize;
-use serde::Serialize;
-
+/*
 #[derive(Serialize, Deserialize, PartialEq, Debug, Clone)]
 pub enum KnownErrors {
     InternalError {
@@ -226,10 +210,4 @@ where
         self.map_err(|_| err.redirect(page))
     }
 }
-
-#[derive(Deserialize)]
-pub struct UrlError {
-    pub err: Option<String>,
-    #[expect(dead_code)]
-    pub next: Option<String>,
-}
+*/

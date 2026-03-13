@@ -1,27 +1,22 @@
 use crate::AppState;
 use crate::auth::user::Email;
 use crate::auth::user::UserStore;
+use crate::auth::user::UserStoreError;
 use crate::authority::UserId;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
 use crate::journal::Permissions;
-use crate::known_errors::KnownErrors;
+use crate::monkesto_error::MonkestoResult;
+use crate::name::Name;
 use crate::transaction::BalanceUpdate;
 use crate::transaction::EntryType;
 use std::str::FromStr;
 
-pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors> {
+pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
     // TODO: Unify user seeding
 
-    service
-        .user_service
-        .store()
-        .seed_dev_users()
-        .await
-        .map_err(|e| KnownErrors::InternalError {
-            context: e.to_string(),
-        })?;
+    service.user_service.store().seed_dev_users().await?;
 
     let pacioli_id = UserId::from_str("zk8m3p5q7r2n4v6x")?;
     let wedgwood_id = UserId::from_str("yj7l2o4p6q8s0u1w")?;
@@ -31,11 +26,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
             .user_service
             .user_get_email(wedgwood_id)
             .await?
-            .ok_or(KnownErrors::UserDoesntExist)?,
-    )
-    .map_err(|e| KnownErrors::InternalError {
-        context: e.to_string(),
-    })?;
+            .ok_or(UserStoreError::UserNotFound)?,
+    )?;
 
     let maple_ridge_academy_id = JournalId::from_str("ab1cd2ef3g")?;
     let smith_and_sons_id = JournalId::from_str("hi4jk5lm6n")?;
@@ -55,7 +47,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
             .journal_service
             .journal_create(
                 maple_ridge_academy_id,
-                "Maple Ridge Academy".to_owned(),
+                Name::try_new("Maple Ridge Academy".to_string())
+                    .expect("Failed to create a name from \"Maple Ridge Academy\""),
                 pacioli_id,
             )
             .await?;
@@ -71,7 +64,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
             .journal_service
             .journal_create(
                 JournalId::from_str("hi4jk5lm6n")?,
-                "Smith & Sons Bakery".to_owned(),
+                Name::try_new("Smith & Sons Bakery".to_string())
+                    .expect("Failed to create a name from \"Smith & Sons Bakery\""),
                 pacioli_id,
             )
             .await?;
@@ -87,7 +81,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
             .journal_service
             .journal_create(
                 JournalId::from_str("op7qr8st9u")?,
-                "Green Valley Farm Co.".to_owned(),
+                Name::try_new("Green Valley Farm Co.".to_string())
+                    .expect("Failed to create a name from \"Green Valley Farm Co.\""),
                 pacioli_id,
             )
             .await?;
@@ -126,7 +121,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 assets_id,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Assets".to_owned(),
+                Name::try_new("Assets".to_string())
+                    .expect("Failed to create a name from \"Assets\""),
                 None,
             )
             .await?;
@@ -136,7 +132,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 AccountId::from_str("ac2liabili")?,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Liabilities".to_owned(),
+                Name::try_new("Liabilities".to_string())
+                    .expect("Failed to create a name from \"Liabilities\""),
                 None,
             )
             .await?;
@@ -146,7 +143,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 AccountId::from_str("ac3equity0")?,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Equity".to_owned(),
+                Name::try_new("Equity".to_string())
+                    .expect("Failed to create a name from \"Equity\""),
                 None,
             )
             .await?;
@@ -156,7 +154,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 revenue_id,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Revenue".to_owned(),
+                Name::try_new("Revenue".to_string())
+                    .expect("Failed to create a name from \"Revenue\""),
                 None,
             )
             .await?;
@@ -166,7 +165,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 expenses_id,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Expenses".to_owned(),
+                Name::try_new("Expenses".to_string())
+                    .expect("Failed to create a name from \"Expenses\""),
                 None,
             )
             .await?;
@@ -179,7 +179,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 current_assets_id,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Current Assets".to_owned(),
+                Name::try_new("Current Assets".to_string())
+                    .expect("Failed to create a name from \"Current Assets\""),
                 Some(assets_id),
             )
             .await?;
@@ -189,7 +190,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 AccountId::from_str("ac1fixedat")?,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Fixed Assets".to_owned(),
+                Name::try_new("Fixed Assets".to_string())
+                    .expect("Failed to create a name from \"Fixed Assets\""),
                 Some(assets_id),
             )
             .await?;
@@ -202,7 +204,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 operating_exp_id,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Operating Expenses".to_owned(),
+                Name::try_new("Operating Expenses".to_string())
+                    .expect("Failed to create a name from \"Operating Expenses\""),
                 Some(expenses_id),
             )
             .await?;
@@ -212,7 +215,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 AccountId::from_str("ac5capexp0")?,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Capital Expenses".to_owned(),
+                Name::try_new("Capital Expenses".to_string())
+                    .expect("Failed to create a name from \"Capital Expenses\""),
                 Some(expenses_id),
             )
             .await?;
@@ -225,7 +229,7 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 cash_id,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Cash".to_owned(),
+                Name::try_new("Cash".to_string()).expect("Failed to create a name from \"Cash\""),
                 Some(current_assets_id),
             )
             .await?;
@@ -235,7 +239,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 AccountId::from_str("ac1recvabl")?,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Accounts Receivable".to_owned(),
+                Name::try_new("Accounts Receivable".to_string())
+                    .expect("Failed to create a name from \"Accounts Receivable\""),
                 Some(current_assets_id),
             )
             .await?;
@@ -248,7 +253,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 staffing_id,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Staffing".to_owned(),
+                Name::try_new("Staffing".to_string())
+                    .expect("Failed to create a name from \"Staffing\""),
                 Some(operating_exp_id),
             )
             .await?;
@@ -258,7 +264,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 AccountId::from_str("ac5suppls0")?,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Supplies".to_owned(),
+                Name::try_new("Supplies".to_string())
+                    .expect("Failed to create a name from \"Supplies\""),
                 Some(operating_exp_id),
             )
             .await?;
@@ -270,7 +277,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 AccountId::from_str("ac1chkng00")?,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Checking".to_owned(),
+                Name::try_new("Checking".to_string())
+                    .expect("Failed to create a name from \"Checking\""),
                 Some(cash_id),
             )
             .await?;
@@ -280,7 +288,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 AccountId::from_str("ac1savngs0")?,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Savings".to_owned(),
+                Name::try_new("Savings".to_string())
+                    .expect("Failed to create a name from \"Savings\""),
                 Some(cash_id),
             )
             .await?;
@@ -292,7 +301,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 AccountId::from_str("ac5salrys0")?,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Salaries".to_owned(),
+                Name::try_new("Salaries".to_string())
+                    .expect("Failed to create a name from \"Salaries\""),
                 Some(staffing_id),
             )
             .await?;
@@ -302,7 +312,8 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> Result<(), KnownErrors>
                 AccountId::from_str("ac5bnfts00")?,
                 maple_ridge_academy_id,
                 pacioli_id,
-                "Benefits".to_owned(),
+                Name::try_new("Benefits".to_string())
+                    .expect("Failed to create a name from \"Benefits\""),
                 Some(staffing_id),
             )
             .await?;

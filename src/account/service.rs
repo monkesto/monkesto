@@ -1,6 +1,11 @@
 use crate::account::AccountEvent;
 use crate::account::AccountState;
 use crate::account::AccountStore;
+use crate::account::AccountStoreError::AccountExists;
+use crate::account::AccountStoreError::InvalidAccount;
+use crate::account::AccountStoreError::InvalidJournal;
+use crate::account::AccountStoreError::PermissionError;
+use crate::account::AccountStoreResult;
 use crate::auth::user::UserStore;
 use crate::authority::Actor;
 use crate::authority::Authority;
@@ -10,8 +15,7 @@ use crate::ident::JournalId;
 use crate::journal::JournalService;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::KnownErrors::PermissionError;
+use crate::name::Name;
 use chrono::Utc;
 
 #[derive(Clone)]
@@ -43,30 +47,28 @@ where
         account_id: AccountId,
         journal_id: JournalId,
         creator_id: UserId,
-        account_name: String,
+        account_name: Name,
         parent_account_id: Option<AccountId>,
-    ) -> Result<(), KnownErrors> {
+    ) -> AccountStoreResult<()> {
         let journal_state = self
             .journal_service
             .journal_get(journal_id, creator_id)
             .await?
-            .ok_or(KnownErrors::InvalidJournal)?;
+            .ok_or(InvalidJournal(journal_id))?;
 
         if journal_state.deleted {
-            return Err(KnownErrors::InvalidJournal);
+            return Err(InvalidJournal(journal_id));
         }
 
         if !journal_state
             .get_user_permissions(creator_id)
             .contains(Permissions::ADDACCOUNT)
         {
-            return Err(PermissionError {
-                required_permissions: Permissions::ADDACCOUNT,
-            });
+            return Err(PermissionError(Permissions::ADDACCOUNT));
         }
 
         if self.account_store.get_account(&account_id).await?.is_some() {
-            return Err(KnownErrors::AccountExists);
+            return Err(AccountExists(account_id));
         }
 
         self.account_store
@@ -90,16 +92,14 @@ where
         &self,
         journal_id: JournalId,
         actor: UserId,
-    ) -> Result<Vec<(AccountId, AccountState)>, KnownErrors> {
+    ) -> AccountStoreResult<Vec<(AccountId, AccountState)>> {
         let journal_state = self.journal_service.journal_get(journal_id, actor).await?;
 
         if !journal_state
             .as_ref()
             .is_some_and(|s| s.get_user_permissions(actor).contains(Permissions::READ))
         {
-            return Err(PermissionError {
-                required_permissions: Permissions::READ,
-            });
+            return Err(PermissionError(Permissions::READ));
         }
 
         let ids = self.account_store.get_journal_accounts(journal_id).await?;
@@ -112,7 +112,7 @@ where
                 self.account_store
                     .get_account(&id)
                     .await?
-                    .ok_or(KnownErrors::AccountDoesntExist { id })?,
+                    .ok_or(InvalidAccount(id))?,
             ));
         }
 
@@ -122,7 +122,7 @@ where
     pub async fn account_get_full_path(
         &self,
         account_id: AccountId,
-    ) -> Result<Option<Vec<String>>, KnownErrors> {
+    ) -> AccountStoreResult<Option<Vec<Name>>> {
         let mut parts = Vec::new();
         let mut current_id = account_id;
         loop {

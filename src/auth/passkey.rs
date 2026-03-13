@@ -1,3 +1,4 @@
+use crate::ident::IdentError;
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -23,7 +24,6 @@ use crate::authority::Authority;
 use crate::event::EventStore;
 use crate::id;
 use crate::ident::Ident;
-use crate::known_errors::KnownErrors;
 use maud::PreEscaped;
 use maud::html;
 

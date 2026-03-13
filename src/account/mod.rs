@@ -8,6 +8,31 @@ use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
 
+#[derive(Error, Debug, Serialize, Deserialize)]
+pub enum AccountStoreError {
+    #[error("An account with the id {0} doesn't exist")]
+    InvalidAccount(AccountId),
+
+    #[error("A journal with the id {0} doesn't exist")]
+    InvalidJournal(JournalId),
+
+    #[error(
+        "Tried to update the account states for the transaction {0}, but the prior state wasn't provided"
+    )]
+    TransactionWithoutPriorState(TransactionId),
+
+    #[error("An account with the id {0} already exists")]
+    AccountExists(AccountId),
+
+    #[error("The user doesn't have the {:?} permission", .0)]
+    PermissionError(Permissions),
+
+    #[error("The journal store returned an error: {0}")]
+    JournalError(#[from] JournalStoreError),
+}
+
+pub type AccountStoreResult<T> = Result<T, AccountStoreError>;
+
 pub fn router() -> Router<crate::StateType> {
     Router::new()
         .route("/journal/{id}/account", get(views::account_list_page))
@@ -18,13 +43,17 @@ pub fn router() -> Router<crate::StateType> {
         .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
 }
 
+use crate::account::AccountStoreError::InvalidAccount;
+use crate::account::AccountStoreError::TransactionWithoutPriorState;
 use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::event::EventStore;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::MonkestoResult;
+use crate::ident::TransactionId;
+use crate::journal::JournalStoreError;
+use crate::journal::Permissions;
+use crate::name::Name;
 use crate::transaction::EntryType;
 use crate::transaction::TransactionEvent;
 use crate::transaction::TransactionState;
@@ -40,19 +69,20 @@ use sqlx::postgres::PgValueRef;
 use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
+use thiserror::Error;
 use tokio::sync::Mutex;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum AccountEvent {
     Created {
         journal_id: JournalId,
-        name: String,
+        name: Name,
         creator: UserId,
         created_at: DateTime<Utc>,
         parent_account_id: Option<AccountId>,
     },
     Renamed {
-        new_name: String,
+        new_name: Name,
         updater: UserId,
     },
     Deleted {
@@ -63,7 +93,7 @@ pub enum AccountEvent {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct AccountState {
     pub id: AccountId,
-    pub name: String,
+    pub name: Name,
     pub journal_id: JournalId,
     pub author: UserId,
     pub balance: i64,
@@ -103,20 +133,21 @@ pub trait AccountStore:
     + Send
     + Sync
     + 'static
-    + EventStore<Id = AccountId, Event = AccountEvent, Error = KnownErrors>
+    + EventStore<Id = AccountId, Event = AccountEvent, Error = AccountStoreError>
 {
     async fn get_journal_accounts(
         &self,
         journal_id: JournalId,
-    ) -> MonkestoResult<HashSet<AccountId>>;
+    ) -> AccountStoreResult<HashSet<AccountId>>;
 
-    async fn get_account(&self, account_id: &AccountId) -> MonkestoResult<Option<AccountState>>;
+    async fn get_account(&self, account_id: &AccountId)
+    -> AccountStoreResult<Option<AccountState>>;
 
     async fn update_balances(
         &self,
         transaction_event: &TransactionEvent,
         old_transaction: Option<&TransactionState>,
-    ) -> MonkestoResult<()>;
+    ) -> AccountStoreResult<()>;
 }
 
 #[derive(Clone)]
@@ -144,14 +175,14 @@ impl EventStore for AccountMemoryStore {
     type EventId = usize;
 
     type Event = AccountEvent;
-    type Error = KnownErrors;
+    type Error = AccountStoreError;
 
     async fn record(
         &self,
         id: AccountId,
         _by: Authority,
         event: AccountEvent,
-    ) -> Result<usize, KnownErrors> {
+    ) -> AccountStoreResult<usize> {
         let arc_event = Arc::new(event.clone());
         let event_id = {
             let mut global_events = self.global_events.lock().await;
@@ -196,7 +227,7 @@ impl EventStore for AccountMemoryStore {
 
             Ok(event_id)
         } else {
-            Err(KnownErrors::InvalidJournal)
+            Err(InvalidAccount(id))
         }
     }
 
@@ -205,11 +236,8 @@ impl EventStore for AccountMemoryStore {
         id: AccountId,
         after: usize,
         limit: usize,
-    ) -> Result<Vec<AccountEvent>, KnownErrors> {
-        let events = self
-            .local_events
-            .get(&id)
-            .ok_or(KnownErrors::AccountDoesntExist { id })?;
+    ) -> AccountStoreResult<Vec<AccountEvent>> {
+        let events = self.local_events.get(&id).ok_or(InvalidAccount(id))?;
 
         // avoid a panic if start > len
         if after >= events.len() {
@@ -230,7 +258,7 @@ impl AccountStore for AccountMemoryStore {
     async fn get_journal_accounts(
         &self,
         journal_id: JournalId,
-    ) -> MonkestoResult<HashSet<AccountId>> {
+    ) -> AccountStoreResult<HashSet<AccountId>> {
         Ok(self
             .account_lookup_table
             .get(&journal_id)
@@ -241,7 +269,10 @@ impl AccountStore for AccountMemoryStore {
             .collect::<HashSet<AccountId>>())
     }
 
-    async fn get_account(&self, account_id: &AccountId) -> MonkestoResult<Option<AccountState>> {
+    async fn get_account(
+        &self,
+        account_id: &AccountId,
+    ) -> AccountStoreResult<Option<AccountState>> {
         Ok(self.account_table.get(account_id).map(|s| (*s).clone()))
     }
 
@@ -249,7 +280,7 @@ impl AccountStore for AccountMemoryStore {
         &self,
         transaction_event: &TransactionEvent,
         old_transaction: Option<&TransactionState>,
-    ) -> MonkestoResult<()> {
+    ) -> AccountStoreResult<()> {
         match transaction_event {
             TransactionEvent::CreatedTransaction { updates, .. } => {
                 for update in updates {
@@ -264,9 +295,7 @@ impl AccountStore for AccountMemoryStore {
                             }
                         }
                     } else {
-                        return Err(KnownErrors::AccountDoesntExist {
-                            id: update.account_id,
-                        });
+                        return Err(InvalidAccount(update.account_id));
                     }
                 }
             }
@@ -288,9 +317,7 @@ impl AccountStore for AccountMemoryStore {
                                 }
                             }
                         } else {
-                            return Err(KnownErrors::AccountDoesntExist {
-                                id: update.account_id,
-                            });
+                            return Err(InvalidAccount(update.account_id));
                         }
                     }
 
@@ -307,16 +334,11 @@ impl AccountStore for AccountMemoryStore {
                                 }
                             }
                         } else {
-                            return Err(KnownErrors::AccountDoesntExist {
-                                id: update.account_id,
-                            });
+                            Err(InvalidAccount(update.account_id))?
                         }
                     }
                 } else {
-                    return Err(KnownErrors::InternalError {
-                        context: "account store tried to update a transaction without an old state"
-                            .to_string(),
-                    });
+                    return Err(TransactionWithoutPriorState(transaction_event.id()));
                 }
             }
         }
@@ -352,13 +374,14 @@ impl<'r> Decode<'r, sqlx::Postgres> for AccountEvent {
 mod test_account {
     use super::AccountEvent;
     use crate::authority::UserId;
+    use crate::name::Name;
     use sqlx::PgPool;
     use sqlx::prelude::FromRow;
 
     #[sqlx::test]
     async fn test_encode_decode_account_event(pool: PgPool) {
         let original_event = AccountEvent::Renamed {
-            new_name: "New Name".to_string(),
+            new_name: Name::try_new("New Name".to_string()).expect("name creation failed"),
             updater: UserId::new(),
         };
 

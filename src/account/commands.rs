@@ -3,8 +3,8 @@ use crate::StateType;
 use crate::auth::user::{self};
 use crate::ident::AccountId;
 use crate::ident::JournalId;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::RedirectOnError;
+use crate::monkesto_error::OrRedirect;
+use crate::name::Name;
 use axum::extract::Path;
 use axum::extract::State;
 use axum::response::Redirect;
@@ -31,9 +31,7 @@ pub async fn create_account(
 
     let user = user::get_user(session)?;
 
-    if form.account_name.trim().is_empty() || form.account_name.len() > 64 {
-        return Err(KnownErrors::InvalidInput).or_redirect(callback_url)?;
-    }
+    let name = Name::try_new(form.account_name).or_redirect(callback_url)?;
 
     let parent_account_id = form
         .parent_account_id
@@ -47,7 +45,7 @@ pub async fn create_account(
             AccountId::new(),
             journal_id,
             user.id,
-            form.account_name,
+            name,
             parent_account_id,
         )
         .await

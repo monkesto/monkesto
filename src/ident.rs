@@ -1,4 +1,3 @@
-use super::known_errors::KnownErrors;
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
 use cuid::is_cuid2;
@@ -13,12 +12,22 @@ use std::fmt::Display;
 use std::fmt::{self};
 use std::ops::Deref;
 use std::str::FromStr;
+use thiserror::Error;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Ident {
     Cuid10([u8; 10]),
     Cuid16([u8; 16]),
     Custom([u8; 5]),
+}
+
+#[derive(Debug, Error, Serialize, Deserialize, Clone)]
+pub enum IdentError {
+    #[error("Failed to parse the provided bytes: {0}")]
+    Parse(String),
+
+    #[error("The provided string is not a valid Ident: {0}")]
+    InvalidId(String),
 }
 
 impl Ident {
@@ -41,17 +50,21 @@ impl Ident {
         )
     }
 
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, KnownErrors> {
-        let str = str::from_utf8(bytes)?;
-        Self::from_str(str)
-    }
-
     pub fn as_bytes(&self) -> &[u8] {
         match self {
             Ident::Cuid10(id) => id.as_ref(),
             Ident::Cuid16(id) => id.as_ref(),
             Ident::Custom(id) => id.as_ref(),
         }
+    }
+}
+
+impl TryFrom<&[u8]> for Ident {
+    type Error = IdentError;
+
+    fn try_from(bytes: &[u8]) -> Result<Self, IdentError> {
+        let str = str::from_utf8(bytes).map_err(|e| IdentError::Parse(e.to_string()))?;
+        Self::from_str(str)
     }
 }
 
@@ -66,22 +79,35 @@ static VALID_CUSTOM_IDENTS: phf::Set<&'static str> = phf_set! {
 };
 
 impl FromStr for Ident {
-    type Err = KnownErrors;
-    fn from_str(s: &str) -> Result<Self, KnownErrors> {
+    type Err = IdentError;
+    fn from_str(s: &str) -> Result<Self, IdentError> {
         if !is_cuid2(s) {
-            return Err(KnownErrors::InvalidId);
+            return Err(IdentError::InvalidId(s.to_owned()));
         }
         match s.len() {
+            // try_into should only throw an error if the slice is larger than the expected size
+            //
+            // because we check the size in the switch statement, that error should not be possible
             5 => {
                 if VALID_CUSTOM_IDENTS.contains(s) {
-                    Ok(Self::Custom(s.as_bytes().try_into()?))
+                    Ok(Self::Custom(
+                        s.as_bytes().try_into().expect("custom Ident invalid size"),
+                    ))
                 } else {
-                    Err(KnownErrors::InvalidId)
+                    Err(IdentError::InvalidId(s.to_owned()))
                 }
             }
-            10 => Ok(Self::Cuid10(s.as_bytes().try_into()?)),
-            16 => Ok(Self::Cuid16(s.as_bytes().try_into()?)),
-            _ => Err(KnownErrors::InvalidId),
+            10 => Ok(Self::Cuid10(
+                s.as_bytes()
+                    .try_into()
+                    .expect("10-length Ident invalid size"),
+            )),
+            16 => Ok(Self::Cuid16(
+                s.as_bytes()
+                    .try_into()
+                    .expect("16 length Ident invalid size"),
+            )),
+            _ => Err(IdentError::InvalidId(s.to_owned())),
         }
     }
 }
@@ -119,11 +145,6 @@ macro_rules! id {
             pub fn new() -> Self {
                 Self($new_fn)
             }
-
-            #[allow(dead_code)]
-            pub fn from_bytes(bytes: &[u8]) -> Result<Self, KnownErrors> {
-                Ok(Self(Ident::from_bytes(bytes)?))
-            }
         }
 
         impl Deref for $name {
@@ -135,7 +156,7 @@ macro_rules! id {
         }
 
         impl FromStr for $name {
-            type Err = KnownErrors;
+            type Err = IdentError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 Ok(Self(Ident::from_str(s)?))
@@ -145,6 +166,14 @@ macro_rules! id {
         impl Display for $name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}", self.0)
+            }
+        }
+
+        impl TryFrom<&[u8]> for $name {
+            type Error = IdentError;
+
+            fn try_from(bytes: &[u8]) -> Result<Self, IdentError> {
+                Ok(Self(Ident::try_from(bytes)?))
             }
         }
     };
@@ -175,7 +204,7 @@ impl<'q> Encode<'q, sqlx::Postgres> for Ident {
 impl<'r> Decode<'r, sqlx::Postgres> for Ident {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let bytes = <&[u8] as Decode<sqlx::Postgres>>::decode(value)?;
-        Ok(Self::from_bytes(bytes)?)
+        Ok(Self::try_from(bytes)?)
     }
 }
 

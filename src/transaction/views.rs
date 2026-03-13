@@ -6,8 +6,8 @@ use crate::ident::JournalId;
 use crate::journal::JournalNameOrUnknown;
 use crate::journal::JournalState;
 use crate::journal::layout;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::UrlError;
+use crate::monkesto_error::MonkestoError;
+use crate::monkesto_error::UrlError;
 use crate::transaction::EntryType;
 use axum::extract::Path;
 use axum::extract::Query;
@@ -30,7 +30,7 @@ fn render_journal_options(
     html! {
         option value=(parent_id) { (format!("{}{}", prefix, parent_name)) }
         @for (sub_id, sub_state) in all_subjournals.iter().filter(|(_, s)| s.parent_journal_id == Some(parent_id)) {
-            (render_journal_options(all_subjournals, *sub_id, &sub_state.name, depth + 1))
+            (render_journal_options(all_subjournals, *sub_id, &sub_state.name.to_string(), depth + 1))
         }
     }
 }
@@ -230,7 +230,7 @@ pub async fn transaction_list_page(
 
             @if let Some(e) = err.err {
                 p {
-                    (format!("An error occurred: {:?}", KnownErrors::decode(&e)))
+                    (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
                 }
             }
         }

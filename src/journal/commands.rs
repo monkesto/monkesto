@@ -7,8 +7,8 @@ use crate::StateType;
 use crate::auth::user::Email;
 use crate::auth::user::{self};
 use crate::authority::UserId;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::RedirectOnError;
+use crate::monkesto_error::OrRedirect;
+use crate::name::Name;
 use axum::extract::Path;
 use axum::extract::State;
 use axum::response::Redirect;
@@ -29,13 +29,11 @@ pub async fn create_journal(
 
     let user = user::get_user(session)?;
 
-    if form.journal_name.trim().is_empty() {
-        return Err(KnownErrors::InvalidInput.redirect("/journal"));
-    }
+    let name = Name::try_new(form.journal_name).or_redirect(CALLBACK_URL)?;
 
     state
         .journal_service
-        .journal_create(JournalId::new(), form.journal_name, user.id)
+        .journal_create(JournalId::new(), name, user.id)
         .await
         .or_redirect(CALLBACK_URL)?;
 
@@ -60,9 +58,7 @@ pub async fn invite_user(
 ) -> Result<Redirect, Redirect> {
     let callback_url = &format!("/journal/{}/person", id);
 
-    let email = Email::try_new(form.email)
-        .map_err(|_| KnownErrors::UserDoesntExist)
-        .or_redirect(callback_url)?;
+    let email = Email::try_new(form.email).or_redirect(callback_url)?;
 
     let user = user::get_user(session)?;
 
@@ -156,15 +152,13 @@ pub async fn create_sub_journal(
 
     let user = user::get_user(session)?;
 
-    if form.subjournal_name.trim().is_empty() {
-        return Err(KnownErrors::InvalidInput.redirect(&callback_url));
-    }
+    let name = Name::try_new(form.subjournal_name).or_redirect(&callback_url)?;
 
     let journal_id = JournalId::from_str(&id).or_redirect(&callback_url)?;
 
     state
         .journal_service
-        .journal_create_subjournal(journal_id, form.subjournal_name, user.id)
+        .journal_create_subjournal(journal_id, name, user.id)
         .await
         .or_redirect(&callback_url)?;
 

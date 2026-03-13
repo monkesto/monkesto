@@ -32,37 +32,97 @@ use crate::authority::UserId;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::MonkestoResult;
 
+use crate::account::AccountStoreError;
 use crate::event::EventStore;
+use crate::journal::JournalStoreError;
+use crate::journal::Permissions;
+use crate::transaction::TransactionStoreError::InvalidEntryType;
+use TransactionStoreError::InvalidTransaction;
 use chrono::DateTime;
 use chrono::Utc;
 use dashmap::DashMap;
+use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::Decode;
 use sqlx::Encode;
 use sqlx::Type;
 use sqlx::postgres::PgValueRef;
+use thiserror::Error;
 use tokio::sync::Mutex;
+
+#[derive(Debug, Error, Serialize, Deserialize)]
+pub enum TransactionStoreError {
+    #[error("Invalid transaction: {0}")]
+    InvalidTransaction(TransactionId),
+
+    #[error("Invalid journal: {0}")]
+    InvalidJournal(JournalId),
+
+    #[error("Invalid account: {0}")]
+    InvalidAccount(AccountId),
+
+    #[error("Invalid entry type: {0} expected \"Dr\" or \"Cr\"")]
+    InvalidEntryType(String),
+
+    #[error("A journal id was not given for one of the transaction updates")]
+    JournalIdNotSupplied,
+
+    #[error("An amount was not given for one of the transaction updates")]
+    AmountNotSupplied,
+
+    #[error("An entry type was not given for one of the transaction updates")]
+    EntryTypeNotSupplied,
+
+    #[error("Failed to parse a decimal number from the input: {0}")]
+    ParseDecimal(String),
+
+    #[error("A partial cent value was supplied in the number: {0}")]
+    PartialCentValue(Decimal),
+
+    #[error(
+        "The balance update {0} is too large! The number of cents should fit in a 64 bit integer."
+    )]
+    BalanceUpdateTooLarge(Decimal),
+
+    #[error("The balance update {0} is a negative number! Please use the Dr/Cr selector instead.")]
+    NegativeBalanceUpdate(Decimal),
+
+    #[error("The transaction does not have balanced credits and debits")]
+    TransactionNotBalanced,
+
+    #[error("No balance updates were supplied in the transaction")]
+    NoBalanceUpdatesSupplied,
+
+    #[error("The journal store returned an error: {0}")]
+    JournalStore(#[from] JournalStoreError),
+
+    #[error("The account store returned an error: {0}")]
+    AccountStore(#[from] AccountStoreError),
+
+    #[error("The user does not have the required permission: {:?}", .0)]
+    PermissionError(Permissions),
+}
+
+pub type TransactionStoreResult<T> = Result<T, TransactionStoreError>;
 
 pub trait TransactionStore:
     Clone
     + Send
     + Sync
     + 'static
-    + EventStore<Id = TransactionId, Event = TransactionEvent, Error = KnownErrors>
+    + EventStore<Id = TransactionId, Event = TransactionEvent, Error = TransactionStoreError>
 {
     async fn get_journal_transactions(
         &self,
         journal_id: JournalId,
-    ) -> MonkestoResult<Vec<TransactionId>>;
+    ) -> TransactionStoreResult<Vec<TransactionId>>;
 
     async fn get_transaction(
         &self,
         transaction_id: &TransactionId,
-    ) -> MonkestoResult<Option<TransactionState>>;
+    ) -> TransactionStoreResult<Option<TransactionState>>;
 }
 
 #[derive(Clone)]
@@ -90,7 +150,7 @@ impl EventStore for TransactionMemoryStore {
     type EventId = usize;
 
     type Event = TransactionEvent;
-    type Error = KnownErrors;
+    type Error = TransactionStoreError;
 
     async fn record(
         &self,
@@ -106,6 +166,7 @@ impl EventStore for TransactionMemoryStore {
         };
 
         if let TransactionEvent::CreatedTransaction {
+            id: _id,
             journal_id,
             author,
             updates,
@@ -136,7 +197,7 @@ impl EventStore for TransactionMemoryStore {
             local_events.push(arc_event);
             Ok(event_id)
         } else {
-            Err(KnownErrors::InvalidJournal)
+            Err(InvalidTransaction(id))
         }
     }
 
@@ -146,10 +207,7 @@ impl EventStore for TransactionMemoryStore {
         after: usize,
         limit: usize,
     ) -> Result<Vec<TransactionEvent>, Self::Error> {
-        let events = self
-            .local_events
-            .get(&id)
-            .ok_or(KnownErrors::InvalidTransaction { id })?;
+        let events = self.local_events.get(&id).ok_or(InvalidTransaction(id))?;
 
         // avoid a panic fn start > len
         if after >= events.len() {
@@ -170,7 +228,7 @@ impl TransactionStore for TransactionMemoryStore {
     async fn get_journal_transactions(
         &self,
         journal_id: JournalId,
-    ) -> MonkestoResult<Vec<TransactionId>> {
+    ) -> TransactionStoreResult<Vec<TransactionId>> {
         Ok(self
             .journal_lookup_table
             .get(&journal_id)
@@ -181,7 +239,7 @@ impl TransactionStore for TransactionMemoryStore {
     async fn get_transaction(
         &self,
         transaction_id: &TransactionId,
-    ) -> MonkestoResult<Option<TransactionState>> {
+    ) -> TransactionStoreResult<Option<TransactionState>> {
         Ok(self
             .transaction_table
             .get(transaction_id)
@@ -205,12 +263,12 @@ impl Display for EntryType {
 }
 
 impl FromStr for EntryType {
-    type Err = KnownErrors;
+    type Err = TransactionStoreError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "Dr" => Ok(Self::Debit),
             "Cr" => Ok(Self::Credit),
-            _ => Err(KnownErrors::InvalidInput),
+            _ => Err(InvalidEntryType(s.to_string())),
         }
     }
 }
@@ -226,15 +284,26 @@ pub struct BalanceUpdate {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum TransactionEvent {
     CreatedTransaction {
+        id: TransactionId,
         journal_id: JournalId,
         author: UserId,
         updates: Vec<BalanceUpdate>,
         created_at: DateTime<Utc>,
     },
     UpdatedBalancedUpdates {
+        id: TransactionId,
         new_balanceupdates: Vec<BalanceUpdate>,
         updater: UserId,
     },
+}
+
+impl TransactionEvent {
+    pub(crate) fn id(&self) -> TransactionId {
+        match self {
+            TransactionEvent::CreatedTransaction { id, .. } => *id,
+            TransactionEvent::UpdatedBalancedUpdates { id, .. } => *id,
+        }
+    }
 }
 
 #[derive(sqlx::Type)]
@@ -293,6 +362,7 @@ impl TransactionState {
     pub fn apply(&mut self, event: TransactionEvent) {
         match event {
             TransactionEvent::CreatedTransaction {
+                id: _id,
                 journal_id,
                 author,
                 updates,
@@ -316,6 +386,7 @@ mod test_transaction {
     use crate::authority::UserId;
     use crate::ident::AccountId;
     use crate::ident::JournalId;
+    use crate::ident::TransactionId;
     use crate::transaction::BalanceUpdate;
     use crate::transaction::EntryType;
     use chrono::Utc;
@@ -325,6 +396,7 @@ mod test_transaction {
     #[sqlx::test]
     async fn test_encode_decode_transaction_event(pool: PgPool) {
         let original_event = TransactionEvent::CreatedTransaction {
+            id: TransactionId::new(),
             journal_id: JournalId::new(),
             author: UserId::new(),
             updates: vec![BalanceUpdate {

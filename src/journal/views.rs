@@ -5,8 +5,8 @@ use crate::ident::Ident;
 use crate::ident::JournalId;
 use crate::journal::JournalNameOrUnknown;
 use crate::journal::layout::layout;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::UrlError;
+use crate::monkesto_error::MonkestoError;
+use crate::monkesto_error::UrlError;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
@@ -97,7 +97,7 @@ pub async fn journal_list(
 
         @if let Some(e) = err.err {
             p class="mt-6 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
-                (format! ("error: {:?}", KnownErrors::decode(&e)))
+                (format! ("error: {:?}", MonkestoError::decode(&e)))
             }
         }
     };
@@ -114,7 +114,7 @@ pub async fn journal_detail(
 
     let journal_state_res = match JournalId::from_str(&id) {
         Ok(s) => state.journal_service.journal_get(s, user.id).await,
-        Err(e) => Err(e),
+        Err(e) => Err(e.into()),
     };
 
     let content = html! {
@@ -213,7 +213,7 @@ pub async fn sub_journal_list_page(
 
     let journal_state_res = match JournalId::from_str(&id) {
         Ok(s) => state.journal_service.journal_get(s, user.id).await,
-        Err(e) => Err(e),
+        Err(e) => Err(e.into()),
     };
 
     let subjournals_res = match JournalId::from_str(&id) {
@@ -223,7 +223,7 @@ pub async fn sub_journal_list_page(
                 .journal_get_direct_subjournals(s, user.id)
                 .await
         }
-        Err(e) => Err(e),
+        Err(e) => Err(e.into()),
     };
 
     let content = html! {

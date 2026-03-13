@@ -9,12 +9,15 @@ use crate::ident::TransactionId;
 use crate::journal::JournalService;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::KnownErrors::PermissionError;
 use crate::transaction::BalanceUpdate;
 use crate::transaction::TransactionEvent;
 use crate::transaction::TransactionState;
 use crate::transaction::TransactionStore;
+use crate::transaction::TransactionStoreError::InvalidAccount;
+use crate::transaction::TransactionStoreError::InvalidJournal;
+use crate::transaction::TransactionStoreError::InvalidTransaction;
+use crate::transaction::TransactionStoreError::PermissionError;
+use crate::transaction::TransactionStoreResult;
 use chrono::Utc;
 
 #[derive(Clone)]
@@ -55,16 +58,16 @@ where
         journal_id: JournalId,
         creator_id: UserId,
         updates: Vec<BalanceUpdate>,
-    ) -> Result<(), KnownErrors> {
+    ) -> TransactionStoreResult<()> {
         // Check permission on the top-level journal (inherited by subjournals)
         let journal = self
             .journal_service
             .journal_get(journal_id, creator_id)
             .await?
-            .ok_or(KnownErrors::InvalidJournal)?;
+            .ok_or(InvalidJournal(journal_id))?;
 
         if journal.deleted {
-            return Err(KnownErrors::InvalidJournal);
+            return Err(InvalidJournal(journal_id));
         }
 
         let perms = self
@@ -73,9 +76,7 @@ where
             .await?;
 
         if !perms.contains(Permissions::APPENDTRANSACTION) {
-            return Err(PermissionError {
-                required_permissions: Permissions::APPENDTRANSACTION,
-            });
+            return Err(PermissionError(Permissions::APPENDTRANSACTION));
         }
 
         // For each update, the account must belong to the entry's journal or any of its
@@ -100,13 +101,12 @@ where
             }
 
             if !valid {
-                return Err(KnownErrors::AccountDoesntExist {
-                    id: update.account_id,
-                });
+                return Err(InvalidAccount(update.account_id));
             }
         }
 
         let event = TransactionEvent::CreatedTransaction {
+            id: transaction_id,
             journal_id,
             author: creator_id,
             updates,
@@ -130,16 +130,14 @@ where
         &self,
         journal_id: JournalId,
         actor: UserId,
-    ) -> Result<Vec<(TransactionId, TransactionState)>, KnownErrors> {
+    ) -> TransactionStoreResult<Vec<(TransactionId, TransactionState)>> {
         let journal_state = self.journal_service.journal_get(journal_id, actor).await?;
 
         if !journal_state
             .as_ref()
             .is_some_and(|s| s.get_user_permissions(actor).contains(Permissions::READ))
         {
-            return Err(PermissionError {
-                required_permissions: Permissions::READ,
-            });
+            return Err(PermissionError(Permissions::READ));
         }
 
         let transaction_ids = self
@@ -155,7 +153,7 @@ where
                 self.transaction_store
                     .get_transaction(&id)
                     .await?
-                    .ok_or(KnownErrors::InvalidTransaction { id })?,
+                    .ok_or(InvalidTransaction(id))?,
             ));
         }
 

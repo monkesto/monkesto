@@ -10,6 +10,35 @@ use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
 
+#[derive(Error, Debug, Serialize, Deserialize)]
+pub enum JournalStoreError {
+    #[error("invalid journal: {0}")]
+    InvalidJournal(JournalId),
+
+    #[error("user doesn't exist: {0}")]
+    InvalidUser(UserId),
+
+    #[error("The user doesn't have the {:?} permission", .0)]
+    PermissionError(Permissions),
+
+    #[error("The user store returned an error {0}")]
+    UserError(#[from] UserStoreError),
+
+    #[error("Unable to find a user id for {0}")]
+    UserLookupFailed(Email),
+
+    #[error("The user {0} already has access to this journal")]
+    UserAlreadyHasAccess(Email),
+
+    #[error("The user doesn't have access to this journal")]
+    UserDoesntHaveAccess,
+
+    #[error("Failed to create an Ident: {0}")]
+    IdentCreation(#[from] IdentError),
+}
+
+pub type JournalStoreResult<T> = Result<T, JournalStoreError>;
+
 pub fn router() -> Router<crate::StateType> {
     Router::new()
         .route("/journal", get(views::journal_list))
@@ -46,12 +75,15 @@ pub fn router() -> Router<crate::StateType> {
         .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
 }
 
+use crate::auth::user::Email;
+use crate::auth::user::UserStoreError;
 use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::event::EventStore;
+use crate::ident::IdentError;
 use crate::ident::JournalId;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::MonkestoResult;
+use crate::journal::JournalStoreError::InvalidJournal;
+use crate::name::Name;
 use bitflags::bitflags;
 use chrono::DateTime;
 use chrono::Utc;
@@ -65,6 +97,7 @@ use sqlx::postgres::PgValueRef;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
+use thiserror::Error;
 use tokio::sync::RwLock;
 
 #[expect(dead_code)]
@@ -73,22 +106,22 @@ pub trait JournalStore:
     + Send
     + Sync
     + 'static
-    + EventStore<Id = JournalId, EventId = usize, Event = JournalEvent, Error = KnownErrors>
+    + EventStore<Id = JournalId, EventId = usize, Event = JournalEvent, Error = JournalStoreError>
 {
     /// returns the cached state of the journal
-    async fn get_journal(&self, journal_id: JournalId) -> MonkestoResult<Option<JournalState>>;
+    async fn get_journal(&self, journal_id: JournalId) -> JournalStoreResult<Option<JournalState>>;
 
     /// returns all journals that a user is a member of (owner or tenant)
-    async fn get_user_journals(&self, user_id: UserId) -> MonkestoResult<Vec<JournalId>>;
+    async fn get_user_journals(&self, user_id: UserId) -> JournalStoreResult<Vec<JournalId>>;
 
     /// returns all direct child journals of the given journal
-    async fn get_subjournals(&self, journal_id: JournalId) -> MonkestoResult<Vec<JournalId>>;
+    async fn get_subjournals(&self, journal_id: JournalId) -> JournalStoreResult<Vec<JournalId>>;
 
     async fn get_permissions(
         &self,
         journal_id: JournalId,
         user_id: UserId,
-    ) -> MonkestoResult<Option<Permissions>> {
+    ) -> JournalStoreResult<Option<Permissions>> {
         if let Some(state) = self.get_journal(journal_id).await? {
             if state.owner == user_id {
                 return Ok(Some(Permissions::all()));
@@ -104,19 +137,22 @@ pub trait JournalStore:
         Ok(None)
     }
 
-    async fn get_name(&self, journal_id: JournalId) -> MonkestoResult<Option<String>> {
+    async fn get_name(&self, journal_id: JournalId) -> JournalStoreResult<Option<Name>> {
         Ok(self.get_journal(journal_id).await?.map(|s| s.name))
     }
 
-    async fn get_creator(&self, journal_id: JournalId) -> MonkestoResult<Option<UserId>> {
+    async fn get_creator(&self, journal_id: JournalId) -> JournalStoreResult<Option<UserId>> {
         Ok(self.get_journal(journal_id).await?.map(|s| s.creator))
     }
 
-    async fn get_created_at(&self, journal_id: JournalId) -> MonkestoResult<Option<DateTime<Utc>>> {
+    async fn get_created_at(
+        &self,
+        journal_id: JournalId,
+    ) -> JournalStoreResult<Option<DateTime<Utc>>> {
         Ok(self.get_journal(journal_id).await?.map(|s| s.created_at))
     }
 
-    async fn get_deleted(&self, journal_id: JournalId) -> MonkestoResult<Option<bool>> {
+    async fn get_deleted(&self, journal_id: JournalId) -> JournalStoreResult<Option<bool>> {
         Ok(self.get_journal(journal_id).await?.map(|s| s.deleted))
     }
 }
@@ -149,14 +185,14 @@ impl EventStore for JournalMemoryStore {
     type Id = JournalId;
     type EventId = usize;
     type Event = JournalEvent;
-    type Error = KnownErrors;
+    type Error = JournalStoreError;
 
     async fn record(
         &self,
         id: JournalId,
         _by: Authority,
         event: JournalEvent,
-    ) -> MonkestoResult<usize> {
+    ) -> JournalStoreResult<usize> {
         let arc_event = Arc::new(event.clone());
         let event_id = {
             let mut global_events = self.global_events.write().await;
@@ -209,7 +245,7 @@ impl EventStore for JournalMemoryStore {
 
             Ok(event_id)
         } else {
-            Err(KnownErrors::InvalidJournal)
+            Err(InvalidJournal(id))
         }
     }
 
@@ -219,10 +255,7 @@ impl EventStore for JournalMemoryStore {
         after: usize,
         limit: usize,
     ) -> Result<Vec<JournalEvent>, Self::Error> {
-        let events = self
-            .local_events
-            .get(&id)
-            .ok_or(KnownErrors::InvalidJournal)?;
+        let events = self.local_events.get(&id).ok_or(InvalidJournal(id))?;
 
         // avoid a panic fn start > len
         if after >= events.len() {
@@ -240,14 +273,14 @@ impl EventStore for JournalMemoryStore {
 }
 
 impl JournalStore for JournalMemoryStore {
-    async fn get_journal(&self, journal_id: JournalId) -> MonkestoResult<Option<JournalState>> {
+    async fn get_journal(&self, journal_id: JournalId) -> JournalStoreResult<Option<JournalState>> {
         Ok(self
             .journal_table
             .get(&journal_id)
             .map(|state| (*state).clone()))
     }
 
-    async fn get_user_journals(&self, user_id: UserId) -> MonkestoResult<Vec<JournalId>> {
+    async fn get_user_journals(&self, user_id: UserId) -> JournalStoreResult<Vec<JournalId>> {
         Ok(self
             .user_journals
             .get(&user_id)
@@ -255,7 +288,7 @@ impl JournalStore for JournalMemoryStore {
             .unwrap_or_default())
     }
 
-    async fn get_subjournals(&self, journal_id: JournalId) -> MonkestoResult<Vec<JournalId>> {
+    async fn get_subjournals(&self, journal_id: JournalId) -> JournalStoreResult<Vec<JournalId>> {
         Ok(self
             .subjournals
             .get(&journal_id)
@@ -286,13 +319,13 @@ pub struct JournalTenantInfo {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum JournalEvent {
     Created {
-        name: String,
+        name: Name,
         created_at: DateTime<Utc>,
         creator: UserId,
         parent_journal_id: Option<JournalId>,
     },
     Renamed {
-        name: String,
+        name: Name,
     },
     AddedTenant {
         id: UserId,
@@ -337,7 +370,7 @@ impl<'r> Decode<'r, sqlx::Postgres> for JournalEvent {
 #[derive(Serialize, Deserialize, Clone)]
 pub struct JournalState {
     pub id: JournalId,
-    pub name: String,
+    pub name: Name,
     pub creator: UserId,
     pub created_at: DateTime<Utc>,
     pub owner: UserId,
@@ -356,20 +389,20 @@ where
 {
     fn or_unknown(&self) -> String {
         match self {
-            Ok(Some(journal)) => journal.name.to_owned(),
+            Ok(Some(journal)) => journal.name.to_string(),
             Ok(None) => "Unknown Journal".into(),
             Err(e) => format!("Error loading journal: {}", e),
         }
     }
 }
 
-impl<E> JournalNameOrUnknown for Result<Option<String>, E>
+impl<E> JournalNameOrUnknown for Result<Option<Name>, E>
 where
     E: std::error::Error,
 {
     fn or_unknown(&self) -> String {
         match self {
-            Ok(Some(journal)) => journal.to_owned(),
+            Ok(Some(journal)) => journal.to_string(),
             Ok(None) => "Unknown Journal".into(),
             Err(e) => format!("Error loading journal: {}", e),
         }
@@ -425,17 +458,17 @@ impl JournalState {
 
 #[cfg(test)]
 mod test_user {
+    use super::JournalEvent;
     use crate::authority::UserId;
+    use crate::name::Name;
     use chrono::Utc;
     use sqlx::PgPool;
     use sqlx::prelude::FromRow;
 
-    use super::JournalEvent;
-
     #[sqlx::test]
     async fn test_encode_decode_journalevent(pool: PgPool) {
         let original_event = JournalEvent::Created {
-            name: "test".into(),
+            name: Name::try_new("test".to_string()).expect("name creation failed"),
             creator: UserId::new(),
             created_at: Utc::now(),
             parent_journal_id: None,

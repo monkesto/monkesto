@@ -6,8 +6,8 @@ use crate::ident::JournalId;
 use crate::journal::JournalNameOrUnknown;
 use crate::journal::Permissions;
 use crate::journal::layout::layout;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::UrlError;
+use crate::monkesto_error::MonkestoError;
+use crate::monkesto_error::UrlError;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
@@ -112,7 +112,7 @@ pub async fn person_detail_page(
         .contains(Permissions::READ)
     {
         return Ok(layout(
-            Some(&journal_state.name),
+            Some(&journal_state.name.to_string()),
             true,
             Some(&id),
             html! {
@@ -199,7 +199,7 @@ pub async fn person_detail_page(
             @if let Some(e) = err.err {
                 div class="mt-6 bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
                     p class="text-sm text-red-700 dark:text-red-200" {
-                        (format!("An error occurred: {:?}", KnownErrors::decode(&e)))
+                        (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
                     }
                 }
             }
@@ -213,7 +213,7 @@ pub async fn person_detail_page(
     };
 
     Ok(layout(
-        Some(&journal_state.name),
+        Some(&journal_state.name.to_string()),
         true,
         Some(&id),
         wrapped_content,
@@ -328,7 +328,7 @@ pub async fn people_list_page(
 
             @if let Some(e) = err.err {
                 p {
-                    (format!("An error occurred: {:?}", KnownErrors::decode(&e)))
+                    (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
                 }
             }
         }

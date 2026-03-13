@@ -7,8 +7,8 @@ use crate::ident::Ident;
 use crate::ident::JournalId;
 use crate::journal::JournalNameOrUnknown;
 use crate::journal::layout::layout;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::UrlError;
+use crate::monkesto_error::MonkestoError;
+use crate::monkesto_error::UrlError;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
@@ -180,7 +180,7 @@ pub async fn account_list_page(
 
         @if let Some(e) = err.err {
             p {
-                (format!("An error occurred: {:?}", KnownErrors::decode(&e)))
+                (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
             }
         }
     };

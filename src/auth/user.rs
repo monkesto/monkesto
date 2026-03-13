@@ -2,8 +2,8 @@ use crate::authority::Authority;
 use crate::event::EventStore;
 use crate::id;
 use crate::ident::Ident;
-use crate::known_errors::KnownErrors;
-use crate::known_errors::RedirectOnError;
+use crate::ident::IdentError;
+use crate::monkesto_error::OrRedirect;
 use axum::response::Redirect;
 use nutype::nutype;
 use serde::Deserialize;
@@ -60,7 +60,7 @@ where
 {
     session
         .user
-        .ok_or(KnownErrors::NotLoggedIn)
+        .ok_or(UserStoreError::UserNotFound)
         .or_redirect("/signin")
 }
 
@@ -209,13 +209,12 @@ pub enum UserEvent {
 
 use webauthn_rs::prelude::Uuid;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Serialize, Deserialize)]
 pub enum UserStoreError {
     #[error("User not found")]
     UserNotFound,
     #[error("Email already exists")]
     EmailAlreadyExists,
-    #[expect(dead_code)]
     #[error("Storage operation failed: {0}")]
     OperationFailed(String),
 }
@@ -481,12 +480,7 @@ impl<U: UserStore> UserService<U> {
         &self.user_store
     }
 
-    pub async fn user_get_email(&self, userid: UserId) -> Result<Option<String>, KnownErrors> {
-        self.user_store
-            .get_user_email(userid)
-            .await
-            .map_err(|e| KnownErrors::InternalError {
-                context: e.to_string(),
-            })
+    pub async fn user_get_email(&self, userid: UserId) -> Result<Option<String>, UserStoreError> {
+        self.user_store.get_user_email(userid).await
     }
 }
