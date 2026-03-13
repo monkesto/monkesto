@@ -49,10 +49,10 @@ pub trait GetError: GetLocation {
 impl GetError for axum_test::TestResponse {
     fn get_error(&self) -> Option<MonkestoError> {
         // the location returned is relative, but the parse function expects an absolute URL
-        let url = Url::parse("monkesto.com")
+        let url = Url::parse("https://monkesto.com")
             .expect("Invalid base URL")
             .join(&self.get_location())
-            .expect("Invalid URL");
+            .expect("Invalid relative URL");
 
         url.query_pairs()
             .find(|(key, _)| key == "error")
