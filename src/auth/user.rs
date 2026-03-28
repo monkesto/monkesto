@@ -1,4 +1,5 @@
 use crate::authority::Authority;
+use crate::event::Event;
 use crate::event::EventStore;
 use crate::id;
 use crate::ident::Ident;
@@ -122,7 +123,7 @@ mod tests {
             .record(
                 user_id,
                 Authority::Direct(Actor::Anonymous),
-                UserEvent::Created {
+                UserPayload::Created {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid,
                 },
@@ -168,7 +169,7 @@ mod tests {
             .record(
                 user_id_1,
                 Authority::Direct(Actor::Anonymous),
-                UserEvent::Created {
+                UserPayload::Created {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid: webauthn_uuid_1,
                 },
@@ -181,7 +182,7 @@ mod tests {
             .record(
                 user_id_2,
                 Authority::Direct(Actor::Anonymous),
-                UserEvent::Created {
+                UserPayload::Created {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid: webauthn_uuid_2,
                 },
@@ -198,7 +199,7 @@ mod tests {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UserEvent {
+pub enum UserPayload {
     Created {
         email: Email,
         webauthn_uuid: Uuid,
@@ -226,7 +227,7 @@ pub trait UserStore:
     Clone
     + Sync
     + Send
-    + EventStore<Id = UserId, Payload = UserEvent, Error = UserStoreError>
+    + EventStore<Id = UserId, Payload = UserPayload, Error = UserStoreError>
     + AuthnBackend
 {
     async fn email_exists(&self, email: &str) -> Result<bool, <Self as EventStore>::Error>;
@@ -275,7 +276,7 @@ pub trait UserStore:
                 self.record(
                     user_id,
                     Authority::Direct(Actor::System),
-                    UserEvent::Created {
+                    UserPayload::Created {
                         email: Email::try_new(email).expect("dev email should be valid"),
                         webauthn_uuid,
                     },
@@ -308,9 +309,10 @@ use tokio::sync::Mutex;
 
 /// In-memory storage implementation for users using HashMap
 #[derive(Clone)]
+#[allow(clippy::type_complexity)]
 pub struct MemoryUserStore {
-    global_events: Arc<Mutex<Vec<Arc<UserEvent>>>>,
-    local_events: Arc<DashMap<UserId, Vec<Arc<UserEvent>>>>,
+    global_events: Arc<Mutex<Vec<Arc<Event<UserPayload, UserId>>>>>,
+    local_events: Arc<DashMap<UserId, Vec<Arc<Event<UserPayload, UserId>>>>>,
     email_to_user_id: Arc<DashMap<String, UserId>>,
     user_id_to_email: Arc<DashMap<UserId, Email>>,
     user_id_to_webauthn_uuid: Arc<DashMap<UserId, Uuid>>,
@@ -338,29 +340,30 @@ impl Default for MemoryUserStore {
 
 impl EventStore for MemoryUserStore {
     type Id = UserId;
-    type Payload = UserEvent;
-    type EventId = usize;
+    type EventId = u64;
+    type Payload = UserPayload;
     type Error = UserStoreError;
 
     async fn record(
         &self,
         id: UserId,
-        _by: Authority,
-        event: UserEvent,
-    ) -> Result<usize, UserStoreError> {
-        let arc_event = Arc::new(event.clone());
-        let event_id = {
+        authority: Authority,
+        payload: UserPayload,
+    ) -> Result<u64, UserStoreError> {
+        let (event_id, event) = {
             let mut global_events = self.global_events.lock().await;
-            global_events.push(arc_event.clone());
-            global_events.len()
+            let event_id = global_events.len() as u64;
+            let event = Arc::new(Event::new(payload.clone(), id, event_id, authority));
+            global_events.push(event.clone());
+            (event_id, event)
         };
 
-        match event {
-            UserEvent::Created {
+        match payload {
+            UserPayload::Created {
                 email,
                 webauthn_uuid,
             } => {
-                self.local_events.entry(id).or_default().push(arc_event);
+                self.local_events.entry(id).or_default().push(event.clone());
 
                 let email_str = email.to_string();
                 if self.email_to_user_id.contains_key(&email_str) {
@@ -371,9 +374,9 @@ impl EventStore for MemoryUserStore {
                 self.user_id_to_webauthn_uuid.insert(id, webauthn_uuid);
                 self.webauthn_uuid_to_user_id.insert(webauthn_uuid, id);
             }
-            UserEvent::Deleted => {
+            UserPayload::Deleted => {
                 if let Some(mut local_events) = self.local_events.get_mut(&id) {
-                    local_events.push(arc_event);
+                    local_events.push(event.clone());
                 } else {
                     return Err(UserStoreError::UserNotFound);
                 }
@@ -392,23 +395,23 @@ impl EventStore for MemoryUserStore {
     async fn get_events(
         &self,
         id: UserId,
-        after: usize,
-        limit: usize,
-    ) -> Result<Vec<UserEvent>, Self::Error> {
+        after: u64,
+        limit: u64,
+    ) -> Result<Vec<Event<UserPayload, UserId>>, Self::Error> {
         let events = self
             .local_events
             .get(&id)
             .ok_or(UserStoreError::UserNotFound)?;
 
         // avoid a panic if start > len
-        if after >= events.len() {
+        if after >= events.len() as u64 {
             return Ok(Vec::new());
         }
 
         // clamp the end value to the vector length
-        let end = std::cmp::min(after + limit + 1, events.len());
+        let end = std::cmp::min(after + limit + 1, events.len() as u64);
 
-        Ok(events[after + 1..end]
+        Ok(events[(after + 1) as usize..end as usize]
             .iter()
             .map(|u| u.deref().clone())
             .collect())

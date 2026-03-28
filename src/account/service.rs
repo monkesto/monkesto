@@ -1,4 +1,4 @@
-use crate::account::AccountEvent;
+use crate::account::AccountPayload;
 use crate::account::AccountState;
 use crate::account::AccountStore;
 use crate::account::AccountStoreError::AccountExists;
@@ -7,23 +7,20 @@ use crate::account::AccountStoreError::InvalidJournal;
 use crate::account::AccountStoreError::PermissionError;
 use crate::account::AccountStoreResult;
 use crate::auth::user::UserStore;
-use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::authority::UserId;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::journal::JournalService;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::name::Name;
-use chrono::Utc;
 
 #[derive(Clone)]
 pub struct AccountService<A, J, U>
 where
-    A: AccountStore,
-    J: JournalStore,
-    U: UserStore,
+    A: AccountStore<EventId = u64>,
+    J: JournalStore<EventId = u64>,
+    U: UserStore<EventId = u64>,
 {
     account_store: A,
     journal_service: JournalService<J, U>,
@@ -31,9 +28,9 @@ where
 
 impl<A, J, U> AccountService<A, J, U>
 where
-    A: AccountStore,
-    J: JournalStore,
-    U: UserStore,
+    A: AccountStore<EventId = u64>,
+    J: JournalStore<EventId = u64>,
+    U: UserStore<EventId = u64>,
 {
     pub fn new(account_store: A, journal_service: JournalService<J, U>) -> Self {
         Self {
@@ -42,17 +39,17 @@ where
         }
     }
 
-    pub async fn account_create(
+    pub async fn create_account(
         &self,
         account_id: AccountId,
         journal_id: JournalId,
-        creator_id: UserId,
+        authority: &Authority,
         account_name: Name,
         parent_account_id: Option<AccountId>,
     ) -> AccountStoreResult<()> {
         let journal_state = self
             .journal_service
-            .journal_get(journal_id, creator_id)
+            .get_journal(journal_id, authority)
             .await?
             .ok_or(InvalidJournal(journal_id))?;
 
@@ -61,7 +58,7 @@ where
         }
 
         if !journal_state
-            .get_user_permissions(creator_id)
+            .get_actor_permissions(authority)
             .contains(Permissions::ADDACCOUNT)
         {
             return Err(PermissionError(Permissions::ADDACCOUNT));
@@ -74,12 +71,10 @@ where
         self.account_store
             .record(
                 account_id,
-                Authority::Direct(Actor::Anonymous),
-                AccountEvent::Created {
+                authority.clone(),
+                AccountPayload::Created {
                     journal_id,
                     name: account_name,
-                    creator: creator_id,
-                    created_at: Utc::now(),
                     parent_account_id,
                 },
             )
@@ -88,17 +83,20 @@ where
         Ok(())
     }
 
-    pub async fn account_get_all_in_journal(
+    pub async fn get_all_accounts_in_journal(
         &self,
         journal_id: JournalId,
-        actor: UserId,
+        authority: &Authority,
     ) -> AccountStoreResult<Vec<(AccountId, AccountState)>> {
-        let journal_state = self.journal_service.journal_get(journal_id, actor).await?;
+        let journal_state = self
+            .journal_service
+            .get_journal(journal_id, authority)
+            .await?;
 
-        if !journal_state
-            .as_ref()
-            .is_some_and(|s| s.get_user_permissions(actor).contains(Permissions::READ))
-        {
+        if !journal_state.as_ref().is_some_and(|s| {
+            s.get_actor_permissions(authority)
+                .contains(Permissions::READ)
+        }) {
             return Err(PermissionError(Permissions::READ));
         }
 
@@ -119,7 +117,7 @@ where
         Ok(accounts)
     }
 
-    pub async fn account_get_full_path(
+    pub async fn get_full_account_path(
         &self,
         account_id: AccountId,
     ) -> AccountStoreResult<Option<Vec<Name>>> {

@@ -1,12 +1,14 @@
 use crate::authority::Authority;
 use chrono::DateTime;
 use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use std::error::Error;
 
 pub trait EventStore: Send + Sync {
-    type Id: Send + Sync + Clone;
-    type EventId: Send + Sync + Clone;
-    type Payload: Send + Sync;
+    type Id: Send + Sync + Clone + Copy;
+    type EventId: Send + Sync + Clone + Copy;
+    type Payload: Send + Sync + Clone;
     type Error: Error;
 
     /// Record an event to storage.
@@ -22,7 +24,7 @@ pub trait EventStore: Send + Sync {
         &self,
         id: Self::Id,
         by: Authority,
-        event: Self::Payload,
+        payload: Self::Payload,
     ) -> Result<Self::EventId, Self::Error>;
 
     /// Get all events after the specified event number
@@ -38,7 +40,7 @@ pub trait EventStore: Send + Sync {
         id: Self::Id,
         after: Self::EventId,
         limit: Self::EventId,
-    ) -> Result<Vec<Self::Payload>, Self::Error>;
+    ) -> Result<Vec<Event<Self::Payload, Self::Id>>, Self::Error>;
 }
 
 #[expect(dead_code)]
@@ -57,12 +59,23 @@ pub trait ViewModel {
     // TODO: setup a function to wait for a specific event to be received and a manual insert function
 }
 
-#[expect(dead_code)]
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Event<P: Clone + Sized, I: Copy + Clone + Sized> {
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Event<T: Clone + Sized, U: Copy + Clone + Sized> {
+    pub payload: T,
+    pub id: U,
     pub event_id: u64,
     pub timestamp: DateTime<Utc>,
     pub authority: Authority,
-    pub payload: P,
-    pub id: I,
+}
+
+impl<T: Clone, U: Copy + Clone> Event<T, U> {
+    pub fn new(payload: T, id: U, event_id: u64, authority: Authority) -> Self {
+        Self {
+            payload,
+            id,
+            event_id,
+            timestamp: Utc::now(),
+            authority,
+        }
+    }
 }

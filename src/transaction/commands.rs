@@ -1,6 +1,8 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::auth::user::{self};
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
@@ -123,7 +125,12 @@ pub async fn transact(
     } else {
         state
             .transaction_service
-            .transaction_create(TransactionId::new(), journal_id, user.id, updates)
+            .create_transaction(
+                TransactionId::new(),
+                journal_id,
+                &Authority::Direct(Actor::User(user.id)),
+                updates,
+            )
             .await
             .or_redirect(callback_url)?;
 

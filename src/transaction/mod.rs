@@ -28,19 +28,17 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::authority::Authority;
-use crate::authority::UserId;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
 
 use crate::account::AccountStoreError;
+use crate::event::Event;
 use crate::event::EventStore;
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
 use crate::transaction::TransactionStoreError::InvalidEntryType;
 use TransactionStoreError::InvalidTransaction;
-use chrono::DateTime;
-use chrono::Utc;
 use dashmap::DashMap;
 use rust_decimal::Decimal;
 use serde::Deserialize;
@@ -112,7 +110,7 @@ pub trait TransactionStore:
     + Send
     + Sync
     + 'static
-    + EventStore<Id = TransactionId, Payload = TransactionEvent, Error = TransactionStoreError>
+    + EventStore<Id = TransactionId, Payload = TransactionPayload, Error = TransactionStoreError>
 {
     async fn get_journal_transactions(
         &self,
@@ -126,9 +124,10 @@ pub trait TransactionStore:
 }
 
 #[derive(Clone)]
+#[allow(clippy::type_complexity)]
 pub struct TransactionMemoryStore {
-    global_events: Arc<Mutex<Vec<Arc<TransactionEvent>>>>,
-    local_events: Arc<DashMap<TransactionId, Vec<Arc<TransactionEvent>>>>,
+    global_events: Arc<Mutex<Vec<Arc<Event<TransactionPayload, TransactionId>>>>>,
+    local_events: Arc<DashMap<TransactionId, Vec<Arc<Event<TransactionPayload, TransactionId>>>>>,
 
     transaction_table: Arc<DashMap<TransactionId, TransactionState>>,
     journal_lookup_table: Arc<DashMap<JournalId, Vec<TransactionId>>>,
@@ -147,41 +146,36 @@ impl TransactionMemoryStore {
 
 impl EventStore for TransactionMemoryStore {
     type Id = TransactionId;
-    type EventId = usize;
-
-    type Payload = TransactionEvent;
+    type EventId = u64;
+    type Payload = TransactionPayload;
     type Error = TransactionStoreError;
 
     async fn record(
         &self,
         id: Self::Id,
-        _by: Authority,
-        event: Self::Payload,
-    ) -> Result<Self::EventId, Self::Error> {
-        let arc_event = Arc::new(event.clone());
-        let event_id = {
+        authority: Authority,
+        payload: Self::Payload,
+    ) -> Result<u64, Self::Error> {
+        let (event_id, event) = {
             let mut global_events = self.global_events.lock().await;
-            global_events.push(arc_event.clone());
-            global_events.len()
+            let event_id = global_events.len() as u64;
+            let event = Arc::new(Event::new(payload.clone(), id, event_id, authority));
+            global_events.push(event.clone());
+            (event_id, event)
         };
 
-        if let TransactionEvent::CreatedTransaction {
-            id: _id,
+        if let TransactionPayload::CreatedTransaction {
             journal_id,
-            author,
             updates,
-            created_at,
-        } = event
+        } = payload
         {
             let state = TransactionState {
                 id,
                 journal_id,
-                author,
                 updates,
-                created_at,
             };
 
-            self.local_events.insert(id, vec![arc_event]);
+            self.local_events.insert(id, vec![event.clone()]);
             self.transaction_table.insert(id, state);
 
             self.journal_lookup_table
@@ -193,8 +187,8 @@ impl EventStore for TransactionMemoryStore {
         } else if let Some(mut local_events) = self.local_events.get_mut(&id)
             && let Some(mut state) = self.transaction_table.get_mut(&id)
         {
-            state.apply(event.clone());
-            local_events.push(arc_event);
+            state.apply(payload);
+            local_events.push(event);
             Ok(event_id)
         } else {
             Err(InvalidTransaction(id))
@@ -204,20 +198,20 @@ impl EventStore for TransactionMemoryStore {
     async fn get_events(
         &self,
         id: TransactionId,
-        after: usize,
-        limit: usize,
-    ) -> Result<Vec<TransactionEvent>, Self::Error> {
+        after: u64,
+        limit: u64,
+    ) -> Result<Vec<Event<TransactionPayload, TransactionId>>, Self::Error> {
         let events = self.local_events.get(&id).ok_or(InvalidTransaction(id))?;
 
         // avoid a panic fn start > len
-        if after >= events.len() {
+        if after >= events.len() as u64 {
             return Ok(Vec::new());
         }
 
         // clamp the end value to the vector length
-        let end = std::cmp::min(events.len(), after + limit + 1);
+        let end = std::cmp::min(events.len(), (after + limit + 1) as usize);
 
-        Ok(events[after + 1..end]
+        Ok(events[(after + 1) as usize..end]
             .iter()
             .map(|t| t.deref().clone())
             .collect())
@@ -282,28 +276,14 @@ pub struct BalanceUpdate {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub enum TransactionEvent {
+pub enum TransactionPayload {
     CreatedTransaction {
-        id: TransactionId,
         journal_id: JournalId,
-        author: UserId,
         updates: Vec<BalanceUpdate>,
-        created_at: DateTime<Utc>,
     },
     UpdatedBalancedUpdates {
-        id: TransactionId,
         new_balanceupdates: Vec<BalanceUpdate>,
-        updater: UserId,
     },
-}
-
-impl TransactionEvent {
-    pub(crate) fn id(&self) -> TransactionId {
-        match self {
-            TransactionEvent::CreatedTransaction { id, .. } => *id,
-            TransactionEvent::UpdatedBalancedUpdates { id, .. } => *id,
-        }
-    }
 }
 
 #[derive(sqlx::Type)]
@@ -315,7 +295,7 @@ pub enum TransactionEventType {
     UpdatedBalanceUpdates = 3,
 }
 
-impl TransactionEvent {
+impl TransactionPayload {
     #[expect(dead_code)]
     fn get_type(&self) -> TransactionEventType {
         use TransactionEventType::*;
@@ -326,13 +306,13 @@ impl TransactionEvent {
     }
 }
 
-impl Type<sqlx::Postgres> for TransactionEvent {
+impl Type<sqlx::Postgres> for TransactionPayload {
     fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
         <&[u8] as Type<sqlx::Postgres>>::type_info()
     }
 }
 
-impl<'q> Encode<'q, sqlx::Postgres> for TransactionEvent {
+impl<'q> Encode<'q, sqlx::Postgres> for TransactionPayload {
     fn encode_by_ref(
         &self,
         buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'q>,
@@ -342,10 +322,10 @@ impl<'q> Encode<'q, sqlx::Postgres> for TransactionEvent {
     }
 }
 
-impl<'r> Decode<'r, sqlx::Postgres> for TransactionEvent {
+impl<'r> Decode<'r, sqlx::Postgres> for TransactionPayload {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let bytes = <&[u8] as Decode<sqlx::Postgres>>::decode(value)?;
-        Ok(postcard::from_bytes::<TransactionEvent>(bytes)?)
+        Ok(postcard::from_bytes::<TransactionPayload>(bytes)?)
     }
 }
 
@@ -353,27 +333,20 @@ impl<'r> Decode<'r, sqlx::Postgres> for TransactionEvent {
 pub struct TransactionState {
     pub id: TransactionId,
     journal_id: JournalId,
-    pub author: UserId,
     pub updates: Vec<BalanceUpdate>,
-    pub created_at: DateTime<Utc>,
 }
 
 impl TransactionState {
-    pub fn apply(&mut self, event: TransactionEvent) {
+    pub fn apply(&mut self, event: TransactionPayload) {
         match event {
-            TransactionEvent::CreatedTransaction {
-                id: _id,
+            TransactionPayload::CreatedTransaction {
                 journal_id,
-                author,
                 updates,
-                created_at,
             } => {
                 self.journal_id = journal_id;
-                self.author = author;
                 self.updates = updates;
-                self.created_at = created_at;
             }
-            TransactionEvent::UpdatedBalancedUpdates {
+            TransactionPayload::UpdatedBalancedUpdates {
                 new_balanceupdates, ..
             } => self.updates = new_balanceupdates,
         }
@@ -382,30 +355,24 @@ impl TransactionState {
 
 #[cfg(test)]
 mod test_transaction {
-    use super::TransactionEvent;
-    use crate::authority::UserId;
+    use super::TransactionPayload;
     use crate::ident::AccountId;
     use crate::ident::JournalId;
-    use crate::ident::TransactionId;
     use crate::transaction::BalanceUpdate;
     use crate::transaction::EntryType;
-    use chrono::Utc;
     use sqlx::PgPool;
     use sqlx::prelude::FromRow;
 
     #[sqlx::test]
     async fn test_encode_decode_transaction_event(pool: PgPool) {
-        let original_event = TransactionEvent::CreatedTransaction {
-            id: TransactionId::new(),
+        let original_event = TransactionPayload::CreatedTransaction {
             journal_id: JournalId::new(),
-            author: UserId::new(),
             updates: vec![BalanceUpdate {
                 journal_id: JournalId::new(),
                 account_id: AccountId::new(),
                 amount: 45,
                 entry_type: EntryType::Debit,
             }],
-            created_at: Utc::now(),
         };
 
         sqlx::query(
@@ -432,7 +399,7 @@ mod test_transaction {
         .await
         .expect("failed to insert transaction into mock table");
 
-        let event: TransactionEvent = sqlx::query_scalar(
+        let event: TransactionPayload = sqlx::query_scalar(
             r#"
             SELECT event FROM test_transaction_table
             LIMIT 1
@@ -446,7 +413,7 @@ mod test_transaction {
 
         #[derive(FromRow)]
         struct WrapperType {
-            event: TransactionEvent,
+            event: TransactionPayload,
         }
 
         let event_wrapper: WrapperType = sqlx::query_as(

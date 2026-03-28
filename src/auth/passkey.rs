@@ -21,6 +21,7 @@ use super::user::UserId;
 use super::user::UserStore;
 use crate::authority::Actor;
 use crate::authority::Authority;
+use crate::event::Event;
 use crate::event::EventStore;
 use crate::id;
 use crate::ident::Ident;
@@ -93,7 +94,7 @@ pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
         .record(
             passkey_id,
             Authority::Direct(Actor::User(user_id)),
-            PasskeyEvent::Deleted { user_id },
+            PasskeyPayload::Deleted { user_id },
         )
         .await
         .map_err(|e| PasskeyError::StoreError(e.to_string()))?;
@@ -144,7 +145,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
                     .record(
                         passkey_id,
                         Authority::Direct(Actor::User(user_id)),
-                        PasskeyEvent::Created { user_id, passkey },
+                        PasskeyPayload::Created { user_id, passkey },
                     )
                     .await
                     .is_err()
@@ -321,7 +322,7 @@ pub struct Passkey {
 
 #[derive(Debug, Clone)]
 #[allow(clippy::large_enum_variant)]
-pub enum PasskeyEvent {
+pub enum PasskeyPayload {
     Created {
         user_id: UserId,
         passkey: webauthn_rs::prelude::Passkey,
@@ -342,7 +343,9 @@ pub enum PasskeyStoreError {
     InvalidPasskey(PasskeyId),
 }
 
-pub trait PasskeyStore: EventStore<Id = PasskeyId, Payload = PasskeyEvent> {
+pub trait PasskeyStore:
+    EventStore<Id = PasskeyId, Payload = PasskeyPayload, Error = PasskeyStoreError>
+{
     async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, Self::Error>;
 
     async fn get_all_credentials(&self) -> Result<Vec<webauthn_rs::prelude::Passkey>, Self::Error>;
@@ -368,10 +371,11 @@ impl PasskeyData {
 }
 
 /// In-memory storage implementation for passkeys using HashMap
+#[allow(clippy::type_complexity)]
 pub struct MemoryPasskeyStore {
     data: Arc<Mutex<PasskeyData>>,
-    global_events: Arc<Mutex<Vec<Arc<PasskeyEvent>>>>,
-    local_events: Arc<DashMap<PasskeyId, Vec<Arc<PasskeyEvent>>>>,
+    global_events: Arc<Mutex<Vec<Arc<Event<PasskeyPayload, PasskeyId>>>>>,
+    local_events: Arc<DashMap<PasskeyId, Vec<Arc<Event<PasskeyPayload, PasskeyId>>>>>,
 }
 
 impl MemoryPasskeyStore {
@@ -392,26 +396,28 @@ impl Default for MemoryPasskeyStore {
 
 impl EventStore for MemoryPasskeyStore {
     type Id = PasskeyId;
-    type Payload = PasskeyEvent;
-    type EventId = usize;
+    type EventId = u64;
+    type Payload = PasskeyPayload;
     type Error = PasskeyStoreError;
 
     async fn record(
         &self,
         id: PasskeyId,
-        _by: Authority,
-        event: PasskeyEvent,
-    ) -> Result<usize, PasskeyStoreError> {
-        let mut data = self.data.lock().await;
-        let arc_event = Arc::new(event.clone());
-        let event_id = {
+        authority: Authority,
+        payload: PasskeyPayload,
+    ) -> Result<u64, PasskeyStoreError> {
+        let (event_id, event) = {
             let mut global_events = self.global_events.lock().await;
-            global_events.push(arc_event.clone());
-            global_events.len()
+            let event_id = global_events.len() as u64;
+            let event = Arc::new(Event::new(payload.clone(), id, event_id, authority));
+            global_events.push(event.clone());
+            (event_id, event)
         };
 
-        match event {
-            PasskeyEvent::Created {
+        let mut data = self.data.lock().await;
+
+        match payload {
+            PasskeyPayload::Created {
                 user_id,
                 ref passkey,
             } => {
@@ -420,11 +426,11 @@ impl EventStore for MemoryPasskeyStore {
                     id,
                     passkey: passkey.clone(),
                 });
-                self.local_events.entry(id).or_default().push(arc_event);
+                self.local_events.entry(id).or_default().push(event);
             }
-            PasskeyEvent::Deleted { user_id } => {
+            PasskeyPayload::Deleted { user_id } => {
                 if let Some(mut local_events) = self.local_events.get_mut(&id) {
-                    local_events.push(arc_event);
+                    local_events.push(event);
                 }
 
                 if let Some(passkeys) = data.keys.get_mut(&user_id) {
@@ -439,23 +445,23 @@ impl EventStore for MemoryPasskeyStore {
     async fn get_events(
         &self,
         id: PasskeyId,
-        after: usize,
-        limit: usize,
-    ) -> Result<Vec<PasskeyEvent>, Self::Error> {
+        after: u64,
+        limit: u64,
+    ) -> Result<Vec<Event<Self::Payload, Self::Id>>, Self::Error> {
         let events = self
             .local_events
             .get(&id)
             .ok_or(PasskeyStoreError::InvalidPasskey(id))?;
 
         // avoid a panic if start > len
-        if after >= events.len() {
+        if after >= events.len() as u64 {
             return Ok(Vec::new());
         }
 
         // clamp the end value to the vector length
-        let end = std::cmp::min(after + limit + 1, events.len());
+        let end = std::cmp::min(after + limit + 1, events.len() as u64);
 
-        Ok(events[after + 1..end]
+        Ok(events[(after + 1) as usize..end as usize]
             .iter()
             .map(|p| p.deref().clone())
             .collect())
@@ -524,7 +530,7 @@ mod tests {
             .record(
                 passkey_id,
                 Authority::Direct(Actor::User(user_id)),
-                PasskeyEvent::Deleted { user_id },
+                PasskeyPayload::Deleted { user_id },
             )
             .await
             .expect("Should succeed even for non-existent passkey");

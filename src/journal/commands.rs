@@ -6,6 +6,8 @@ use crate::BackendType;
 use crate::StateType;
 use crate::auth::user::Email;
 use crate::auth::user::{self};
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::monkesto_error::OrRedirect;
 use crate::name::Name;
@@ -33,7 +35,12 @@ pub async fn create_journal(
 
     state
         .journal_service
-        .journal_create(JournalId::new(), name, user.id)
+        .create_journal(
+            JournalId::new(),
+            name,
+            user.id,
+            &Authority::Direct(Actor::User(user.id)),
+        )
         .await
         .or_redirect(CALLBACK_URL)?;
 
@@ -50,7 +57,7 @@ pub struct InviteUserForm {
     pub delete: Option<String>,
 }
 
-pub async fn invite_user(
+pub async fn invite_member(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
@@ -83,7 +90,12 @@ pub async fn invite_user(
 
     state
         .journal_service
-        .journal_invite_tenant(journal_id, user.id, email, invitee_permissions)
+        .journal_invite_member(
+            journal_id,
+            &Authority::Direct(Actor::User(user.id)),
+            email,
+            invitee_permissions,
+        )
         .await
         .or_redirect(callback_url)?;
 
@@ -130,7 +142,12 @@ pub async fn update_permissions(
 
     state
         .journal_service
-        .journal_update_tenant_permissions(journal_id, target_user_id, new_permissions, user.id)
+        .update_member_permissions(
+            journal_id,
+            target_user_id,
+            new_permissions,
+            Authority::Direct(Actor::User(user.id)),
+        )
         .await
         .or_redirect(callback_url)?;
 
@@ -158,14 +175,14 @@ pub async fn create_sub_journal(
 
     state
         .journal_service
-        .journal_create_subjournal(journal_id, name, user.id)
+        .create_subjournal(journal_id, name, Authority::Direct(Actor::User(user.id)))
         .await
         .or_redirect(&callback_url)?;
 
     Ok(Redirect::to(&callback_url))
 }
 
-pub async fn remove_tenant(
+pub async fn remove_member(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path((id, person_id)): Path<(String, String)>,
@@ -179,7 +196,11 @@ pub async fn remove_tenant(
 
     state
         .journal_service
-        .journal_remove_tenant(journal_id, target_user_id, user.id)
+        .remove_member(
+            journal_id,
+            target_user_id,
+            Authority::Direct(Actor::User(user.id)),
+        )
         .await
         .or_redirect(callback_url)?;
 

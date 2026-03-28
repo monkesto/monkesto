@@ -1,6 +1,8 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::auth::user::{self};
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::ident::Ident;
 use crate::ident::JournalId;
 use crate::journal::JournalNameOrUnknown;
@@ -33,7 +35,7 @@ pub async fn journal_list(
 
     let content = html! {
         div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" {
-            @match state.journal_service.journal_list(user.id).await {
+            @match state.journal_service.list_journals(user.id).await {
                 Ok(journals) => {
                     @for (journal_id, journal_state) in journals {
                         a
@@ -46,17 +48,37 @@ pub async fn journal_list(
                             div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
                                 "Created by "
 
-                                @match state.user_service.user_get_email(journal_state.creator).await {
-                                    Ok(Some(email)) => (email),
+                                @match state.journal_service.get_creator(journal_id).await {
+                                    Ok(Some(authority)) => {
+                                        @match authority.actor() {
+                                            Actor::System => {"System"},
+                                            Actor::Anonymous => {"Anonymous"},
+                                            Actor::User(creator_id) => {
+                                                 @match state.user_service.user_get_email(*creator_id).await {
+                                                    Ok(Some(email)) => (email),
+
+                                                    Ok(None) => {"unknown user"},
+
+                                                    Err(e) => (format!("failed to fetch creator email: {:?}", e)),
+                                                }
+                                            }
+                                        }
+                                    },
+
                                     Ok(None) => {"unknown user"},
-                                    Err(e) => (format!("failed to fetch email: {:?}", e)),
+
+                                    Err(e) => (format!("failed to fetch creator id: {:?}", e)),
                                 }
 
                                 " on "
-                                (journal_state.created_at
-                                    .with_timezone(&chrono_tz::America::Chicago)
-                                    .format("%Y-%m-%d %H:%M:%S %Z")
-                                )
+
+                                @match state.journal_service.get_creation_timestamp(journal_id).await {
+                                    Ok(Some(timestamp)) => (timestamp.with_timezone(&chrono_tz::America::Chicago).format("%Y-%m-%d %H:%M:%S %Z")),
+
+                                    Ok(None) => {"unknown"},
+
+                                    Err(e) => (format!("failed to fetch creation timestamp: {:?}", e)),
+                                }
                             }
                         }
                     }
@@ -113,85 +135,124 @@ pub async fn journal_detail(
     let user = user::get_user(session)?;
 
     let journal_state_res = match JournalId::from_str(&id) {
-        Ok(s) => state.journal_service.journal_get(s, user.id).await,
+        Ok(s) => {
+            state
+                .journal_service
+                .get_journal(s, &Authority::Direct(Actor::User(user.id)))
+                .await
+        }
         Err(e) => Err(e.into()),
     };
 
-    let content = html! {
-        div class="flex flex-col gap-6" {
-            @match &journal_state_res {
-                Ok(Some(journal_state)) => {
-                    div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" {
-                        a
-                        href=(format!("/journal/{}/transaction", &id))
-                        class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                            h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                "Transactions"
-                            }
-                        }
-
-                        a
-                        href=(format!("/journal/{}/account", &id))
-                        class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                            h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                "Accounts"
-                            }
-                        }
-
-                        a
-                        href=(format!("/journal/{}/person", &id))
-                        class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                            h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                "People"
-                            }
-                        }
-
-                        a
-                        href=(format!("/journal/{}/subjournals", &id))
-                        class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                            h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                "Subjournals"
-                            }
-                        }
-                    }
-
-                    div class="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg" {
-                        div class="space-y-2" {
-                            div class="text-sm text-gray-600 dark:text-gray-400" {
-                                "Created by "
-
-                                 @match state.user_service.user_get_email(journal_state.creator).await {
-                                    Ok(Some(email)) => (email),
-                                    Ok(None) => {"unknown user"},
-                                    Err(e) => (format!("failed to fetch email: {:?}", e)),
+    let content = if let Ok(journal_id) = JournalId::from_str(&id) {
+        let journal_state_res = state
+            .journal_service
+            .get_journal(journal_id, &Authority::Direct(Actor::User(user.id)))
+            .await;
+        html! {
+            div class="flex flex-col gap-6" {
+                @match &journal_state_res {
+                    Ok(Some(_journal_state)) => {
+                        div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" {
+                            a
+                            href=(format!("/journal/{}/transaction", &id))
+                            class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                    "Transactions"
                                 }
+                            }
 
-                                " on "
-                                (journal_state.created_at
-                                    .with_timezone(&chrono_tz::America::Chicago)
-                                    .format("%Y-%m-%d %H:%M:%S %Z")
-                                )
+                            a
+                            href=(format!("/journal/{}/account", &id))
+                            class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                    "Accounts"
+                                }
+                            }
+
+                            a
+                            href=(format!("/journal/{}/person", &id))
+                            class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                    "People"
+                                }
+                            }
+
+                            a
+                            href=(format!("/journal/{}/subjournals", &id))
+                            class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                    "Subjournals"
+                                }
+                            }
+                        }
+
+                        div class="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg" {
+                            div class="space-y-2" {
+                                div class="text-sm text-gray-600 dark:text-gray-400" {
+                                    "Created by "
+
+                                    @match state.journal_service.get_creator(journal_id).await {
+                                        Ok(Some(authority)) => {
+                                            @match authority.actor() {
+                                                Actor::System => {"System"},
+                                                Actor::Anonymous => {"Anonymous"},
+                                                Actor::User(creator_id) => {
+                                                     @match state.user_service.user_get_email(*creator_id).await {
+                                                        Ok(Some(email)) => (email),
+
+                                                        Ok(None) => {"unknown user"},
+
+                                                        Err(e) => (format!("failed to fetch creator email: {:?}", e)),
+                                                    }
+                                                }
+                                            }
+                                        },
+
+                                        Ok(None) => {"unknown user"},
+
+                                        Err(e) => (format!("failed to fetch creator id: {:?}", e)),
+                                    }
+
+                                    " on "
+
+                                   @match state.journal_service.get_creation_timestamp(journal_id).await {
+                                        Ok(Some(timestamp)) => (timestamp.with_timezone(&chrono_tz::America::Chicago).format("%Y-%m-%d %H:%M:%S %Z")),
+
+                                        Ok(None) => {"unknown"},
+
+                                        Err(e) => (format!("failed to fetch creation timestamp: {:?}", e)),
+                                    }
+                                }
                             }
                         }
                     }
-                }
 
-                Ok(None) => {
-                    div class="flex justify-center items-center h-full" {
-                        p class="text-gray-500 dark:text-gray-400" {
-                            "Unknown journal"
+                    Ok(None) => {
+                        div class="flex justify-center items-center h-full" {
+                            p class="text-gray-500 dark:text-gray-400" {
+                                "Unknown journal"
+                            }
                         }
                     }
-                }
 
-                Err(e) => {
-                    div class="flex justify-center items-center h-full" {
-                        p class="text-gray-500 dark:text-gray-400" {
-                            (format!("Failed to fetch journal: {:?}", e))
+                    Err(e) => {
+                        div class="flex justify-center items-center h-full" {
+                            p class="text-gray-500 dark:text-gray-400" {
+                                (format!("Failed to fetch journal: {:?}", e))
+                            }
                         }
                     }
-                }
 
+                }
+            }
+        }
+    } else {
+        html! {
+            div class="flex justify-center items-center h-full" {
+                p class="text-gray-500 dark:text-gray-400" {
+                    (format!("Invalid journal id: {:?}", id))
+                }
             }
         }
     };
@@ -211,8 +272,10 @@ pub async fn sub_journal_list_page(
 ) -> Result<Markup, Redirect> {
     let user = user::get_user(session)?;
 
+    let authority = Authority::Direct(Actor::User(user.id));
+
     let journal_state_res = match JournalId::from_str(&id) {
-        Ok(s) => state.journal_service.journal_get(s, user.id).await,
+        Ok(s) => state.journal_service.get_journal(s, &authority).await,
         Err(e) => Err(e.into()),
     };
 
@@ -220,7 +283,7 @@ pub async fn sub_journal_list_page(
         Ok(s) => {
             state
                 .journal_service
-                .journal_get_direct_subjournals(s, user.id)
+                .get_direct_subjournals(s, &authority)
                 .await
         }
         Err(e) => Err(e.into()),

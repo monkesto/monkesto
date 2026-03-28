@@ -21,12 +21,12 @@ use webauthn_rs_proto::AuthenticatorSelectionCriteria;
 use webauthn_rs_proto::ResidentKeyRequirement;
 
 use super::AuthSession;
-use super::passkey::PasskeyEvent;
 use super::passkey::PasskeyId;
+use super::passkey::PasskeyPayload;
 use super::passkey::PasskeyStore;
 use super::user::Email;
-use super::user::UserEvent;
 use super::user::UserId;
+use super::user::UserPayload;
 use super::user::UserStore;
 use crate::authority::Actor;
 use crate::authority::Authority;
@@ -429,7 +429,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 .record(
                     user_id,
                     Authority::Direct(Actor::Anonymous),
-                    UserEvent::Created {
+                    UserPayload::Created {
                         email: email_validated.clone(),
                         webauthn_uuid,
                     },
@@ -444,7 +444,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 .record(
                     passkey_id,
                     Authority::Direct(Actor::User(user_id)),
-                    PasskeyEvent::Created { user_id, passkey },
+                    PasskeyPayload::Created { user_id, passkey },
                 )
                 .await
                 .is_err()

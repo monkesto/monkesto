@@ -2,6 +2,8 @@ use crate::BackendType;
 use crate::StateType;
 use crate::account::AccountState;
 use crate::auth::user;
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::ident::AccountId;
 use crate::ident::Ident;
 use crate::ident::JournalId;
@@ -97,12 +99,12 @@ pub async fn account_list_page(
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
     let user = user::get_user(session)?;
-
+    let authority = Authority::Direct(Actor::User(user.id));
     let journal_id_res = JournalId::from_str(&id);
 
     let content = html! {
         @if let Ok(journal_id) = journal_id_res {
-            @match state.account_service.account_get_all_in_journal(journal_id, user.id).await {
+            @match state.account_service.get_all_accounts_in_journal(journal_id, &authority).await {
                 Ok(accounts) => {
                     (render_account_tree(&accounts, None, 0, &id))
                 }
@@ -148,7 +150,7 @@ pub async fn account_list_page(
                     }
                 }
 
-                @if let Ok(journal_id) = journal_id_res && let Ok(accounts) = state.account_service.account_get_all_in_journal(journal_id, user.id).await {
+                @if let Ok(journal_id) = journal_id_res && let Ok(accounts) = state.account_service.get_all_accounts_in_journal(journal_id, &authority).await {
                     div {
                         label
                         for="parent_account_id"
@@ -195,7 +197,7 @@ pub async fn account_list_page(
         Some(
             &state
                 .journal_service
-                .journal_get_name_from_res(journal_id_res)
+                .get_name_from_res(journal_id_res)
                 .await
                 .or_unknown(),
         ),

@@ -1,6 +1,8 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::auth::user::{self};
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::ident::JournalId;
 use crate::journal::JournalNameOrUnknown;
@@ -25,6 +27,7 @@ pub async fn person_detail_page(
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
     let user = user::get_user(session)?;
+    let authority = Authority::Direct(Actor::User(user.id));
 
     let journal_id_res = JournalId::from_str(&id);
     let target_user_id_res = UserId::from_str(&person_id);
@@ -69,7 +72,10 @@ pub async fn person_detail_page(
         }
     };
 
-    let journal_state_res = state.journal_service.journal_get(journal_id, user.id).await;
+    let journal_state_res = state
+        .journal_service
+        .get_journal(journal_id, &authority)
+        .await;
 
     let journal_state = match journal_state_res {
         Ok(Some(js)) => js,
@@ -108,7 +114,7 @@ pub async fn person_detail_page(
     };
 
     if !journal_state
-        .get_user_permissions(user.id)
+        .get_actor_permissions(&authority)
         .contains(Permissions::READ)
     {
         return Ok(layout(
@@ -127,7 +133,7 @@ pub async fn person_detail_page(
         ));
     }
 
-    let tenant_info = journal_state.tenants.get(&target_user_id);
+    let member_permissions = journal_state.members.get(&target_user_id);
     let is_owner = journal_state.owner == target_user_id;
 
     let target_email = match state.user_service.user_get_email(target_user_id).await {
@@ -145,18 +151,18 @@ pub async fn person_detail_page(
                 }
             }
 
-            @if let Some(info) = tenant_info {
+            @if let Some(permissions) = member_permissions {
                 div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700" {
                     div class="px-4 py-5 sm:p-6" {
                         h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4" { "Permissions" }
 
                         form method="post" action=(format!("/journal/{}/person/{}/update", id, person_id)) class="space-y-4" {
                             div class="space-y-4" {
-                                (permission_checkbox("read", "Read Access", info.tenant_permissions.contains(Permissions::READ)))
-                                (permission_checkbox("addaccount", "Add Accounts", info.tenant_permissions.contains(Permissions::ADDACCOUNT)))
-                                (permission_checkbox("appendtransaction", "Append Transactions", info.tenant_permissions.contains(Permissions::APPENDTRANSACTION)))
-                                (permission_checkbox("invite", "Invite Users", info.tenant_permissions.contains(Permissions::INVITE)))
-                                (permission_checkbox("delete", "Delete Journal", info.tenant_permissions.contains(Permissions::DELETE)))
+                                (permission_checkbox("read", "Read Access", permissions.contains(Permissions::READ)))
+                                (permission_checkbox("addaccount", "Add Accounts", permissions.contains(Permissions::ADDACCOUNT)))
+                                (permission_checkbox("appendtransaction", "Append Transactions", permissions.contains(Permissions::APPENDTRANSACTION)))
+                                (permission_checkbox("invite", "Invite Users", permissions.contains(Permissions::INVITE)))
+                                (permission_checkbox("delete", "Delete Journal", permissions.contains(Permissions::DELETE)))
                             }
 
                             div class="mt-6 flex items-center justify-end gap-x-6" {
@@ -251,7 +257,7 @@ pub async fn people_list_page(
 
     let content = html! {
         @if let Ok(journal_id) = journal_id_res {
-            @match state.journal_service.journal_get_users(journal_id, user.id).await {
+            @match state.journal_service.get_journal_members(journal_id, Authority::Direct(Actor::User(user.id))).await {
                 Ok(users) => {
                     @for user_id in users {
                         a
@@ -344,7 +350,7 @@ pub async fn people_list_page(
         Some(
             &state
                 .journal_service
-                .journal_get_name_from_res(journal_id_res)
+                .get_name_from_res(journal_id_res)
                 .await
                 .or_unknown(),
         ),

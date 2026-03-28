@@ -2,6 +2,8 @@ use crate::BackendType;
 use crate::StateType;
 use crate::account::views::render_account_options;
 use crate::auth::user;
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::ident::JournalId;
 use crate::journal::JournalNameOrUnknown;
 use crate::journal::JournalState;
@@ -42,12 +44,13 @@ pub async fn transaction_list_page(
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
     let user = user::get_user(session)?;
+    let authority = Authority::Direct(Actor::User(user.id));
 
     let journal_id_res = JournalId::from_str(&id);
 
     let content = html! {
         @if let Ok(journal_id) = journal_id_res {
-            @match state.transaction_service.transaction_get_all_in_journal(journal_id, user.id).await {
+            @match state.transaction_service.get_all_transactions_in_journal(journal_id, &authority).await {
                 Ok(transactions) => {
                     @for (transaction_id, transaction_state) in transactions {
                         a
@@ -61,7 +64,7 @@ pub async fn transaction_list_page(
                                         div class="flex justify-between items-center" {
                                             div class="flex items-baseline gap-2" {
                                                 span class="text-base font-medium text-gray-900 dark:text-white" {
-                                                    @match state.account_service.account_get_full_path(entry.account_id).await {
+                                                    @match state.account_service.get_full_account_path(entry.account_id).await {
                                                         Ok(Some(segments)) => {
                                                             @for (i, segment) in segments.iter().enumerate() {
                                                                 @if i > 0 {
@@ -97,7 +100,7 @@ pub async fn transaction_list_page(
                                     }
 
                                     div class="text-xs text-gray-400 dark:text-gray-500" {
-                                        @match state.user_service.user_get_email(transaction_state.author).await {
+                                        @match state.user_service.user_get_email(user.id).await {
                                             Ok(Some(email)) => (email),
                                             Ok(None) => "Unknown User",
                                             Err(e) => (format! ("Failed to get user: {}", e)),
@@ -127,9 +130,9 @@ pub async fn transaction_list_page(
                 }
             }
 
-            @if let Ok(journal_id) = journal_id_res && let Ok(accounts) = state.account_service.account_get_all_in_journal(journal_id, user.id).await {
-                @let journal_name = state.journal_service.journal_get_name_from_res(journal_id_res.clone()).await.or_unknown();
-                @let subjournals = state.journal_service.journal_get_subjournals(journal_id, user.id).await.unwrap_or_default();
+            @if let Ok(journal_id) = journal_id_res && let Ok(accounts) = state.account_service.get_all_accounts_in_journal(journal_id, &authority).await {
+                @let journal_name = state.journal_service.get_name_from_res(journal_id_res.clone()).await.or_unknown();
+                @let subjournals = state.journal_service.get_subjournals(journal_id, &authority).await.unwrap_or_default();
                 @let has_subjournals = !subjournals.is_empty();
                 form method="post" action=(format!("/journal/{}/transaction", id)) class="space-y-6" {
                     @for i in 0..4 {
@@ -246,7 +249,7 @@ pub async fn transaction_list_page(
         Some(
             &state
                 .journal_service
-                .journal_get_name_from_res(journal_id_res)
+                .get_name_from_res(journal_id_res)
                 .await
                 .or_unknown(),
         ),

@@ -6,7 +6,6 @@ mod event;
 mod grant;
 mod ident;
 mod journal;
-mod known_errors;
 mod monkesto_error;
 pub mod name;
 mod notfoundpage;
