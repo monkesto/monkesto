@@ -106,7 +106,7 @@ pub trait JournalStore:
     + Send
     + Sync
     + 'static
-    + EventStore<Id = JournalId, EventId = usize, Event = JournalEvent, Error = JournalStoreError>
+    + EventStore<Id = JournalId, EventId = usize, Payload = JournalEvent, Error = JournalStoreError>
 {
     /// returns the cached state of the journal
     async fn get_journal(&self, journal_id: JournalId) -> JournalStoreResult<Option<JournalState>>;
@@ -184,7 +184,7 @@ impl JournalMemoryStore {
 impl EventStore for JournalMemoryStore {
     type Id = JournalId;
     type EventId = usize;
-    type Event = JournalEvent;
+    type Payload = JournalEvent;
     type Error = JournalStoreError;
 
     async fn record(

@@ -226,7 +226,7 @@ pub trait UserStore:
     Clone
     + Sync
     + Send
-    + EventStore<Id = UserId, Event = UserEvent, Error = UserStoreError>
+    + EventStore<Id = UserId, Payload = UserEvent, Error = UserStoreError>
     + AuthnBackend
 {
     async fn email_exists(&self, email: &str) -> Result<bool, <Self as EventStore>::Error>;
@@ -338,7 +338,7 @@ impl Default for MemoryUserStore {
 
 impl EventStore for MemoryUserStore {
     type Id = UserId;
-    type Event = UserEvent;
+    type Payload = UserEvent;
     type EventId = usize;
     type Error = UserStoreError;
 

@@ -112,7 +112,7 @@ pub trait TransactionStore:
     + Send
     + Sync
     + 'static
-    + EventStore<Id = TransactionId, Event = TransactionEvent, Error = TransactionStoreError>
+    + EventStore<Id = TransactionId, Payload = TransactionEvent, Error = TransactionStoreError>
 {
     async fn get_journal_transactions(
         &self,
@@ -149,14 +149,14 @@ impl EventStore for TransactionMemoryStore {
     type Id = TransactionId;
     type EventId = usize;
 
-    type Event = TransactionEvent;
+    type Payload = TransactionEvent;
     type Error = TransactionStoreError;
 
     async fn record(
         &self,
         id: Self::Id,
         _by: Authority,
-        event: Self::Event,
+        event: Self::Payload,
     ) -> Result<Self::EventId, Self::Error> {
         let arc_event = Arc::new(event.clone());
         let event_id = {

@@ -133,7 +133,7 @@ pub trait AccountStore:
     + Send
     + Sync
     + 'static
-    + EventStore<Id = AccountId, Event = AccountEvent, Error = AccountStoreError>
+    + EventStore<Id = AccountId, Payload = AccountEvent, Error = AccountStoreError>
 {
     async fn get_journal_accounts(
         &self,
@@ -174,7 +174,7 @@ impl EventStore for AccountMemoryStore {
     type Id = AccountId;
     type EventId = usize;
 
-    type Event = AccountEvent;
+    type Payload = AccountEvent;
     type Error = AccountStoreError;
 
     async fn record(

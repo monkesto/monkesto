@@ -342,7 +342,7 @@ pub enum PasskeyStoreError {
     InvalidPasskey(PasskeyId),
 }
 
-pub trait PasskeyStore: EventStore<Id = PasskeyId, Event = PasskeyEvent> {
+pub trait PasskeyStore: EventStore<Id = PasskeyId, Payload = PasskeyEvent> {
     async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, Self::Error>;
 
     async fn get_all_credentials(&self) -> Result<Vec<webauthn_rs::prelude::Passkey>, Self::Error>;
@@ -392,7 +392,7 @@ impl Default for MemoryPasskeyStore {
 
 impl EventStore for MemoryPasskeyStore {
     type Id = PasskeyId;
-    type Event = PasskeyEvent;
+    type Payload = PasskeyEvent;
     type EventId = usize;
     type Error = PasskeyStoreError;
 

@@ -17,7 +17,7 @@ pub enum GrantEvent {
 }
 
 pub trait GrantStore:
-    Clone + Sync + Send + EventStore<Id = GrantId, Event = GrantEvent, Error = ()>
+    Clone + Sync + Send + EventStore<Id = GrantId, Payload = GrantEvent, Error = ()>
 {
 }
 
