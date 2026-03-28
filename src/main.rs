@@ -1,7 +1,9 @@
 mod account;
 mod auth;
 mod authority;
+mod entitlement;
 mod event;
+mod grant;
 mod ident;
 mod journal;
 mod monkesto_error;
