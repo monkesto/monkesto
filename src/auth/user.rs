@@ -122,7 +122,7 @@ mod tests {
         user_store
             .record(
                 user_id,
-                Authority::Direct(Actor::User(user_id)),
+                Authority::Direct(Actor::System),
                 UserPayload::Created {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid,

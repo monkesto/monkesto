@@ -428,7 +428,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             if user_store
                 .record(
                     user_id,
-                    Authority::Direct(Actor::User(user_id)),
+                    Authority::Direct(Actor::Anonymous),
                     UserPayload::Created {
                         email: email_validated.clone(),
                         webauthn_uuid,
