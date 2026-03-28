@@ -122,7 +122,7 @@ mod tests {
         user_store
             .record(
                 user_id,
-                Authority::Direct(Actor::Anonymous),
+                Authority::Direct(Actor::User(user_id)),
                 UserPayload::Created {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid,
@@ -168,7 +168,7 @@ mod tests {
         user_store
             .record(
                 user_id_1,
-                Authority::Direct(Actor::Anonymous),
+                Authority::Direct(Actor::System),
                 UserPayload::Created {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid: webauthn_uuid_1,
@@ -181,7 +181,7 @@ mod tests {
         let result = user_store
             .record(
                 user_id_2,
-                Authority::Direct(Actor::Anonymous),
+                Authority::Direct(Actor::System),
                 UserPayload::Created {
                     email: Email::try_new(&email).expect("test email should be valid"),
                     webauthn_uuid: webauthn_uuid_2,

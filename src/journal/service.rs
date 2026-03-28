@@ -1,6 +1,5 @@
 use crate::auth::user::Email;
 use crate::auth::user::UserStore;
-use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::ident::JournalId;
@@ -354,7 +353,7 @@ where
         self.journal_store
             .record(
                 journal_id,
-                Authority::Direct(Actor::Anonymous),
+                authority.clone(),
                 JounalPayload::AddedTenant {
                     id: invitee_id,
                     permissions,
