@@ -1,4 +1,6 @@
 use crate::authority::Authority;
+use chrono::DateTime;
+use chrono::Utc;
 use std::error::Error;
 
 pub trait EventStore: Send + Sync {
@@ -53,4 +55,14 @@ pub trait ViewModel {
     async fn subscribe_events(&self, receiver: Self::Receiver) -> Result<(), Self::Error>;
 
     // TODO: setup a function to wait for a specific event to be received and a manual insert function
+}
+
+#[expect(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Event<P: Clone + Sized, I: Copy + Clone + Sized> {
+    pub event_id: u64,
+    pub timestamp: DateTime<Utc>,
+    pub authority: Authority,
+    pub payload: P,
+    pub id: I,
 }
