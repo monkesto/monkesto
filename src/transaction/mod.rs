@@ -146,6 +146,7 @@ impl TransactionMemoryStore {
 
 impl EventStore for TransactionMemoryStore {
     type Id = TransactionId;
+    type EventId = u64;
     type Payload = TransactionPayload;
     type Error = TransactionStoreError;
 

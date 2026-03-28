@@ -23,8 +23,8 @@ use chrono::Utc;
 #[derive(Clone)]
 pub struct JournalService<J, U>
 where
-    J: JournalStore,
-    U: UserStore,
+    J: JournalStore<EventId = u64>,
+    U: UserStore<EventId = u64>,
 {
     journal_store: J,
     user_store: U,
@@ -32,8 +32,8 @@ where
 
 impl<J, U> JournalService<J, U>
 where
-    J: JournalStore,
-    U: UserStore,
+    J: JournalStore<EventId = u64>,
+    U: UserStore<EventId = u64>,
 {
     pub fn new(journal_store: J, user_store: U) -> Self {
         Self {
@@ -433,7 +433,7 @@ where
         self.journal_store
             .record(
                 journal_id,
-                Authority::Direct(Actor::Anonymous),
+                authority,
                 JounalPayload::RemovedTenant { id: target_user },
             )
             .await

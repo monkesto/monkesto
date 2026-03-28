@@ -18,9 +18,9 @@ use crate::name::Name;
 #[derive(Clone)]
 pub struct AccountService<A, J, U>
 where
-    A: AccountStore,
-    J: JournalStore,
-    U: UserStore,
+    A: AccountStore<EventId = u64>,
+    J: JournalStore<EventId = u64>,
+    U: UserStore<EventId = u64>,
 {
     account_store: A,
     journal_service: JournalService<J, U>,
@@ -28,9 +28,9 @@ where
 
 impl<A, J, U> AccountService<A, J, U>
 where
-    A: AccountStore,
-    J: JournalStore,
-    U: UserStore,
+    A: AccountStore<EventId = u64>,
+    J: JournalStore<EventId = u64>,
+    U: UserStore<EventId = u64>,
 {
     pub fn new(account_store: A, journal_service: JournalService<J, U>) -> Self {
         Self {

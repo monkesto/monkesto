@@ -20,10 +20,10 @@ use crate::transaction::TransactionStoreResult;
 #[derive(Clone)]
 pub struct TransactionService<T, A, J, U>
 where
-    T: TransactionStore,
-    A: AccountStore,
-    J: JournalStore,
-    U: UserStore,
+    T: TransactionStore<EventId = u64>,
+    A: AccountStore<EventId = u64>,
+    J: JournalStore<EventId = u64>,
+    U: UserStore<EventId = u64>,
 {
     transaction_store: T,
     account_service: AccountService<A, J, U>,
@@ -32,10 +32,10 @@ where
 
 impl<T, A, J, U> TransactionService<T, A, J, U>
 where
-    T: TransactionStore,
-    A: AccountStore,
-    J: JournalStore,
-    U: UserStore,
+    T: TransactionStore<EventId = u64>,
+    A: AccountStore<EventId = u64>,
+    J: JournalStore<EventId = u64>,
+    U: UserStore<EventId = u64>,
 {
     pub fn new(
         transaction_store: T,

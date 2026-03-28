@@ -162,6 +162,7 @@ impl AccountMemoryStore {
 
 impl EventStore for AccountMemoryStore {
     type Id = AccountId;
+    type EventId = u64;
     type Payload = AccountPayload;
     type Error = AccountStoreError;
 

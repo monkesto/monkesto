@@ -7,6 +7,7 @@ use std::error::Error;
 
 pub trait EventStore: Send + Sync {
     type Id: Send + Sync + Clone + Copy;
+    type EventId: Send + Sync + Clone + Copy;
     type Payload: Send + Sync + Clone;
     type Error: Error;
 
@@ -24,7 +25,7 @@ pub trait EventStore: Send + Sync {
         id: Self::Id,
         by: Authority,
         payload: Self::Payload,
-    ) -> Result<u64, Self::Error>;
+    ) -> Result<Self::EventId, Self::Error>;
 
     /// Get all events after the specified event number
     ///
@@ -37,8 +38,8 @@ pub trait EventStore: Send + Sync {
     async fn get_events(
         &self,
         id: Self::Id,
-        after: u64,
-        limit: u64,
+        after: Self::EventId,
+        limit: Self::EventId,
     ) -> Result<Vec<Event<Self::Payload, Self::Id>>, Self::Error>;
 }
 

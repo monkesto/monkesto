@@ -340,6 +340,7 @@ impl Default for MemoryUserStore {
 
 impl EventStore for MemoryUserStore {
     type Id = UserId;
+    type EventId = u64;
     type Payload = UserPayload;
     type Error = UserStoreError;
 

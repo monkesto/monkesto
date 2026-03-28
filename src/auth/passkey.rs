@@ -396,6 +396,7 @@ impl Default for MemoryPasskeyStore {
 
 impl EventStore for MemoryPasskeyStore {
     type Id = PasskeyId;
+    type EventId = u64;
     type Payload = PasskeyPayload;
     type Error = PasskeyStoreError;
 

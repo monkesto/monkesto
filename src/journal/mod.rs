@@ -197,6 +197,7 @@ impl JournalMemoryStore {
 
 impl EventStore for JournalMemoryStore {
     type Id = JournalId;
+    type EventId = u64;
     type Payload = JounalPayload;
     type Error = JournalStoreError;
 
