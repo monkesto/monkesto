@@ -1,7 +1,7 @@
 pub use crate::auth::user::UserId;
+pub use crate::grant::GrantId;
 use serde::Deserialize;
 use serde::Serialize;
-pub use crate::grant::GrantId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Actor {
@@ -13,12 +13,20 @@ pub enum Actor {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Authority {
     Direct(Actor),
-    #[expect(dead_code)]
     Delegated {
         grantor: Actor,
         grant: GrantId,
         grantee: Actor,
     },
+}
+
+impl Authority {
+    pub fn actor(&self) -> &Actor {
+        match self {
+            Authority::Direct(actor) => actor,
+            Authority::Delegated { grantee, .. } => grantee,
+        }
+    }
 }
 
 #[cfg(test)]

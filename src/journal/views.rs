@@ -49,12 +49,12 @@ pub async fn journal_list(
                                 "Created by "
 
                                 @match state.journal_service.get_creator(journal_id).await {
-                                    Ok(Some(creator)) => {
-                                        @match creator {
-                                            Authority::Direct(Actor::System) => {"System"},
-                                            Authority::Direct(Actor::Anonymous) => {"Anonymous"},
-                                            Authority::Direct(Actor::User(creator_id)) => {
-                                                 @match state.user_service.user_get_email(creator_id).await {
+                                    Ok(Some(authority)) => {
+                                        @match authority.actor() {
+                                            Actor::System => {"System"},
+                                            Actor::Anonymous => {"Anonymous"},
+                                            Actor::User(creator_id) => {
+                                                 @match state.user_service.user_get_email(*creator_id).await {
                                                     Ok(Some(email)) => (email),
 
                                                     Ok(None) => {"unknown user"},
@@ -192,13 +192,13 @@ pub async fn journal_detail(
                                 div class="text-sm text-gray-600 dark:text-gray-400" {
                                     "Created by "
 
-                                     @match state.journal_service.get_creator(journal_id).await {
-                                        Ok(Some(creator)) => {
-                                            @match creator {
-                                                Authority::Direct(Actor::System) => {"System"},
-                                                Authority::Direct(Actor::Anonymous) => {"Anonymous"},
-                                                Authority::Direct(Actor::User(creator_id)) => {
-                                                     @match state.user_service.user_get_email(creator_id).await {
+                                    @match state.journal_service.get_creator(journal_id).await {
+                                        Ok(Some(authority)) => {
+                                            @match authority.actor() {
+                                                Actor::System => {"System"},
+                                                Actor::Anonymous => {"Anonymous"},
+                                                Actor::User(creator_id) => {
+                                                     @match state.user_service.user_get_email(*creator_id).await {
                                                         Ok(Some(email)) => (email),
 
                                                         Ok(None) => {"unknown user"},

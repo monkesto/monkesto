@@ -143,6 +143,8 @@ pub trait JournalStore:
                     Actor::System => Ok(Some(Permissions::all())),
                     Actor::Anonymous => Ok(None),
                 },
+                // TODO: handle delegated permissions
+                _ => Ok(Some(Permissions::empty())),
             };
         }
         Ok(None)
@@ -511,6 +513,8 @@ impl JournalState {
                 Actor::System => Permissions::all(),
                 Actor::Anonymous => Permissions::empty(),
             },
+            // TODO: handle delegated permissions
+            _ => Permissions::empty(),
         }
     }
 }
@@ -608,7 +612,7 @@ mod tests {
                 VALUES ($1)
                 "#,
         )
-        .bind(&test_permissions)
+        .bind(test_permissions)
         .execute(&pool)
         .await
         .expect("failed to insert permissions into mock table");
