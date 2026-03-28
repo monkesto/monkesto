@@ -2,6 +2,8 @@ use crate::AppState;
 use crate::auth::user::Email;
 use crate::auth::user::UserStore;
 use crate::auth::user::UserStoreError;
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
@@ -21,6 +23,9 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
     let pacioli_id = UserId::from_str("zk8m3p5q7r2n4v6x")?;
     let wedgwood_id = UserId::from_str("yj7l2o4p6q8s0u1w")?;
 
+    let pacioli_authority = Authority::Direct(Actor::User(pacioli_id));
+    let wedgwood_authority = Authority::Direct(Actor::User(wedgwood_id));
+
     let wedgwood_email = Email::try_new(
         service
             .user_service
@@ -39,7 +44,7 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
 
     if service
         .journal_service
-        .get_journal(maple_ridge_academy_id, pacioli_id)
+        .get_journal(maple_ridge_academy_id, &pacioli_authority)
         .await?
         .is_none()
     {
@@ -50,13 +55,14 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
                 Name::try_new("Maple Ridge Academy".to_string())
                     .expect("Failed to create a name from \"Maple Ridge Academy\""),
                 pacioli_id,
+                &pacioli_authority,
             )
             .await?;
     }
 
     if service
         .journal_service
-        .get_journal(smith_and_sons_id, pacioli_id)
+        .get_journal(smith_and_sons_id, &pacioli_authority)
         .await?
         .is_none()
     {
@@ -67,13 +73,14 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
                 Name::try_new("Smith & Sons Bakery".to_string())
                     .expect("Failed to create a name from \"Smith & Sons Bakery\""),
                 pacioli_id,
+                &pacioli_authority,
             )
             .await?;
     }
 
     if service
         .journal_service
-        .get_journal(green_valley_id, pacioli_id)
+        .get_journal(green_valley_id, &pacioli_authority)
         .await?
         .is_none()
     {
@@ -84,6 +91,7 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
                 Name::try_new("Green Valley Farm Co.".to_string())
                     .expect("Failed to create a name from \"Green Valley Farm Co.\""),
                 pacioli_id,
+                &pacioli_authority,
             )
             .await?;
     }
@@ -91,7 +99,7 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
     // journal_get returns none if the actor isn't a tenant
     if service
         .journal_service
-        .get_journal(maple_ridge_academy_id, wedgwood_id)
+        .get_journal(maple_ridge_academy_id, &wedgwood_authority)
         .await?
         .is_none()
     {
@@ -99,7 +107,7 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
             .journal_service
             .journal_invite_member(
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 wedgwood_email,
                 Permissions::READ | Permissions::APPENDTRANSACTION,
             )
@@ -110,17 +118,17 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
     // if this is proven to be false, iter().any() is available.
     if service
         .account_service
-        .account_get_all_in_journal(maple_ridge_academy_id, pacioli_id)
+        .get_all_accounts_in_journal(maple_ridge_academy_id, &pacioli_authority)
         .await?
         .is_empty()
     {
         // Level 1: root accounts
         service
             .account_service
-            .account_create(
+            .create_account(
                 assets_id,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Assets".to_string())
                     .expect("Failed to create a name from \"Assets\""),
                 None,
@@ -128,10 +136,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
             .await?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 AccountId::from_str("ac2liabili")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Liabilities".to_string())
                     .expect("Failed to create a name from \"Liabilities\""),
                 None,
@@ -139,10 +147,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
             .await?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 AccountId::from_str("ac3equity0")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Equity".to_string())
                     .expect("Failed to create a name from \"Equity\""),
                 None,
@@ -150,10 +158,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
             .await?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 revenue_id,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Revenue".to_string())
                     .expect("Failed to create a name from \"Revenue\""),
                 None,
@@ -161,10 +169,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
             .await?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 expenses_id,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Expenses".to_string())
                     .expect("Failed to create a name from \"Expenses\""),
                 None,
@@ -175,10 +183,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
         let current_assets_id = AccountId::from_str("ac1current")?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 current_assets_id,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Current Assets".to_string())
                     .expect("Failed to create a name from \"Current Assets\""),
                 Some(assets_id),
@@ -186,10 +194,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
             .await?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 AccountId::from_str("ac1fixedat")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Fixed Assets".to_string())
                     .expect("Failed to create a name from \"Fixed Assets\""),
                 Some(assets_id),
@@ -200,10 +208,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
         let operating_exp_id = AccountId::from_str("ac5opexpen")?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 operating_exp_id,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Operating Expenses".to_string())
                     .expect("Failed to create a name from \"Operating Expenses\""),
                 Some(expenses_id),
@@ -211,10 +219,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
             .await?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 AccountId::from_str("ac5capexp0")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Capital Expenses".to_string())
                     .expect("Failed to create a name from \"Capital Expenses\""),
                 Some(expenses_id),
@@ -225,20 +233,20 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
         let cash_id = AccountId::from_str("ac1cash000")?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 cash_id,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Cash".to_string()).expect("Failed to create a name from \"Cash\""),
                 Some(current_assets_id),
             )
             .await?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 AccountId::from_str("ac1recvabl")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Accounts Receivable".to_string())
                     .expect("Failed to create a name from \"Accounts Receivable\""),
                 Some(current_assets_id),
@@ -249,10 +257,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
         let staffing_id = AccountId::from_str("ac5staffng")?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 staffing_id,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Staffing".to_string())
                     .expect("Failed to create a name from \"Staffing\""),
                 Some(operating_exp_id),
@@ -260,10 +268,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
             .await?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 AccountId::from_str("ac5suppls0")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Supplies".to_string())
                     .expect("Failed to create a name from \"Supplies\""),
                 Some(operating_exp_id),
@@ -273,10 +281,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
         // Level 4: children of Cash
         service
             .account_service
-            .account_create(
+            .create_account(
                 AccountId::from_str("ac1chkng00")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Checking".to_string())
                     .expect("Failed to create a name from \"Checking\""),
                 Some(cash_id),
@@ -284,10 +292,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
             .await?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 AccountId::from_str("ac1savngs0")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Savings".to_string())
                     .expect("Failed to create a name from \"Savings\""),
                 Some(cash_id),
@@ -297,10 +305,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
         // Level 4: children of Staffing
         service
             .account_service
-            .account_create(
+            .create_account(
                 AccountId::from_str("ac5salrys0")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Salaries".to_string())
                     .expect("Failed to create a name from \"Salaries\""),
                 Some(staffing_id),
@@ -308,10 +316,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
             .await?;
         service
             .account_service
-            .account_create(
+            .create_account(
                 AccountId::from_str("ac5bnfts00")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 Name::try_new("Benefits".to_string())
                     .expect("Failed to create a name from \"Benefits\""),
                 Some(staffing_id),
@@ -327,7 +335,7 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
     // again, the presence of any transactions should show that they were already seeded
     if service
         .transaction_service
-        .transaction_get_all_in_journal(maple_ridge_academy_id, pacioli_id)
+        .get_all_transactions_in_journal(maple_ridge_academy_id, &pacioli_authority)
         .await?
         .is_empty()
     {
@@ -335,10 +343,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
         // Assets › Current Assets › Cash › Checking  /  Revenue
         service
             .transaction_service
-            .transaction_create(
+            .create_transaction(
                 TransactionId::from_str("t1tuition0000001")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 vec![
                     BalanceUpdate {
                         journal_id: maple_ridge_academy_id,
@@ -360,10 +368,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
         // Expenses › Operating Expenses › Staffing › Salaries  /  Assets › Current Assets › Cash › Checking
         service
             .transaction_service
-            .transaction_create(
+            .create_transaction(
                 TransactionId::from_str("t2salary00000002")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 vec![
                     BalanceUpdate {
                         journal_id: maple_ridge_academy_id,
@@ -385,10 +393,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
         // Expenses › Operating Expenses › Supplies  /  Assets › Current Assets › Cash › Checking
         service
             .transaction_service
-            .transaction_create(
+            .create_transaction(
                 TransactionId::from_str("t3textbooks00003")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 vec![
                     BalanceUpdate {
                         journal_id: maple_ridge_academy_id,
@@ -410,10 +418,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
         // Assets › Current Assets › Cash › Checking  /  Revenue
         service
             .transaction_service
-            .transaction_create(
+            .create_transaction(
                 TransactionId::from_str("t4tuition0000004")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 vec![
                     BalanceUpdate {
                         journal_id: maple_ridge_academy_id,
@@ -435,10 +443,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
         // Assets › Current Assets › Cash › Savings  /  Assets › Current Assets › Cash › Checking
         service
             .transaction_service
-            .transaction_create(
+            .create_transaction(
                 TransactionId::from_str("t5supplies000005")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 vec![
                     BalanceUpdate {
                         journal_id: maple_ridge_academy_id,
@@ -461,10 +469,10 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
         let benefits_id = AccountId::from_str("ac5bnfts00")?;
         service
             .transaction_service
-            .transaction_create(
+            .create_transaction(
                 TransactionId::from_str("t6chkdeposit0006")?,
                 maple_ridge_academy_id,
-                pacioli_id,
+                &pacioli_authority,
                 vec![
                     BalanceUpdate {
                         journal_id: maple_ridge_academy_id,

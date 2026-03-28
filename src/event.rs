@@ -1,6 +1,4 @@
 use crate::authority::Authority;
-use crate::ident::JournalId;
-use crate::journal::JounalPayload;
 use chrono::DateTime;
 use chrono::Utc;
 use serde::Deserialize;

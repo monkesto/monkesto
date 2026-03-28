@@ -1,16 +1,14 @@
 use crate::account::AccountService;
 use crate::account::AccountStore;
 use crate::auth::user::UserStore;
-use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::authority::UserId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
 use crate::journal::JournalService;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::transaction::BalanceUpdate;
-use crate::transaction::TransactionEvent;
+use crate::transaction::TransactionPayload;
 use crate::transaction::TransactionState;
 use crate::transaction::TransactionStore;
 use crate::transaction::TransactionStoreError::InvalidAccount;
@@ -18,7 +16,6 @@ use crate::transaction::TransactionStoreError::InvalidJournal;
 use crate::transaction::TransactionStoreError::InvalidTransaction;
 use crate::transaction::TransactionStoreError::PermissionError;
 use crate::transaction::TransactionStoreResult;
-use chrono::Utc;
 
 #[derive(Clone)]
 pub struct TransactionService<T, A, J, U>
@@ -52,17 +49,17 @@ where
         }
     }
 
-    pub async fn transaction_create(
+    pub async fn create_transaction(
         &self,
         transaction_id: TransactionId,
         journal_id: JournalId,
-        creator_id: UserId,
+        authority: &Authority,
         updates: Vec<BalanceUpdate>,
     ) -> TransactionStoreResult<()> {
         // Check permission on the top-level journal (inherited by subjournals)
         let journal = self
             .journal_service
-            .get_journal(journal_id, creator_id)
+            .get_journal(journal_id, authority)
             .await?
             .ok_or(InvalidJournal(journal_id))?;
 
@@ -72,7 +69,7 @@ where
 
         let perms = self
             .journal_service
-            .effective_permissions(journal_id, creator_id)
+            .effective_permissions(journal_id, authority)
             .await?;
 
         if !perms.contains(Permissions::APPENDTRANSACTION) {
@@ -105,38 +102,38 @@ where
             }
         }
 
-        let event = TransactionEvent::CreatedTransaction {
-            id: transaction_id,
+        let payload = TransactionPayload::CreatedTransaction {
             journal_id,
-            author: creator_id,
             updates,
-            created_at: Utc::now(),
         };
 
         // update the balances first: this will check if the accounts actually exist
         self.account_service
             .store()
-            .update_balances(&event, None)
+            .update_balances(transaction_id, &payload, None)
             .await?;
 
         self.transaction_store
-            .record(transaction_id, Authority::Direct(Actor::Anonymous), event)
+            .record(transaction_id, authority.clone(), payload)
             .await?;
 
         Ok(())
     }
 
-    pub async fn transaction_get_all_in_journal(
+    pub async fn get_all_transactions_in_journal(
         &self,
         journal_id: JournalId,
-        actor: UserId,
+        authority: &Authority,
     ) -> TransactionStoreResult<Vec<(TransactionId, TransactionState)>> {
-        let journal_state = self.journal_service.get_journal(journal_id, actor).await?;
+        let journal_state = self
+            .journal_service
+            .get_journal(journal_id, authority)
+            .await?;
 
-        if !journal_state
-            .as_ref()
-            .is_some_and(|s| s.get_actor_permissions(actor).contains(Permissions::READ))
-        {
+        if !journal_state.as_ref().is_some_and(|s| {
+            s.get_actor_permissions(authority)
+                .contains(Permissions::READ)
+        }) {
             return Err(PermissionError(Permissions::READ));
         }
 

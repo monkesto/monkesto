@@ -152,7 +152,7 @@ pub async fn journal_detail(
         html! {
             div class="flex flex-col gap-6" {
                 @match &journal_state_res {
-                    Ok(Some(journal_state)) => {
+                    Ok(Some(_journal_state)) => {
                         div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" {
                             a
                             href=(format!("/journal/{}/transaction", &id))

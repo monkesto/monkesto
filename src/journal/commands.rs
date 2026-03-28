@@ -39,7 +39,7 @@ pub async fn create_journal(
             JournalId::new(),
             name,
             user.id,
-            Authority::Direct(Actor::User(user.id)),
+            &Authority::Direct(Actor::User(user.id)),
         )
         .await
         .or_redirect(CALLBACK_URL)?;
@@ -92,7 +92,7 @@ pub async fn invite_member(
         .journal_service
         .journal_invite_member(
             journal_id,
-            Authority::Direct(Actor::User(user.id)),
+            &Authority::Direct(Actor::User(user.id)),
             email,
             invitee_permissions,
         )

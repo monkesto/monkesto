@@ -104,7 +104,7 @@ pub async fn account_list_page(
 
     let content = html! {
         @if let Ok(journal_id) = journal_id_res {
-            @match state.account_service.account_get_all_in_journal(journal_id, &authority).await {
+            @match state.account_service.get_all_accounts_in_journal(journal_id, &authority).await {
                 Ok(accounts) => {
                     (render_account_tree(&accounts, None, 0, &id))
                 }
@@ -150,7 +150,7 @@ pub async fn account_list_page(
                     }
                 }
 
-                @if let Ok(journal_id) = journal_id_res && let Ok(accounts) = state.account_service.account_get_all_in_journal(journal_id, &authority).await {
+                @if let Ok(journal_id) = journal_id_res && let Ok(accounts) = state.account_service.get_all_accounts_in_journal(journal_id, &authority).await {
                     div {
                         label
                         for="parent_account_id"

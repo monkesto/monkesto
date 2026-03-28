@@ -7,7 +7,6 @@ use crate::account::AccountStoreError::InvalidJournal;
 use crate::account::AccountStoreError::PermissionError;
 use crate::account::AccountStoreResult;
 use crate::auth::user::UserStore;
-use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
@@ -40,7 +39,7 @@ where
         }
     }
 
-    pub async fn account_create(
+    pub async fn create_account(
         &self,
         account_id: AccountId,
         journal_id: JournalId,
@@ -84,7 +83,7 @@ where
         Ok(())
     }
 
-    pub async fn account_get_all_in_journal(
+    pub async fn get_all_accounts_in_journal(
         &self,
         journal_id: JournalId,
         authority: &Authority,
@@ -118,7 +117,7 @@ where
         Ok(accounts)
     }
 
-    pub async fn account_get_full_path(
+    pub async fn get_full_account_path(
         &self,
         account_id: AccountId,
     ) -> AccountStoreResult<Option<Vec<Name>>> {

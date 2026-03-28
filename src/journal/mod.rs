@@ -92,11 +92,16 @@ use chrono::Utc;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::Database;
 use sqlx::Decode;
 use sqlx::Encode;
 use sqlx::Type;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
 use sqlx::postgres::PgValueRef;
 use std::collections::HashMap;
+use std::fmt::Display;
+use std::fmt::Formatter;
 use std::ops::Deref;
 use std::sync::Arc;
 use thiserror::Error;
@@ -164,6 +169,7 @@ pub trait JournalStore:
 }
 
 #[derive(Clone)]
+#[allow(clippy::type_complexity)]
 pub struct JournalMemoryStore {
     global_events: Arc<RwLock<Vec<Arc<Event<JounalPayload, JournalId>>>>>,
     local_events: Arc<DashMap<JournalId, Vec<Arc<Event<JounalPayload, JournalId>>>>>,
@@ -309,19 +315,19 @@ impl JournalStore for JournalMemoryStore {
         Ok(self
             .local_events
             .get(&journal_id)
-            .and_then(|j| j.get(0).map(|e| e.timestamp)))
+            .and_then(|j| j.first().map(|e| e.timestamp)))
     }
 
     async fn get_creator(&self, journal_id: JournalId) -> JournalStoreResult<Option<Authority>> {
         Ok(self
             .local_events
             .get(&journal_id)
-            .and_then(|j| j.get(0).map(|e| e.authority.clone())))
+            .and_then(|j| j.first().map(|e| e.authority.clone())))
     }
 }
 
 bitflags! {
-    #[derive(Serialize, Deserialize, Hash, Default, Debug, Clone, Copy, PartialEq, Eq)]
+    #[derive(Hash, Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
     pub struct Permissions: i16 {
         const READ = 1 << 0;
         const ADDACCOUNT = 1 << 1;
@@ -329,6 +335,41 @@ bitflags! {
         const INVITE = 1 << 3;
         const DELETE = 1 << 4;
         const OWNER = 1 << 5;
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Error)]
+struct PermissionDecodeError(i16);
+
+impl Display for PermissionDecodeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "an unknown bit was set in the permission value: {}",
+            self.0
+        )
+    }
+}
+
+impl Type<sqlx::Postgres> for Permissions {
+    fn type_info() -> <sqlx::Postgres as Database>::TypeInfo {
+        <i16 as Type<sqlx::Postgres>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, sqlx::Postgres> for Permissions {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <sqlx::Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        <i16 as Encode<sqlx::Postgres>>::encode(self.bits(), buf)
+    }
+}
+
+impl<'r> Decode<'r, sqlx::Postgres> for Permissions {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, BoxDynError> {
+        let bits = <i16 as Decode<sqlx::Postgres>>::decode(value)?;
+        Self::from_bits(bits).ok_or(BoxDynError::from(PermissionDecodeError(bits)))
     }
 }
 
@@ -360,7 +401,7 @@ pub enum JounalPayload {
 }
 
 impl Type<sqlx::Postgres> for JounalPayload {
-    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
+    fn type_info() -> <sqlx::Postgres as Database>::TypeInfo {
         <&[u8] as Type<sqlx::Postgres>>::type_info()
     }
 }
@@ -368,15 +409,15 @@ impl Type<sqlx::Postgres> for JounalPayload {
 impl<'q> Encode<'q, sqlx::Postgres> for JounalPayload {
     fn encode_by_ref(
         &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'q>,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
+        buf: &mut <sqlx::Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
         let bytes: Vec<u8> = postcard::to_allocvec(self)?;
         <&[u8] as Encode<sqlx::Postgres>>::encode(&bytes, buf)
     }
 }
 
 impl<'r> Decode<'r, sqlx::Postgres> for JounalPayload {
-    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+    fn decode(value: PgValueRef<'r>) -> Result<Self, BoxDynError> {
         let bytes = <&[u8] as Decode<sqlx::Postgres>>::decode(value)?;
         Ok(postcard::from_bytes::<JounalPayload>(bytes)?)
     }
@@ -461,7 +502,7 @@ impl JournalState {
                 Actor::User(id) => {
                     if self.owner == *id {
                         Permissions::all()
-                    } else if let Some(member_permissions) = self.members.get(&id) {
+                    } else if let Some(member_permissions) = self.members.get(id) {
                         *member_permissions
                     } else {
                         Permissions::empty()
@@ -475,8 +516,9 @@ impl JournalState {
 }
 
 #[cfg(test)]
-mod test_user {
+mod tests {
     use super::JounalPayload;
+    use super::Permissions;
     use crate::authority::UserId;
     use crate::name::Name;
     use sqlx::PgPool;
@@ -542,5 +584,46 @@ mod test_user {
         .expect("failed to fetch journal from mock table");
 
         assert_eq!(event_wrapper.event, original_event)
+    }
+
+    #[sqlx::test]
+    pub async fn permissions_serialize_deserialize(pool: PgPool) {
+        sqlx::query(
+            r#"
+            CREATE TABLE test_permissions_table (
+            permissions SMALLSERIAL
+            )
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .expect("failed to create mock table");
+
+        let test_permissions =
+            Permissions::INVITE | Permissions::APPENDTRANSACTION | Permissions::READ;
+
+        sqlx::query(
+            r#"
+                INSERT INTO test_permissions_table (permissions)
+                VALUES ($1)
+                "#,
+        )
+        .bind(&test_permissions)
+        .execute(&pool)
+        .await
+        .expect("failed to insert permissions into mock table");
+
+        let decoded_permissions: Permissions = sqlx::query_scalar(
+            r#"
+            SELECT permissions FROM test_permissions_table
+
+                LIMIT 1
+            "#,
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("failed to fetch permissions from mock table");
+
+        assert_eq!(test_permissions, decoded_permissions);
     }
 }

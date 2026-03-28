@@ -309,6 +309,7 @@ use tokio::sync::Mutex;
 
 /// In-memory storage implementation for users using HashMap
 #[derive(Clone)]
+#[allow(clippy::type_complexity)]
 pub struct MemoryUserStore {
     global_events: Arc<Mutex<Vec<Arc<Event<UserPayload, UserId>>>>>,
     local_events: Arc<DashMap<UserId, Vec<Arc<Event<UserPayload, UserId>>>>>,

@@ -371,6 +371,7 @@ impl PasskeyData {
 }
 
 /// In-memory storage implementation for passkeys using HashMap
+#[allow(clippy::type_complexity)]
 pub struct MemoryPasskeyStore {
     data: Arc<Mutex<PasskeyData>>,
     global_events: Arc<Mutex<Vec<Arc<Event<PasskeyPayload, PasskeyId>>>>>,

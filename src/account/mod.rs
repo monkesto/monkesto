@@ -46,7 +46,6 @@ pub fn router() -> Router<crate::StateType> {
 use crate::account::AccountStoreError::InvalidAccount;
 use crate::account::AccountStoreError::TransactionWithoutPriorState;
 use crate::authority::Authority;
-use crate::authority::UserId;
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::AccountId;
@@ -56,10 +55,8 @@ use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
 use crate::name::Name;
 use crate::transaction::EntryType;
-use crate::transaction::TransactionEvent;
+use crate::transaction::TransactionPayload;
 use crate::transaction::TransactionState;
-use chrono::DateTime;
-use chrono::Utc;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
@@ -112,7 +109,7 @@ impl AccountState {
             Renamed { new_name, .. } => {
                 self.name = new_name;
             }
-            Deleted { .. } => {
+            Deleted => {
                 self.deleted = true;
             }
         }
@@ -136,12 +133,14 @@ pub trait AccountStore:
 
     async fn update_balances(
         &self,
-        transaction_event: &TransactionEvent,
+        transaction_id: TransactionId,
+        transaction_event: &TransactionPayload,
         old_transaction: Option<&TransactionState>,
     ) -> AccountStoreResult<()>;
 }
 
 #[derive(Clone)]
+#[allow(clippy::type_complexity)]
 pub struct AccountMemoryStore {
     global_events: Arc<Mutex<Vec<Arc<Event<AccountPayload, AccountId>>>>>,
     local_events: Arc<DashMap<AccountId, Vec<Arc<Event<AccountPayload, AccountId>>>>>,
@@ -268,11 +267,12 @@ impl AccountStore for AccountMemoryStore {
 
     async fn update_balances(
         &self,
-        transaction_event: &TransactionEvent,
+        transaction_id: TransactionId,
+        transaction_event: &TransactionPayload,
         old_transaction: Option<&TransactionState>,
     ) -> AccountStoreResult<()> {
         match transaction_event {
-            TransactionEvent::CreatedTransaction { updates, .. } => {
+            TransactionPayload::CreatedTransaction { updates, .. } => {
                 for update in updates {
                     if let Some(mut account_state) = self.account_table.get_mut(&update.account_id)
                     {
@@ -289,7 +289,7 @@ impl AccountStore for AccountMemoryStore {
                     }
                 }
             }
-            TransactionEvent::UpdatedBalancedUpdates {
+            TransactionPayload::UpdatedBalancedUpdates {
                 new_balanceupdates, ..
             } => {
                 if let Some(transaction) = old_transaction {
@@ -328,7 +328,7 @@ impl AccountStore for AccountMemoryStore {
                         }
                     }
                 } else {
-                    return Err(TransactionWithoutPriorState(transaction_event.id()));
+                    return Err(TransactionWithoutPriorState(transaction_id));
                 }
             }
         }

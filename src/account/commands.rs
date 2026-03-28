@@ -43,7 +43,7 @@ pub async fn create_account(
 
     state
         .account_service
-        .account_create(
+        .create_account(
             AccountId::new(),
             journal_id,
             &Authority::Direct(Actor::User(user.id)),

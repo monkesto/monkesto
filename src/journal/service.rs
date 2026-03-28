@@ -47,12 +47,12 @@ where
         journal_id: JournalId,
         name: Name,
         owner: UserId,
-        authority: Authority,
+        authority: &Authority,
     ) -> JournalStoreResult<u64> {
         self.journal_store
             .record(
                 journal_id,
-                authority,
+                authority.clone(),
                 JounalPayload::Created {
                     name,
                     parent_journal_id: None,
@@ -228,7 +228,7 @@ where
         journal_id: JournalId,
         authority: &Authority,
     ) -> JournalStoreResult<Vec<(JournalId, JournalState)>> {
-        let perms = self.effective_permissions(journal_id, &authority).await?;
+        let perms = self.effective_permissions(journal_id, authority).await?;
         if !perms.contains(Permissions::READ) {
             return Err(PermissionError(Permissions::READ));
         }
@@ -248,9 +248,9 @@ where
     pub async fn get_subjournals(
         &self,
         journal_id: JournalId,
-        authority: Authority,
+        authority: &Authority,
     ) -> JournalStoreResult<Vec<(JournalId, JournalState)>> {
-        let perms = self.effective_permissions(journal_id, &authority).await?;
+        let perms = self.effective_permissions(journal_id, authority).await?;
         if !perms.contains(Permissions::READ) {
             return Err(PermissionError(Permissions::READ));
         }
@@ -320,7 +320,7 @@ where
     pub async fn journal_invite_member(
         &self,
         journal_id: JournalId,
-        authority: Authority,
+        authority: &Authority,
         invitee: Email,
         permissions: Permissions,
     ) -> JournalStoreResult<u64> {
@@ -345,7 +345,7 @@ where
         }
 
         if !journal_state
-            .get_actor_permissions(&authority)
+            .get_actor_permissions(authority)
             .contains(Permissions::INVITE)
         {
             return Err(PermissionError(Permissions::INVITE));
