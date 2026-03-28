@@ -1,8 +1,11 @@
 use crate::authority::Authority;
-use std::error::Error;
-use chrono::{DateTime, Utc};
 use crate::ident::JournalId;
 use crate::journal::JounalPayload;
+use chrono::DateTime;
+use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
+use std::error::Error;
 
 pub trait EventStore: Send + Sync {
     type Id: Send + Sync + Clone + Copy;
@@ -57,6 +60,7 @@ pub trait ViewModel {
     // TODO: setup a function to wait for a specific event to be received and a manual insert function
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Event<T: Clone + Sized, U: Copy + Clone + Sized> {
     pub payload: T,
     pub id: U,
@@ -68,7 +72,11 @@ pub struct Event<T: Clone + Sized, U: Copy + Clone + Sized> {
 impl<T: Clone, U: Copy + Clone> Event<T, U> {
     pub fn new(payload: T, id: U, event_id: u64, authority: Authority) -> Self {
         Self {
-            payload, id, event_id, timestamp: Utc::now(), authority,
+            payload,
+            id,
+            event_id,
+            timestamp: Utc::now(),
+            authority,
         }
     }
 }

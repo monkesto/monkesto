@@ -1,6 +1,8 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::auth::user::{self};
+use crate::authority::Actor;
+use crate::authority::Authority;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::monkesto_error::OrRedirect;
@@ -44,7 +46,7 @@ pub async fn create_account(
         .account_create(
             AccountId::new(),
             journal_id,
-            user.id,
+            &Authority::Direct(Actor::User(user.id)),
             name,
             parent_account_id,
         )

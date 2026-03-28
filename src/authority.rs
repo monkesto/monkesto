@@ -1,13 +1,15 @@
 pub use crate::auth::user::UserId;
+use serde::Deserialize;
+use serde::Serialize;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Actor {
     User(UserId),
     System,
     Anonymous,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Authority {
     Direct(Actor),
     // Delegated { authorizer: Actor, executor: Actor },

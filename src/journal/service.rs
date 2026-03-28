@@ -15,9 +15,9 @@ use crate::journal::JournalStoreError::UserAlreadyHasAccess;
 use crate::journal::JournalStoreError::UserDoesntHaveAccess;
 use crate::journal::JournalStoreError::UserLookupFailed;
 use crate::journal::JournalStoreResult;
-use crate::journal::JournalTenantInfo;
 use crate::journal::Permissions;
 use crate::name::Name;
+use chrono::DateTime;
 use chrono::Utc;
 
 #[derive(Clone)]
@@ -42,31 +42,31 @@ where
         }
     }
 
-    pub async fn journal_create(
+    pub async fn create_journal(
         &self,
         journal_id: JournalId,
         name: Name,
-        actor: UserId,
-    ) -> JournalStoreResult<usize> {
+        owner: UserId,
+        authority: Authority,
+    ) -> JournalStoreResult<u64> {
         self.journal_store
             .record(
                 journal_id,
-                Authority::Direct(Actor::Anonymous),
+                authority,
                 JounalPayload::Created {
                     name,
-                    creator: actor,
-                    created_at: Utc::now(),
                     parent_journal_id: None,
+                    owner,
                 },
             )
             .await
     }
 
-    pub async fn journal_create_subjournal(
+    pub async fn create_subjournal(
         &self,
         parent_journal_id: JournalId,
         name: Name,
-        actor: UserId,
+        authority: Authority,
     ) -> JournalStoreResult<JournalId> {
         let parent_state = self
             .journal_store
@@ -79,7 +79,7 @@ where
         }
 
         if !parent_state
-            .get_user_permissions(actor)
+            .get_actor_permissions(&authority)
             .contains(Permissions::ADDACCOUNT)
         {
             return Err(PermissionError(Permissions::ADDACCOUNT));
@@ -89,11 +89,11 @@ where
         self.journal_store
             .record(
                 subjournal_id,
-                Authority::Direct(Actor::Anonymous),
+                authority,
                 JounalPayload::Created {
                     name,
-                    creator: actor,
-                    created_at: Utc::now(),
+                    // TODO: figure out how to handle journal/subjournal ownership
+                    owner: parent_state.owner,
                     parent_journal_id: Some(parent_journal_id),
                 },
             )
@@ -103,7 +103,7 @@ where
 
     /// Returns `journal_id` and all its ancestors up to (and including) the root, in
     /// child-first order (i.e. the given journal comes first, root comes last).
-    pub async fn journal_get_ancestor_ids(
+    pub async fn get_ancestor_ids(
         &self,
         journal_id: JournalId,
     ) -> JournalStoreResult<Vec<JournalId>> {
@@ -129,7 +129,7 @@ where
     pub async fn effective_permissions(
         &self,
         journal_id: JournalId,
-        actor: UserId,
+        authority: &Authority,
     ) -> JournalStoreResult<Permissions> {
         let mut current_id = journal_id;
         loop {
@@ -139,7 +139,7 @@ where
                 .await?
                 .ok_or(InvalidJournal(journal_id))?;
 
-            let perms = state.get_user_permissions(actor);
+            let perms = state.get_actor_permissions(authority);
             if !perms.is_empty() {
                 return Ok(perms);
             }
@@ -151,7 +151,7 @@ where
         }
     }
 
-    pub async fn journal_list(
+    pub async fn list_journals(
         &self,
         actor: UserId,
     ) -> JournalStoreResult<Vec<(JournalId, JournalState)>> {
@@ -175,17 +175,17 @@ where
         Ok(journals)
     }
 
-    pub async fn journal_get(
+    pub async fn get_journal(
         &self,
         journal_id: JournalId,
-        actor: UserId,
+        authority: &Authority,
     ) -> JournalStoreResult<Option<JournalState>> {
         let state = match self.journal_store.get_journal(journal_id).await? {
             Some(s) => s,
             None => return Ok(None),
         };
 
-        let perms = self.effective_permissions(journal_id, actor).await?;
+        let perms = self.effective_permissions(journal_id, authority).await?;
         if perms.contains(Permissions::READ) {
             Ok(Some(state))
         } else {
@@ -193,10 +193,10 @@ where
         }
     }
 
-    pub async fn journal_get_users(
+    pub async fn get_journal_members(
         &self,
         journal_id: JournalId,
-        actor: UserId,
+        authority: Authority,
     ) -> JournalStoreResult<Vec<UserId>> {
         let journal_state = self
             .journal_store
@@ -205,7 +205,7 @@ where
             .ok_or(InvalidJournal(journal_id))?;
 
         if !journal_state
-            .get_user_permissions(actor)
+            .get_actor_permissions(&authority)
             .contains(Permissions::READ)
         {
             return Err(PermissionError(Permissions::READ));
@@ -213,22 +213,22 @@ where
 
         let mut users = Vec::new();
 
-        for (user_id, _) in journal_state.tenants.iter() {
+        for (user_id, _) in journal_state.members.iter() {
             users.push(*user_id);
         }
 
-        users.push(journal_state.creator);
+        users.push(journal_state.owner);
 
         Ok(users)
     }
 
     /// Returns only the direct children of `journal_id` (depth 1).
-    pub async fn journal_get_direct_subjournals(
+    pub async fn get_direct_subjournals(
         &self,
         journal_id: JournalId,
-        actor: UserId,
+        authority: &Authority,
     ) -> JournalStoreResult<Vec<(JournalId, JournalState)>> {
-        let perms = self.effective_permissions(journal_id, actor).await?;
+        let perms = self.effective_permissions(journal_id, &authority).await?;
         if !perms.contains(Permissions::READ) {
             return Err(PermissionError(Permissions::READ));
         }
@@ -245,12 +245,12 @@ where
 
     /// Returns all descendants of `journal_id` at any depth (breadth-first), as a flat list.
     /// The list preserves parent-before-child ordering so callers can recurse through it.
-    pub async fn journal_get_subjournals(
+    pub async fn get_subjournals(
         &self,
         journal_id: JournalId,
-        actor: UserId,
+        authority: Authority,
     ) -> JournalStoreResult<Vec<(JournalId, JournalState)>> {
-        let perms = self.effective_permissions(journal_id, actor).await?;
+        let perms = self.effective_permissions(journal_id, &authority).await?;
         if !perms.contains(Permissions::READ) {
             return Err(PermissionError(Permissions::READ));
         }
@@ -271,10 +271,7 @@ where
         Ok(result)
     }
 
-    pub async fn journal_get_name(
-        &self,
-        journal_id: JournalId,
-    ) -> JournalStoreResult<Option<Name>> {
+    pub async fn get_name(&self, journal_id: JournalId) -> JournalStoreResult<Option<Name>> {
         self.journal_store.get_name(journal_id).await
     }
 
@@ -310,23 +307,23 @@ where
         Ok(Some(parts))
     }
 
-    pub async fn journal_get_name_from_res<E>(
+    pub async fn get_name_from_res<E>(
         &self,
         journal_id_res: Result<JournalId, E>,
     ) -> JournalStoreResult<Option<Name>>
     where
         JournalStoreError: From<E>,
     {
-        self.journal_get_name(journal_id_res?).await
+        self.get_name(journal_id_res?).await
     }
 
-    pub async fn journal_invite_tenant(
+    pub async fn journal_invite_member(
         &self,
         journal_id: JournalId,
-        actor: UserId,
+        authority: Authority,
         invitee: Email,
         permissions: Permissions,
-    ) -> JournalStoreResult<usize> {
+    ) -> JournalStoreResult<u64> {
         let journal_state = self
             .journal_store
             .get_journal(journal_id)
@@ -343,22 +340,16 @@ where
             .await?
             .ok_or(UserLookupFailed(invitee.clone()))?;
 
-        if journal_state.tenants.contains_key(&invitee_id) {
+        if journal_state.members.contains_key(&invitee_id) {
             return Err(UserAlreadyHasAccess(invitee));
         }
 
         if !journal_state
-            .get_user_permissions(actor)
+            .get_actor_permissions(&authority)
             .contains(Permissions::INVITE)
         {
             return Err(PermissionError(Permissions::INVITE));
         }
-
-        let tenant_info = JournalTenantInfo {
-            tenant_permissions: permissions,
-            inviting_user: actor,
-            invited_at: Utc::now(),
-        };
 
         self.journal_store
             .record(
@@ -366,19 +357,19 @@ where
                 Authority::Direct(Actor::Anonymous),
                 JounalPayload::AddedTenant {
                     id: invitee_id,
-                    tenant_info,
+                    permissions,
                 },
             )
             .await
     }
 
-    pub async fn journal_update_tenant_permissions(
+    pub async fn update_member_permissions(
         &self,
         journal_id: JournalId,
         target_user: UserId,
         permissions: Permissions,
-        actor: UserId,
-    ) -> JournalStoreResult<usize> {
+        authority: Authority,
+    ) -> JournalStoreResult<u64> {
         let journal_state = self
             .journal_store
             .get_journal(journal_id)
@@ -389,12 +380,12 @@ where
             return Err(InvalidJournal(journal_id));
         }
 
-        if !journal_state.tenants.contains_key(&target_user) {
+        if !journal_state.members.contains_key(&target_user) {
             return Err(UserDoesntHaveAccess);
         }
 
         if !journal_state
-            .get_user_permissions(actor)
+            .get_actor_permissions(&authority)
             .contains(Permissions::OWNER)
         {
             return Err(PermissionError(Permissions::OWNER));
@@ -403,7 +394,7 @@ where
         self.journal_store
             .record(
                 journal_id,
-                Authority::Direct(Actor::Anonymous),
+                authority,
                 JounalPayload::UpdatedTenantPermissions {
                     id: target_user,
                     permissions,
@@ -412,12 +403,12 @@ where
             .await
     }
 
-    pub async fn journal_remove_tenant(
+    pub async fn remove_member(
         &self,
         journal_id: JournalId,
         target_user: UserId,
-        actor: UserId,
-    ) -> JournalStoreResult<usize> {
+        authority: Authority,
+    ) -> JournalStoreResult<u64> {
         let journal_state = self
             .journal_store
             .get_journal(journal_id)
@@ -428,12 +419,12 @@ where
             return Err(InvalidJournal(journal_id));
         }
 
-        if !journal_state.tenants.contains_key(&target_user) {
+        if !journal_state.members.contains_key(&target_user) {
             return Err(InvalidUser(target_user));
         }
 
         if !journal_state
-            .get_user_permissions(actor)
+            .get_actor_permissions(&authority)
             .contains(Permissions::OWNER)
         {
             return Err(PermissionError(Permissions::OWNER));
@@ -446,5 +437,19 @@ where
                 JounalPayload::RemovedTenant { id: target_user },
             )
             .await
+    }
+
+    pub async fn get_creation_timestamp(
+        &self,
+        journal_id: JournalId,
+    ) -> JournalStoreResult<Option<DateTime<Utc>>> {
+        self.journal_store.get_creation_timestamp(journal_id).await
+    }
+
+    pub async fn get_creator(
+        &self,
+        journal_id: JournalId,
+    ) -> JournalStoreResult<Option<Authority>> {
+        self.journal_store.get_creator(journal_id).await
     }
 }

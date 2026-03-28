@@ -58,7 +58,7 @@ pub fn router() -> Router<crate::StateType> {
         )
         .route(
             "/journal/{id}/invite",
-            axum::routing::post(commands::invite_user),
+            axum::routing::post(commands::invite_member),
         )
         .route(
             "/journal/{id}/person/{person_id}",
@@ -70,15 +70,17 @@ pub fn router() -> Router<crate::StateType> {
         )
         .route(
             "/journal/{id}/person/{person_id}/remove",
-            axum::routing::post(commands::remove_tenant),
+            axum::routing::post(commands::remove_member),
         )
         .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
 }
 
 use crate::auth::user::Email;
 use crate::auth::user::UserStoreError;
+use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
+use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::IdentError;
 use crate::ident::JournalId;
@@ -106,7 +108,7 @@ pub trait JournalStore:
     + Send
     + Sync
     + 'static
-    + EventStore<Id = JournalId, EventId = usize, Event =JounalPayload, Error = JournalStoreError>
+    + EventStore<Id = JournalId, Payload = JounalPayload, Error = JournalStoreError>
 {
     /// returns the cached state of the journal
     async fn get_journal(&self, journal_id: JournalId) -> JournalStoreResult<Option<JournalState>>;
@@ -120,19 +122,23 @@ pub trait JournalStore:
     async fn get_permissions(
         &self,
         journal_id: JournalId,
-        user_id: UserId,
+        authority: Authority,
     ) -> JournalStoreResult<Option<Permissions>> {
         if let Some(state) = self.get_journal(journal_id).await? {
-            if state.owner == user_id {
-                return Ok(Some(Permissions::all()));
-            }
-            return Ok(Some(
-                state
-                    .tenants
-                    .get(&user_id)
-                    .map(|t| t.tenant_permissions)
-                    .unwrap_or(Permissions::empty()),
-            ));
+            return match authority {
+                Authority::Direct(actor) => match actor {
+                    Actor::User(user_id) => {
+                        if state.owner == user_id {
+                            return Ok(Some(Permissions::all()));
+                        }
+                        Ok(Some(
+                            *state.members.get(&user_id).unwrap_or(&Permissions::empty()),
+                        ))
+                    }
+                    Actor::System => Ok(Some(Permissions::all())),
+                    Actor::Anonymous => Ok(None),
+                },
+            };
         }
         Ok(None)
     }
@@ -141,16 +147,16 @@ pub trait JournalStore:
         Ok(self.get_journal(journal_id).await?.map(|s| s.name))
     }
 
-    async fn get_creator(&self, journal_id: JournalId) -> JournalStoreResult<Option<UserId>> {
-        Ok(self.get_journal(journal_id).await?.map(|s| s.creator))
+    async fn get_owner(&self, journal_id: JournalId) -> JournalStoreResult<Option<UserId>> {
+        Ok(self.get_journal(journal_id).await?.map(|s| s.owner))
     }
 
-    async fn get_created_at(
+    async fn get_creation_timestamp(
         &self,
         journal_id: JournalId,
-    ) -> JournalStoreResult<Option<DateTime<Utc>>> {
-        Ok(self.get_journal(journal_id).await?.map(|s| s.created_at))
-    }
+    ) -> JournalStoreResult<Option<DateTime<Utc>>>;
+
+    async fn get_creator(&self, journal_id: JournalId) -> JournalStoreResult<Option<Authority>>;
 
     async fn get_deleted(&self, journal_id: JournalId) -> JournalStoreResult<Option<bool>> {
         Ok(self.get_journal(journal_id).await?.map(|s| s.deleted))
@@ -159,8 +165,8 @@ pub trait JournalStore:
 
 #[derive(Clone)]
 pub struct JournalMemoryStore {
-    global_events: Arc<RwLock<Vec<Arc<JounalPayload>>>>,
-    local_events: Arc<DashMap<JournalId, Vec<Arc<JounalPayload>>>>,
+    global_events: Arc<RwLock<Vec<Arc<Event<JounalPayload, JournalId>>>>>,
+    local_events: Arc<DashMap<JournalId, Vec<Arc<Event<JounalPayload, JournalId>>>>>,
 
     journal_table: Arc<DashMap<JournalId, JournalState>>,
     /// Index of user_id -> set of journal_ids they belong to
@@ -183,46 +189,43 @@ impl JournalMemoryStore {
 
 impl EventStore for JournalMemoryStore {
     type Id = JournalId;
-    type EventId = usize;
-    type Event = JounalPayload;
+    type Payload = JounalPayload;
     type Error = JournalStoreError;
 
     async fn record(
         &self,
         id: JournalId,
-        _by: Authority,
-        event: JounalPayload,
-    ) -> JournalStoreResult<usize> {
-        let arc_event = Arc::new(event.clone());
-        let event_id = {
+        authority: Authority,
+        payload: JounalPayload,
+    ) -> JournalStoreResult<u64> {
+        let (event_id, event) = {
             let mut global_events = self.global_events.write().await;
-            global_events.push(arc_event.clone());
-            global_events.len()
+            let event_id = global_events.len() as u64;
+            let event = Arc::new(Event::new(payload.clone(), id, event_id, authority));
+            global_events.push(event.clone());
+            (event_id, event)
         };
 
         if let JounalPayload::Created {
             name,
-            created_at,
-            creator,
+            owner,
             parent_journal_id,
-        } = event
+        } = payload
         {
-            self.local_events.insert(id, vec![arc_event]);
+            self.local_events.insert(id, vec![event.clone()]);
 
             let state = JournalState {
                 id,
                 name,
-                created_at,
-                creator,
-                owner: creator,
-                tenants: HashMap::new(),
+                owner,
+                members: HashMap::new(),
                 deleted: false,
                 parent_journal_id,
             };
             self.journal_table.insert(id, state);
 
             // Add creator to the user_journals index
-            self.user_journals.entry(creator).or_default().insert(id);
+            self.user_journals.entry(owner).or_default().insert(id);
 
             // Add to subjournal index if this is a child journal
             if let Some(parent_id) = parent_journal_id {
@@ -234,14 +237,14 @@ impl EventStore for JournalMemoryStore {
             && let Some(mut state) = self.journal_table.get_mut(&id)
         {
             // Update user_journals index for membership changes
-            if let JounalPayload::AddedTenant { id: user_id, .. } = &event {
+            if let JounalPayload::AddedTenant { id: user_id, .. } = &payload {
                 self.user_journals.entry(*user_id).or_default().insert(id);
-            } else if let JounalPayload::RemovedTenant { id: user_id } = &event {
+            } else if let JounalPayload::RemovedTenant { id: user_id } = &payload {
                 self.user_journals.entry(*user_id).or_default().remove(&id);
             }
 
-            local_events.push(arc_event);
-            state.apply(event.clone());
+            local_events.push(event.clone());
+            state.apply(payload);
 
             Ok(event_id)
         } else {
@@ -252,20 +255,20 @@ impl EventStore for JournalMemoryStore {
     async fn get_events(
         &self,
         id: JournalId,
-        after: usize,
-        limit: usize,
-    ) -> Result<Vec<JounalPayload>, Self::Error> {
+        after: u64,
+        limit: u64,
+    ) -> Result<Vec<Event<JounalPayload, JournalId>>, Self::Error> {
         let events = self.local_events.get(&id).ok_or(InvalidJournal(id))?;
 
         // avoid a panic fn start > len
-        if after >= events.len() {
+        if after >= events.len() as u64 {
             return Ok(Vec::new());
         }
 
         // clamp the end value to the vector length
-        let end = std::cmp::min(events.len(), after + limit + 1);
+        let end = std::cmp::min(events.len(), (after + limit + 1) as usize);
 
-        Ok(events[after + 1..end]
+        Ok(events[(after + 1) as usize..end]
             .iter()
             .map(|j| j.deref().clone())
             .collect())
@@ -295,6 +298,26 @@ impl JournalStore for JournalMemoryStore {
             .map(|set| set.iter().copied().collect())
             .unwrap_or_default())
     }
+
+    async fn get_creation_timestamp(
+        &self,
+        journal_id: JournalId,
+    ) -> JournalStoreResult<Option<DateTime<Utc>>> {
+        // get the timestamp of the first event pertaining to the journal
+
+        // TODO: maybe? add a check to make sure that the first event is actually a creation payload; however, it should be enforced when the payload is recorded
+        Ok(self
+            .local_events
+            .get(&journal_id)
+            .and_then(|j| j.get(0).map(|e| e.timestamp)))
+    }
+
+    async fn get_creator(&self, journal_id: JournalId) -> JournalStoreResult<Option<Authority>> {
+        Ok(self
+            .local_events
+            .get(&journal_id)
+            .and_then(|j| j.get(0).map(|e| e.authority.clone())))
+    }
 }
 
 bitflags! {
@@ -309,19 +332,11 @@ bitflags! {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Copy, PartialEq)]
-pub struct JournalTenantInfo {
-    pub tenant_permissions: Permissions,
-    pub inviting_user: UserId,
-    pub invited_at: DateTime<Utc>,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub enum JounalPayload {
     Created {
         name: Name,
-        created_at: DateTime<Utc>,
-        creator: UserId,
+        owner: UserId,
         parent_journal_id: Option<JournalId>,
     },
     Renamed {
@@ -329,7 +344,7 @@ pub enum JounalPayload {
     },
     AddedTenant {
         id: UserId,
-        tenant_info: JournalTenantInfo,
+        permissions: Permissions,
     },
     TransferredOwnership {
         new_owner: UserId,
@@ -371,10 +386,8 @@ impl<'r> Decode<'r, sqlx::Postgres> for JounalPayload {
 pub struct JournalState {
     pub id: JournalId,
     pub name: Name,
-    pub creator: UserId,
-    pub created_at: DateTime<Utc>,
     pub owner: UserId,
-    pub tenants: HashMap<UserId, JournalTenantInfo>,
+    pub members: HashMap<UserId, Permissions>,
     pub deleted: bool,
     pub parent_journal_id: Option<JournalId>,
 }
@@ -410,48 +423,53 @@ where
 }
 
 impl JournalState {
-    pub fn apply(&mut self, event: JounalPayload) {
-        match event {
+    pub fn apply(&mut self, payload: JounalPayload) {
+        match payload {
             JounalPayload::Created {
                 name,
-                creator,
-                created_at,
+                owner,
                 parent_journal_id,
             } => {
                 self.name = name;
-                self.created_at = created_at;
-                self.creator = creator;
-                self.owner = creator;
+                self.owner = owner;
                 self.parent_journal_id = parent_journal_id;
             }
 
             JounalPayload::Renamed { name } => self.name = name,
 
-            JounalPayload::AddedTenant { id, tenant_info } => {
-                _ = self.tenants.insert(id, tenant_info);
+            JounalPayload::AddedTenant { id, permissions } => {
+                _ = self.members.insert(id, permissions);
             }
 
             JounalPayload::TransferredOwnership { new_owner } => self.owner = new_owner,
 
             JounalPayload::RemovedTenant { id } => {
-                _ = self.tenants.remove(&id);
+                _ = self.members.remove(&id);
             }
             JounalPayload::UpdatedTenantPermissions { id, permissions } => {
-                if let Some(tenant_info) = self.tenants.get_mut(&id) {
-                    tenant_info.tenant_permissions = permissions;
+                if let Some(member_permissions) = self.members.get_mut(&id) {
+                    *member_permissions = permissions;
                 }
             }
             JounalPayload::Deleted => self.deleted = true,
         }
     }
 
-    pub fn get_user_permissions(&self, user_id: UserId) -> Permissions {
-        if self.owner == user_id {
-            Permissions::all()
-        } else if let Some(tenant_info) = self.tenants.get(&user_id) {
-            tenant_info.tenant_permissions
-        } else {
-            Permissions::empty()
+    pub fn get_actor_permissions(&self, authority: &Authority) -> Permissions {
+        match authority {
+            Authority::Direct(actor) => match actor {
+                Actor::User(id) => {
+                    if self.owner == *id {
+                        Permissions::all()
+                    } else if let Some(member_permissions) = self.members.get(&id) {
+                        *member_permissions
+                    } else {
+                        Permissions::empty()
+                    }
+                }
+                Actor::System => Permissions::all(),
+                Actor::Anonymous => Permissions::empty(),
+            },
         }
     }
 }
@@ -461,7 +479,6 @@ mod test_user {
     use super::JounalPayload;
     use crate::authority::UserId;
     use crate::name::Name;
-    use chrono::Utc;
     use sqlx::PgPool;
     use sqlx::prelude::FromRow;
 
@@ -469,8 +486,7 @@ mod test_user {
     async fn test_encode_decode_journalevent(pool: PgPool) {
         let original_event = JounalPayload::Created {
             name: Name::try_new("test".to_string()).expect("name creation failed"),
-            creator: UserId::new(),
-            created_at: Utc::now(),
+            owner: UserId::new(),
             parent_journal_id: None,
         };
 

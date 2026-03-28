@@ -47,7 +47,8 @@ use crate::account::AccountStoreError::InvalidAccount;
 use crate::account::AccountStoreError::TransactionWithoutPriorState;
 use crate::authority::Authority;
 use crate::authority::UserId;
-use crate::event::{Event, EventStore};
+use crate::event::Event;
+use crate::event::EventStore;
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
@@ -82,7 +83,7 @@ pub enum AccountPayload {
     Renamed {
         new_name: Name,
     },
-    Deleted
+    Deleted,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -99,7 +100,7 @@ impl AccountState {
     pub fn apply(&mut self, event: AccountPayload) {
         use AccountPayload::*;
         match event {
-                Created {
+            Created {
                 journal_id,
                 name,
                 parent_account_id,
@@ -171,8 +172,6 @@ impl EventStore for AccountMemoryStore {
         authority: Authority,
         payload: AccountPayload,
     ) -> AccountStoreResult<u64> {
-
-
         let (event_id, event) = {
             let mut global_events = self.global_events.lock().await;
             let event_id = global_events.len() as u64;
@@ -182,7 +181,11 @@ impl EventStore for AccountMemoryStore {
         };
 
         match payload.clone() {
-            AccountPayload::Created { journal_id, name, parent_account_id, } => {
+            AccountPayload::Created {
+                journal_id,
+                name,
+                parent_account_id,
+            } => {
                 self.local_events.insert(id, vec![event.clone()]);
 
                 let state = AccountState {
@@ -202,7 +205,7 @@ impl EventStore for AccountMemoryStore {
                     .push(id);
 
                 Ok(event_id)
-            },
+            }
             _ => {
                 if let Some(mut local_events) = self.local_events.get_mut(&id)
                     && let Some(mut state) = self.account_table.get_mut(&id)
@@ -240,7 +243,6 @@ impl EventStore for AccountMemoryStore {
             .collect())
     }
 }
-
 
 impl AccountStore for AccountMemoryStore {
     async fn get_journal_accounts(
@@ -335,13 +337,13 @@ impl AccountStore for AccountMemoryStore {
     }
 }
 
-impl Type<sqlx::Postgres> for AccountEvent {
+impl Type<sqlx::Postgres> for AccountPayload {
     fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
         <&[u8] as Type<sqlx::Postgres>>::type_info()
     }
 }
 
-impl<'q> Encode<'q, sqlx::Postgres> for AccountEvent {
+impl<'q> Encode<'q, sqlx::Postgres> for AccountPayload {
     fn encode_by_ref(
         &self,
         buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'q>,
@@ -351,26 +353,24 @@ impl<'q> Encode<'q, sqlx::Postgres> for AccountEvent {
     }
 }
 
-impl<'r> Decode<'r, sqlx::Postgres> for AccountEvent {
+impl<'r> Decode<'r, sqlx::Postgres> for AccountPayload {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let bytes = <&[u8] as Decode<sqlx::Postgres>>::decode(value)?;
-        Ok(postcard::from_bytes::<AccountEvent>(bytes)?)
+        Ok(postcard::from_bytes::<AccountPayload>(bytes)?)
     }
 }
 
 #[cfg(test)]
 mod test_account {
-    use super::AccountEvent;
-    use crate::authority::UserId;
+    use super::AccountPayload;
     use crate::name::Name;
     use sqlx::PgPool;
     use sqlx::prelude::FromRow;
 
     #[sqlx::test]
     async fn test_encode_decode_account_event(pool: PgPool) {
-        let original_event = AccountEvent::Renamed {
+        let original_event = AccountPayload::Renamed {
             new_name: Name::try_new("New Name".to_string()).expect("name creation failed"),
-            updater: UserId::new(),
         };
 
         sqlx::query(
@@ -397,7 +397,7 @@ mod test_account {
         .await
         .expect("failed to insert account into mock table");
 
-        let event: AccountEvent = sqlx::query_scalar(
+        let event: AccountPayload = sqlx::query_scalar(
             r#"
             SELECT event FROM test_account_table
             LIMIT 1
@@ -411,7 +411,7 @@ mod test_account {
 
         #[derive(FromRow)]
         struct WrapperType {
-            event: AccountEvent,
+            event: AccountPayload,
         }
 
         let event_wrapper: WrapperType = sqlx::query_as(

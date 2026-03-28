@@ -39,13 +39,13 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
 
     if service
         .journal_service
-        .journal_get(maple_ridge_academy_id, pacioli_id)
+        .get_journal(maple_ridge_academy_id, pacioli_id)
         .await?
         .is_none()
     {
         service
             .journal_service
-            .journal_create(
+            .create_journal(
                 maple_ridge_academy_id,
                 Name::try_new("Maple Ridge Academy".to_string())
                     .expect("Failed to create a name from \"Maple Ridge Academy\""),
@@ -56,13 +56,13 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
 
     if service
         .journal_service
-        .journal_get(smith_and_sons_id, pacioli_id)
+        .get_journal(smith_and_sons_id, pacioli_id)
         .await?
         .is_none()
     {
         service
             .journal_service
-            .journal_create(
+            .create_journal(
                 JournalId::from_str("hi4jk5lm6n")?,
                 Name::try_new("Smith & Sons Bakery".to_string())
                     .expect("Failed to create a name from \"Smith & Sons Bakery\""),
@@ -73,13 +73,13 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
 
     if service
         .journal_service
-        .journal_get(green_valley_id, pacioli_id)
+        .get_journal(green_valley_id, pacioli_id)
         .await?
         .is_none()
     {
         service
             .journal_service
-            .journal_create(
+            .create_journal(
                 JournalId::from_str("op7qr8st9u")?,
                 Name::try_new("Green Valley Farm Co.".to_string())
                     .expect("Failed to create a name from \"Green Valley Farm Co.\""),
@@ -91,13 +91,13 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
     // journal_get returns none if the actor isn't a tenant
     if service
         .journal_service
-        .journal_get(maple_ridge_academy_id, wedgwood_id)
+        .get_journal(maple_ridge_academy_id, wedgwood_id)
         .await?
         .is_none()
     {
         service
             .journal_service
-            .journal_invite_tenant(
+            .journal_invite_member(
                 maple_ridge_academy_id,
                 pacioli_id,
                 wedgwood_email,

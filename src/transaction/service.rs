@@ -62,7 +62,7 @@ where
         // Check permission on the top-level journal (inherited by subjournals)
         let journal = self
             .journal_service
-            .journal_get(journal_id, creator_id)
+            .get_journal(journal_id, creator_id)
             .await?
             .ok_or(InvalidJournal(journal_id))?;
 
@@ -84,7 +84,7 @@ where
         for update in &updates {
             let ancestor_ids = self
                 .journal_service
-                .journal_get_ancestor_ids(update.journal_id)
+                .get_ancestor_ids(update.journal_id)
                 .await?;
 
             let mut valid = false;
@@ -131,11 +131,11 @@ where
         journal_id: JournalId,
         actor: UserId,
     ) -> TransactionStoreResult<Vec<(TransactionId, TransactionState)>> {
-        let journal_state = self.journal_service.journal_get(journal_id, actor).await?;
+        let journal_state = self.journal_service.get_journal(journal_id, actor).await?;
 
         if !journal_state
             .as_ref()
-            .is_some_and(|s| s.get_user_permissions(actor).contains(Permissions::READ))
+            .is_some_and(|s| s.get_actor_permissions(actor).contains(Permissions::READ))
         {
             return Err(PermissionError(Permissions::READ));
         }

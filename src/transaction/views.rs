@@ -128,8 +128,8 @@ pub async fn transaction_list_page(
             }
 
             @if let Ok(journal_id) = journal_id_res && let Ok(accounts) = state.account_service.account_get_all_in_journal(journal_id, user.id).await {
-                @let journal_name = state.journal_service.journal_get_name_from_res(journal_id_res.clone()).await.or_unknown();
-                @let subjournals = state.journal_service.journal_get_subjournals(journal_id, user.id).await.unwrap_or_default();
+                @let journal_name = state.journal_service.get_name_from_res(journal_id_res.clone()).await.or_unknown();
+                @let subjournals = state.journal_service.get_subjournals(journal_id, user.id).await.unwrap_or_default();
                 @let has_subjournals = !subjournals.is_empty();
                 form method="post" action=(format!("/journal/{}/transaction", id)) class="space-y-6" {
                     @for i in 0..4 {
@@ -246,7 +246,7 @@ pub async fn transaction_list_page(
         Some(
             &state
                 .journal_service
-                .journal_get_name_from_res(journal_id_res)
+                .get_name_from_res(journal_id_res)
                 .await
                 .or_unknown(),
         ),
