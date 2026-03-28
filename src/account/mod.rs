@@ -47,7 +47,7 @@ use crate::account::AccountStoreError::InvalidAccount;
 use crate::account::AccountStoreError::TransactionWithoutPriorState;
 use crate::authority::Authority;
 use crate::authority::UserId;
-use crate::event::EventStore;
+use crate::event::{Event, EventStore};
 use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
@@ -73,21 +73,16 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub enum AccountEvent {
+pub enum AccountPayload {
     Created {
         journal_id: JournalId,
         name: Name,
-        creator: UserId,
-        created_at: DateTime<Utc>,
         parent_account_id: Option<AccountId>,
     },
     Renamed {
         new_name: Name,
-        updater: UserId,
     },
-    Deleted {
-        updater: UserId,
-    },
+    Deleted
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -95,33 +90,28 @@ pub struct AccountState {
     pub id: AccountId,
     pub name: Name,
     pub journal_id: JournalId,
-    pub author: UserId,
     pub balance: i64,
-    pub created_at: DateTime<Utc>,
     pub deleted: bool,
     pub parent_account_id: Option<AccountId>,
 }
 
 impl AccountState {
-    pub fn apply(&mut self, event: AccountEvent) {
+    pub fn apply(&mut self, event: AccountPayload) {
+        use AccountPayload::*;
         match event {
-            AccountEvent::Created {
+                Created {
                 journal_id,
                 name,
-                creator,
-                created_at,
                 parent_account_id,
             } => {
                 self.journal_id = journal_id;
                 self.name = name;
-                self.author = creator;
-                self.created_at = created_at;
                 self.parent_account_id = parent_account_id;
             }
-            AccountEvent::Renamed { new_name, .. } => {
+            Renamed { new_name, .. } => {
                 self.name = new_name;
             }
-            AccountEvent::Deleted { .. } => {
+            Deleted { .. } => {
                 self.deleted = true;
             }
         }
@@ -133,7 +123,7 @@ pub trait AccountStore:
     + Send
     + Sync
     + 'static
-    + EventStore<Id = AccountId, Event = AccountEvent, Error = AccountStoreError>
+    + EventStore<Id = AccountId, Payload = AccountPayload, Error = AccountStoreError>
 {
     async fn get_journal_accounts(
         &self,
@@ -152,8 +142,8 @@ pub trait AccountStore:
 
 #[derive(Clone)]
 pub struct AccountMemoryStore {
-    global_events: Arc<Mutex<Vec<Arc<AccountEvent>>>>,
-    local_events: Arc<DashMap<AccountId, Vec<Arc<AccountEvent>>>>,
+    global_events: Arc<Mutex<Vec<Arc<Event<AccountPayload, AccountId>>>>>,
+    local_events: Arc<DashMap<AccountId, Vec<Arc<Event<AccountPayload, AccountId>>>>>,
     account_table: Arc<DashMap<AccountId, AccountState>>,
 
     account_lookup_table: Arc<DashMap<JournalId, Vec<AccountId>>>,
@@ -172,87 +162,85 @@ impl AccountMemoryStore {
 
 impl EventStore for AccountMemoryStore {
     type Id = AccountId;
-    type EventId = usize;
-
-    type Event = AccountEvent;
+    type Payload = AccountPayload;
     type Error = AccountStoreError;
 
     async fn record(
         &self,
         id: AccountId,
-        _by: Authority,
-        event: AccountEvent,
-    ) -> AccountStoreResult<usize> {
-        let arc_event = Arc::new(event.clone());
-        let event_id = {
+        authority: Authority,
+        payload: AccountPayload,
+    ) -> AccountStoreResult<u64> {
+
+
+        let (event_id, event) = {
             let mut global_events = self.global_events.lock().await;
-            global_events.push(arc_event.clone());
-            global_events.len()
+            let event_id = global_events.len() as u64;
+            let event = Arc::new(Event::new(payload.clone(), id, event_id, authority));
+            global_events.push(event.clone());
+            (event_id, event)
         };
 
-        if let AccountEvent::Created {
-            journal_id,
-            name,
-            creator,
-            created_at,
-            parent_account_id,
-        } = event
-        {
-            self.local_events.insert(id, vec![arc_event]);
+        match payload.clone() {
+            AccountPayload::Created { journal_id, name, parent_account_id, } => {
+                self.local_events.insert(id, vec![event.clone()]);
 
-            let state = AccountState {
-                id,
-                name,
-                journal_id,
-                author: creator,
-                balance: 0,
-                created_at,
-                deleted: false,
-                parent_account_id,
-            };
+                let state = AccountState {
+                    id,
+                    name,
+                    journal_id,
+                    balance: 0,
+                    deleted: false,
+                    parent_account_id,
+                };
 
-            self.account_table.insert(id, state);
+                self.account_table.insert(id, state);
 
-            self.account_lookup_table
-                .entry(journal_id)
-                .or_default()
-                .push(id);
+                self.account_lookup_table
+                    .entry(journal_id)
+                    .or_default()
+                    .push(id);
 
-            Ok(event_id)
-        } else if let Some(mut local_events) = self.local_events.get_mut(&id)
-            && let Some(mut state) = self.account_table.get_mut(&id)
-        {
-            local_events.push(arc_event);
-            state.apply(event.clone());
+                Ok(event_id)
+            },
+            _ => {
+                if let Some(mut local_events) = self.local_events.get_mut(&id)
+                    && let Some(mut state) = self.account_table.get_mut(&id)
+                {
+                    local_events.push(event.clone());
+                    state.apply(payload);
 
-            Ok(event_id)
-        } else {
-            Err(InvalidAccount(id))
+                    Ok(event_id)
+                } else {
+                    Err(InvalidAccount(id))
+                }
+            }
         }
     }
 
     async fn get_events(
         &self,
         id: AccountId,
-        after: usize,
-        limit: usize,
-    ) -> AccountStoreResult<Vec<AccountEvent>> {
+        after: u64,
+        limit: u64,
+    ) -> AccountStoreResult<Vec<Event<AccountPayload, AccountId>>> {
         let events = self.local_events.get(&id).ok_or(InvalidAccount(id))?;
 
         // avoid a panic if start > len
-        if after >= events.len() {
+        if after >= events.len() as u64 {
             return Ok(Vec::new());
         }
 
         // clamp the end value to the vector length
-        let end = std::cmp::min(events.len(), after + limit + 1);
+        let end = std::cmp::min(events.len(), (after + limit + 1) as usize);
 
-        Ok(events[after + 1..end]
+        Ok(events[after as usize + 1..end]
             .iter()
-            .map(|acc| acc.deref().clone())
+            .map(|ev| ev.deref().clone())
             .collect())
     }
 }
+
 
 impl AccountStore for AccountMemoryStore {
     async fn get_journal_accounts(

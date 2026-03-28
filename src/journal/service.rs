@@ -4,7 +4,7 @@ use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::ident::JournalId;
-use crate::journal::JournalEvent;
+use crate::journal::JounalPayload;
 use crate::journal::JournalState;
 use crate::journal::JournalStore;
 use crate::journal::JournalStoreError;
@@ -52,7 +52,7 @@ where
             .record(
                 journal_id,
                 Authority::Direct(Actor::Anonymous),
-                JournalEvent::Created {
+                JounalPayload::Created {
                     name,
                     creator: actor,
                     created_at: Utc::now(),
@@ -90,7 +90,7 @@ where
             .record(
                 subjournal_id,
                 Authority::Direct(Actor::Anonymous),
-                JournalEvent::Created {
+                JounalPayload::Created {
                     name,
                     creator: actor,
                     created_at: Utc::now(),
@@ -364,7 +364,7 @@ where
             .record(
                 journal_id,
                 Authority::Direct(Actor::Anonymous),
-                JournalEvent::AddedTenant {
+                JounalPayload::AddedTenant {
                     id: invitee_id,
                     tenant_info,
                 },
@@ -404,7 +404,7 @@ where
             .record(
                 journal_id,
                 Authority::Direct(Actor::Anonymous),
-                JournalEvent::UpdatedTenantPermissions {
+                JounalPayload::UpdatedTenantPermissions {
                     id: target_user,
                     permissions,
                 },
@@ -443,7 +443,7 @@ where
             .record(
                 journal_id,
                 Authority::Direct(Actor::Anonymous),
-                JournalEvent::RemovedTenant { id: target_user },
+                JounalPayload::RemovedTenant { id: target_user },
             )
             .await
     }

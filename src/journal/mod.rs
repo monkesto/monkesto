@@ -106,7 +106,7 @@ pub trait JournalStore:
     + Send
     + Sync
     + 'static
-    + EventStore<Id = JournalId, EventId = usize, Event = JournalEvent, Error = JournalStoreError>
+    + EventStore<Id = JournalId, EventId = usize, Event =JounalPayload, Error = JournalStoreError>
 {
     /// returns the cached state of the journal
     async fn get_journal(&self, journal_id: JournalId) -> JournalStoreResult<Option<JournalState>>;
@@ -159,8 +159,8 @@ pub trait JournalStore:
 
 #[derive(Clone)]
 pub struct JournalMemoryStore {
-    global_events: Arc<RwLock<Vec<Arc<JournalEvent>>>>,
-    local_events: Arc<DashMap<JournalId, Vec<Arc<JournalEvent>>>>,
+    global_events: Arc<RwLock<Vec<Arc<JounalPayload>>>>,
+    local_events: Arc<DashMap<JournalId, Vec<Arc<JounalPayload>>>>,
 
     journal_table: Arc<DashMap<JournalId, JournalState>>,
     /// Index of user_id -> set of journal_ids they belong to
@@ -184,14 +184,14 @@ impl JournalMemoryStore {
 impl EventStore for JournalMemoryStore {
     type Id = JournalId;
     type EventId = usize;
-    type Event = JournalEvent;
+    type Event = JounalPayload;
     type Error = JournalStoreError;
 
     async fn record(
         &self,
         id: JournalId,
         _by: Authority,
-        event: JournalEvent,
+        event: JounalPayload,
     ) -> JournalStoreResult<usize> {
         let arc_event = Arc::new(event.clone());
         let event_id = {
@@ -200,7 +200,7 @@ impl EventStore for JournalMemoryStore {
             global_events.len()
         };
 
-        if let JournalEvent::Created {
+        if let JounalPayload::Created {
             name,
             created_at,
             creator,
@@ -234,9 +234,9 @@ impl EventStore for JournalMemoryStore {
             && let Some(mut state) = self.journal_table.get_mut(&id)
         {
             // Update user_journals index for membership changes
-            if let JournalEvent::AddedTenant { id: user_id, .. } = &event {
+            if let JounalPayload::AddedTenant { id: user_id, .. } = &event {
                 self.user_journals.entry(*user_id).or_default().insert(id);
-            } else if let JournalEvent::RemovedTenant { id: user_id } = &event {
+            } else if let JounalPayload::RemovedTenant { id: user_id } = &event {
                 self.user_journals.entry(*user_id).or_default().remove(&id);
             }
 
@@ -254,7 +254,7 @@ impl EventStore for JournalMemoryStore {
         id: JournalId,
         after: usize,
         limit: usize,
-    ) -> Result<Vec<JournalEvent>, Self::Error> {
+    ) -> Result<Vec<JounalPayload>, Self::Error> {
         let events = self.local_events.get(&id).ok_or(InvalidJournal(id))?;
 
         // avoid a panic fn start > len
@@ -317,7 +317,7 @@ pub struct JournalTenantInfo {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub enum JournalEvent {
+pub enum JounalPayload {
     Created {
         name: Name,
         created_at: DateTime<Utc>,
@@ -344,13 +344,13 @@ pub enum JournalEvent {
     Deleted,
 }
 
-impl Type<sqlx::Postgres> for JournalEvent {
+impl Type<sqlx::Postgres> for JounalPayload {
     fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
         <&[u8] as Type<sqlx::Postgres>>::type_info()
     }
 }
 
-impl<'q> Encode<'q, sqlx::Postgres> for JournalEvent {
+impl<'q> Encode<'q, sqlx::Postgres> for JounalPayload {
     fn encode_by_ref(
         &self,
         buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'q>,
@@ -360,10 +360,10 @@ impl<'q> Encode<'q, sqlx::Postgres> for JournalEvent {
     }
 }
 
-impl<'r> Decode<'r, sqlx::Postgres> for JournalEvent {
+impl<'r> Decode<'r, sqlx::Postgres> for JounalPayload {
     fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
         let bytes = <&[u8] as Decode<sqlx::Postgres>>::decode(value)?;
-        Ok(postcard::from_bytes::<JournalEvent>(bytes)?)
+        Ok(postcard::from_bytes::<JounalPayload>(bytes)?)
     }
 }
 
@@ -410,9 +410,9 @@ where
 }
 
 impl JournalState {
-    pub fn apply(&mut self, event: JournalEvent) {
+    pub fn apply(&mut self, event: JounalPayload) {
         match event {
-            JournalEvent::Created {
+            JounalPayload::Created {
                 name,
                 creator,
                 created_at,
@@ -425,23 +425,23 @@ impl JournalState {
                 self.parent_journal_id = parent_journal_id;
             }
 
-            JournalEvent::Renamed { name } => self.name = name,
+            JounalPayload::Renamed { name } => self.name = name,
 
-            JournalEvent::AddedTenant { id, tenant_info } => {
+            JounalPayload::AddedTenant { id, tenant_info } => {
                 _ = self.tenants.insert(id, tenant_info);
             }
 
-            JournalEvent::TransferredOwnership { new_owner } => self.owner = new_owner,
+            JounalPayload::TransferredOwnership { new_owner } => self.owner = new_owner,
 
-            JournalEvent::RemovedTenant { id } => {
+            JounalPayload::RemovedTenant { id } => {
                 _ = self.tenants.remove(&id);
             }
-            JournalEvent::UpdatedTenantPermissions { id, permissions } => {
+            JounalPayload::UpdatedTenantPermissions { id, permissions } => {
                 if let Some(tenant_info) = self.tenants.get_mut(&id) {
                     tenant_info.tenant_permissions = permissions;
                 }
             }
-            JournalEvent::Deleted => self.deleted = true,
+            JounalPayload::Deleted => self.deleted = true,
         }
     }
 
@@ -458,7 +458,7 @@ impl JournalState {
 
 #[cfg(test)]
 mod test_user {
-    use super::JournalEvent;
+    use super::JounalPayload;
     use crate::authority::UserId;
     use crate::name::Name;
     use chrono::Utc;
@@ -467,7 +467,7 @@ mod test_user {
 
     #[sqlx::test]
     async fn test_encode_decode_journalevent(pool: PgPool) {
-        let original_event = JournalEvent::Created {
+        let original_event = JounalPayload::Created {
             name: Name::try_new("test".to_string()).expect("name creation failed"),
             creator: UserId::new(),
             created_at: Utc::now(),
@@ -498,7 +498,7 @@ mod test_user {
         .await
         .expect("failed to insert journal into mock table");
 
-        let event: JournalEvent = sqlx::query_scalar(
+        let event: JounalPayload = sqlx::query_scalar(
             r#"
             SELECT event FROM test_journal_table
             LIMIT 1
@@ -512,7 +512,7 @@ mod test_user {
 
         #[derive(FromRow)]
         struct WrapperType {
-            event: JournalEvent,
+            event: JounalPayload,
         }
 
         let event_wrapper: WrapperType = sqlx::query_as(
