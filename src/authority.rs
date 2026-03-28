@@ -1,4 +1,5 @@
 pub use crate::auth::user::UserId;
+pub use crate::grant::GrantId;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Actor {
@@ -10,7 +11,12 @@ pub enum Actor {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Authority {
     Direct(Actor),
-    // Delegated { authorizer: Actor, executor: Actor },
+    #[expect(dead_code)]
+    Delegated {
+        grantor: Actor,
+        grant: GrantId,
+        grantee: Actor,
+    },
 }
 
 #[cfg(test)]
