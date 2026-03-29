@@ -10,6 +10,7 @@ mod monkesto_error;
 pub mod name;
 mod notfoundpage;
 mod seed;
+mod store;
 mod theme;
 mod transaction;
 pub mod util;
