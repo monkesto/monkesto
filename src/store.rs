@@ -5,8 +5,24 @@ use futures_core::Stream;
 use serde::Deserialize;
 use serde::Serialize;
 use std::error::Error;
+use std::ops::Deref;
 
-type EventId = u64;
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct EventId(u64);
+
+impl Deref for EventId {
+    type Target = u64;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<u64> for EventId {
+    fn from(value: u64) -> Self {
+        EventId(value)
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Event<P: Clone + Sized, I: Copy + Clone + Sized> {
@@ -76,7 +92,7 @@ pub trait Store: Send + Sync {
         at: DateTime<Utc>,
         id: Self::Id,
         payload: Self::Payload,
-        when: When<Self::Id>,
+        when: When<EventId>,
     ) -> Result<Event<Self::Payload, Self::Id>, Self::Error>;
 
     /// Stream events from the event store.
