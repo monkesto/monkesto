@@ -12,7 +12,6 @@ pub mod memory;
 pub struct EventId(u64);
 
 impl EventId {
-    #[expect(dead_code)]
     pub fn next(&self) -> Self {
         EventId(self.0 + 1)
     }
@@ -41,32 +40,34 @@ pub struct Event<I: Copy + Clone + Sized, P: Clone + Sized> {
     pub payload: P,
 }
 
-#[expect(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome<I: Copy + Clone + Sized, P: Clone + Sized> {
     Recorded(Event<I, P>),
     Skipped,
 }
 
-#[expect(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Select<T: Copy> {
+    #[expect(dead_code)]
     All,
+    #[expect(dead_code)]
     One(T),
 }
 
 /// A condition for recording an event.
-#[expect(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum When<T: Copy> {
+    #[expect(dead_code)]
     Always,
+    #[expect(dead_code)]
     Current(T),
 }
 
-#[expect(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum After<T: Copy> {
+    #[expect(dead_code)]
     Start,
+    #[expect(dead_code)]
     Specific(T),
 }
 
