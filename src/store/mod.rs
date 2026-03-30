@@ -1,14 +1,22 @@
 use crate::authority::Authority;
 use chrono::DateTime;
 use chrono::Utc;
-use futures_core::Stream;
 use serde::Deserialize;
 use serde::Serialize;
 use std::error::Error;
 use std::ops::Deref;
 
+pub mod memory;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct EventId(u64);
+
+impl EventId {
+    #[expect(dead_code)]
+    pub fn next(&self) -> Self {
+        EventId(self.0 + 1)
+    }
+}
 
 impl Deref for EventId {
     type Target = u64;
@@ -25,37 +33,47 @@ impl From<u64> for EventId {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct Event<P: Clone + Sized, I: Copy + Clone + Sized> {
+pub struct Event<I: Copy + Clone + Sized, P: Clone + Sized> {
     pub event_id: EventId,
     pub timestamp: DateTime<Utc>,
     pub authority: Authority,
-    pub payload: P,
     pub id: I,
+    pub payload: P,
 }
 
 #[expect(dead_code)]
-pub enum Select<T> {
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome<I: Copy + Clone + Sized, P: Clone + Sized> {
+    Recorded(Event<I, P>),
+    Skipped,
+}
+
+#[expect(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Select<T: Copy> {
     All,
     One(T),
 }
 
 /// A condition for recording an event.
 #[expect(dead_code)]
-pub enum When<T> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum When<T: Copy> {
     Always,
     Current(T),
 }
 
 #[expect(dead_code)]
-pub enum After<T> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum After<T: Copy> {
     Start,
     Specific(T),
 }
 
 /// A page of events.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Page<P: Clone + Sized, I: Copy + Clone + Sized> {
-    pub items: Vec<Event<P, I>>,
+pub struct Page<I: Copy + Clone + Sized, P: Clone + Sized> {
+    pub items: Vec<Event<I, P>>,
     /// Whether there are currently more pages for this query.
     pub more: bool,
     /// The value to use as the `after` param to get the next page for this query.
@@ -66,26 +84,8 @@ pub struct Page<P: Clone + Sized, I: Copy + Clone + Sized> {
 pub trait Store: Send + Sync {
     type Id: Send + Sync + Copy + Clone;
     type Payload: Send + Sync + Clone;
-    type Error: Error;
-    type Subscription: Stream<Item = Result<Event<Self::Payload, Self::Id>, Self::Error>>
-        + Send
-        + 'static;
+    type Error: Error + Send + Sync + 'static;
 
-    /// Record an event to storage.
-    ///
-    /// # Parameters
-    /// - `id`: The id of the resource for this event
-    /// - `by`: Who caused this event
-    /// - `at`: The time that the event occurred
-    /// - `when`: The condition needed to record this event.
-    ///   [`When::Current`] avoids writing the event
-    ///   if there are new events for this resource
-    ///   since the latest read from the store,
-    ///   as indicated by the event id given to [`When::Current`].
-    /// - `payload`: The specific data needed for this event.
-    ///
-    /// # Returns
-    /// The complete event that was recorded to the store.
     async fn record(
         &self,
         by: Authority,
@@ -93,20 +93,12 @@ pub trait Store: Send + Sync {
         id: Self::Id,
         payload: Self::Payload,
         when: When<EventId>,
-    ) -> Result<Event<Self::Payload, Self::Id>, Self::Error>;
+    ) -> Result<Outcome<Self::Id, Self::Payload>, Self::Error>;
 
-    /// Stream events from the event store.
-    async fn subscribe(
-        &self,
-        select: Select<Self::Id>,
-        after: After<EventId>,
-    ) -> Result<Self::Subscription, Self::Error>;
-
-    /// Get a [`Page`] of events from the store.
     async fn review(
         &self,
         select: Select<Self::Id>,
         after: After<EventId>,
         limit: usize,
-    ) -> Result<Page<Self::Payload, Self::Id>, Self::Error>;
+    ) -> Result<Page<Self::Id, Self::Payload>, Self::Error>;
 }
