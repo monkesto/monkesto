@@ -78,7 +78,7 @@ where
         }
 
         if !parent_state
-            .get_actor_permissions(&authority)
+            .get_actor_permissions(authority)
             .contains(Permissions::ADDACCOUNT)
         {
             return Err(PermissionError(Permissions::ADDACCOUNT));
@@ -277,6 +277,7 @@ where
     /// Returns the name path from `journal_id` up to (but not including) `stop_at_ancestor`,
     /// in ancestor-first order. Returns `None` if any journal in the chain is missing.
     /// Returns an empty vec if `journal_id == stop_at_ancestor`.
+    #[expect(dead_code)]
     pub async fn journal_get_relative_name_path(
         &self,
         journal_id: JournalId,
