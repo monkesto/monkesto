@@ -491,5 +491,123 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
             .await?;
     }
 
+    // create subjournals and subjournal accounts
+    // TODO: make subjournals automatically inherit accounts
+    let sub1_id = service
+        .journal_service
+        .create_subjournal(
+            maple_ridge_academy_id,
+            Name::try_new("lvl 1 subjournal".into())?,
+            &pacioli_authority,
+        )
+        .await?;
+
+    let sub_1_benefits_id = AccountId::from_str("sub1bft011")?;
+    service
+        .account_service
+        .create_account(
+            sub_1_benefits_id,
+            sub1_id,
+            &pacioli_authority,
+            Name::try_new("sub 1 benefits".to_string())?,
+            None,
+        )
+        .await?;
+
+    let sub_1_checking_id = AccountId::from_str("ac5bchk012")?;
+    service
+        .account_service
+        .create_account(
+            sub_1_checking_id,
+            sub1_id,
+            &pacioli_authority,
+            Name::try_new("sub 1 checking".to_string())?,
+            None,
+        )
+        .await?;
+
+    let sub_1_transaction_id = TransactionId::from_str("t11chckdpt")?;
+
+    service
+        .transaction_service
+        .create_transaction(
+            sub_1_transaction_id,
+            sub1_id,
+            &pacioli_authority,
+            vec![
+                BalanceUpdate {
+                    journal_id: sub1_id,
+                    account_id: sub_1_benefits_id,
+                    amount: 128000,
+                    entry_type: EntryType::Debit,
+                },
+                BalanceUpdate {
+                    journal_id: sub1_id,
+                    account_id: sub_1_checking_id,
+                    amount: 128000,
+                    entry_type: EntryType::Credit,
+                },
+            ],
+        )
+        .await?;
+
+    let sub2_id = service
+        .journal_service
+        .create_subjournal(
+            sub1_id,
+            Name::try_new("lvl 2 subjournal".into())?,
+            &pacioli_authority,
+        )
+        .await?;
+
+    let sub_2_benefits_id = AccountId::from_str("sub1bft021")?;
+    service
+        .account_service
+        .create_account(
+            sub_2_benefits_id,
+            sub2_id,
+            &pacioli_authority,
+            Name::try_new("sub 2 benefits".to_string())?,
+            None,
+        )
+        .await?;
+
+    let sub_2_checking_id = AccountId::from_str("ac5bchk022")?;
+    service
+        .account_service
+        .create_account(
+            sub_2_checking_id,
+            sub2_id,
+            &pacioli_authority,
+            Name::try_new("sub 2 checking".to_string())?,
+            None,
+        )
+        .await?;
+
+    let sub_2_transaction_id = TransactionId::from_str("t21chckdpt")?;
+
+    service
+        .transaction_service
+        .create_transaction(
+            sub_2_transaction_id,
+            sub2_id,
+            &pacioli_authority,
+            vec![
+                BalanceUpdate {
+                    journal_id: sub2_id,
+                    account_id: sub_2_benefits_id,
+                    amount: 256000,
+                    entry_type: EntryType::Debit,
+                },
+                BalanceUpdate {
+                    journal_id: sub2_id,
+                    account_id: sub_2_checking_id,
+                    amount: 256000,
+                    entry_type: EntryType::Credit,
+                },
+            ],
+        )
+        .await?;
+
     Ok(())
 }

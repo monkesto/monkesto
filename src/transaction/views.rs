@@ -5,12 +5,14 @@ use crate::auth::user;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::ident::JournalId;
+use crate::ident::TransactionId;
 use crate::journal::JournalNameOrUnknown;
 use crate::journal::JournalState;
 use crate::journal::layout;
 use crate::monkesto_error::MonkestoError;
 use crate::monkesto_error::UrlError;
 use crate::transaction::EntryType;
+use crate::transaction::TransactionState;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
@@ -37,107 +39,165 @@ fn render_journal_options(
     }
 }
 
+use serde_json::Value;
+use serde_json::json;
+
+async fn build_transaction_node(
+    transaction_id: &TransactionId,
+    transaction_state: &TransactionState,
+    parent_journal: JournalId,
+    state: &StateType,
+) -> Value {
+    let mut entries_html = String::new();
+    for entry in &transaction_state.updates {
+        let amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
+        let account = match state
+            .account_service
+            .get_full_account_path(entry.account_id)
+            .await
+        {
+            Ok(Some(segments)) => segments
+                .iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join(" › "),
+            _ => "Unknown Account".to_string(),
+        };
+        entries_html.push_str(&format!(
+            r#"<div class="flex justify-between items-center">
+                <span class="text-sm font-medium text-white">{}</span>
+                <span class="text-sm text-gray-300 whitespace-nowrap ml-4">{} {}</span>
+            </div>"#,
+            account, amount, entry.entry_type
+        ));
+    }
+
+    let author = match state
+        .transaction_service
+        .get_transaction_authority(transaction_id)
+        .await
+    {
+        Ok(auth) => match auth.actor() {
+            Actor::User(id) => state
+                .user_service
+                .user_get_email(*id)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "unknown user".to_string()),
+            Actor::System => "system".to_string(),
+            Actor::Anonymous => "anonymous".to_string(),
+        },
+        Err(_) => "unknown".to_string(),
+    };
+
+    let card_html = format!(
+        r#"<div class="tx-card rounded-xl border border-gray-700 bg-gray-800 hover:bg-gray-700 transition-colors p-4 flex flex-col gap-1 cursor-pointer w-full box-border">
+        {}
+        <div class="text-xs text-gray-500 mt-1">{}</div>
+    </div>"#,
+        entries_html, author
+    );
+
+    json!({
+        "id": transaction_id.to_string(),
+        "text": card_html,
+        "icon": false,
+        "a_attr": { "href": format!("/journal/{}/transaction/{}", parent_journal, transaction_id), "class": "tx-link" },
+        "li_attr": { "class": "tx-li" },
+    })
+}
+
+async fn build_journal_tree_node(
+    journal_id: JournalId,
+    journal_name: &str,
+    authority: &Authority,
+    state: &StateType,
+) -> Value {
+    let mut children: Vec<Value> = Vec::new();
+
+    if let Ok(transactions) = state
+        .transaction_service
+        .get_all_transactions_in_journal(journal_id, authority)
+        .await
+    {
+        for (transaction_id, transaction_state) in transactions {
+            children.push(
+                build_transaction_node(&transaction_id, &transaction_state, journal_id, state)
+                    .await,
+            );
+        }
+    }
+
+    if let Ok(subjournals) = state
+        .journal_service
+        .get_direct_subjournals(journal_id, authority)
+        .await
+    {
+        for (sub_id, sub_state) in subjournals {
+            children.push(
+                Box::pin(build_journal_tree_node(
+                    sub_id,
+                    &sub_state.name.to_string(),
+                    authority,
+                    state,
+                ))
+                .await,
+            );
+        }
+    }
+
+    json!({
+        "id": journal_id.to_string(),
+        "text": journal_name,
+        "children": children,
+        "state": { "opened": true },
+    })
+}
+
 async fn render_transactions(
     parent_journal: JournalId,
+    journal_name: &str,
     authority: &Authority,
     state: &StateType,
 ) -> Markup {
+    let root_node = build_journal_tree_node(parent_journal, journal_name, authority, state).await;
+    let tree_json = json!([root_node]).to_string();
+
     html! {
-     @match state.transaction_service.get_all_transactions_in_journal(parent_journal, authority).await {
-            Ok(transactions) => {
-                @for (transaction_id, transaction_state) in transactions {
-                    a
-                    href=(format!("/journal/{}/transaction/{}", parent_journal, transaction_id.to_string()))
-                    class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                        div class="space-y-3" {
-                            div class="space-y-2" {
-                                @for entry in transaction_state.updates {
-                                    @let entry_amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
+        link rel="stylesheet"
+            href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.16/themes/default/style.min.css" {}
 
-                                    div class="flex justify-between items-center" {
-                                        div class="flex items-baseline gap-2" {
-                                            span class="text-base font-medium text-gray-900 dark:text-white" {
-                                                @match state.account_service.get_full_account_path(entry.account_id).await {
-                                                    Ok(Some(segments)) => {
-                                                        @for (i, segment) in segments.iter().enumerate() {
-                                                            @if i > 0 {
-                                                                span class="text-gray-400 dark:text-gray-500 mx-1" { "›" }
-                                                            }
-                                                            (segment)
-                                                        }
-                                                    }
-                                                    Ok(None) => "Unknown Account",
-                                                    Err(e) => (format!("Failed to get account name: {}", e)),
-                                                }
-                                            }
-                                            @if entry.journal_id != parent_journal {
-                                                @match state.journal_service.journal_get_relative_name_path(entry.journal_id, parent_journal).await {
-                                                    Ok(Some(parts)) if !parts.is_empty() => {
-                                                        span class="text-xs text-gray-400 dark:text-gray-500" {
-                                                            "· "
-                                                            @for (i, part) in parts.iter().enumerate() {
-                                                                @if i > 0 { " › " }
-                                                                (part)
-                                                            }
-                                                        }
-                                                    }
-                                                    _ => {}
-                                                }
-                                            }
-                                        }
+        // jstree requires a regular style block
+        style { (maud::PreEscaped(r#"
+            #journal-tree li.tx-li,
+            #journal-tree li.tx-li > a { height: auto !important; display: block !important; }
+            #journal-tree li.tx-li > a.tx-link { background: none !important; padding: 0 !important; }
+            #journal-tree li.tx-li > i.jstree-icon { display: none; }
+            #journal-tree .jstree-children { display: flex; flex-direction: column; gap: 8px; padding: 8px 0; }
+        "#)) }
 
-                                        span class="text-base text-gray-700 dark:text-gray-300" {
-                                            (entry_amount) " " (entry.entry_type)
-                                        }
-                                    }
-                                }
+        div id="journal-tree" {}
 
-                                div class="text-xs text-gray-400 dark:text-gray-500" {
-                                    @match state.transaction_service.get_transaction_authority(&transaction_id).await {
-                                        Ok(authority) => @match authority.actor() {
-                                            Actor::User(id) => @match state.user_service.user_get_email(*id).await {
-                                                Ok(Some(email)) => (email),
-                                                Ok(None) => ("unknown user"),
-                                                Err(e) => (format!("failed to get actor email: {}", e)),
-                                            },
-                                            Actor::System => "system",
-                                            Actor::Anonymous => "anonymous",
-                                        },
-                                        Err(e) => (format!("Failed to get transaction authority: {}", e)),
-                                }
-                                }
-                            }
-                        }
-                    }
-                }
+        script src="https://code.jquery.com/jquery-3.7.1.min.js" {}
+        script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.16/jstree.min.js" {}
 
-                @match state.journal_service.get_direct_subjournals(parent_journal, authority).await {
-                // TODO: properly indent this
-                    Ok(subjournals) if !subjournals.is_empty() => {
-                        div class="mt-6 ml-4 border-l-2 border-gray-200 dark:border-gray-700 pl-6 space-y-8" {
-                            @for (sub_id, sub_state) in subjournals {
-                                div {
-                                    h2 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-tight mb-4" {
-                                        (sub_state.name)
-                                    }
-
-                                    (Box::pin(render_transactions(sub_id, authority, state)).await)
-                                }
-                            }
-                        }
-                    },
-                    Ok(_) => {},
-                    Err(e) => { (format!("Failed to get subjournals: {}", e)) }
-                }
-
-            },
-            Err(e) => {
-                div class="flex justify-center items-center h-full" {
-                    p class="text-gray-500 dark:text-gray-400" {
-                        (format!("Failed to fetch transactions: {:?}", e))
-                    }
-                }
-            }
+        script {
+            (maud::PreEscaped(format!(r#"
+                $(function() {{
+                    $('#journal-tree').jstree({{
+                        core: {{
+                            data: {tree_json},
+                            themes: {{ icons: true, dots: true }},
+                        }},
+                        plugins: []
+                    }})
+                    .on('select_node.jstree', function(e, data) {{
+                        const href = data.node.a_attr?.href;
+                        if (href) window.location.href = href;
+                    }});
+                }});
+            "#)))
         }
     }
 }
@@ -154,11 +214,11 @@ pub async fn transaction_list_page(
     let journal_id_res = JournalId::from_str(&id);
 
     let content = html! {
-        @if let Ok(journal_id) = journal_id_res {
-            (render_transactions(journal_id, &authority, &state).await)
+        @if let Ok(journal_id) = journal_id_res && let Ok(Some(j_name)) = state.journal_service.get_name(journal_id).await {
+            (render_transactions(journal_id, &j_name.to_string(), &authority, &state).await)
         } @else {
             p {
-                "invalid journal id"
+                "invalid journal"
             }
         }
 

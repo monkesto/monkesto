@@ -65,7 +65,7 @@ where
         &self,
         parent_journal_id: JournalId,
         name: Name,
-        authority: Authority,
+        authority: &Authority,
     ) -> JournalStoreResult<JournalId> {
         let parent_state = self
             .journal_store
@@ -88,7 +88,7 @@ where
         self.journal_store
             .record(
                 subjournal_id,
-                authority,
+                authority.clone(),
                 JounalPayload::Created {
                     name,
                     // TODO: figure out how to handle journal/subjournal ownership

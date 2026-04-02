@@ -175,7 +175,7 @@ pub async fn create_sub_journal(
 
     state
         .journal_service
-        .create_subjournal(journal_id, name, Authority::Direct(Actor::User(user.id)))
+        .create_subjournal(journal_id, name, &Authority::Direct(Actor::User(user.id)))
         .await
         .or_redirect(&callback_url)?;
 
