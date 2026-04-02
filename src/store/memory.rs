@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 #[derive(Debug)]
+#[cfg_attr(not(test), expect(dead_code))]
 pub enum MemoryStoreError {}
 
 impl fmt::Display for MemoryStoreError {
@@ -27,6 +28,7 @@ impl fmt::Display for MemoryStoreError {
 
 impl Error for MemoryStoreError {}
 
+#[cfg_attr(not(test), expect(dead_code))]
 struct MemoryStoreState<I, P>
 where
     I: Send + Sync + Copy + Clone + Eq + Hash + Sized,
@@ -37,6 +39,7 @@ where
     select_events: HashMap<I, Vec<Event<I, P>>>,
 }
 
+#[cfg_attr(not(test), expect(dead_code))]
 struct MemoryStore<I, P>
 where
     I: Send + Sync + Copy + Clone + Eq + Hash + Sized,
@@ -80,8 +83,12 @@ where
     ) -> Result<Outcome<I, P>, Self::Error> {
         let mut state = self.state.lock().expect("poisoned");
         match when {
-            When::Always => {}
-            When::Current(event_id) => {
+            When::Empty => {
+                if state.select_events.contains_key(&id) {
+                    return Ok(Outcome::Skipped);
+                }
+            }
+            When::Within(event_id) => {
                 let condition_met = state
                     .select_events
                     .get(&id)

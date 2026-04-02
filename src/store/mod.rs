@@ -10,6 +10,7 @@ use std::ops::Deref;
 pub struct EventId(u64);
 
 impl EventId {
+    #[cfg_attr(not(test), expect(dead_code))]
     pub fn next(&self) -> Self {
         EventId(self.0 + 1)
     }
@@ -40,7 +41,9 @@ pub struct Event<I: Copy + Clone + Sized, P: Clone + Sized> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome<I: Copy + Clone + Sized, P: Clone + Sized> {
+    #[cfg_attr(not(test), expect(dead_code))]
     Recorded(Event<I, P>),
+    #[cfg_attr(not(test), expect(dead_code))]
     Skipped,
 }
 
@@ -48,22 +51,20 @@ pub enum Outcome<I: Copy + Clone + Sized, P: Clone + Sized> {
 pub enum Select<T: Copy> {
     #[cfg_attr(not(test), expect(dead_code))]
     All,
-    #[cfg_attr(not(test), expect(dead_code))]
     One(T),
 }
 
 /// A condition for recording an event.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum When<T: Copy> {
-    #[cfg_attr(not(test), expect(dead_code))]
-    Always,
-    #[cfg_attr(not(test), expect(dead_code))]
-    Current(T),
+    /// Record only if the stream is empty.
+    Empty,
+    /// Record only if the stream has no events beyond `T`.
+    Within(T),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum After<T: Copy> {
-    #[cfg_attr(not(test), expect(dead_code))]
     Start,
     #[cfg_attr(not(test), expect(dead_code))]
     Specific(T),
@@ -79,7 +80,6 @@ pub struct Page<I: Copy + Clone + Sized, P: Clone + Sized> {
     pub next: EventId,
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 pub trait Store: Send + Sync {
     type Id: Send + Sync + Copy + Clone;
     type Payload: Send + Sync + Clone;
@@ -140,7 +140,7 @@ macro_rules! store_tests {
         // ---------------------------------------------------------------
 
         #[tokio::test]
-        async fn record_always_no_prior() {
+        async fn record_empty_no_prior() {
             let store = $make_store;
             let result = store
                 .record(
@@ -148,7 +148,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "first".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -156,7 +156,7 @@ macro_rules! store_tests {
         }
 
         #[tokio::test]
-        async fn record_always_with_prior() {
+        async fn record_empty_with_prior() {
             let store = $make_store;
             store
                 .record(
@@ -164,7 +164,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "first".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -174,15 +174,76 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "second".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
+            assert!(matches!(result, Outcome::Skipped));
+        }
+
+        #[tokio::test]
+        async fn record_empty_for_one_id_unaffected_by_other_id() {
+            let store = $make_store;
+            store
+                .record(
+                    Authority::Direct(Actor::System),
+                    Utc::now(),
+                    1u32,
+                    "a1".to_string(),
+                    When::Empty,
+                )
+                .await
+                .unwrap();
+
+            let result = store
+                .record(
+                    Authority::Direct(Actor::System),
+                    Utc::now(),
+                    2u32,
+                    "b1".to_string(),
+                    When::Empty,
+                )
+                .await
+                .unwrap();
+
             assert!(matches!(result, Outcome::Recorded(_)));
         }
 
         #[tokio::test]
-        async fn record_current_eq_last_is_recorded() {
+        async fn record_empty_skipped_leaves_store_unchanged() {
+            let store = $make_store;
+            store
+                .record(
+                    Authority::Direct(Actor::System),
+                    Utc::now(),
+                    1u32,
+                    "first".to_string(),
+                    When::Empty,
+                )
+                .await
+                .unwrap();
+
+            let before = store.review(Select::All, After::Start, 10).await.unwrap();
+
+            let result = store
+                .record(
+                    Authority::Direct(Actor::System),
+                    Utc::now(),
+                    1u32,
+                    "should not appear".to_string(),
+                    When::Empty,
+                )
+                .await
+                .unwrap();
+
+            assert!(matches!(result, Outcome::Skipped));
+
+            let after = store.review(Select::All, After::Start, 10).await.unwrap();
+            assert_eq!(before, after);
+        }
+
+        #[tokio::test]
+        async fn record_within_eq_last_is_recorded() {
             let store = $make_store;
             let first = store
                 .record(
@@ -190,7 +251,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "first".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -203,7 +264,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "second".to_string(),
-                    When::Current(event.event_id),
+                    When::Within(event.event_id),
                 )
                 .await
                 .unwrap();
@@ -211,7 +272,7 @@ macro_rules! store_tests {
         }
 
         #[tokio::test]
-        async fn record_current_gt_last_is_recorded() {
+        async fn record_within_gt_last_is_recorded() {
             let store = $make_store;
             let first = store
                 .record(
@@ -219,7 +280,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "first".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -234,7 +295,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "second".to_string(),
-                    When::Current(future_id),
+                    When::Within(future_id),
                 )
                 .await
                 .unwrap();
@@ -242,7 +303,7 @@ macro_rules! store_tests {
         }
 
         #[tokio::test]
-        async fn record_current_lt_last_is_skipped() {
+        async fn record_within_lt_last_is_skipped() {
             let store = $make_store;
             let first = store
                 .record(
@@ -250,7 +311,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "first".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -264,7 +325,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "second".to_string(),
-                    When::Always,
+                    When::Within(first_event.event_id),
                 )
                 .await
                 .unwrap();
@@ -275,7 +336,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "third".to_string(),
-                    When::Current(first_event.event_id),
+                    When::Within(first_event.event_id),
                 )
                 .await
                 .unwrap();
@@ -292,7 +353,7 @@ macro_rules! store_tests {
             let at = Utc::now();
             let by = Authority::Direct(Actor::System);
             let result = store
-                .record(by.clone(), at, 42u32, "payload".to_string(), When::Always)
+                .record(by.clone(), at, 42u32, "payload".to_string(), When::Empty)
                 .await
                 .unwrap();
             let Outcome::Recorded(event) = result else {
@@ -308,22 +369,29 @@ macro_rules! store_tests {
         async fn record_sequential_event_ids_are_increasing() {
             let store = $make_store;
             let mut prev_id = EventId::from(0);
+            let mut latest = None;
             for i in 0..5 {
+                let when = match latest {
+                    Some(event_id) => When::Within(event_id),
+                    None => When::Empty,
+                };
                 let result = store
                     .record(
                         Authority::Direct(Actor::System),
                         Utc::now(),
                         1u32,
                         format!("event {i}"),
-                        When::Always,
+                        when,
                     )
                     .await
                     .unwrap();
                 let Outcome::Recorded(event) = result else {
                     panic!("expected Recorded");
                 };
-                assert!(event.event_id > prev_id);
-                prev_id = event.event_id;
+                let event_id = event.event_id;
+                assert!(event_id > prev_id);
+                prev_id = event_id;
+                latest = Some(event_id);
             }
         }
 
@@ -332,7 +400,7 @@ macro_rules! store_tests {
             let store = $make_store;
             let by = Authority::Direct(Actor::User(UserId::new()));
             let result = store
-                .record(by.clone(), Utc::now(), 1u32, "x".to_string(), When::Always)
+                .record(by.clone(), Utc::now(), 1u32, "x".to_string(), When::Empty)
                 .await
                 .unwrap();
             let Outcome::Recorded(event) = result else {
@@ -350,7 +418,7 @@ macro_rules! store_tests {
                 grantee: Actor::User(UserId::new()),
             };
             let result = store
-                .record(by.clone(), Utc::now(), 1u32, "x".to_string(), When::Always)
+                .record(by.clone(), Utc::now(), 1u32, "x".to_string(), When::Empty)
                 .await
                 .unwrap();
             let Outcome::Recorded(event) = result else {
@@ -371,7 +439,7 @@ macro_rules! store_tests {
                     at,
                     1u32,
                     "x".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -391,23 +459,26 @@ macro_rules! store_tests {
                 .unwrap()
                 .with_timezone(&Utc);
             // Record the later timestamp first
-            store
+            let result = store
                 .record(
                     Authority::Direct(Actor::System),
                     later,
                     1u32,
                     "later".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
+            let Outcome::Recorded(first_event) = result else {
+                panic!("expected Recorded");
+            };
             store
                 .record(
                     Authority::Direct(Actor::System),
                     earlier,
                     1u32,
                     "earlier".to_string(),
-                    When::Always,
+                    When::Within(first_event.event_id),
                 )
                 .await
                 .unwrap();
@@ -426,7 +497,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "a1".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -436,7 +507,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     2u32,
                     "b1".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -455,7 +526,7 @@ macro_rules! store_tests {
         }
 
         #[tokio::test]
-        async fn record_current_for_one_id_unaffected_by_other_id() {
+        async fn record_within_for_one_id_unaffected_by_other_id() {
             let store = $make_store;
             // Record to id 1 and capture its event_id
             let result = store
@@ -464,7 +535,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "a1".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -478,7 +549,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     2u32,
                     "b1".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -489,7 +560,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "a2".to_string(),
-                    When::Current(event_a.event_id),
+                    When::Within(event_a.event_id),
                 )
                 .await
                 .unwrap();
@@ -505,7 +576,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "first".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -519,7 +590,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "second".to_string(),
-                    When::Always,
+                    When::Within(first_event.event_id),
                 )
                 .await
                 .unwrap();
@@ -531,7 +602,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "should not appear".to_string(),
-                    When::Current(first_event.event_id),
+                    When::Within(first_event.event_id),
                 )
                 .await
                 .unwrap();
@@ -568,17 +639,26 @@ macro_rules! store_tests {
             #[case] after: After<EventId>,
         ) {
             let store = $make_store;
+            let mut latest = None;
             for i in 0..3 {
-                store
+                let when = match latest {
+                    Some(event_id) => When::Within(event_id),
+                    None => When::Empty,
+                };
+                let result = store
                     .record(
                         Authority::Direct(Actor::System),
                         Utc::now(),
                         1u32,
                         format!("event {i}"),
-                        When::Always,
+                        when,
                     )
                     .await
                     .unwrap();
+                let Outcome::Recorded(event) = result else {
+                    panic!("expected Recorded");
+                };
+                latest = Some(event.event_id);
             }
             let page = store.review(select, after, 10).await.unwrap();
             assert_eq!(page.items.len(), 3);
@@ -596,17 +676,26 @@ macro_rules! store_tests {
             #[case] after: After<EventId>,
         ) {
             let store = $make_store;
+            let mut latest = None;
             for i in 0..3 {
-                store
+                let when = match latest {
+                    Some(event_id) => When::Within(event_id),
+                    None => When::Empty,
+                };
+                let result = store
                     .record(
                         Authority::Direct(Actor::System),
                         Utc::now(),
                         1u32,
                         format!("event {i}"),
-                        When::Always,
+                        when,
                     )
                     .await
                     .unwrap();
+                let Outcome::Recorded(event) = result else {
+                    panic!("expected Recorded");
+                };
+                latest = Some(event.event_id);
             }
             let page = store.review(select, after, 3).await.unwrap();
             assert_eq!(page.items.len(), 3);
@@ -624,17 +713,26 @@ macro_rules! store_tests {
             #[case] after: After<EventId>,
         ) {
             let store = $make_store;
+            let mut latest = None;
             for i in 0..5 {
-                store
+                let when = match latest {
+                    Some(event_id) => When::Within(event_id),
+                    None => When::Empty,
+                };
+                let result = store
                     .record(
                         Authority::Direct(Actor::System),
                         Utc::now(),
                         1u32,
                         format!("event {i}"),
-                        When::Always,
+                        when,
                     )
                     .await
                     .unwrap();
+                let Outcome::Recorded(event) = result else {
+                    panic!("expected Recorded");
+                };
+                latest = Some(event.event_id);
             }
             let page = store.review(select, after, 3).await.unwrap();
             assert_eq!(page.items.len(), 3);
@@ -648,19 +746,52 @@ macro_rules! store_tests {
         #[tokio::test]
         async fn review_returns_insertion_order() {
             let store = $make_store;
-            // Record across different ids to ensure global ordering
-            for (id, payload) in [(1u32, "a"), (2u32, "b"), (1u32, "c"), (2u32, "d")] {
-                store
-                    .record(
-                        Authority::Direct(Actor::System),
-                        Utc::now(),
-                        id,
-                        payload.to_string(),
-                        When::Always,
-                    )
-                    .await
-                    .unwrap();
-            }
+            let result = store
+                .record(
+                    Authority::Direct(Actor::System),
+                    Utc::now(),
+                    1u32,
+                    "a".to_string(),
+                    When::Empty,
+                )
+                .await
+                .unwrap();
+            let Outcome::Recorded(a1) = result else {
+                panic!("expected Recorded");
+            };
+            let result = store
+                .record(
+                    Authority::Direct(Actor::System),
+                    Utc::now(),
+                    2u32,
+                    "b".to_string(),
+                    When::Empty,
+                )
+                .await
+                .unwrap();
+            let Outcome::Recorded(b1) = result else {
+                panic!("expected Recorded");
+            };
+            store
+                .record(
+                    Authority::Direct(Actor::System),
+                    Utc::now(),
+                    1u32,
+                    "c".to_string(),
+                    When::Within(a1.event_id),
+                )
+                .await
+                .unwrap();
+            store
+                .record(
+                    Authority::Direct(Actor::System),
+                    Utc::now(),
+                    2u32,
+                    "d".to_string(),
+                    When::Within(b1.event_id),
+                )
+                .await
+                .unwrap();
             let page = store.review(Select::All, After::Start, 10).await.unwrap();
             let payloads: Vec<&str> = page.items.iter().map(|e| e.payload.as_str()).collect();
             assert_eq!(payloads, vec!["a", "b", "c", "d"]);
@@ -675,7 +806,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "first".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -688,7 +819,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "second".to_string(),
-                    When::Always,
+                    When::Within(first.event_id),
                 )
                 .await
                 .unwrap();
@@ -709,7 +840,7 @@ macro_rules! store_tests {
                     Utc::now(),
                     1u32,
                     "first".to_string(),
-                    When::Always,
+                    When::Empty,
                 )
                 .await
                 .unwrap();
@@ -725,17 +856,26 @@ macro_rules! store_tests {
         #[tokio::test]
         async fn review_page_next_cursor_walks_without_duplicates_or_gaps() {
             let store = $make_store;
+            let mut latest = None;
             for i in 0..5 {
-                store
+                let when = match latest {
+                    Some(event_id) => When::Within(event_id),
+                    None => When::Empty,
+                };
+                let result = store
                     .record(
                         Authority::Direct(Actor::System),
                         Utc::now(),
                         1u32,
                         format!("event {i}"),
-                        When::Always,
+                        when,
                     )
                     .await
                     .unwrap();
+                let Outcome::Recorded(event) = result else {
+                    panic!("expected Recorded");
+                };
+                latest = Some(event.event_id);
             }
             // Walk in pages of 2
             let page1 = store.review(Select::All, After::Start, 2).await.unwrap();
@@ -763,17 +903,26 @@ macro_rules! store_tests {
         #[tokio::test]
         async fn review_walking_all_pages_yields_every_event_once() {
             let store = $make_store;
+            let mut latest = None;
             for i in 0..7 {
-                store
+                let when = match latest {
+                    Some(event_id) => When::Within(event_id),
+                    None => When::Empty,
+                };
+                let result = store
                     .record(
                         Authority::Direct(Actor::System),
                         Utc::now(),
                         1u32,
                         format!("event {i}"),
-                        When::Always,
+                        when,
                     )
                     .await
                     .unwrap();
+                let Outcome::Recorded(event) = result else {
+                    panic!("expected Recorded");
+                };
+                latest = Some(event.event_id);
             }
             let mut all_payloads = Vec::new();
             let mut after = After::Start;
