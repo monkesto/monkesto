@@ -121,6 +121,8 @@ pub trait TransactionStore:
         &self,
         transaction_id: &TransactionId,
     ) -> TransactionStoreResult<Option<TransactionState>>;
+
+    async fn get_transaction_authority(&self, transaction_id: &TransactionId) -> TransactionStoreResult<Authority>;
 }
 
 #[derive(Clone)]
@@ -238,6 +240,10 @@ impl TransactionStore for TransactionMemoryStore {
             .transaction_table
             .get(transaction_id)
             .map(|s| (*s).clone()))
+    }
+
+    async fn get_transaction_authority(&self, transaction_id: &TransactionId) -> TransactionStoreResult<Authority> {
+        Ok(self.local_events.get(transaction_id).ok_or(InvalidTransaction(*transaction_id))?.first().ok_or(InvalidTransaction(*transaction_id))?.authority.clone())
     }
 }
 

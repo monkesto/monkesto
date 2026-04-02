@@ -24,7 +24,7 @@ impl Authority {
     pub fn actor(&self) -> &Actor {
         match self {
             Authority::Direct(actor) => actor,
-            Authority::Delegated { grantee, .. } => grantee,
+            Authority::Delegated { grantor, .. } => grantor,
         }
     }
 }

@@ -37,24 +37,13 @@ fn render_journal_options(
     }
 }
 
-pub async fn transaction_list_page(
-    State(state): State<StateType>,
-    session: AuthSession<BackendType>,
-    Path(id): Path<String>,
-    Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect> {
-    let user = user::get_user(session)?;
-    let authority = Authority::Direct(Actor::User(user.id));
-
-    let journal_id_res = JournalId::from_str(&id);
-
-    let content = html! {
-        @if let Ok(journal_id) = journal_id_res {
-            @match state.transaction_service.get_all_transactions_in_journal(journal_id, &authority).await {
+async fn render_transactions(parent_journal: JournalId, authority: &Authority, state: &StateType) -> Markup {
+    html! {
+         @match state.transaction_service.get_all_transactions_in_journal(parent_journal, authority).await {
                 Ok(transactions) => {
                     @for (transaction_id, transaction_state) in transactions {
                         a
-                        href=(format!("/journal/{}/transaction/{}", id, transaction_id.to_string()))
+                        href=(format!("/journal/{}/transaction/{}", parent_journal, transaction_id.to_string()))
                         class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
                             div class="space-y-3" {
                                 div class="space-y-2" {
@@ -77,8 +66,8 @@ pub async fn transaction_list_page(
                                                         Err(e) => (format!("Failed to get account name: {}", e)),
                                                     }
                                                 }
-                                                @if entry.journal_id != journal_id {
-                                                    @match state.journal_service.journal_get_relative_name_path(entry.journal_id, journal_id).await {
+                                                @if entry.journal_id != parent_journal {
+                                                    @match state.journal_service.journal_get_relative_name_path(entry.journal_id, parent_journal).await {
                                                         Ok(Some(parts)) if !parts.is_empty() => {
                                                             span class="text-xs text-gray-400 dark:text-gray-500" {
                                                                 "· "
@@ -100,16 +89,43 @@ pub async fn transaction_list_page(
                                     }
 
                                     div class="text-xs text-gray-400 dark:text-gray-500" {
-                                        @match state.user_service.user_get_email(user.id).await {
-                                            Ok(Some(email)) => (email),
-                                            Ok(None) => "Unknown User",
-                                            Err(e) => (format! ("Failed to get user: {}", e)),
-                                        }
+                                        @match state.transaction_service.get_transaction_authority(&transaction_id).await {
+                                            Ok(authority) => @match authority.actor() {
+                                                Actor::User(id) => @match state.user_service.user_get_email(*id).await {
+                                                    Ok(Some(email)) => (email),
+                                                    Ok(None) => ("unknown user"),
+                                                    Err(e) => (format!("failed to get actor email: {}", e)),
+                                                },
+                                                Actor::System => "system",
+                                                Actor::Anonymous => "anonymous",
+                                            },
+                                            Err(e) => (format!("Failed to get transaction authority: {}", e)),
+                                    }
                                     }
                                 }
                             }
                         }
                     }
+
+                    @match state.journal_service.get_direct_subjournals(parent_journal, authority).await {
+                    // TODO: properly indent this
+                        Ok(subjournals) if !subjournals.is_empty() => {
+                            div class="mt-6 ml-4 border-l-2 border-gray-200 dark:border-gray-700 pl-6 space-y-8" {
+                                @for (sub_id, sub_state) in subjournals {
+                                    div {
+                                        h2 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-tight mb-4" {
+                                            (sub_state.name)
+                                        }
+
+                                        (Box::pin(render_transactions(sub_id, authority, state)).await)
+                                    }
+                                }
+                            }
+                        },
+                        Ok(_) => {},
+                        Err(e) => { (format!("Failed to get subjournals: {}", e)) }
+                    }
+
                 },
                 Err(e) => {
                     div class="flex justify-center items-center h-full" {
@@ -118,6 +134,27 @@ pub async fn transaction_list_page(
                         }
                     }
                 }
+            }
+        }
+    }
+
+pub async fn transaction_list_page(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
+    Path(id): Path<String>,
+    Query(err): Query<UrlError>,
+) -> Result<Markup, Redirect> {
+    let user = user::get_user(session)?;
+    let authority = Authority::Direct(Actor::User(user.id));
+
+    let journal_id_res = JournalId::from_str(&id);
+
+    let content = html! {
+        @if let Ok(journal_id) = journal_id_res {
+            (render_transactions(journal_id, &authority, &state).await)
+        } @else {
+            p {
+                "invalid journal id"
             }
         }
 
