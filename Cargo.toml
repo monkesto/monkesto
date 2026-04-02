@@ -40,7 +40,10 @@ webauthn-rs-proto = "0.5.4"
 tower-sessions-file-store = "0.2.0"
 axum-extra = { version = "0.12.5", features = ["form"] }
 rust_decimal = { version = "1.40.0", features = ["macros"] }
-axum-test = "19.1.1"
+axum-test = "20.0.0"
 
 [lints.clippy]
 unwrap_used = "deny"
+
+[dev-dependencies]
+rstest = "0.26.1"

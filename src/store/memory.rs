@@ -93,8 +93,9 @@ where
                 }
             }
         }
+        state.latest = state.latest.next();
         let event = Event {
-            event_id: state.latest.next(),
+            event_id: state.latest,
             timestamp: at,
             authority: by,
             id,
@@ -133,4 +134,11 @@ where
         let next = items.last().map(|e| e.event_id).unwrap_or(state.latest);
         Ok(Page { items, more, next })
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MemoryStore;
+
+    store_tests!(MemoryStore::<u32, String>::default());
 }
