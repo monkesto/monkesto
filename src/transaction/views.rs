@@ -37,106 +37,110 @@ fn render_journal_options(
     }
 }
 
-async fn render_transactions(parent_journal: JournalId, authority: &Authority, state: &StateType) -> Markup {
+async fn render_transactions(
+    parent_journal: JournalId,
+    authority: &Authority,
+    state: &StateType,
+) -> Markup {
     html! {
-         @match state.transaction_service.get_all_transactions_in_journal(parent_journal, authority).await {
-                Ok(transactions) => {
-                    @for (transaction_id, transaction_state) in transactions {
-                        a
-                        href=(format!("/journal/{}/transaction/{}", parent_journal, transaction_id.to_string()))
-                        class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                            div class="space-y-3" {
-                                div class="space-y-2" {
-                                    @for entry in transaction_state.updates {
-                                        @let entry_amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
+     @match state.transaction_service.get_all_transactions_in_journal(parent_journal, authority).await {
+            Ok(transactions) => {
+                @for (transaction_id, transaction_state) in transactions {
+                    a
+                    href=(format!("/journal/{}/transaction/{}", parent_journal, transaction_id.to_string()))
+                    class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                        div class="space-y-3" {
+                            div class="space-y-2" {
+                                @for entry in transaction_state.updates {
+                                    @let entry_amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
 
-                                        div class="flex justify-between items-center" {
-                                            div class="flex items-baseline gap-2" {
-                                                span class="text-base font-medium text-gray-900 dark:text-white" {
-                                                    @match state.account_service.get_full_account_path(entry.account_id).await {
-                                                        Ok(Some(segments)) => {
-                                                            @for (i, segment) in segments.iter().enumerate() {
-                                                                @if i > 0 {
-                                                                    span class="text-gray-400 dark:text-gray-500 mx-1" { "›" }
-                                                                }
-                                                                (segment)
+                                    div class="flex justify-between items-center" {
+                                        div class="flex items-baseline gap-2" {
+                                            span class="text-base font-medium text-gray-900 dark:text-white" {
+                                                @match state.account_service.get_full_account_path(entry.account_id).await {
+                                                    Ok(Some(segments)) => {
+                                                        @for (i, segment) in segments.iter().enumerate() {
+                                                            @if i > 0 {
+                                                                span class="text-gray-400 dark:text-gray-500 mx-1" { "›" }
                                                             }
+                                                            (segment)
                                                         }
-                                                        Ok(None) => "Unknown Account",
-                                                        Err(e) => (format!("Failed to get account name: {}", e)),
                                                     }
-                                                }
-                                                @if entry.journal_id != parent_journal {
-                                                    @match state.journal_service.journal_get_relative_name_path(entry.journal_id, parent_journal).await {
-                                                        Ok(Some(parts)) if !parts.is_empty() => {
-                                                            span class="text-xs text-gray-400 dark:text-gray-500" {
-                                                                "· "
-                                                                @for (i, part) in parts.iter().enumerate() {
-                                                                    @if i > 0 { " › " }
-                                                                    (part)
-                                                                }
-                                                            }
-                                                        }
-                                                        _ => {}
-                                                    }
+                                                    Ok(None) => "Unknown Account",
+                                                    Err(e) => (format!("Failed to get account name: {}", e)),
                                                 }
                                             }
-
-                                            span class="text-base text-gray-700 dark:text-gray-300" {
-                                                (entry_amount) " " (entry.entry_type)
+                                            @if entry.journal_id != parent_journal {
+                                                @match state.journal_service.journal_get_relative_name_path(entry.journal_id, parent_journal).await {
+                                                    Ok(Some(parts)) if !parts.is_empty() => {
+                                                        span class="text-xs text-gray-400 dark:text-gray-500" {
+                                                            "· "
+                                                            @for (i, part) in parts.iter().enumerate() {
+                                                                @if i > 0 { " › " }
+                                                                (part)
+                                                            }
+                                                        }
+                                                    }
+                                                    _ => {}
+                                                }
                                             }
                                         }
-                                    }
 
-                                    div class="text-xs text-gray-400 dark:text-gray-500" {
-                                        @match state.transaction_service.get_transaction_authority(&transaction_id).await {
-                                            Ok(authority) => @match authority.actor() {
-                                                Actor::User(id) => @match state.user_service.user_get_email(*id).await {
-                                                    Ok(Some(email)) => (email),
-                                                    Ok(None) => ("unknown user"),
-                                                    Err(e) => (format!("failed to get actor email: {}", e)),
-                                                },
-                                                Actor::System => "system",
-                                                Actor::Anonymous => "anonymous",
+                                        span class="text-base text-gray-700 dark:text-gray-300" {
+                                            (entry_amount) " " (entry.entry_type)
+                                        }
+                                    }
+                                }
+
+                                div class="text-xs text-gray-400 dark:text-gray-500" {
+                                    @match state.transaction_service.get_transaction_authority(&transaction_id).await {
+                                        Ok(authority) => @match authority.actor() {
+                                            Actor::User(id) => @match state.user_service.user_get_email(*id).await {
+                                                Ok(Some(email)) => (email),
+                                                Ok(None) => ("unknown user"),
+                                                Err(e) => (format!("failed to get actor email: {}", e)),
                                             },
-                                            Err(e) => (format!("Failed to get transaction authority: {}", e)),
-                                    }
-                                    }
+                                            Actor::System => "system",
+                                            Actor::Anonymous => "anonymous",
+                                        },
+                                        Err(e) => (format!("Failed to get transaction authority: {}", e)),
+                                }
                                 }
                             }
                         }
                     }
+                }
 
-                    @match state.journal_service.get_direct_subjournals(parent_journal, authority).await {
-                    // TODO: properly indent this
-                        Ok(subjournals) if !subjournals.is_empty() => {
-                            div class="mt-6 ml-4 border-l-2 border-gray-200 dark:border-gray-700 pl-6 space-y-8" {
-                                @for (sub_id, sub_state) in subjournals {
-                                    div {
-                                        h2 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-tight mb-4" {
-                                            (sub_state.name)
-                                        }
-
-                                        (Box::pin(render_transactions(sub_id, authority, state)).await)
+                @match state.journal_service.get_direct_subjournals(parent_journal, authority).await {
+                // TODO: properly indent this
+                    Ok(subjournals) if !subjournals.is_empty() => {
+                        div class="mt-6 ml-4 border-l-2 border-gray-200 dark:border-gray-700 pl-6 space-y-8" {
+                            @for (sub_id, sub_state) in subjournals {
+                                div {
+                                    h2 class="text-sm font-bold text-gray-500 dark:text-gray-400 uppercase tracking-tight mb-4" {
+                                        (sub_state.name)
                                     }
+
+                                    (Box::pin(render_transactions(sub_id, authority, state)).await)
                                 }
                             }
-                        },
-                        Ok(_) => {},
-                        Err(e) => { (format!("Failed to get subjournals: {}", e)) }
-                    }
-
-                },
-                Err(e) => {
-                    div class="flex justify-center items-center h-full" {
-                        p class="text-gray-500 dark:text-gray-400" {
-                            (format!("Failed to fetch transactions: {:?}", e))
                         }
+                    },
+                    Ok(_) => {},
+                    Err(e) => { (format!("Failed to get subjournals: {}", e)) }
+                }
+
+            },
+            Err(e) => {
+                div class="flex justify-center items-center h-full" {
+                    p class="text-gray-500 dark:text-gray-400" {
+                        (format!("Failed to fetch transactions: {:?}", e))
                     }
                 }
             }
         }
     }
+}
 
 pub async fn transaction_list_page(
     State(state): State<StateType>,

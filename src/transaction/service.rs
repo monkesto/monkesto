@@ -157,7 +157,12 @@ where
         Ok(transactions)
     }
 
-    pub async fn get_transaction_authority(&self, transaction_id: &TransactionId) -> TransactionStoreResult<Authority> {
-        self.transaction_store.get_transaction_authority(transaction_id).await
+    pub async fn get_transaction_authority(
+        &self,
+        transaction_id: &TransactionId,
+    ) -> TransactionStoreResult<Authority> {
+        self.transaction_store
+            .get_transaction_authority(transaction_id)
+            .await
     }
 }
