@@ -168,6 +168,7 @@ pub async fn create_sub_journal(
     let callback_url = format!("/journal/{}/subjournals", id);
 
     let user = user::get_user(session)?;
+    let authority = Authority::Direct(Actor::User(user.id));
 
     let name = Name::try_new(form.subjournal_name).or_redirect(&callback_url)?;
 
@@ -175,7 +176,7 @@ pub async fn create_sub_journal(
 
     state
         .journal_service
-        .create_subjournal(journal_id, name, &Authority::Direct(Actor::User(user.id)))
+        .create_subjournal(journal_id, name, &authority)
         .await
         .or_redirect(&callback_url)?;
 

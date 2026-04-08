@@ -104,16 +104,37 @@ pub async fn account_list_page(
 
     let content = html! {
         @if let Ok(journal_id) = journal_id_res {
-            @match state.account_service.get_all_accounts_in_journal(journal_id, &authority).await {
-                Ok(accounts) => {
-                    (render_account_tree(&accounts, None, 0, &id))
-                }
-
-                Err(e) => {
-                    div class="flex justify-center items-center h-full" {
-                        p class="text-gray-500 dark:text-gray-400" {
-                            (format!("Failed to fetch accounts: {:?}", e))
+            // get_ancestor_ids returns the passed journal id
+            @match state.journal_service.get_ancestor_ids(journal_id).await {
+                Ok(ancestors) => {
+                    @for ancestor in ancestors {
+                        @match state.journal_service.get_name(ancestor).await {
+                            Ok(Some(name)) => h2 {
+                                (name.to_string())
+                            },
+                            Ok(None) => {
+                                "Unknown journal"
+                            }
+                            Err(e) => p {
+                                "failed to get name for " (journal_id) ": " (e)
+                            }
                         }
+                        @match state.account_service.get_all_accounts_in_journal(ancestor, &authority).await {
+                            Ok(ancestor_accounts) => {
+                                 (render_account_tree(&ancestor_accounts, None, 0, &id))
+                            },
+                            Err(e) => {
+                                p {
+                                    "failed to get the ancestor accounts for " (ancestor) ": " (e)
+                                }
+                            }
+                        }
+
+                    }
+                }
+                Err(e) => {
+                    p {
+                        "Failed to find collect the journal ancestor ids: " (e)
                     }
                 }
             }
