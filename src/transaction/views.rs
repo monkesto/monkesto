@@ -118,9 +118,8 @@ async fn build_journal_tree_node(
 
     // Build transactions and nest them under a collapsible group node
     if let Ok(transactions) = state.transaction_service
-        .get_all_transactions_in_journal(journal_id, authority).await
-    {
-        if !transactions.is_empty() {
+        .get_all_transactions_in_journal(journal_id, authority).await &&
+        !transactions.is_empty() {
             let count = transactions.len();
             let mut tx_nodes: Vec<Value> = Vec::new();
 
@@ -138,7 +137,7 @@ async fn build_journal_tree_node(
                 "children": tx_nodes,
                 "state": { "opened": false },
             }));
-        }
+
     }
 
     // Subjournals — recurse, always opened
