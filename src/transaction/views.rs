@@ -116,33 +116,38 @@ async fn build_journal_tree_node(
 ) -> Value {
     let mut children: Vec<Value> = Vec::new();
 
-    if let Ok(transactions) = state
-        .transaction_service
-        .get_all_transactions_in_journal(journal_id, authority)
-        .await
+    // Build transactions and nest them under a collapsible group node
+    if let Ok(transactions) = state.transaction_service
+        .get_all_transactions_in_journal(journal_id, authority).await
     {
-        for (transaction_id, transaction_state) in transactions {
-            children.push(
-                build_transaction_node(&transaction_id, &transaction_state, journal_id, state)
-                    .await,
-            );
+        if !transactions.is_empty() {
+            let count = transactions.len();
+            let mut tx_nodes: Vec<Value> = Vec::new();
+
+            for (transaction_id, transaction_state) in transactions {
+                tx_nodes.push(
+                    build_transaction_node(&transaction_id, &transaction_state, journal_id, state).await
+                );
+            }
+
+            // Group node: always present in tree, but starts collapsed
+            children.push(json!({
+                "id": format!("{}_transactions", journal_id),
+                "text": format!("Transactions ({})", count),
+                "icon": "jstree-file",
+                "children": tx_nodes,
+                "state": { "opened": false },
+            }));
         }
     }
 
-    if let Ok(subjournals) = state
-        .journal_service
-        .get_direct_subjournals(journal_id, authority)
-        .await
+    // Subjournals — recurse, always opened
+    if let Ok(subjournals) = state.journal_service
+        .get_direct_subjournals(journal_id, authority).await
     {
         for (sub_id, sub_state) in subjournals {
             children.push(
-                Box::pin(build_journal_tree_node(
-                    sub_id,
-                    &sub_state.name.to_string(),
-                    authority,
-                    state,
-                ))
-                .await,
+                Box::pin(build_journal_tree_node(sub_id, &sub_state.name.to_string(), authority, state)).await
             );
         }
     }
@@ -152,6 +157,7 @@ async fn build_journal_tree_node(
         "text": journal_name,
         "children": children,
         "state": { "opened": true },
+        "a_attr": { "href": format!("/journal/{}", journal_id) },
     })
 }
 
