@@ -1,3 +1,6 @@
+#[cfg_attr(not(test), expect(unused_imports))]
+pub use self::memory::MemoryStore;
+
 use crate::authority::Authority;
 use chrono::DateTime;
 use chrono::Utc;
@@ -49,7 +52,6 @@ pub enum Outcome<I: Copy + Clone + Sized, P: Clone + Sized> {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Select<T: Copy> {
-    #[cfg_attr(not(test), expect(dead_code))]
     All,
     One(T),
 }
@@ -66,7 +68,6 @@ pub enum When<T: Copy> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum After<T: Copy> {
     Start,
-    #[cfg_attr(not(test), expect(dead_code))]
     Specific(T),
 }
 

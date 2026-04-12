@@ -9,6 +9,7 @@ mod journal;
 mod monkesto_error;
 pub mod name;
 mod notfoundpage;
+mod role;
 mod seed;
 mod store;
 mod theme;

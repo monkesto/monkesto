@@ -16,8 +16,8 @@ use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-#[derive(Debug)]
 #[cfg_attr(not(test), expect(dead_code))]
+#[derive(Debug)]
 pub enum MemoryStoreError {}
 
 impl fmt::Display for MemoryStoreError {
@@ -40,7 +40,8 @@ where
 }
 
 #[cfg_attr(not(test), expect(dead_code))]
-struct MemoryStore<I, P>
+#[derive(Clone)]
+pub struct MemoryStore<I, P>
 where
     I: Send + Sync + Copy + Clone + Eq + Hash + Sized,
     P: Send + Sync + Clone,
