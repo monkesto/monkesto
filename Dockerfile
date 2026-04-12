@@ -1,5 +1,5 @@
 # Get started with a build env with Rust nightly
-FROM rustlang/rust:nightly-trixie as builder
+FROM rustlang/rust:nightly-trixie AS builder
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y nodejs
@@ -15,7 +15,7 @@ COPY . .
 RUN npx tailwindcss -i ./style/input.css -o ./target/site/pkg/monkesto.css --minify
 RUN cargo build --release
 
-FROM debian:trixie-slim as runtime
+FROM debian:trixie-slim AS runtime
 WORKDIR /app
 RUN apt-get update -y \
     && apt-get install -y --no-install-recommends openssl ca-certificates \
