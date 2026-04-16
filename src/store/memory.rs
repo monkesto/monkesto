@@ -6,6 +6,7 @@ use crate::store::Outcome;
 use crate::store::Page;
 use crate::store::Select;
 use crate::store::Store;
+use crate::store::Stream;
 use crate::store::When;
 use chrono::DateTime;
 use chrono::Utc;
@@ -65,23 +66,21 @@ where
     }
 }
 
-impl<I, P> Store for MemoryStore<I, P>
+impl<S> Store<S> for MemoryStore<S::Id, S::Payload>
 where
-    I: Send + Sync + Copy + Clone + Eq + Hash + Sized,
-    P: Send + Sync + Clone,
+    S: Stream,
+    S::Id: Eq + Hash,
 {
-    type Id = I;
-    type Payload = P;
     type Error = MemoryStoreError;
 
     async fn record(
         &self,
         by: Authority,
         at: DateTime<Utc>,
-        id: Self::Id,
-        payload: Self::Payload,
+        id: S::Id,
+        payload: S::Payload,
         when: When<EventId>,
-    ) -> Result<Outcome<I, P>, Self::Error> {
+    ) -> Result<Outcome<S::Id, S::Payload>, Self::Error> {
         let mut state = self.state.lock().expect("poisoned");
         match when {
             When::Empty => {
@@ -120,16 +119,16 @@ where
 
     async fn review(
         &self,
-        select: Select<Self::Id>,
+        select: Select<S::Id>,
         after: After<EventId>,
         limit: usize,
-    ) -> Result<Page<Self::Id, Self::Payload>, Self::Error> {
+    ) -> Result<Page<S::Id, S::Payload>, Self::Error> {
         let state = self.state.lock().expect("poisoned");
         let full = match select {
             Select::All => state.events.clone(),
             Select::One(id) => state.select_events.get(&id).cloned().unwrap_or_default(),
         };
-        let filtered: Vec<Event<I, P>> = match after {
+        let filtered: Vec<Event<S::Id, S::Payload>> = match after {
             After::Start => full.into_iter().take(limit + 1).collect(),
             After::Specific(event_id) => full
                 .into_iter()
@@ -137,7 +136,8 @@ where
                 .take(limit + 1)
                 .collect(),
         };
-        let items: Vec<Event<I, P>> = filtered.clone().into_iter().take(limit).collect();
+        let items: Vec<Event<S::Id, S::Payload>> =
+            filtered.clone().into_iter().take(limit).collect();
         let more = filtered.len() > limit;
         let next = items.last().map(|e| e.event_id).unwrap_or(state.latest);
         Ok(Page { items, more, next })
@@ -147,6 +147,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::MemoryStore;
+    use crate::store::Stream;
 
-    store_tests!(MemoryStore::<u32, String>::default());
+    struct TestStream;
+    impl Stream for TestStream {
+        type Id = u32;
+        type Payload = String;
+    }
+
+    store_tests!(TestStream, MemoryStore::<u32, String>::default());
 }
