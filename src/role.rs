@@ -10,6 +10,7 @@ use crate::store::EventId;
 use crate::store::Outcome;
 use crate::store::Select;
 use crate::store::Store;
+use crate::store::Stream;
 use crate::store::When;
 use chrono::Utc;
 use serde::Deserialize;
@@ -73,11 +74,17 @@ pub enum RoleRemoveError<E: StdError + Send + Sync + 'static> {
     Store(#[from] E),
 }
 
-pub struct RoleService<R: Store<Id = RoleId, Payload = RolePayload>> {
+pub struct RoleStream;
+impl Stream for RoleStream {
+    type Id = RoleId;
+    type Payload = RolePayload;
+}
+
+pub struct RoleService<R: Store<RoleStream>> {
     store: R,
 }
 
-impl<R: Store<Id = RoleId, Payload = RolePayload>> RoleService<R> {
+impl<R: Store<RoleStream>> RoleService<R> {
     const MAX_CREATE_ATTEMPTS: usize = 8;
     const MAX_UPDATE_ATTEMPTS: usize = 8;
     const REVIEW_PAGE_SIZE: usize = 128;

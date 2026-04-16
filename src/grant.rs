@@ -6,6 +6,7 @@ use crate::store::After;
 use crate::store::Outcome;
 use crate::store::Select;
 use crate::store::Store;
+use crate::store::Stream;
 use crate::store::When;
 use chrono::Utc;
 use serde::Deserialize;
@@ -48,11 +49,17 @@ pub enum GrantRevokeError<E: StdError + Send + Sync + 'static> {
     Store(#[from] E),
 }
 
-pub struct GrantService<G: Store<Id = GrantId, Payload = GrantPayload>> {
+pub struct GrantStream;
+impl Stream for GrantStream {
+    type Id = GrantId;
+    type Payload = GrantPayload;
+}
+
+pub struct GrantService<G: Store<GrantStream>> {
     store: G,
 }
 
-impl<G: Store<Id = GrantId, Payload = GrantPayload>> GrantService<G> {
+impl<G: Store<GrantStream>> GrantService<G> {
     const MAX_EVENTS_PER_GRANT: usize = 2;
     const MAX_CREATE_ATTEMPTS: usize = 8;
     const MAX_REVOKE_ATTEMPTS: usize = 8;

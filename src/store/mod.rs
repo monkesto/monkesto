@@ -9,6 +9,11 @@ use serde::Serialize;
 use std::error::Error;
 use std::ops::Deref;
 
+pub trait Stream {
+    type Id: Send + Sync + Copy + Clone;
+    type Payload: Send + Sync + Clone;
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct EventId(u64);
 
@@ -81,37 +86,35 @@ pub struct Page<I: Copy + Clone + Sized, P: Clone + Sized> {
     pub next: EventId,
 }
 
-pub trait Store: Send + Sync {
-    type Id: Send + Sync + Copy + Clone;
-    type Payload: Send + Sync + Clone;
+pub trait Store<S: Stream>: Send + Sync {
     type Error: Error + Send + Sync + 'static;
 
     async fn record(
         &self,
         by: Authority,
         at: DateTime<Utc>,
-        id: Self::Id,
-        payload: Self::Payload,
+        id: S::Id,
+        payload: S::Payload,
         when: When<EventId>,
-    ) -> Result<Outcome<Self::Id, Self::Payload>, Self::Error>;
+    ) -> Result<Outcome<S::Id, S::Payload>, Self::Error>;
 
     async fn review(
         &self,
-        select: Select<Self::Id>,
+        select: Select<S::Id>,
         after: After<EventId>,
         limit: usize,
-    ) -> Result<Page<Self::Id, Self::Payload>, Self::Error>;
+    ) -> Result<Page<S::Id, S::Payload>, Self::Error>;
 }
 
 /// Generates the shared `Store` test suite. Pass an expression that constructs
 /// a fresh, empty store. The store must implement `Store<Id = u32, Payload = String>`.
 ///
 /// ```ignore
-/// store_tests!(MemoryStore::<u32, String>::default());
+/// store_tests!(TestStream, MemoryStore::<u32, String>::default());
 /// ```
 #[cfg(test)]
 macro_rules! store_tests {
-    ($make_store:expr) => {
+    ($stream:ty, $make_store:expr) => {
         use crate::auth::user::UserId;
         use crate::authority::Actor;
         use crate::authority::Authority;
@@ -125,16 +128,9 @@ macro_rules! store_tests {
         use chrono::Utc;
         use rstest::rstest;
 
-        // Tests assume Id = u32 and Payload = String. This assertion is never
-        // executed — it exists so that a type mismatch produces an error near the
-        // macro invocation rather than deep inside a test body.
-        const _: () = {
-            fn check(_: &impl Store<Id = u32, Payload = String>) {}
-            #[expect(dead_code)]
-            fn assert() {
-                check(&$make_store);
-            }
-        };
+        fn make_store() -> impl Store<$stream> {
+            $make_store
+        }
 
         // ---------------------------------------------------------------
         // record: `When` variant × resource state
@@ -142,7 +138,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_empty_no_prior() {
-            let store = $make_store;
+            let store = make_store();
             let result = store
                 .record(
                     Authority::Direct(Actor::System),
@@ -158,7 +154,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_empty_with_prior() {
-            let store = $make_store;
+            let store = make_store();
             store
                 .record(
                     Authority::Direct(Actor::System),
@@ -184,7 +180,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_empty_for_one_id_unaffected_by_other_id() {
-            let store = $make_store;
+            let store = make_store();
             store
                 .record(
                     Authority::Direct(Actor::System),
@@ -212,7 +208,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_empty_skipped_leaves_store_unchanged() {
-            let store = $make_store;
+            let store = make_store();
             store
                 .record(
                     Authority::Direct(Actor::System),
@@ -245,7 +241,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_within_eq_last_is_recorded() {
-            let store = $make_store;
+            let store = make_store();
             let first = store
                 .record(
                     Authority::Direct(Actor::System),
@@ -274,7 +270,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_within_gt_last_is_recorded() {
-            let store = $make_store;
+            let store = make_store();
             let first = store
                 .record(
                     Authority::Direct(Actor::System),
@@ -305,7 +301,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_within_lt_last_is_skipped() {
-            let store = $make_store;
+            let store = make_store();
             let first = store
                 .record(
                     Authority::Direct(Actor::System),
@@ -350,7 +346,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_returns_expected_fields() {
-            let store = $make_store;
+            let store = make_store();
             let at = Utc::now();
             let by = Authority::Direct(Actor::System);
             let result = store
@@ -368,7 +364,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_sequential_event_ids_are_increasing() {
-            let store = $make_store;
+            let store = make_store();
             let mut prev_id = EventId::from(0);
             let mut latest = None;
             for i in 0..5 {
@@ -398,7 +394,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_preserves_authority_direct() {
-            let store = $make_store;
+            let store = make_store();
             let by = Authority::Direct(Actor::User(UserId::new()));
             let result = store
                 .record(by.clone(), Utc::now(), 1u32, "x".to_string(), When::Empty)
@@ -412,7 +408,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_preserves_authority_delegated() {
-            let store = $make_store;
+            let store = make_store();
             let by = Authority::Delegated {
                 grantor: Actor::User(UserId::new()),
                 grant: GrantId::new(),
@@ -430,7 +426,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_preserves_timestamp() {
-            let store = $make_store;
+            let store = make_store();
             let at = chrono::DateTime::parse_from_rfc3339("2025-06-15T12:00:00Z")
                 .unwrap()
                 .with_timezone(&Utc);
@@ -452,7 +448,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_out_of_order_timestamps_stored_in_insertion_order() {
-            let store = $make_store;
+            let store = make_store();
             let later = chrono::DateTime::parse_from_rfc3339("2025-06-15T12:00:00Z")
                 .unwrap()
                 .with_timezone(&Utc);
@@ -491,7 +487,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_different_ids_have_independent_histories() {
-            let store = $make_store;
+            let store = make_store();
             store
                 .record(
                     Authority::Direct(Actor::System),
@@ -528,7 +524,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_within_for_one_id_unaffected_by_other_id() {
-            let store = $make_store;
+            let store = make_store();
             // Record to id 1 and capture its event_id
             let result = store
                 .record(
@@ -570,7 +566,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn record_skipped_leaves_store_unchanged() {
-            let store = $make_store;
+            let store = make_store();
             let result = store
                 .record(
                     Authority::Direct(Actor::System),
@@ -623,7 +619,7 @@ macro_rules! store_tests {
         #[case::one_specific(Select::One(1u32), After::Specific(EventId::from(0)))]
         #[tokio::test]
         async fn review_empty_results(#[case] select: Select<u32>, #[case] after: After<EventId>) {
-            let store = $make_store;
+            let store = make_store();
             let page = store.review(select, after, 10).await.unwrap();
             assert!(page.items.is_empty());
             assert!(!page.more);
@@ -639,7 +635,7 @@ macro_rules! store_tests {
             #[case] select: Select<u32>,
             #[case] after: After<EventId>,
         ) {
-            let store = $make_store;
+            let store = make_store();
             let mut latest = None;
             for i in 0..3 {
                 let when = match latest {
@@ -676,7 +672,7 @@ macro_rules! store_tests {
             #[case] select: Select<u32>,
             #[case] after: After<EventId>,
         ) {
-            let store = $make_store;
+            let store = make_store();
             let mut latest = None;
             for i in 0..3 {
                 let when = match latest {
@@ -713,7 +709,7 @@ macro_rules! store_tests {
             #[case] select: Select<u32>,
             #[case] after: After<EventId>,
         ) {
-            let store = $make_store;
+            let store = make_store();
             let mut latest = None;
             for i in 0..5 {
                 let when = match latest {
@@ -746,7 +742,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn review_returns_insertion_order() {
-            let store = $make_store;
+            let store = make_store();
             let result = store
                 .record(
                     Authority::Direct(Actor::System),
@@ -800,7 +796,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn review_after_specific_excludes_that_event() {
-            let store = $make_store;
+            let store = make_store();
             let result = store
                 .record(
                     Authority::Direct(Actor::System),
@@ -834,7 +830,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn review_after_specific_beyond_latest_returns_empty() {
-            let store = $make_store;
+            let store = make_store();
             store
                 .record(
                     Authority::Direct(Actor::System),
@@ -856,7 +852,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn review_page_next_cursor_walks_without_duplicates_or_gaps() {
-            let store = $make_store;
+            let store = make_store();
             let mut latest = None;
             for i in 0..5 {
                 let when = match latest {
@@ -903,7 +899,7 @@ macro_rules! store_tests {
 
         #[tokio::test]
         async fn review_walking_all_pages_yields_every_event_once() {
-            let store = $make_store;
+            let store = make_store();
             let mut latest = None;
             for i in 0..7 {
                 let when = match latest {
