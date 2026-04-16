@@ -108,7 +108,19 @@ pub trait Store {
 
     /// Returns a vector of all events that have occurred concerning an entity starting at `starting_sequence`
     async fn replay_events<'a, I: EntityId<'a>>(
+        &self,
         entity_id: I,
         starting_sequence: SequenceId,
     ) -> Vec<Event<'a, I>>;
+
+    /// Returns an up-to-date projection of the given entity
+    async fn get_projection<'a, I: EntityId<'a>>(&self, entity_id: I)
+    -> StoreResult<I::Projection>;
+
+    /// Rebuilds the projection of an entity with the given events
+    async fn rebuild_projection<'a, I: EntityId<'a>>(
+        &self,
+        entity_id: I,
+        events: Vec<Event<'a, I>>,
+    ) -> StoreResult<()>;
 }

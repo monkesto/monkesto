@@ -27,6 +27,18 @@ impl Authority {
             Authority::Delegated { grantor, .. } => grantor,
         }
     }
+
+    #[expect(dead_code)]
+    pub fn as_bytes(&self) -> Vec<u8> {
+        postcard::to_allocvec(self).expect("Failed to serialize authority")
+    }
+}
+
+impl TryFrom<&[u8]> for Authority {
+    type Error = postcard::Error;
+    fn try_from(value: &[u8]) -> Result<Self, Self::Error> {
+        postcard::from_bytes(value)
+    }
 }
 
 #[cfg(test)]
