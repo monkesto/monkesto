@@ -10,7 +10,6 @@ use crate::transaction::{TransactionPayload, TransactionProjection};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
-use std::marker::PhantomData;
 use std::ops::Deref;
 use thiserror::Error;
 
@@ -99,14 +98,13 @@ impl EntityType {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Event<'a, I: EntityId<'a>, P: Payload<'a>> {
+pub struct Event<'a, I: EntityId<'a>> {
     pub event_id: EventId,
     pub sequence_id: SequenceId,
     pub timestamp: DateTime<Utc>,
     pub authority: Authority,
     pub entity_id: I,
-    pub payload: P,
-    pub _marker: PhantomData<&'a P>,
+    pub payload: I::Payload,
 }
 
 pub trait Store {
@@ -131,7 +129,5 @@ pub trait Store {
     async fn replay_events<'a, I: EntityId<'a>>(
         entity_id: I,
         starting_sequence: SequenceId,
-    ) -> Vec<Event<'a, I, I::Payload>>
-    where
-        <I as EntityId<'a>>::Payload: 'a;
+    ) -> Vec<Event<'a, I>>;
 }
