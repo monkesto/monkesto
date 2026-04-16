@@ -122,7 +122,7 @@ pub trait Store {
         &self,
         by: Authority,
         at: DateTime<Utc>,
-        entity_id: impl EntityId<'a>,
+        entity_id: I,
         payload: I::Payload,
         expected_sequence: SequenceId,
     ) -> StoreResult<EventId>;
