@@ -40,6 +40,9 @@ use tower_http::services::ServeFile;
 use tower_sessions::SessionManagerLayer;
 use tower_sessions_file_store::FileSessionStorage;
 
+#[macro_use]
+extern crate monkesto_derive;
+
 type MemoryJournalService = JournalService<JournalMemoryStore, MemoryUserStore>;
 type MemoryUserService = UserService<MemoryUserStore>;
 type MemoryAccountService = AccountService<AccountMemoryStore, JournalMemoryStore, MemoryUserStore>;

@@ -4,6 +4,7 @@ pub mod person;
 pub mod service;
 pub mod views;
 
+use crate::store::universal::Payload;
 pub use service::JournalService;
 
 use axum::Router;
@@ -382,7 +383,7 @@ impl<'r> Decode<'r, sqlx::Postgres> for Permissions {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Payload)]
 pub enum JounalPayload {
     Created {
         name: Name,

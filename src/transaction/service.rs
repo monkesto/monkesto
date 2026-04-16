@@ -102,7 +102,7 @@ where
             }
         }
 
-        let payload = TransactionPayload::CreatedTransaction {
+        let payload = TransactionPayload::Created {
             journal_id,
             updates,
         };

@@ -1,5 +1,6 @@
 use crate::ident::EntityId;
 use crate::ident::IdentError;
+use crate::store::universal::Payload;
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -313,7 +314,7 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
     layout(None, content)
 }
 
-id!(PasskeyId, PasskeyPayload, Ident::new16());
+id!(PasskeyId, PasskeyPayload, PasskeyProjection, Ident::new16());
 
 #[derive(Debug, Clone)]
 pub struct PasskeyProjection {
@@ -321,7 +322,7 @@ pub struct PasskeyProjection {
     pub passkey: webauthn_rs::prelude::Passkey,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Payload)]
 #[allow(clippy::large_enum_variant)]
 pub enum PasskeyPayload {
     Created {

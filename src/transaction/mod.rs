@@ -4,6 +4,7 @@ pub mod views;
 
 pub use service::TransactionService;
 
+use crate::store::universal::Payload;
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -169,7 +170,7 @@ impl EventStore for TransactionMemoryStore {
             (event_id, event)
         };
 
-        if let TransactionPayload::CreatedTransaction {
+        if let TransactionPayload::Created {
             journal_id,
             updates,
         } = payload
@@ -293,9 +294,9 @@ pub struct BalanceUpdate {
     pub entry_type: EntryType,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Payload)]
 pub enum TransactionPayload {
-    CreatedTransaction {
+    Created {
         journal_id: JournalId,
         updates: Vec<BalanceUpdate>,
     },
@@ -318,7 +319,7 @@ impl TransactionPayload {
     fn get_type(&self) -> TransactionEventType {
         use TransactionEventType::*;
         match self {
-            Self::CreatedTransaction { .. } => Created,
+            Self::Created { .. } => Created,
             Self::UpdatedBalancedUpdates { .. } => UpdatedBalanceUpdates,
         }
     }
@@ -356,7 +357,7 @@ pub struct TransactionProjection {
 impl TransactionProjection {
     pub fn apply(&mut self, event: TransactionPayload) {
         match event {
-            TransactionPayload::CreatedTransaction {
+            TransactionPayload::Created {
                 journal_id,
                 updates,
             } => {
@@ -382,7 +383,7 @@ mod test_transaction {
 
     #[sqlx::test]
     async fn test_encode_decode_transaction_event(pool: PgPool) {
-        let original_event = TransactionPayload::CreatedTransaction {
+        let original_event = TransactionPayload::Created {
             journal_id: JournalId::new(),
             updates: vec![BalanceUpdate {
                 journal_id: JournalId::new(),

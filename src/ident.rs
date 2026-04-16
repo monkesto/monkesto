@@ -1,7 +1,7 @@
-use crate::account::AccountPayload;
-use crate::journal::JounalPayload;
+use crate::account::{AccountPayload, AccountProjection};
+use crate::journal::{JounalPayload, JournalProjection};
 use crate::store::universal::Payload;
-use crate::transaction::TransactionPayload;
+use crate::transaction::{TransactionPayload, TransactionProjection};
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
 use cuid::is_cuid2;
@@ -139,13 +139,14 @@ pub trait EntityId<'a>:
     Deref<Target = Ident> + FromStr<Err = IdentError> + Display + TryFrom<&'a [u8]> + Clone
 {
     type Payload: Payload<'a>;
+    type Projection: Send + Sync + Clone;
     #[expect(dead_code)]
     fn as_bytes(&self) -> &[u8];
 }
 
 #[macro_export]
 macro_rules! id {
-    ($name: ident, $payload: ty, $new_fn: expr) => {
+    ($name: ident, $payload: ty, $projection: ty, $new_fn: expr) => {
         #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub struct $name(Ident);
 
@@ -187,6 +188,7 @@ macro_rules! id {
 
         impl EntityId<'_> for $name {
             type Payload = $payload;
+            type Projection = $projection;
             fn as_bytes(&self) -> &[u8] {
                 self.deref().as_bytes()
             }
@@ -194,8 +196,13 @@ macro_rules! id {
     };
 }
 
-id!(JournalId, JounalPayload, Ident::new10());
+id!(JournalId, JounalPayload, JournalProjection, Ident::new10());
 
-id!(AccountId, AccountPayload, Ident::new10());
+id!(AccountId, AccountPayload, AccountProjection, Ident::new10());
 
-id!(TransactionId, TransactionPayload, Ident::new16());
+id!(
+    TransactionId,
+    TransactionPayload,
+    TransactionProjection,
+    Ident::new16()
+);

@@ -13,6 +13,7 @@ use crate::store::Select;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
+use crate::store::universal::Payload;
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
@@ -24,9 +25,14 @@ use std::ops::Deref;
 use std::str::FromStr;
 use thiserror::Error;
 
-id!(RoleId, RolePayload, Ident::new16());
+id!(RoleId, RolePayload, RoleProjection, Ident::new16());
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone)]
+pub struct RoleProjection {
+    // TODO
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Payload)]
 pub enum RolePayload {
     Created,
     ActorAdded(Actor),

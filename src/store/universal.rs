@@ -1,12 +1,6 @@
-use crate::account::{AccountPayload, AccountProjection};
-use crate::auth::passkey::{PasskeyId, PasskeyPayload, PasskeyProjection};
-use crate::auth::user::{UserPayload, UserProjection};
+use crate::auth::passkey::PasskeyId;
 use crate::authority::{Authority, UserId};
-use crate::grant::GrantPayload;
 use crate::ident::{AccountId, EntityId, JournalId, TransactionId};
-use crate::journal::{JounalPayload, JournalProjection};
-use crate::role::RolePayload;
-use crate::transaction::{TransactionPayload, TransactionProjection};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::any::{Any, TypeId};
@@ -38,15 +32,9 @@ pub trait Payload<'a>: Send + Sync + Clone + Serialize + Deserialize<'a> {
     fn from_bytes(bytes: &'a [u8]) -> StoreResult<Self> {
         postcard::from_bytes(bytes)?
     }
-}
 
-impl Payload<'_> for TransactionPayload {}
-impl Payload<'_> for AccountPayload {}
-impl Payload<'_> for PasskeyPayload {}
-impl Payload<'_> for JounalPayload {}
-impl Payload<'_> for GrantPayload {}
-impl Payload<'_> for RolePayload {}
-impl Payload<'_> for UserPayload {}
+    fn creates_entity(&self) -> bool;
+}
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Eq)]
 pub struct EventId(u64);
@@ -66,13 +54,6 @@ impl Deref for SequenceId {
         &self.0
     }
 }
-pub trait Projection: Send + Sync + Clone {}
-
-impl Projection for AccountProjection {}
-impl Projection for JournalProjection {}
-impl Projection for TransactionProjection {}
-impl Projection for PasskeyProjection {}
-impl Projection for UserProjection {}
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub enum EntityType {

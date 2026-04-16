@@ -6,6 +6,7 @@ use crate::ident::EntityId;
 use crate::ident::Ident;
 use crate::ident::IdentError;
 use crate::monkesto_error::OrRedirect;
+use crate::store::universal::Payload;
 use axum::response::Redirect;
 use nutype::nutype;
 use serde::Deserialize;
@@ -15,7 +16,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 // Define UserId here in the user module
-id!(UserId, UserPayload, Ident::new16());
+id!(UserId, UserPayload, UserProjection, Ident::new16());
 
 #[nutype(
     derive(
@@ -199,7 +200,7 @@ mod tests {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Payload)]
 pub enum UserPayload {
     Created { email: Email, webauthn_uuid: Uuid },
     Deleted,

@@ -54,6 +54,7 @@ use crate::ident::TransactionId;
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
 use crate::name::Name;
+use crate::store::universal::Payload;
 use crate::transaction::EntryType;
 use crate::transaction::TransactionPayload;
 use crate::transaction::TransactionProjection;
@@ -70,7 +71,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Payload)]
 pub enum AccountPayload {
     Created {
         journal_id: JournalId,
@@ -275,7 +276,7 @@ impl AccountStore for AccountMemoryStore {
         old_transaction: Option<&TransactionProjection>,
     ) -> AccountStoreResult<()> {
         match transaction_event {
-            TransactionPayload::CreatedTransaction { updates, .. } => {
+            TransactionPayload::Created { updates, .. } => {
                 for update in updates {
                     if let Some(mut account_state) = self.account_table.get_mut(&update.account_id)
                     {
