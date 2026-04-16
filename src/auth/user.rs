@@ -2,6 +2,7 @@ use crate::authority::Authority;
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::id;
+use crate::ident::EntityId;
 use crate::ident::Ident;
 use crate::ident::IdentError;
 use crate::monkesto_error::OrRedirect;
@@ -14,7 +15,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 // Define UserId here in the user module
-id!(UserId, Ident::new16());
+id!(UserId, UserPayload, Ident::new16());
 
 #[nutype(
     derive(
@@ -37,12 +38,12 @@ id!(UserId, Ident::new16());
 pub struct Email(String);
 
 #[derive(Debug, Clone)]
-pub struct User {
+pub struct UserProjection {
     pub id: UserId,
     pub email: Email,
 }
 
-impl axum_login::AuthUser for User {
+impl axum_login::AuthUser for UserProjection {
     type Id = UserId;
 
     fn id(&self) -> Self::Id {
@@ -55,9 +56,9 @@ impl axum_login::AuthUser for User {
     }
 }
 
-pub fn get_user<T>(session: AuthSession<T>) -> Result<User, Redirect>
+pub fn get_user<T>(session: AuthSession<T>) -> Result<UserProjection, Redirect>
 where
-    T: AuthnBackend<User = User>,
+    T: AuthnBackend<User = UserProjection>,
 {
     session
         .user
@@ -198,13 +199,9 @@ mod tests {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UserPayload {
-    Created {
-        email: Email,
-        webauthn_uuid: Uuid,
-    },
-    #[expect(dead_code)]
+    Created { email: Email, webauthn_uuid: Uuid },
     Deleted,
 }
 
@@ -232,7 +229,10 @@ pub trait UserStore:
 {
     async fn email_exists(&self, email: &str) -> Result<bool, <Self as EventStore>::Error>;
 
-    async fn get_user(&self, user_id: UserId) -> Result<Option<User>, <Self as EventStore>::Error>;
+    async fn get_user(
+        &self,
+        user_id: UserId,
+    ) -> Result<Option<UserProjection>, <Self as EventStore>::Error>;
 
     async fn get_user_email(
         &self,
@@ -288,7 +288,7 @@ pub trait UserStore:
     }
 
     /// Returns dev users for displaying in the dev login form.
-    async fn get_dev_users(&self) -> Vec<User> {
+    async fn get_dev_users(&self) -> Vec<UserProjection> {
         let mut users = Vec::new();
         for email in DEV_USERS {
             if let Ok(Some(user_id)) = self.lookup_user_id(email).await
@@ -423,11 +423,14 @@ impl UserStore for MemoryUserStore {
         Ok(self.email_to_user_id.contains_key(email))
     }
 
-    async fn get_user(&self, user_id: UserId) -> Result<Option<User>, UserStoreError> {
-        Ok(self.user_id_to_email.get(&user_id).map(|email| User {
-            id: user_id,
-            email: email.clone(),
-        }))
+    async fn get_user(&self, user_id: UserId) -> Result<Option<UserProjection>, UserStoreError> {
+        Ok(self
+            .user_id_to_email
+            .get(&user_id)
+            .map(|email| UserProjection {
+                id: user_id,
+                email: email.clone(),
+            }))
     }
 
     async fn get_user_email(&self, user_id: UserId) -> Result<Option<String>, UserStoreError> {
@@ -451,7 +454,7 @@ impl UserStore for MemoryUserStore {
 pub struct WebauthnCredentials;
 
 impl AuthnBackend for MemoryUserStore {
-    type User = User;
+    type User = UserProjection;
     type Credentials = WebauthnCredentials;
     type Error = UserStoreError;
 

@@ -453,7 +453,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             }
 
             // Log in the newly registered user via axum_login
-            let user = super::user::User {
+            let user = super::user::UserProjection {
                 id: user_id,
                 email: email_validated,
             };

@@ -1,5 +1,6 @@
 use crate::authority::Authority;
 use crate::id;
+use crate::ident::EntityId;
 use crate::ident::Ident;
 use crate::ident::IdentError;
 use crate::store::After;
@@ -17,7 +18,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 use thiserror::Error;
 
-id!(GrantId, Ident::new16());
+id!(GrantId, GrantPayload, Ident::new16());
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GrantPayload {

@@ -7,12 +7,12 @@ use crate::authority::Authority;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
 use crate::journal::JournalNameOrUnknown;
-use crate::journal::JournalState;
+use crate::journal::JournalProjection;
 use crate::journal::layout;
 use crate::monkesto_error::MonkestoError;
 use crate::monkesto_error::UrlError;
 use crate::transaction::EntryType;
-use crate::transaction::TransactionState;
+use crate::transaction::TransactionProjection;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
@@ -25,7 +25,7 @@ use std::str::FromStr;
 /// Recursively renders `<option>` elements for a journal and all its subjournals.
 /// `depth` controls the `↳ ` prefix count (0 = no prefix, 1 = one arrow, etc.).
 fn render_journal_options(
-    all_subjournals: &[(JournalId, JournalState)],
+    all_subjournals: &[(JournalId, JournalProjection)],
     parent_id: JournalId,
     parent_name: &str,
     depth: usize,
@@ -44,7 +44,7 @@ use serde_json::json;
 
 async fn build_transaction_node(
     transaction_id: &TransactionId,
-    transaction_state: &TransactionState,
+    transaction_state: &TransactionProjection,
     parent_journal: JournalId,
     state: &StateType,
 ) -> Value {

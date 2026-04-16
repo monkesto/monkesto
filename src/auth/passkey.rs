@@ -1,3 +1,4 @@
+use crate::ident::EntityId;
 use crate::ident::IdentError;
 use axum::extract::Extension;
 use axum::extract::Form;
@@ -312,15 +313,15 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
     layout(None, content)
 }
 
-id!(PasskeyId, Ident::new16());
+id!(PasskeyId, PasskeyPayload, Ident::new16());
 
 #[derive(Debug, Clone)]
-pub struct Passkey {
+pub struct PasskeyProjection {
     pub id: PasskeyId,
     pub passkey: webauthn_rs::prelude::Passkey,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum PasskeyPayload {
     Created {
@@ -346,7 +347,10 @@ pub enum PasskeyStoreError {
 pub trait PasskeyStore:
     EventStore<Id = PasskeyId, Payload = PasskeyPayload, Error = PasskeyStoreError>
 {
-    async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, Self::Error>;
+    async fn get_user_passkeys(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<PasskeyProjection>, Self::Error>;
 
     async fn get_all_credentials(&self) -> Result<Vec<webauthn_rs::prelude::Passkey>, Self::Error>;
 
@@ -359,7 +363,7 @@ pub trait PasskeyStore:
 use tokio::sync::Mutex;
 
 struct PasskeyData {
-    keys: HashMap<UserId, Vec<Passkey>>,
+    keys: HashMap<UserId, Vec<PasskeyProjection>>,
 }
 
 impl PasskeyData {
@@ -422,7 +426,7 @@ impl EventStore for MemoryPasskeyStore {
                 ref passkey,
             } => {
                 let passkeys = data.keys.entry(user_id).or_default();
-                passkeys.push(Passkey {
+                passkeys.push(PasskeyProjection {
                     id,
                     passkey: passkey.clone(),
                 });
@@ -469,7 +473,10 @@ impl EventStore for MemoryPasskeyStore {
 }
 
 impl PasskeyStore for MemoryPasskeyStore {
-    async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<Passkey>, PasskeyStoreError> {
+    async fn get_user_passkeys(
+        &self,
+        user_id: &UserId,
+    ) -> Result<Vec<PasskeyProjection>, PasskeyStoreError> {
         let data = self.data.lock().await;
         Ok(data.keys.get(user_id).cloned().unwrap_or_default())
     }

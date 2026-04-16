@@ -1,13 +1,13 @@
+use crate::account::AccountPayload;
+use crate::journal::JounalPayload;
+use crate::store::universal::Payload;
+use crate::transaction::TransactionPayload;
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
 use cuid::is_cuid2;
 use phf::phf_set;
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::Decode;
-use sqlx::Encode;
-use sqlx::Type;
-use sqlx::postgres::PgValueRef;
 use std::fmt::Display;
 use std::fmt::{self};
 use std::ops::Deref;
@@ -135,9 +135,17 @@ impl Display for Ident {
     }
 }
 
+pub trait EntityId<'a>:
+    Deref<Target = Ident> + FromStr<Err = IdentError> + Display + TryFrom<&'a [u8]> + Clone
+{
+    type Payload: Payload<'a>;
+    #[expect(dead_code)]
+    fn as_bytes(&self) -> &[u8];
+}
+
 #[macro_export]
 macro_rules! id {
-    ($name: ident, $new_fn: expr) => {
+    ($name: ident, $payload: ty, $new_fn: expr) => {
         #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub struct $name(Ident);
 
@@ -176,100 +184,18 @@ macro_rules! id {
                 Ok(Self(Ident::try_from(bytes)?))
             }
         }
+
+        impl EntityId<'_> for $name {
+            type Payload = $payload;
+            fn as_bytes(&self) -> &[u8] {
+                self.deref().as_bytes()
+            }
+        }
     };
 }
 
-id!(JournalId, Ident::new10());
+id!(JournalId, JounalPayload, Ident::new10());
 
-id!(AccountId, Ident::new10());
+id!(AccountId, AccountPayload, Ident::new10());
 
-id!(TransactionId, Ident::new16());
-
-impl Type<sqlx::Postgres> for Ident {
-    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
-        <&[u8] as Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-impl<'q> Encode<'q, sqlx::Postgres> for Ident {
-    fn encode_by_ref(
-        &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'q>,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        let bytes = self.as_bytes();
-        <&[u8] as Encode<sqlx::Postgres>>::encode(bytes, buf)
-    }
-}
-
-impl<'r> Decode<'r, sqlx::Postgres> for Ident {
-    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let bytes = <&[u8] as Decode<sqlx::Postgres>>::decode(value)?;
-        Ok(Self::try_from(bytes)?)
-    }
-}
-
-#[cfg(test)]
-mod test_ident {
-    use sqlx::PgPool;
-    use sqlx::prelude::FromRow;
-
-    use super::Ident;
-
-    #[sqlx::test]
-    async fn test_encode_decode_ident(pool: PgPool) {
-        let original_id = Ident::new10();
-
-        sqlx::query(
-            r#"
-            CREATE TABLE test_ident_table (
-            id BYTEA
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("failed to create mock ident table");
-
-        sqlx::query(
-            r#"
-            INSERT INTO test_ident_table(
-            id
-            )
-            VALUES ($1)
-            "#,
-        )
-        .bind(original_id)
-        .execute(&pool)
-        .await
-        .expect("failed to insert ident into mock table");
-
-        let id: Ident = sqlx::query_scalar(
-            r#"
-            SELECT id FROM test_ident_table
-            LIMIT 1
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("failed to fetch ident from mock table");
-
-        assert_eq!(id, original_id);
-
-        #[derive(FromRow)]
-        struct WrapperType {
-            id: Ident,
-        }
-
-        let id_wrapper: WrapperType = sqlx::query_as(
-            r#"
-            SELECT id FROM test_ident_table
-            LIMIT 1
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("failed to fetch ident from mock table");
-
-        assert_eq!(id_wrapper.id, original_id)
-    }
-}
+id!(TransactionId, TransactionPayload, Ident::new16());

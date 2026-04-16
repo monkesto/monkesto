@@ -120,7 +120,7 @@ pub trait TransactionStore:
     async fn get_transaction(
         &self,
         transaction_id: &TransactionId,
-    ) -> TransactionStoreResult<Option<TransactionState>>;
+    ) -> TransactionStoreResult<Option<TransactionProjection>>;
 
     async fn get_transaction_authority(
         &self,
@@ -134,7 +134,7 @@ pub struct TransactionMemoryStore {
     global_events: Arc<Mutex<Vec<Arc<Event<TransactionPayload, TransactionId>>>>>,
     local_events: Arc<DashMap<TransactionId, Vec<Arc<Event<TransactionPayload, TransactionId>>>>>,
 
-    transaction_table: Arc<DashMap<TransactionId, TransactionState>>,
+    transaction_table: Arc<DashMap<TransactionId, TransactionProjection>>,
     journal_lookup_table: Arc<DashMap<JournalId, Vec<TransactionId>>>,
 }
 
@@ -174,8 +174,7 @@ impl EventStore for TransactionMemoryStore {
             updates,
         } = payload
         {
-            let state = TransactionState {
-                id,
+            let state = TransactionProjection {
                 journal_id,
                 updates,
             };
@@ -238,7 +237,7 @@ impl TransactionStore for TransactionMemoryStore {
     async fn get_transaction(
         &self,
         transaction_id: &TransactionId,
-    ) -> TransactionStoreResult<Option<TransactionState>> {
+    ) -> TransactionStoreResult<Option<TransactionProjection>> {
         Ok(self
             .transaction_table
             .get(transaction_id)
@@ -349,13 +348,12 @@ impl<'r> Decode<'r, sqlx::Postgres> for TransactionPayload {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct TransactionState {
-    pub id: TransactionId,
+pub struct TransactionProjection {
     journal_id: JournalId,
     pub updates: Vec<BalanceUpdate>,
 }
 
-impl TransactionState {
+impl TransactionProjection {
     pub fn apply(&mut self, event: TransactionPayload) {
         match event {
             TransactionPayload::CreatedTransaction {

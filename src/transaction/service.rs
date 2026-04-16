@@ -9,7 +9,7 @@ use crate::journal::JournalStore;
 use crate::journal::Permissions;
 use crate::transaction::BalanceUpdate;
 use crate::transaction::TransactionPayload;
-use crate::transaction::TransactionState;
+use crate::transaction::TransactionProjection;
 use crate::transaction::TransactionStore;
 use crate::transaction::TransactionStoreError::InvalidAccount;
 use crate::transaction::TransactionStoreError::InvalidJournal;
@@ -124,7 +124,7 @@ where
         &self,
         journal_id: JournalId,
         authority: &Authority,
-    ) -> TransactionStoreResult<Vec<(TransactionId, TransactionState)>> {
+    ) -> TransactionStoreResult<Vec<(TransactionId, TransactionProjection)>> {
         let journal_state = self
             .journal_service
             .get_journal(journal_id, authority)

@@ -943,3 +943,5 @@ macro_rules! store_tests {
 // so that the macro exists when the modules are being compiled.
 // This is textual ordering, a unique quirk of macros.
 pub mod memory;
+#[expect(dead_code)]
+pub mod universal;

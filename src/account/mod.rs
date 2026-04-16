@@ -56,7 +56,7 @@ use crate::journal::Permissions;
 use crate::name::Name;
 use crate::transaction::EntryType;
 use crate::transaction::TransactionPayload;
-use crate::transaction::TransactionState;
+use crate::transaction::TransactionProjection;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
@@ -84,7 +84,7 @@ pub enum AccountPayload {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct AccountState {
+pub struct AccountProjection {
     pub id: AccountId,
     pub name: Name,
     pub journal_id: JournalId,
@@ -93,7 +93,7 @@ pub struct AccountState {
     pub parent_account_id: Option<AccountId>,
 }
 
-impl AccountState {
+impl AccountProjection {
     pub fn apply(&mut self, event: AccountPayload) {
         use AccountPayload::*;
         match event {
@@ -128,14 +128,16 @@ pub trait AccountStore:
         journal_id: JournalId,
     ) -> AccountStoreResult<HashSet<AccountId>>;
 
-    async fn get_account(&self, account_id: &AccountId)
-    -> AccountStoreResult<Option<AccountState>>;
+    async fn get_account(
+        &self,
+        account_id: &AccountId,
+    ) -> AccountStoreResult<Option<AccountProjection>>;
 
     async fn update_balances(
         &self,
         transaction_id: TransactionId,
         transaction_event: &TransactionPayload,
-        old_transaction: Option<&TransactionState>,
+        old_transaction: Option<&TransactionProjection>,
     ) -> AccountStoreResult<()>;
 }
 
@@ -144,7 +146,7 @@ pub trait AccountStore:
 pub struct AccountMemoryStore {
     global_events: Arc<Mutex<Vec<Arc<Event<AccountPayload, AccountId>>>>>,
     local_events: Arc<DashMap<AccountId, Vec<Arc<Event<AccountPayload, AccountId>>>>>,
-    account_table: Arc<DashMap<AccountId, AccountState>>,
+    account_table: Arc<DashMap<AccountId, AccountProjection>>,
 
     account_lookup_table: Arc<DashMap<JournalId, Vec<AccountId>>>,
 }
@@ -188,7 +190,7 @@ impl EventStore for AccountMemoryStore {
             } => {
                 self.local_events.insert(id, vec![event.clone()]);
 
-                let state = AccountState {
+                let state = AccountProjection {
                     id,
                     name,
                     journal_id,
@@ -262,7 +264,7 @@ impl AccountStore for AccountMemoryStore {
     async fn get_account(
         &self,
         account_id: &AccountId,
-    ) -> AccountStoreResult<Option<AccountState>> {
+    ) -> AccountStoreResult<Option<AccountProjection>> {
         Ok(self.account_table.get(account_id).map(|s| (*s).clone()))
     }
 
@@ -270,7 +272,7 @@ impl AccountStore for AccountMemoryStore {
         &self,
         transaction_id: TransactionId,
         transaction_event: &TransactionPayload,
-        old_transaction: Option<&TransactionState>,
+        old_transaction: Option<&TransactionProjection>,
     ) -> AccountStoreResult<()> {
         match transaction_event {
             TransactionPayload::CreatedTransaction { updates, .. } => {

@@ -8,12 +8,12 @@ use std::sync::Arc;
 
 use super::AuthSession;
 use super::layout::layout;
-use super::passkey::Passkey;
+use super::passkey::PasskeyProjection;
 use super::passkey::PasskeyStore;
 use super::user::UserStore;
 use crate::theme::theme_with_head;
 
-fn me_page(email: &str, passkeys: &[Passkey]) -> Markup {
+fn me_page(email: &str, passkeys: &[PasskeyProjection]) -> Markup {
     let content = html! {
         div class="flex flex-col gap-6 sm:mx-auto sm:w-full sm:max-w-sm" {
         div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 space-y-4" {

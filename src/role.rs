@@ -3,6 +3,7 @@
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::id;
+use crate::ident::EntityId;
 use crate::ident::Ident;
 use crate::ident::IdentError;
 use crate::store::After;
@@ -23,7 +24,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 use thiserror::Error;
 
-id!(RoleId, Ident::new16());
+id!(RoleId, RolePayload, Ident::new16());
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RolePayload {

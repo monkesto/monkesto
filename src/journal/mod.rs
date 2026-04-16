@@ -116,7 +116,10 @@ pub trait JournalStore:
     + EventStore<Id = JournalId, Payload = JounalPayload, Error = JournalStoreError>
 {
     /// returns the cached state of the journal
-    async fn get_journal(&self, journal_id: JournalId) -> JournalStoreResult<Option<JournalState>>;
+    async fn get_journal(
+        &self,
+        journal_id: JournalId,
+    ) -> JournalStoreResult<Option<JournalProjection>>;
 
     /// returns all journals that a user is a member of (owner or tenant)
     async fn get_user_journals(&self, user_id: UserId) -> JournalStoreResult<Vec<JournalId>>;
@@ -176,7 +179,7 @@ pub struct JournalMemoryStore {
     global_events: Arc<RwLock<Vec<Arc<Event<JounalPayload, JournalId>>>>>,
     local_events: Arc<DashMap<JournalId, Vec<Arc<Event<JounalPayload, JournalId>>>>>,
 
-    journal_table: Arc<DashMap<JournalId, JournalState>>,
+    journal_table: Arc<DashMap<JournalId, JournalProjection>>,
     /// Index of user_id -> set of journal_ids they belong to
     user_journals: Arc<DashMap<UserId, std::collections::HashSet<JournalId>>>,
     /// Index of parent_journal_id -> set of child journal_ids
@@ -223,7 +226,7 @@ impl EventStore for JournalMemoryStore {
         {
             self.local_events.insert(id, vec![event.clone()]);
 
-            let state = JournalState {
+            let state = JournalProjection {
                 id,
                 name,
                 owner,
@@ -285,7 +288,10 @@ impl EventStore for JournalMemoryStore {
 }
 
 impl JournalStore for JournalMemoryStore {
-    async fn get_journal(&self, journal_id: JournalId) -> JournalStoreResult<Option<JournalState>> {
+    async fn get_journal(
+        &self,
+        journal_id: JournalId,
+    ) -> JournalStoreResult<Option<JournalProjection>> {
         Ok(self
             .journal_table
             .get(&journal_id)
@@ -427,7 +433,7 @@ impl<'r> Decode<'r, sqlx::Postgres> for JounalPayload {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub struct JournalState {
+pub struct JournalProjection {
     pub id: JournalId,
     pub name: Name,
     pub owner: UserId,
@@ -440,7 +446,7 @@ pub trait JournalNameOrUnknown {
     fn or_unknown(&self) -> String;
 }
 
-impl<E> JournalNameOrUnknown for Result<Option<JournalState>, E>
+impl<E> JournalNameOrUnknown for Result<Option<JournalProjection>, E>
 where
     E: std::error::Error,
 {
@@ -466,7 +472,7 @@ where
     }
 }
 
-impl JournalState {
+impl JournalProjection {
     pub fn apply(&mut self, payload: JounalPayload) {
         match payload {
             JounalPayload::Created {

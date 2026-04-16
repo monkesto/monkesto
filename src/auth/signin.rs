@@ -23,8 +23,8 @@ use webauthn_rs::prelude::Webauthn;
 use super::AuthSession;
 use super::passkey::PasskeyStore;
 use super::user::DEV_USERS;
-use super::user::User;
 use super::user::UserId;
+use super::user::UserProjection;
 use super::user::UserStore;
 use crate::theme::theme_with_head;
 
@@ -144,7 +144,7 @@ fn auth_page(
     challenge_data: Option<&str>,
     error_message: Option<&str>,
     next: Option<&str>,
-    dev_users: &[User],
+    dev_users: &[UserProjection],
 ) -> Markup {
     theme_with_head(
         Some("Sign in"),
