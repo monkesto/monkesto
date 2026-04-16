@@ -19,7 +19,7 @@ use thiserror::Error;
 id!(GrantId, Ident::new16());
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum GrantEvent {
+pub enum GrantPayload {
     Created,
     Revoked,
 }
@@ -48,11 +48,11 @@ pub enum GrantRevokeError<E: StdError + Send + Sync + 'static> {
     Store(#[from] E),
 }
 
-pub struct GrantService<G: Store<Id = GrantId, Payload = GrantEvent>> {
+pub struct GrantService<G: Store<Id = GrantId, Payload = GrantPayload>> {
     store: G,
 }
 
-impl<G: Store<Id = GrantId, Payload = GrantEvent>> GrantService<G> {
+impl<G: Store<Id = GrantId, Payload = GrantPayload>> GrantService<G> {
     const MAX_EVENTS_PER_GRANT: usize = 2;
     const MAX_CREATE_ATTEMPTS: usize = 8;
     const MAX_REVOKE_ATTEMPTS: usize = 8;
@@ -75,7 +75,7 @@ impl<G: Store<Id = GrantId, Payload = GrantEvent>> GrantService<G> {
                     authority.clone(),
                     Utc::now(),
                     grant_id,
-                    GrantEvent::Created,
+                    GrantPayload::Created,
                     When::Empty,
                 )
                 .await?;
@@ -113,8 +113,8 @@ impl<G: Store<Id = GrantId, Payload = GrantEvent>> GrantService<G> {
             };
 
             match &latest_event.payload {
-                GrantEvent::Revoked => return Ok(()),
-                GrantEvent::Created => {}
+                GrantPayload::Revoked => return Ok(()),
+                GrantPayload::Created => {}
             }
 
             let outcome = self
@@ -123,7 +123,7 @@ impl<G: Store<Id = GrantId, Payload = GrantEvent>> GrantService<G> {
                     authority.clone(),
                     Utc::now(),
                     grant_id,
-                    GrantEvent::Revoked,
+                    GrantPayload::Revoked,
                     When::Within(latest_event.event_id),
                 )
                 .await?;

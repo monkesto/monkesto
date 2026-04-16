@@ -2,6 +2,7 @@
 
 use crate::authority::Actor;
 use crate::authority::Authority;
+use crate::id;
 use crate::ident::Ident;
 use crate::ident::IdentError;
 use crate::store::After;
@@ -17,49 +18,11 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error as StdError;
 use std::fmt::Display;
-use std::fmt::Formatter;
 use std::ops::Deref;
 use std::str::FromStr;
 use thiserror::Error;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct RoleId(Ident);
-
-impl RoleId {
-    pub fn new() -> Self {
-        Self(Ident::new16())
-    }
-}
-
-impl Deref for RoleId {
-    type Target = Ident;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl FromStr for RoleId {
-    type Err = IdentError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(Ident::from_str(s)?))
-    }
-}
-
-impl Display for RoleId {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl TryFrom<&[u8]> for RoleId {
-    type Error = IdentError;
-
-    fn try_from(bytes: &[u8]) -> Result<Self, IdentError> {
-        Ok(Self(Ident::try_from(bytes)?))
-    }
-}
+id!(RoleId, Ident::new16());
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RolePayload {
