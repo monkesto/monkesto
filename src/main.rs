@@ -1,6 +1,7 @@
 mod account;
 mod auth;
 mod authority;
+mod authorization;
 mod entitlement;
 mod event;
 mod grant;
