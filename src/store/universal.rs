@@ -54,7 +54,7 @@ impl Deref for SequenceId {
         &self.0
     }
 }
-#[repr(u8)]
+#[repr(i8)]
 #[derive(Debug, Clone, PartialEq, Deserialize, sqlx::Type)]
 pub enum EntityType {
     Journal = 0,
