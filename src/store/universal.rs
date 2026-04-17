@@ -54,14 +54,14 @@ impl Deref for SequenceId {
         &self.0
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[repr(u8)]
+#[derive(Debug, Clone, PartialEq, Deserialize, sqlx::Type)]
 pub enum EntityType {
-    Journal,
-    Account,
-    Transaction,
-    Passkey,
-    User,
+    Journal = 0,
+    Account = 1,
+    Transaction = 2,
+    Passkey = 3,
+    User = 4,
 }
 
 impl EntityType {
@@ -95,8 +95,8 @@ pub trait Store {
     /// Returns an `EntityType` error if `EntityType::from_entity_id(entity_id)` does
     /// not match the `EntityType` of the existing entity in the store
     ///
-    /// Returns a `Sequence` error if the store-assigned sequence number
-    /// of the event does not match the `expected_sequence`
+    /// Returns a `Sequence` error and does not record the event if the latest sequence number
+    /// recorded by the store (prior to this event) does not match `expected_sequence`
     async fn record<'a, I: EntityId<'a>>(
         &self,
         by: Authority,
@@ -113,9 +113,11 @@ pub trait Store {
         starting_sequence: SequenceId,
     ) -> Vec<Event<'a, I>>;
 
-    /// Returns an up-to-date projection of the given entity
-    async fn get_projection<'a, I: EntityId<'a>>(&self, entity_id: I)
-    -> StoreResult<I::Projection>;
+    /// Returns a projection of the given entity and the sequence id that it is
+    async fn get_projection<'a, I: EntityId<'a>>(
+        &self,
+        entity_id: I,
+    ) -> StoreResult<(I::Projection, SequenceId)>;
 
     /// Rebuilds the projection of an entity with the given events
     async fn rebuild_projection<'a, I: EntityId<'a>>(
