@@ -62,20 +62,8 @@ pub enum EntityType {
     Transaction = 2,
     Passkey = 3,
     User = 4,
-}
-
-impl EntityType {
-    pub fn from_entity_id(id: impl EntityId<'static> + 'static) -> Option<Self> {
-        use EntityType::*;
-        match id.type_id() {
-            t if t == TypeId::of::<JournalId>() => Some(Journal),
-            t if t == TypeId::of::<AccountId>() => Some(Account),
-            t if t == TypeId::of::<TransactionId>() => Some(Transaction),
-            t if t == TypeId::of::<PasskeyId>() => Some(Passkey),
-            t if t == TypeId::of::<UserId>() => Some(User),
-            _ => None,
-        }
-    }
+    Grant = 5,
+    Role = 6,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -92,7 +80,7 @@ pub trait Store {
     /// Records an event to the store and updates the projection
     ///
     /// # Errors
-    /// Returns an `EntityType` error if `EntityType::from_entity_id(entity_id)` does
+    /// Returns an `EntityType` error if `entity_id.entity_type()` does
     /// not match the `EntityType` of the existing entity in the store
     ///
     /// Returns a `Sequence` error and does not record the event if the latest sequence number
@@ -113,7 +101,7 @@ pub trait Store {
         starting_sequence: SequenceId,
     ) -> Vec<Event<'a, I>>;
 
-    /// Returns a projection of the given entity and the sequence id that it is
+    /// Returns a projection of the given entity and the sequence id associated with the last event applied to it
     async fn get_projection<'a, I: EntityId<'a>>(
         &self,
         entity_id: I,

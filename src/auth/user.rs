@@ -1,12 +1,12 @@
 use crate::authority::Authority;
+use crate::entity;
 use crate::event::Event;
 use crate::event::EventStore;
-use crate::id;
 use crate::ident::EntityId;
 use crate::ident::Ident;
 use crate::ident::IdentError;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::Payload;
+use crate::store::universal::{EntityType, Payload};
 use axum::response::Redirect;
 use nutype::nutype;
 use serde::Deserialize;
@@ -16,7 +16,13 @@ use std::ops::Deref;
 use std::str::FromStr;
 
 // Define UserId here in the user module
-id!(UserId, UserPayload, UserProjection, Ident::new16());
+entity!(
+    UserId,
+    UserPayload,
+    UserProjection,
+    EntityType::User,
+    Ident::new16()
+);
 
 #[nutype(
     derive(

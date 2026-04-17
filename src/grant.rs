@@ -1,5 +1,5 @@
 use crate::authority::Authority;
-use crate::id;
+use crate::entity;
 use crate::ident::EntityId;
 use crate::ident::Ident;
 use crate::ident::IdentError;
@@ -9,7 +9,7 @@ use crate::store::Select;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::universal::Payload;
+use crate::store::universal::{EntityType, Payload};
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
@@ -19,7 +19,13 @@ use std::ops::Deref;
 use std::str::FromStr;
 use thiserror::Error;
 
-id!(GrantId, GrantPayload, GrantProjection, Ident::new16());
+entity!(
+    GrantId,
+    GrantPayload,
+    GrantProjection,
+    EntityType::Grant,
+    Ident::new16()
+);
 
 #[derive(Clone)]
 pub struct GrantProjection {

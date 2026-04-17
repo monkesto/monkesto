@@ -1,6 +1,6 @@
 use crate::ident::EntityId;
 use crate::ident::IdentError;
-use crate::store::universal::Payload;
+use crate::store::universal::{EntityType, Payload};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -23,9 +23,9 @@ use super::user::UserId;
 use super::user::UserStore;
 use crate::authority::Actor;
 use crate::authority::Authority;
+use crate::entity;
 use crate::event::Event;
 use crate::event::EventStore;
-use crate::id;
 use crate::ident::Ident;
 use maud::PreEscaped;
 use maud::html;
@@ -314,7 +314,13 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
     layout(None, content)
 }
 
-id!(PasskeyId, PasskeyPayload, PasskeyProjection, Ident::new16());
+entity!(
+    PasskeyId,
+    PasskeyPayload,
+    PasskeyProjection,
+    EntityType::Passkey,
+    Ident::new16()
+);
 
 #[derive(Debug, Clone)]
 pub struct PasskeyProjection {

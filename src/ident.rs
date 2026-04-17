@@ -1,6 +1,6 @@
 use crate::account::{AccountPayload, AccountProjection};
 use crate::journal::{JounalPayload, JournalProjection};
-use crate::store::universal::Payload;
+use crate::store::universal::{EntityType, Payload};
 use crate::transaction::{TransactionPayload, TransactionProjection};
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
@@ -142,21 +142,42 @@ pub trait EntityId<'a>:
     type Projection: Send + Sync + Clone;
     #[expect(dead_code)]
     fn as_bytes(&self) -> &[u8];
+
+    #[expect(dead_code)]
+    fn entity_type(&self) -> EntityType;
 }
 
+/// A macro to create an entity with the id of id_name and an associated payload, projection, and entity type
+///
+/// # Parameters
+/// `id_name`: The name of the id to create along with the entity (`UserId`, for example)
+///
+/// `payload`: The payload type associated with this entity
+///
+/// `projection`: The projection type associated with this entity
+///
+/// `entity_type`: A variant of the `EntityType` enum this entity should be associated with
+///
+/// `new_fn`: A function that returns an `Ident`
+///
+/// # Examples
+///
+/// ```
+/// entity!(UserId, UserPayload, UserProjection, EntityType::User, Ident::new16());
+/// ```
 #[macro_export]
-macro_rules! id {
-    ($name: ident, $payload: ty, $projection: ty, $new_fn: expr) => {
+macro_rules! entity {
+    ($id_name: ident, $payload: ty, $projection: ty, $entity_type: expr, $new_fn: expr) => {
         #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-        pub struct $name(Ident);
+        pub struct $id_name(Ident);
 
-        impl $name {
+        impl $id_name {
             pub fn new() -> Self {
                 Self($new_fn)
             }
         }
 
-        impl Deref for $name {
+        impl Deref for $id_name {
             type Target = Ident;
 
             fn deref(&self) -> &Self::Target {
@@ -164,7 +185,7 @@ macro_rules! id {
             }
         }
 
-        impl FromStr for $name {
+        impl FromStr for $id_name {
             type Err = IdentError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -172,13 +193,13 @@ macro_rules! id {
             }
         }
 
-        impl Display for $name {
+        impl Display for $id_name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}", self.0)
             }
         }
 
-        impl TryFrom<&[u8]> for $name {
+        impl TryFrom<&[u8]> for $id_name {
             type Error = IdentError;
 
             fn try_from(bytes: &[u8]) -> Result<Self, IdentError> {
@@ -186,23 +207,39 @@ macro_rules! id {
             }
         }
 
-        impl EntityId<'_> for $name {
+        impl EntityId<'_> for $id_name {
             type Payload = $payload;
             type Projection = $projection;
             fn as_bytes(&self) -> &[u8] {
                 self.deref().as_bytes()
             }
+            fn entity_type(&self) -> EntityType {
+                $entity_type
+            }
         }
     };
 }
 
-id!(JournalId, JounalPayload, JournalProjection, Ident::new10());
+entity!(
+    JournalId,
+    JounalPayload,
+    JournalProjection,
+    EntityType::Journal,
+    Ident::new10()
+);
 
-id!(AccountId, AccountPayload, AccountProjection, Ident::new10());
+entity!(
+    AccountId,
+    AccountPayload,
+    AccountProjection,
+    EntityType::Account,
+    Ident::new10()
+);
 
-id!(
+entity!(
     TransactionId,
     TransactionPayload,
     TransactionProjection,
+    EntityType::Transaction,
     Ident::new16()
 );
