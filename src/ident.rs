@@ -1,5 +1,5 @@
 use crate::account::{AccountPayload, AccountProjection};
-use crate::journal::{JounalPayload, JournalProjection};
+use crate::journal::{JournalPayload, JournalProjection};
 use crate::store::universal::{EntityType, Payload};
 use crate::transaction::{TransactionPayload, TransactionProjection};
 use cuid::Cuid2Constructor;
@@ -222,7 +222,7 @@ macro_rules! entity {
 
 entity!(
     JournalId,
-    JounalPayload,
+    JournalPayload,
     JournalProjection,
     EntityType::Journal,
     Ident::new10()

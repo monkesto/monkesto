@@ -1,9 +1,8 @@
-use crate::auth::passkey::PasskeyId;
-use crate::authority::{Authority, UserId};
-use crate::ident::{AccountId, EntityId, JournalId, TransactionId};
+use crate::auth::user::Email;
+use crate::authority::Authority;
+use crate::ident::EntityId;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::any::{Any, TypeId};
 use std::ops::Deref;
 use thiserror::Error;
 
@@ -25,7 +24,12 @@ pub enum StoreError {
 
 pub type StoreResult<T> = Result<T, StoreError>;
 
-pub trait Payload<'a>: Send + Sync + Clone + Serialize + Deserialize<'a> {
+pub trait EmailUpdate {
+    /// returns an email if the payload modifies it in any way
+    fn email(&self) -> Option<&Email>;
+}
+
+pub trait Payload<'a>: Send + Sync + Clone + Serialize + Deserialize<'a> + EmailUpdate {
     fn serialize(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize payload")
     }

@@ -1,6 +1,6 @@
 use crate::ident::EntityId;
 use crate::ident::IdentError;
-use crate::store::universal::{EntityType, Payload};
+use crate::store::universal::{EmailUpdate, EntityType, Payload};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -19,8 +19,8 @@ use webauthn_rs::prelude::Webauthn;
 
 use super::AuthSession;
 use super::layout::layout;
-use super::user::UserId;
 use super::user::UserStore;
+use super::user::{Email, UserId};
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::entity;
@@ -338,6 +338,12 @@ pub enum PasskeyPayload {
     Deleted {
         user_id: UserId,
     },
+}
+
+impl EmailUpdate for PasskeyPayload {
+    fn email(&self) -> Option<&Email> {
+        None
+    }
 }
 
 #[derive(Debug, Error)]

@@ -3,7 +3,7 @@ use crate::auth::user::UserStore;
 use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::ident::JournalId;
-use crate::journal::JounalPayload;
+use crate::journal::JournalPayload;
 use crate::journal::JournalProjection;
 use crate::journal::JournalStore;
 use crate::journal::JournalStoreError;
@@ -52,7 +52,7 @@ where
             .record(
                 journal_id,
                 authority.clone(),
-                JounalPayload::Created {
+                JournalPayload::Created {
                     name,
                     parent_journal_id: None,
                     owner,
@@ -89,7 +89,7 @@ where
             .record(
                 subjournal_id,
                 authority.clone(),
-                JounalPayload::Created {
+                JournalPayload::Created {
                     name,
                     // TODO: figure out how to handle journal/subjournal ownership
                     owner: parent_state.owner,
@@ -355,7 +355,7 @@ where
             .record(
                 journal_id,
                 authority.clone(),
-                JounalPayload::AddedTenant {
+                JournalPayload::AddedTenant {
                     id: invitee_id,
                     permissions,
                 },
@@ -395,7 +395,7 @@ where
             .record(
                 journal_id,
                 authority,
-                JounalPayload::UpdatedTenantPermissions {
+                JournalPayload::UpdatedTenantPermissions {
                     id: target_user,
                     permissions,
                 },
@@ -434,7 +434,7 @@ where
             .record(
                 journal_id,
                 authority,
-                JounalPayload::RemovedTenant { id: target_user },
+                JournalPayload::RemovedTenant { id: target_user },
             )
             .await
     }

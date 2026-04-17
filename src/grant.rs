@@ -1,3 +1,4 @@
+use crate::auth::user::Email;
 use crate::authority::Authority;
 use crate::entity;
 use crate::ident::EntityId;
@@ -9,7 +10,7 @@ use crate::store::Select;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::universal::{EntityType, Payload};
+use crate::store::universal::{EmailUpdate, EntityType, Payload};
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
@@ -36,6 +37,12 @@ pub struct GrantProjection {
 pub enum GrantPayload {
     Created,
     Revoked,
+}
+
+impl EmailUpdate for GrantPayload {
+    fn email(&self) -> Option<&Email> {
+        None
+    }
 }
 
 #[derive(Debug, Error)]

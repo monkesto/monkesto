@@ -4,7 +4,7 @@ pub mod views;
 
 pub use service::TransactionService;
 
-use crate::store::universal::Payload;
+use crate::store::universal::{EmailUpdate, Payload};
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -34,6 +34,7 @@ use crate::ident::JournalId;
 use crate::ident::TransactionId;
 
 use crate::account::AccountStoreError;
+use crate::auth::user::Email;
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::journal::JournalStoreError;
@@ -303,6 +304,12 @@ pub enum TransactionPayload {
     UpdatedBalancedUpdates {
         new_balanceupdates: Vec<BalanceUpdate>,
     },
+}
+
+impl EmailUpdate for TransactionPayload {
+    fn email(&self) -> Option<&Email> {
+        None
+    }
 }
 
 #[derive(sqlx::Type)]

@@ -45,6 +45,7 @@ pub fn router() -> Router<crate::StateType> {
 
 use crate::account::AccountStoreError::InvalidAccount;
 use crate::account::AccountStoreError::TransactionWithoutPriorState;
+use crate::auth::user::Email;
 use crate::authority::Authority;
 use crate::event::Event;
 use crate::event::EventStore;
@@ -54,7 +55,7 @@ use crate::ident::TransactionId;
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
 use crate::name::Name;
-use crate::store::universal::Payload;
+use crate::store::universal::{EmailUpdate, Payload};
 use crate::transaction::EntryType;
 use crate::transaction::TransactionPayload;
 use crate::transaction::TransactionProjection;
@@ -82,6 +83,12 @@ pub enum AccountPayload {
         new_name: Name,
     },
     Deleted,
+}
+
+impl EmailUpdate for AccountPayload {
+    fn email(&self) -> Option<&Email> {
+        None
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]

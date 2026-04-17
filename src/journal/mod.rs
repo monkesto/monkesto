@@ -4,7 +4,7 @@ pub mod person;
 pub mod service;
 pub mod views;
 
-use crate::store::universal::Payload;
+use crate::store::universal::{EmailUpdate, Payload};
 pub use service::JournalService;
 
 use axum::Router;
@@ -114,7 +114,7 @@ pub trait JournalStore:
     + Send
     + Sync
     + 'static
-    + EventStore<Id = JournalId, Payload = JounalPayload, Error = JournalStoreError>
+    + EventStore<Id = JournalId, Payload = JournalPayload, Error = JournalStoreError>
 {
     /// returns the cached state of the journal
     async fn get_journal(
@@ -177,8 +177,8 @@ pub trait JournalStore:
 #[derive(Clone)]
 #[allow(clippy::type_complexity)]
 pub struct JournalMemoryStore {
-    global_events: Arc<RwLock<Vec<Arc<Event<JounalPayload, JournalId>>>>>,
-    local_events: Arc<DashMap<JournalId, Vec<Arc<Event<JounalPayload, JournalId>>>>>,
+    global_events: Arc<RwLock<Vec<Arc<Event<JournalPayload, JournalId>>>>>,
+    local_events: Arc<DashMap<JournalId, Vec<Arc<Event<JournalPayload, JournalId>>>>>,
 
     journal_table: Arc<DashMap<JournalId, JournalProjection>>,
     /// Index of user_id -> set of journal_ids they belong to
@@ -202,14 +202,14 @@ impl JournalMemoryStore {
 impl EventStore for JournalMemoryStore {
     type Id = JournalId;
     type EventId = u64;
-    type Payload = JounalPayload;
+    type Payload = JournalPayload;
     type Error = JournalStoreError;
 
     async fn record(
         &self,
         id: JournalId,
         authority: Authority,
-        payload: JounalPayload,
+        payload: JournalPayload,
     ) -> JournalStoreResult<u64> {
         let (event_id, event) = {
             let mut global_events = self.global_events.write().await;
@@ -219,7 +219,7 @@ impl EventStore for JournalMemoryStore {
             (event_id, event)
         };
 
-        if let JounalPayload::Created {
+        if let JournalPayload::Created {
             name,
             owner,
             parent_journal_id,
@@ -250,9 +250,9 @@ impl EventStore for JournalMemoryStore {
             && let Some(mut state) = self.journal_table.get_mut(&id)
         {
             // Update user_journals index for membership changes
-            if let JounalPayload::AddedTenant { id: user_id, .. } = &payload {
+            if let JournalPayload::AddedTenant { id: user_id, .. } = &payload {
                 self.user_journals.entry(*user_id).or_default().insert(id);
-            } else if let JounalPayload::RemovedTenant { id: user_id } = &payload {
+            } else if let JournalPayload::RemovedTenant { id: user_id } = &payload {
                 self.user_journals.entry(*user_id).or_default().remove(&id);
             }
 
@@ -270,7 +270,7 @@ impl EventStore for JournalMemoryStore {
         id: JournalId,
         after: u64,
         limit: u64,
-    ) -> Result<Vec<Event<JounalPayload, JournalId>>, Self::Error> {
+    ) -> Result<Vec<Event<JournalPayload, JournalId>>, Self::Error> {
         let events = self.local_events.get(&id).ok_or(InvalidJournal(id))?;
 
         // avoid a panic fn start > len
@@ -384,7 +384,7 @@ impl<'r> Decode<'r, sqlx::Postgres> for Permissions {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Payload)]
-pub enum JounalPayload {
+pub enum JournalPayload {
     Created {
         name: Name,
         owner: UserId,
@@ -410,13 +410,19 @@ pub enum JounalPayload {
     Deleted,
 }
 
-impl Type<sqlx::Postgres> for JounalPayload {
+impl EmailUpdate for JournalPayload {
+    fn email(&self) -> Option<&Email> {
+        None
+    }
+}
+
+impl Type<sqlx::Postgres> for JournalPayload {
     fn type_info() -> <sqlx::Postgres as Database>::TypeInfo {
         <&[u8] as Type<sqlx::Postgres>>::type_info()
     }
 }
 
-impl<'q> Encode<'q, sqlx::Postgres> for JounalPayload {
+impl<'q> Encode<'q, sqlx::Postgres> for JournalPayload {
     fn encode_by_ref(
         &self,
         buf: &mut <sqlx::Postgres as Database>::ArgumentBuffer<'q>,
@@ -426,10 +432,10 @@ impl<'q> Encode<'q, sqlx::Postgres> for JounalPayload {
     }
 }
 
-impl<'r> Decode<'r, sqlx::Postgres> for JounalPayload {
+impl<'r> Decode<'r, sqlx::Postgres> for JournalPayload {
     fn decode(value: PgValueRef<'r>) -> Result<Self, BoxDynError> {
         let bytes = <&[u8] as Decode<sqlx::Postgres>>::decode(value)?;
-        Ok(postcard::from_bytes::<JounalPayload>(bytes)?)
+        Ok(postcard::from_bytes::<JournalPayload>(bytes)?)
     }
 }
 
@@ -474,9 +480,9 @@ where
 }
 
 impl JournalProjection {
-    pub fn apply(&mut self, payload: JounalPayload) {
+    pub fn apply(&mut self, payload: JournalPayload) {
         match payload {
-            JounalPayload::Created {
+            JournalPayload::Created {
                 name,
                 owner,
                 parent_journal_id,
@@ -486,23 +492,23 @@ impl JournalProjection {
                 self.parent_journal_id = parent_journal_id;
             }
 
-            JounalPayload::Renamed { name } => self.name = name,
+            JournalPayload::Renamed { name } => self.name = name,
 
-            JounalPayload::AddedTenant { id, permissions } => {
+            JournalPayload::AddedTenant { id, permissions } => {
                 _ = self.members.insert(id, permissions);
             }
 
-            JounalPayload::TransferredOwnership { new_owner } => self.owner = new_owner,
+            JournalPayload::TransferredOwnership { new_owner } => self.owner = new_owner,
 
-            JounalPayload::RemovedTenant { id } => {
+            JournalPayload::RemovedTenant { id } => {
                 _ = self.members.remove(&id);
             }
-            JounalPayload::UpdatedTenantPermissions { id, permissions } => {
+            JournalPayload::UpdatedTenantPermissions { id, permissions } => {
                 if let Some(member_permissions) = self.members.get_mut(&id) {
                     *member_permissions = permissions;
                 }
             }
-            JounalPayload::Deleted => self.deleted = true,
+            JournalPayload::Deleted => self.deleted = true,
         }
     }
 
@@ -529,7 +535,7 @@ impl JournalProjection {
 
 #[cfg(test)]
 mod tests {
-    use super::JounalPayload;
+    use super::JournalPayload;
     use super::Permissions;
     use crate::authority::UserId;
     use crate::name::Name;
@@ -538,7 +544,7 @@ mod tests {
 
     #[sqlx::test]
     async fn test_encode_decode_journalevent(pool: PgPool) {
-        let original_event = JounalPayload::Created {
+        let original_event = JournalPayload::Created {
             name: Name::try_new("test".to_string()).expect("name creation failed"),
             owner: UserId::new(),
             parent_journal_id: None,
@@ -568,7 +574,7 @@ mod tests {
         .await
         .expect("failed to insert journal into mock table");
 
-        let event: JounalPayload = sqlx::query_scalar(
+        let event: JournalPayload = sqlx::query_scalar(
             r#"
             SELECT event FROM test_journal_table
             LIMIT 1
@@ -582,7 +588,7 @@ mod tests {
 
         #[derive(FromRow)]
         struct WrapperType {
-            event: JounalPayload,
+            event: JournalPayload,
         }
 
         let event_wrapper: WrapperType = sqlx::query_as(

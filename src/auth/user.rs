@@ -6,7 +6,7 @@ use crate::ident::EntityId;
 use crate::ident::Ident;
 use crate::ident::IdentError;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::{EntityType, Payload};
+use crate::store::universal::{EmailUpdate, EntityType, Payload};
 use axum::response::Redirect;
 use nutype::nutype;
 use serde::Deserialize;
@@ -210,6 +210,15 @@ mod tests {
 pub enum UserPayload {
     Created { email: Email, webauthn_uuid: Uuid },
     Deleted,
+}
+
+impl EmailUpdate for UserPayload {
+    fn email(&self) -> Option<&Email> {
+        match self {
+            UserPayload::Created { email, .. } => Some(email),
+            UserPayload::Deleted => None,
+        }
+    }
 }
 
 use webauthn_rs::prelude::Uuid;
