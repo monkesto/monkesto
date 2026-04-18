@@ -3,29 +3,55 @@ use crate::auth::passkey::PasskeyPayload;
 use crate::auth::user::UserPayload;
 use crate::authority::Authority;
 use crate::grant::GrantPayload;
-use crate::ident::EntityId;
+use crate::ident::{EntityId, Ident, ProjectionFromPayloadError};
 use crate::journal::JournalPayload;
 use crate::role::RolePayload;
 use crate::transaction::TransactionPayload;
 use chrono::{DateTime, Utc};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::ops::Deref;
+use std::ops::{Add, Deref};
 use thiserror::Error;
+use tower_sessions::SessionStore;
 
-#[derive(Debug, Error, Clone, PartialEq, Deserialize)]
+mod simple_sqlite;
+
+#[derive(Debug, Error, Clone, Deserialize)]
 pub enum StoreError {
     #[error("failed to deserialize an event payload")]
     Deserialize(#[from] postcard::Error),
+
     #[error("sequence error: expected {expected:?}, found {found:?}")]
     Sequence {
         expected: SequenceId,
         found: SequenceId,
     },
+
     #[error("incorrect entity type: expected {expected:?}, found {found:?}")]
     EntityType {
-        expected: EntityType,
+        expected: Option<EntityType>,
         found: Option<EntityType>,
     },
+
+    #[error("sqlx returned an error: {0}")]
+    Sqlx(String),
+
+    #[error(transparent)]
+    ProjectionFromPayload(#[from] ProjectionFromPayloadError),
+
+    #[error("attempted to apply an update to the transaction {0}, but it doesn't exist")]
+    TransactionModifiedBeforeCreation(Ident),
+
+    #[error("attempted to apply an update to the transaction {0}, but it was deleted")]
+    TransactionModifiedAfterDeletion(Ident),
+
+    #[error("attempted to apply an update to the account {0}, but it doesn't exist")]
+    AccountModifiedBeforeCreation(Ident),
+}
+impl From<sqlx::Error> for StoreError {
+    fn from(error: sqlx::Error) -> Self {
+        StoreError::Sqlx(error.to_string())
+    }
 }
 
 pub type StoreResult<T> = Result<T, StoreError>;
@@ -50,7 +76,7 @@ pub enum AnyPayload {
 pub trait Payload<'a>:
     Send + Sync + Clone + Serialize + Deserialize<'a> + Into<AnyPayload>
 {
-    fn serialize(&self) -> Vec<u8> {
+    fn as_bytes(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize payload")
     }
     fn from_bytes(bytes: &'a [u8]) -> StoreResult<Self> {
@@ -61,7 +87,25 @@ pub trait Payload<'a>:
 }
 
 pub trait ApplyPayload<'a, T: EntityId<'a>> {
-    fn apply(&mut self, payload: &'a T::Payload) -> &mut T::Projection;
+    fn apply(&mut self, payload: &T::Payload) -> &mut T::Projection;
+}
+
+pub trait Projection<'a, T: EntityId<'a>>:
+    Send
+    + Sync
+    + Clone
+    + TryFrom<PayloadWithId<'a, T>, Error = ProjectionFromPayloadError>
+    + Serialize
+    + DeserializeOwned
+    + ApplyPayload<'a, T>
+{
+    fn as_bytes(&self) -> Vec<u8> {
+        postcard::to_allocvec(self).expect("Failed to serialize payload")
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+        postcard::from_bytes(bytes)?
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize, Eq)]
@@ -82,8 +126,23 @@ impl Deref for SequenceId {
         &self.0
     }
 }
+
+impl From<i64> for SequenceId {
+    fn from(id: i64) -> Self {
+        SequenceId(id as u64)
+    }
+}
+
+impl Add<u64> for SequenceId {
+    type Output = SequenceId;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        self.0.checked_add(rhs).expect("SequenceId overflow");
+        self
+    }
+}
 #[repr(i8)]
-#[derive(Debug, Clone, PartialEq, Deserialize, sqlx::Type)]
+#[derive(Debug, Clone, PartialEq, Deserialize, sqlx::Type, Copy)]
 pub enum EntityType {
     Journal = 0,
     Account = 1,
@@ -115,7 +174,7 @@ pub trait Store {
     /// recorded by the store (prior to this event) does not match `expected_sequence`
     async fn record<'a, I: EntityId<'a>>(
         &self,
-        by: Authority,
+        authority: Authority,
         at: DateTime<Utc>,
         entity_id: I,
         payload: I::Payload,
@@ -141,4 +200,6 @@ pub trait Store {
         entity_id: I,
         events: Vec<Event<'a, I>>,
     ) -> StoreResult<()>;
+
+    async fn session_store(&self) -> &impl SessionStore;
 }

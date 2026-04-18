@@ -11,7 +11,7 @@ use crate::store::Select;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::universal::{AnyPayload, Payload};
+use crate::store::universal::AnyPayload;
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;

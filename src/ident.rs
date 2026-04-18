@@ -1,6 +1,6 @@
 use crate::account::{AccountPayload, AccountProjection};
 use crate::journal::{JournalPayload, JournalProjection};
-use crate::store::universal::{ApplyPayload, EntityType, Payload, PayloadWithId};
+use crate::store::universal::{EntityType, Payload, Projection};
 use crate::transaction::{TransactionPayload, TransactionProjection};
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
@@ -135,25 +135,19 @@ impl Display for Ident {
     }
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone, Deserialize)]
 pub enum ProjectionFromPayloadError {
     #[error("Expected a \"Created\" enum variant, but found {0}")]
     IncorrectVariant(String),
 }
 
 pub trait EntityId<'a>:
-    Deref<Target = Ident> + FromStr<Err = IdentError> + Display + TryFrom<&'a [u8]> + Clone
+    Deref<Target = Ident> + FromStr<Err = IdentError> + Display + TryFrom<&'a [u8]> + Clone + Copy
 {
     type Payload: Payload<'a>;
-    type Projection: Send
-        + Sync
-        + Clone
-        + TryFrom<PayloadWithId<'a, Self>, Error = ProjectionFromPayloadError>
-        + ApplyPayload<'a, Self>;
-    #[expect(dead_code)]
+    type Projection: Projection<'a, Self>;
     fn as_bytes(&self) -> &[u8];
 
-    #[expect(dead_code)]
     fn entity_type(&self) -> EntityType;
 }
 

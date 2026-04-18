@@ -1,22 +1,18 @@
 use crate::authority::Authority;
 use crate::id;
 use crate::ident::Ident;
-use crate::store::After;
-use crate::store::Event;
-use crate::store::EventId;
 use crate::store::Outcome;
 use crate::store::Select;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::universal::{AnyPayload, Payload};
+use crate::store::universal::AnyPayload;
+use crate::store::{After, Event, EventId};
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
 use std::error::Error as StdError;
 use thiserror::Error;
-
-id!(GrantId, Ident::new16());
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Payload)]
 pub enum GrantPayload {
@@ -29,6 +25,8 @@ impl From<GrantPayload> for AnyPayload {
         AnyPayload::Grant(val)
     }
 }
+
+id!(GrantId, Ident::new16());
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GrantState {

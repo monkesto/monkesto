@@ -39,11 +39,23 @@ pub fn derive_payload(input: TokenStream) -> TokenStream {
     };
 
     let expanded = quote! {
-        impl Payload<'_> for #name {
+        impl crate::store::universal::Payload<'_> for #name {
             fn creates_entity(&self) -> bool {
                 matches!(self, #pattern)
             }
         }
+    };
+
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_derive(Projection)]
+pub fn derive_projection(input: TokenStream) -> TokenStream {
+    let ast = parse_macro_input!(input as DeriveInput);
+    let name = &ast.ident;
+
+    let expanded = quote! {
+        impl crate::store::universal::Projection<'_> for #name {}
     };
 
     TokenStream::from(expanded)
