@@ -4,7 +4,7 @@ pub mod views;
 
 pub use service::TransactionService;
 
-use crate::store::universal::{EmailUpdate, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, Payload, PayloadWithId};
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -34,7 +34,6 @@ use crate::ident::TransactionId;
 use crate::ident::{AccountId, ProjectionFromPayloadError};
 
 use crate::account::AccountStoreError;
-use crate::auth::user::Email;
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::journal::JournalStoreError;
@@ -45,10 +44,6 @@ use dashmap::DashMap;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::Decode;
-use sqlx::Encode;
-use sqlx::Type;
-use sqlx::postgres::PgValueRef;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
@@ -306,9 +301,9 @@ pub enum TransactionPayload {
     },
 }
 
-impl EmailUpdate for TransactionPayload {
-    fn email(&self) -> Option<&Email> {
-        None
+impl From<TransactionPayload> for AnyPayload {
+    fn from(val: TransactionPayload) -> Self {
+        AnyPayload::Transaction(val)
     }
 }
 
@@ -329,29 +324,6 @@ impl TransactionPayload {
             Self::Created { .. } => Created,
             Self::UpdatedBalancedUpdates { .. } => UpdatedBalanceUpdates,
         }
-    }
-}
-
-impl Type<sqlx::Postgres> for TransactionPayload {
-    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
-        <&[u8] as Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-impl<'q> Encode<'q, sqlx::Postgres> for TransactionPayload {
-    fn encode_by_ref(
-        &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'q>,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        let bytes: Vec<u8> = postcard::to_allocvec(self)?;
-        <&[u8] as Encode<sqlx::Postgres>>::encode(&bytes, buf)
-    }
-}
-
-impl<'r> Decode<'r, sqlx::Postgres> for TransactionPayload {
-    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let bytes = <&[u8] as Decode<sqlx::Postgres>>::decode(value)?;
-        Ok(postcard::from_bytes::<TransactionPayload>(bytes)?)
     }
 }
 
@@ -396,82 +368,5 @@ impl TryFrom<PayloadWithId<'_, TransactionId>> for TransactionProjection {
                 value.payload
             ))),
         }
-    }
-}
-
-#[cfg(test)]
-mod test_transaction {
-    use super::TransactionPayload;
-    use crate::ident::AccountId;
-    use crate::ident::JournalId;
-    use crate::transaction::BalanceUpdate;
-    use crate::transaction::EntryType;
-    use sqlx::PgPool;
-    use sqlx::prelude::FromRow;
-
-    #[sqlx::test]
-    async fn test_encode_decode_transaction_event(pool: PgPool) {
-        let original_event = TransactionPayload::Created {
-            journal_id: JournalId::new(),
-            updates: vec![BalanceUpdate {
-                journal_id: JournalId::new(),
-                account_id: AccountId::new(),
-                amount: 45,
-                entry_type: EntryType::Debit,
-            }],
-        };
-
-        sqlx::query(
-            r#"
-            CREATE TABLE test_transaction_table (
-            event BYTEA
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("failed to create mock transaction table");
-
-        sqlx::query(
-            r#"
-            INSERT INTO test_transaction_table(
-            event
-            )
-            VALUES ($1)
-            "#,
-        )
-        .bind(&original_event)
-        .execute(&pool)
-        .await
-        .expect("failed to insert transaction into mock table");
-
-        let event: TransactionPayload = sqlx::query_scalar(
-            r#"
-            SELECT event FROM test_transaction_table
-            LIMIT 1
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("failed to fetch transaction from mock table");
-
-        assert_eq!(event, original_event);
-
-        #[derive(FromRow)]
-        struct WrapperType {
-            event: TransactionPayload,
-        }
-
-        let event_wrapper: WrapperType = sqlx::query_as(
-            r#"
-            SELECT event FROM test_transaction_table
-            LIMIT 1
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("failed to fetch transaction from mock table");
-
-        assert_eq!(event_wrapper.event, original_event)
     }
 }

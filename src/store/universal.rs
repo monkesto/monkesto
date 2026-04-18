@@ -1,6 +1,12 @@
-use crate::auth::user::Email;
+use crate::account::AccountPayload;
+use crate::auth::passkey::PasskeyPayload;
+use crate::auth::user::UserPayload;
 use crate::authority::Authority;
+use crate::grant::GrantPayload;
 use crate::ident::EntityId;
+use crate::journal::JournalPayload;
+use crate::role::RolePayload;
+use crate::transaction::TransactionPayload;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
@@ -24,18 +30,26 @@ pub enum StoreError {
 
 pub type StoreResult<T> = Result<T, StoreError>;
 
-pub trait EmailUpdate {
-    /// returns an email if the payload modifies it in any way
-    fn email(&self) -> Option<&Email>;
-}
-
 #[derive(Debug)]
 pub struct PayloadWithId<'a, T: EntityId<'a>> {
     pub payload: T::Payload,
     pub id: T,
 }
 
-pub trait Payload<'a>: Send + Sync + Clone + Serialize + Deserialize<'a> + EmailUpdate {
+#[allow(clippy::large_enum_variant)]
+pub enum AnyPayload {
+    Account(AccountPayload),
+    Passkey(PasskeyPayload),
+    User(UserPayload),
+    Journal(JournalPayload),
+    Transaction(TransactionPayload),
+    Grant(GrantPayload),
+    Role(RolePayload),
+}
+
+pub trait Payload<'a>:
+    Send + Sync + Clone + Serialize + Deserialize<'a> + Into<AnyPayload>
+{
     fn serialize(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize payload")
     }

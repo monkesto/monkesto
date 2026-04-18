@@ -5,7 +5,7 @@ use crate::event::EventStore;
 use crate::ident::Ident;
 use crate::ident::ProjectionFromPayloadError;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::{EmailUpdate, EntityType, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, EntityType, Payload, PayloadWithId};
 use axum::response::Redirect;
 use nutype::nutype;
 use serde::Deserialize;
@@ -230,12 +230,9 @@ pub enum UserPayload {
     Deleted,
 }
 
-impl EmailUpdate for UserPayload {
-    fn email(&self) -> Option<&Email> {
-        match self {
-            UserPayload::Created { email, .. } => Some(email),
-            UserPayload::Deleted => None,
-        }
+impl From<UserPayload> for AnyPayload {
+    fn from(val: UserPayload) -> Self {
+        AnyPayload::User(val)
     }
 }
 

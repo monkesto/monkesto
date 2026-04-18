@@ -45,7 +45,6 @@ pub fn router() -> Router<crate::StateType> {
 
 use crate::account::AccountStoreError::InvalidAccount;
 use crate::account::AccountStoreError::TransactionWithoutPriorState;
-use crate::auth::user::Email;
 use crate::authority::Authority;
 use crate::event::Event;
 use crate::event::EventStore;
@@ -55,17 +54,13 @@ use crate::ident::{AccountId, ProjectionFromPayloadError};
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
 use crate::name::Name;
-use crate::store::universal::{EmailUpdate, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, Payload, PayloadWithId};
 use crate::transaction::EntryType;
 use crate::transaction::TransactionPayload;
 use crate::transaction::TransactionProjection;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::Decode;
-use sqlx::Encode;
-use sqlx::Type;
-use sqlx::postgres::PgValueRef;
 use std::collections::HashSet;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -85,9 +80,9 @@ pub enum AccountPayload {
     Deleted,
 }
 
-impl EmailUpdate for AccountPayload {
-    fn email(&self) -> Option<&Email> {
-        None
+impl From<AccountPayload> for AnyPayload {
+    fn from(val: AccountPayload) -> Self {
+        AnyPayload::Account(val)
     }
 }
 
@@ -369,96 +364,5 @@ impl AccountStore for AccountMemoryStore {
         }
 
         Ok(())
-    }
-}
-
-impl Type<sqlx::Postgres> for AccountPayload {
-    fn type_info() -> <sqlx::Postgres as sqlx::Database>::TypeInfo {
-        <&[u8] as Type<sqlx::Postgres>>::type_info()
-    }
-}
-
-impl<'q> Encode<'q, sqlx::Postgres> for AccountPayload {
-    fn encode_by_ref(
-        &self,
-        buf: &mut <sqlx::Postgres as sqlx::Database>::ArgumentBuffer<'q>,
-    ) -> Result<sqlx::encode::IsNull, sqlx::error::BoxDynError> {
-        let bytes: Vec<u8> = postcard::to_allocvec(self)?;
-        <&[u8] as Encode<sqlx::Postgres>>::encode(&bytes, buf)
-    }
-}
-
-impl<'r> Decode<'r, sqlx::Postgres> for AccountPayload {
-    fn decode(value: PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
-        let bytes = <&[u8] as Decode<sqlx::Postgres>>::decode(value)?;
-        Ok(postcard::from_bytes::<AccountPayload>(bytes)?)
-    }
-}
-
-#[cfg(test)]
-mod test_account {
-    use super::AccountPayload;
-    use crate::name::Name;
-    use sqlx::PgPool;
-    use sqlx::prelude::FromRow;
-
-    #[sqlx::test]
-    async fn test_encode_decode_account_event(pool: PgPool) {
-        let original_event = AccountPayload::Renamed {
-            new_name: Name::try_new("New Name".to_string()).expect("name creation failed"),
-        };
-
-        sqlx::query(
-            r#"
-            CREATE TABLE test_account_table (
-            event BYTEA
-            )
-            "#,
-        )
-        .execute(&pool)
-        .await
-        .expect("failed to create mock account table");
-
-        sqlx::query(
-            r#"
-            INSERT INTO test_account_table (
-            event
-            )
-            VALUES ($1)
-            "#,
-        )
-        .bind(&original_event)
-        .execute(&pool)
-        .await
-        .expect("failed to insert account into mock table");
-
-        let event: AccountPayload = sqlx::query_scalar(
-            r#"
-            SELECT event FROM test_account_table
-            LIMIT 1
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("failed to fetch account from mock table");
-
-        assert_eq!(event, original_event);
-
-        #[derive(FromRow)]
-        struct WrapperType {
-            event: AccountPayload,
-        }
-
-        let event_wrapper: WrapperType = sqlx::query_as(
-            r#"
-            SELECT event FROM test_account_table
-            LIMIT 1
-            "#,
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("failed to fetch account from mock table");
-
-        assert_eq!(event_wrapper.event, original_event)
     }
 }

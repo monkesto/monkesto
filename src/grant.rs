@@ -1,4 +1,3 @@
-use crate::auth::user::Email;
 use crate::authority::Authority;
 use crate::entity;
 use crate::ident::Ident;
@@ -9,7 +8,7 @@ use crate::store::Select;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::universal::{EmailUpdate, EntityType, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, EntityType, Payload, PayloadWithId};
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
@@ -51,9 +50,9 @@ pub enum GrantPayload {
     Revoked,
 }
 
-impl EmailUpdate for GrantPayload {
-    fn email(&self) -> Option<&Email> {
-        None
+impl From<GrantPayload> for AnyPayload {
+    fn from(val: GrantPayload) -> Self {
+        AnyPayload::Grant(val)
     }
 }
 
