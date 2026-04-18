@@ -8,9 +8,9 @@ use crate::role::RoleId;
 use crate::role::RolePayload;
 use crate::role::RoleStream;
 use crate::store::After;
-use crate::store::Event;
 use crate::store::EventId;
 use crate::store::When;
+use crate::store::multi::Event;
 use crate::store::multi::Observe;
 use crate::store::multi::Store;
 use chrono::Utc;
@@ -19,8 +19,8 @@ use thiserror::Error;
 
 #[derive(Clone, Debug)]
 pub enum AuthorizationEvent {
-    Role(Event<RoleId, RolePayload>),
-    Grant(Event<GrantId, GrantPayload>),
+    Role(Event<Authority, RoleId, RolePayload>),
+    Grant(Event<Authority, GrantId, GrantPayload>),
 }
 
 #[derive(Debug, Error)]
@@ -37,16 +37,18 @@ pub enum AuthorizationError<E: StdError + Send + Sync + 'static> {
 
 pub struct AuthorizationService<S>
 where
-    S: Store<RoleStream> + Store<GrantStream> + Observe<Event = AuthorizationEvent>,
+    S: Store<Authority, RoleStream>
+        + Store<Authority, GrantStream>
+        + Observe<Event = AuthorizationEvent>,
 {
     store: S,
 }
 
 impl<S> AuthorizationService<S>
 where
-    S: Store<RoleStream>
-        + Store<GrantStream, Error = <S as Store<RoleStream>>::Error>
-        + Observe<Event = AuthorizationEvent, Error = <S as Store<RoleStream>>::Error>,
+    S: Store<Authority, RoleStream>
+        + Store<Authority, GrantStream, Error = <S as Store<Authority, RoleStream>>::Error>
+        + Observe<Event = AuthorizationEvent, Error = <S as Store<Authority, RoleStream>>::Error>,
 {
     pub fn new(store: S) -> Self {
         Self { store }
@@ -55,9 +57,9 @@ where
     pub async fn create_role(
         &self,
         authority: Authority,
-    ) -> Result<RoleId, AuthorizationError<<S as Store<RoleStream>>::Error>> {
+    ) -> Result<RoleId, AuthorizationError<<S as Store<Authority, RoleStream>>::Error>> {
         let role_id = RoleId::new();
-        Store::<RoleStream>::record(
+        Store::<Authority, RoleStream>::record(
             &self.store,
             authority,
             Utc::now(),
@@ -74,17 +76,18 @@ where
         &self,
         authority: Authority,
         role_id: RoleId,
-    ) -> Result<GrantId, AuthorizationError<<S as Store<RoleStream>>::Error>> {
-        let role_page = Store::<RoleStream>::review(&self.store, role_id, After::Start, 1)
-            .await
-            .map_err(AuthorizationError::Store)?;
+    ) -> Result<GrantId, AuthorizationError<<S as Store<Authority, RoleStream>>::Error>> {
+        let role_page =
+            Store::<Authority, RoleStream>::review(&self.store, role_id, After::Start, 1)
+                .await
+                .map_err(AuthorizationError::Store)?;
 
         if role_page.items.is_empty() {
             return Err(AuthorizationError::RoleNotFound(role_id));
         }
 
         let grant_id = GrantId::new();
-        Store::<GrantStream>::record(
+        Store::<Authority, GrantStream>::record(
             &self.store,
             authority,
             Utc::now(),
@@ -101,8 +104,8 @@ where
         &self,
         authority: Authority,
         grant_id: GrantId,
-    ) -> Result<(), AuthorizationError<<S as Store<RoleStream>>::Error>> {
-        let page = Store::<GrantStream>::review(&self.store, grant_id, After::Start, 2)
+    ) -> Result<(), AuthorizationError<<S as Store<Authority, RoleStream>>::Error>> {
+        let page = Store::<Authority, GrantStream>::review(&self.store, grant_id, After::Start, 2)
             .await
             .map_err(AuthorizationError::Store)?;
 
@@ -110,7 +113,7 @@ where
             return Err(AuthorizationError::GrantNotFound(grant_id));
         };
 
-        Store::<GrantStream>::record(
+        Store::<Authority, GrantStream>::record(
             &self.store,
             authority,
             Utc::now(),
@@ -127,7 +130,7 @@ where
         &self,
     ) -> Result<
         (Option<EventId>, Option<EventId>),
-        AuthorizationError<<S as Store<RoleStream>>::Error>,
+        AuthorizationError<<S as Store<Authority, RoleStream>>::Error>,
     > {
         let mut latest_role = None;
         let mut latest_grant = None;
@@ -160,7 +163,7 @@ mod tests {
     use crate::store::multi::memory::memory_store;
 
     memory_store! {
-        type TestStore = MemoryStore<RoleStream, GrantStream>
+        type TestStore = MemoryStore<Authority, RoleStream, GrantStream>
         where AuthorizationEvent {
             RoleStream => Role,
             GrantStream => Grant,

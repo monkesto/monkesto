@@ -1,14 +1,12 @@
 use crate::store::After;
-use crate::store::Event;
 use crate::store::EventId;
-use crate::store::Outcome;
 use crate::store::Stream;
 use crate::store::When;
 use chrono::DateTime;
 use chrono::Utc;
+use serde::Deserialize;
+use serde::Serialize;
 use std::error::Error;
-
-use crate::authority::Authority;
 
 /// A paginated list of items.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -18,24 +16,43 @@ pub struct Page<T> {
     pub next: EventId,
 }
 
-pub trait Store<S: Stream>: Send + Sync {
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Event<A: Clone + Sized, I: Copy + Clone + Sized, P: Clone + Sized> {
+    pub event_id: EventId,
+    pub timestamp: DateTime<Utc>,
+    pub authority: A,
+    pub id: I,
+    pub payload: P,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(not(test), expect(dead_code))]
+pub enum Outcome<A: Clone + Sized, I: Copy + Clone + Sized, P: Clone + Sized> {
+    Recorded(Event<A, I, P>),
+    Skipped,
+}
+
+pub trait Store<A, S: Stream>: Send + Sync
+where
+    A: Send + Sync + Clone,
+{
     type Error: Error + Send + Sync + 'static;
 
     async fn record(
         &self,
-        by: Authority,
+        by: A,
         at: DateTime<Utc>,
         id: S::Id,
         payload: S::Payload,
         when: When<EventId>,
-    ) -> Result<Outcome<S::Id, S::Payload>, Self::Error>;
+    ) -> Result<Outcome<A, S::Id, S::Payload>, Self::Error>;
 
     async fn review(
         &self,
         id: S::Id,
         after: After<EventId>,
         limit: usize,
-    ) -> Result<Page<Event<S::Id, S::Payload>>, Self::Error>;
+    ) -> Result<Page<Event<A, S::Id, S::Payload>>, Self::Error>;
 }
 
 pub trait Observe: Send + Sync {
@@ -53,23 +70,23 @@ pub trait Observe: Send + Sync {
 /// The store must use `S::Id = u32` and `S::Payload = String`.
 ///
 /// ```ignore
-/// multi_store_tests!(TestStream, Event<u32, String>, TestStore::new());
+/// multi_store_tests!(
+///     TestStream,
+///     Event<i32, u32, String>,
+///     TestStore::new()
+/// );
 /// ```
 #[cfg(test)]
 macro_rules! multi_store_tests {
     ($stream:ty, $event:ty, $make_store:expr) => {
-        use crate::auth::user::UserId;
-        use crate::authority::Actor;
-        use crate::authority::Authority;
-        use crate::grant::GrantId;
         use crate::store::After;
-        use crate::store::Outcome;
         use crate::store::When;
         use crate::store::multi::Observe;
+        use crate::store::multi::Outcome;
         use crate::store::multi::Store;
         use chrono::Utc;
 
-        fn make_store() -> impl Store<$stream> + Observe<Event = $event> {
+        fn make_store() -> impl Store<i32, $stream> + Observe<Event = $event> {
             $make_store
         }
 
@@ -81,13 +98,7 @@ macro_rules! multi_store_tests {
         async fn record_empty_no_prior() {
             let store = make_store();
             let result = store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "first".to_string(),
-                    When::Empty,
-                )
+                .record(0, Utc::now(), 1u32, "first".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             assert!(matches!(result, Outcome::Recorded(_)));
@@ -97,23 +108,11 @@ macro_rules! multi_store_tests {
         async fn record_empty_with_prior() {
             let store = make_store();
             store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "first".to_string(),
-                    When::Empty,
-                )
+                .record(0, Utc::now(), 1u32, "first".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             let result = store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "second".to_string(),
-                    When::Empty,
-                )
+                .record(1, Utc::now(), 1u32, "second".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             assert!(matches!(result, Outcome::Skipped));
@@ -123,23 +122,11 @@ macro_rules! multi_store_tests {
         async fn record_empty_for_one_id_unaffected_by_other_id() {
             let store = make_store();
             store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "a1".to_string(),
-                    When::Empty,
-                )
+                .record(0, Utc::now(), 1u32, "a1".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             let result = store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    2u32,
-                    "b1".to_string(),
-                    When::Empty,
-                )
+                .record(1, Utc::now(), 2u32, "b1".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             assert!(matches!(result, Outcome::Recorded(_)));
@@ -149,13 +136,7 @@ macro_rules! multi_store_tests {
         async fn record_within_eq_last_is_recorded() {
             let store = make_store();
             let Outcome::Recorded(event) = store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "first".to_string(),
-                    When::Empty,
-                )
+                .record(0, Utc::now(), 1u32, "first".to_string(), When::Empty)
                 .await
                 .expect("should succeed")
             else {
@@ -163,7 +144,7 @@ macro_rules! multi_store_tests {
             };
             let result = store
                 .record(
-                    Authority::Direct(Actor::System),
+                    1,
                     Utc::now(),
                     1u32,
                     "second".to_string(),
@@ -178,13 +159,7 @@ macro_rules! multi_store_tests {
         async fn record_within_lt_last_is_skipped() {
             let store = make_store();
             let Outcome::Recorded(first_event) = store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "first".to_string(),
-                    When::Empty,
-                )
+                .record(0, Utc::now(), 1u32, "first".to_string(), When::Empty)
                 .await
                 .expect("should succeed")
             else {
@@ -192,7 +167,7 @@ macro_rules! multi_store_tests {
             };
             store
                 .record(
-                    Authority::Direct(Actor::System),
+                    1,
                     Utc::now(),
                     1u32,
                     "second".to_string(),
@@ -202,7 +177,7 @@ macro_rules! multi_store_tests {
                 .expect("should succeed");
             let result = store
                 .record(
-                    Authority::Direct(Actor::System),
+                    2,
                     Utc::now(),
                     1u32,
                     "third".to_string(),
@@ -217,7 +192,7 @@ macro_rules! multi_store_tests {
         async fn record_returns_expected_fields() {
             let store = make_store();
             let at = Utc::now();
-            let by = Authority::Direct(Actor::System);
+            let by = 0;
             let Outcome::Recorded(event) = store
                 .record(by.clone(), at, 42u32, "payload".to_string(), When::Empty)
                 .await
@@ -232,9 +207,9 @@ macro_rules! multi_store_tests {
         }
 
         #[tokio::test]
-        async fn record_preserves_authority_direct() {
+        async fn record_preserves_authority_first_value() {
             let store = make_store();
-            let by = Authority::Direct(Actor::User(UserId::new()));
+            let by = 1;
             let Outcome::Recorded(event) = store
                 .record(by.clone(), Utc::now(), 1u32, "x".to_string(), When::Empty)
                 .await
@@ -246,13 +221,9 @@ macro_rules! multi_store_tests {
         }
 
         #[tokio::test]
-        async fn record_preserves_authority_delegated() {
+        async fn record_preserves_authority_second_value() {
             let store = make_store();
-            let by = Authority::Delegated {
-                grantor: Actor::User(UserId::new()),
-                grant: GrantId::new(),
-                grantee: Actor::User(UserId::new()),
-            };
+            let by = 2;
             let Outcome::Recorded(event) = store
                 .record(by.clone(), Utc::now(), 1u32, "x".to_string(), When::Empty)
                 .await
@@ -282,13 +253,7 @@ macro_rules! multi_store_tests {
         async fn review_returns_events_for_id() {
             let store = make_store();
             store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "first".to_string(),
-                    When::Empty,
-                )
+                .record(0, Utc::now(), 1u32, "first".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             let page = store
@@ -303,23 +268,11 @@ macro_rules! multi_store_tests {
         async fn review_does_not_include_other_ids() {
             let store = make_store();
             store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "a".to_string(),
-                    When::Empty,
-                )
+                .record(0, Utc::now(), 1u32, "a".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    2u32,
-                    "b".to_string(),
-                    When::Empty,
-                )
+                .record(1, Utc::now(), 2u32, "b".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             let page = store
@@ -334,13 +287,7 @@ macro_rules! multi_store_tests {
         async fn review_after_specific_excludes_that_event() {
             let store = make_store();
             let Outcome::Recorded(first) = store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "first".to_string(),
-                    When::Empty,
-                )
+                .record(2, Utc::now(), 1u32, "first".to_string(), When::Empty)
                 .await
                 .expect("should succeed")
             else {
@@ -348,7 +295,7 @@ macro_rules! multi_store_tests {
             };
             store
                 .record(
-                    Authority::Direct(Actor::System),
+                    3,
                     Utc::now(),
                     1u32,
                     "second".to_string(),
@@ -374,13 +321,7 @@ macro_rules! multi_store_tests {
                     None => When::Empty,
                 };
                 let Outcome::Recorded(event) = store
-                    .record(
-                        Authority::Direct(Actor::System),
-                        Utc::now(),
-                        1u32,
-                        format!("event {i}"),
-                        when,
-                    )
+                    .record(i, Utc::now(), 1u32, format!("event {i}"), when)
                     .await
                     .expect("should succeed")
                 else {
@@ -406,13 +347,7 @@ macro_rules! multi_store_tests {
                     None => When::Empty,
                 };
                 let Outcome::Recorded(event) = store
-                    .record(
-                        Authority::Direct(Actor::System),
-                        Utc::now(),
-                        1u32,
-                        format!("event {i}"),
-                        when,
-                    )
+                    .record(i, Utc::now(), 1u32, format!("event {i}"), when)
                     .await
                     .expect("should succeed")
                 else {
@@ -455,23 +390,11 @@ macro_rules! multi_store_tests {
         async fn observe_returns_events_in_insertion_order() {
             let store = make_store();
             store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "a".to_string(),
-                    When::Empty,
-                )
+                .record(0, Utc::now(), 1u32, "a".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    2u32,
-                    "b".to_string(),
-                    When::Empty,
-                )
+                .record(1, Utc::now(), 2u32, "b".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             let page = store
@@ -486,13 +409,7 @@ macro_rules! multi_store_tests {
             let store = make_store();
             for i in 0..5u32 {
                 store
-                    .record(
-                        Authority::Direct(Actor::System),
-                        Utc::now(),
-                        i,
-                        format!("event {i}"),
-                        When::Empty,
-                    )
+                    .record(i as i32, Utc::now(), i, format!("event {i}"), When::Empty)
                     .await
                     .expect("should succeed");
             }
@@ -508,26 +425,14 @@ macro_rules! multi_store_tests {
         async fn observe_after_specific_excludes_earlier() {
             let store = make_store();
             let Outcome::Recorded(first) = store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "first".to_string(),
-                    When::Empty,
-                )
+                .record(0, Utc::now(), 1u32, "first".to_string(), When::Empty)
                 .await
                 .expect("should succeed")
             else {
                 panic!("expected Recorded");
             };
             store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    2u32,
-                    "second".to_string(),
-                    When::Empty,
-                )
+                .record(1, Utc::now(), 2u32, "second".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             let page = store
@@ -542,13 +447,7 @@ macro_rules! multi_store_tests {
             let store = make_store();
             for i in 0..7u32 {
                 store
-                    .record(
-                        Authority::Direct(Actor::System),
-                        Utc::now(),
-                        i,
-                        format!("event {i}"),
-                        When::Empty,
-                    )
+                    .record(i as i32, Utc::now(), i, format!("event {i}"), When::Empty)
                     .await
                     .expect("should succeed");
             }
@@ -569,19 +468,13 @@ macro_rules! multi_store_tests {
         async fn observe_skipped_record_does_not_appear() {
             let store = make_store();
             store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "first".to_string(),
-                    When::Empty,
-                )
+                .record(0, Utc::now(), 1u32, "first".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             // This should be skipped — id 1 already has events
             store
                 .record(
-                    Authority::Direct(Actor::System),
+                    1,
                     Utc::now(),
                     1u32,
                     "should not appear".to_string(),
@@ -600,23 +493,11 @@ macro_rules! multi_store_tests {
         async fn event_ids_are_globally_ordered() {
             let store = make_store();
             store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    1u32,
-                    "a".to_string(),
-                    When::Empty,
-                )
+                .record(0, Utc::now(), 1u32, "a".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
             store
-                .record(
-                    Authority::Direct(Actor::System),
-                    Utc::now(),
-                    2u32,
-                    "b".to_string(),
-                    When::Empty,
-                )
+                .record(1, Utc::now(), 2u32, "b".to_string(), When::Empty)
                 .await
                 .expect("should succeed");
 
