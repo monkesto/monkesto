@@ -3,6 +3,8 @@ use crate::entity;
 use crate::ident::Ident;
 use crate::ident::ProjectionFromPayloadError;
 use crate::store::After;
+use crate::store::Event;
+use crate::store::EventId;
 use crate::store::Outcome;
 use crate::store::Select;
 use crate::store::Store;
@@ -63,6 +65,29 @@ pub enum GrantPayload {
 impl From<GrantPayload> for AnyPayload {
     fn from(val: GrantPayload) -> Self {
         AnyPayload::Grant(val)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum GrantState {
+    Absent,
+    Active { when: When<EventId> },
+    Revoked { when: When<EventId> },
+}
+
+#[derive(Debug, Error)]
+#[error("invalid grant state transition")]
+struct GrantStateError;
+
+impl GrantState {
+    fn apply(&mut self, event: Event<GrantId, GrantPayload>) -> Result<(), GrantStateError> {
+        let when = When::Within(event.event_id);
+        *self = match (*self, event.payload) {
+            (GrantState::Absent, GrantPayload::Created) => GrantState::Active { when },
+            (GrantState::Active { .. }, GrantPayload::Revoked) => GrantState::Revoked { when },
+            _ => return Err(GrantStateError),
+        };
+        Ok(())
     }
 }
 
@@ -156,14 +181,18 @@ impl<G: Store<GrantStream>> GrantService<G> {
                 return Err(GrantRevokeError::UnexpectedHistory(grant_id));
             }
 
-            let Some(latest_event) = page.items.last() else {
-                return Err(GrantRevokeError::InvalidGrant(grant_id));
-            };
-
-            match &latest_event.payload {
-                GrantPayload::Revoked => return Ok(()),
-                GrantPayload::Created => {}
+            let mut state = GrantState::Absent;
+            for event in page.items {
+                state
+                    .apply(event)
+                    .map_err(|_| GrantRevokeError::UnexpectedHistory(grant_id))?;
             }
+
+            let when = match state {
+                GrantState::Absent => return Err(GrantRevokeError::InvalidGrant(grant_id)),
+                GrantState::Revoked { .. } => return Ok(()),
+                GrantState::Active { when } => when,
+            };
 
             let outcome = self
                 .store
@@ -172,7 +201,7 @@ impl<G: Store<GrantStream>> GrantService<G> {
                     Utc::now(),
                     grant_id,
                     GrantPayload::Revoked,
-                    When::Within(latest_event.event_id),
+                    when,
                 )
                 .await?;
 
