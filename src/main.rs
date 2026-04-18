@@ -12,6 +12,7 @@ pub mod name;
 mod notfoundpage;
 mod role;
 mod seed;
+mod state;
 mod store;
 mod theme;
 mod transaction;
