@@ -1,6 +1,6 @@
 use crate::account::{AccountPayload, AccountProjection};
 use crate::journal::{JournalPayload, JournalProjection};
-use crate::store::universal::{EntityType, Payload, PayloadWithId};
+use crate::store::universal::{ApplyPayload, EntityType, Payload, PayloadWithId};
 use crate::transaction::{TransactionPayload, TransactionProjection};
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
@@ -148,7 +148,8 @@ pub trait EntityId<'a>:
     type Projection: Send
         + Sync
         + Clone
-        + TryFrom<PayloadWithId<'a, Self>, Error = ProjectionFromPayloadError>;
+        + TryFrom<PayloadWithId<'a, Self>, Error = ProjectionFromPayloadError>
+        + ApplyPayload<'a, Self>;
     #[expect(dead_code)]
     fn as_bytes(&self) -> &[u8];
 

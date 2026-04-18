@@ -1,5 +1,5 @@
 use crate::ident::ProjectionFromPayloadError;
-use crate::store::universal::{AnyPayload, EntityType, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, Payload, PayloadWithId};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -344,6 +344,12 @@ impl TryFrom<PayloadWithId<'_, PasskeyId>> for PasskeyProjection {
                 value.payload
             ))),
         }
+    }
+}
+
+impl ApplyPayload<'_, PasskeyId> for PasskeyProjection {
+    fn apply(&mut self, _payload: &PasskeyPayload) -> &mut Self {
+        todo!("Applying PasskeyProjection to PasskeyPayload is not yet implemented")
     }
 }
 

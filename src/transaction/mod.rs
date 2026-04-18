@@ -4,7 +4,7 @@ pub mod views;
 
 pub use service::TransactionService;
 
-use crate::store::universal::{AnyPayload, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, ApplyPayload, Payload, PayloadWithId};
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -174,6 +174,7 @@ impl EventStore for TransactionMemoryStore {
             let state = TransactionProjection {
                 journal_id,
                 updates,
+                deleted: false,
             };
 
             self.local_events.insert(id, vec![event.clone()]);
@@ -188,7 +189,7 @@ impl EventStore for TransactionMemoryStore {
         } else if let Some(mut local_events) = self.local_events.get_mut(&id)
             && let Some(mut state) = self.transaction_table.get_mut(&id)
         {
-            state.apply(payload);
+            state.apply(&payload);
             local_events.push(event);
             Ok(event_id)
         } else {
@@ -299,6 +300,7 @@ pub enum TransactionPayload {
     UpdatedBalancedUpdates {
         new_balanceupdates: Vec<BalanceUpdate>,
     },
+    Deleted,
 }
 
 impl From<TransactionPayload> for AnyPayload {
@@ -307,47 +309,11 @@ impl From<TransactionPayload> for AnyPayload {
     }
 }
 
-#[derive(sqlx::Type)]
-#[sqlx(type_name = "smallint")]
-#[repr(i16)]
-pub enum TransactionEventType {
-    Created = 1,
-    UpdatedDescription = 2,
-    UpdatedBalanceUpdates = 3,
-}
-
-impl TransactionPayload {
-    #[expect(dead_code)]
-    fn get_type(&self) -> TransactionEventType {
-        use TransactionEventType::*;
-        match self {
-            Self::Created { .. } => Created,
-            Self::UpdatedBalancedUpdates { .. } => UpdatedBalanceUpdates,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 pub struct TransactionProjection {
-    journal_id: JournalId,
+    pub journal_id: JournalId,
     pub updates: Vec<BalanceUpdate>,
-}
-
-impl TransactionProjection {
-    pub fn apply(&mut self, event: TransactionPayload) {
-        match event {
-            TransactionPayload::Created {
-                journal_id,
-                updates,
-            } => {
-                self.journal_id = journal_id;
-                self.updates = updates;
-            }
-            TransactionPayload::UpdatedBalancedUpdates {
-                new_balanceupdates, ..
-            } => self.updates = new_balanceupdates,
-        }
-    }
+    pub deleted: bool,
 }
 
 impl TryFrom<PayloadWithId<'_, TransactionId>> for TransactionProjection {
@@ -362,11 +328,25 @@ impl TryFrom<PayloadWithId<'_, TransactionId>> for TransactionProjection {
             } => Ok(Self {
                 journal_id,
                 updates,
+                deleted: false,
             }),
             _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
                 value.payload
             ))),
         }
+    }
+}
+
+impl ApplyPayload<'_, TransactionId> for TransactionProjection {
+    fn apply(&mut self, payload: &TransactionPayload) -> &mut Self {
+        match payload {
+            TransactionPayload::Created { .. } => {}
+            TransactionPayload::UpdatedBalancedUpdates { new_balanceupdates } => {
+                self.updates = new_balanceupdates.clone()
+            }
+            TransactionPayload::Deleted => self.deleted = true,
+        }
+        self
     }
 }

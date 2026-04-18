@@ -60,6 +60,10 @@ pub trait Payload<'a>:
     fn creates_entity(&self) -> bool;
 }
 
+pub trait ApplyPayload<'a, T: EntityId<'a>> {
+    fn apply(&mut self, payload: &'a T::Payload) -> &mut T::Projection;
+}
+
 #[derive(Debug, Clone, PartialEq, Deserialize, Eq)]
 pub struct EventId(u64);
 

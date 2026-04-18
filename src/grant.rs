@@ -8,7 +8,7 @@ use crate::store::Select;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::universal::{AnyPayload, EntityType, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, Payload, PayloadWithId};
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
@@ -28,19 +28,29 @@ entity!(
 
 #[derive(Clone)]
 pub struct GrantProjection {
-    // TODO
+    revoked: bool, // TODO
 }
 
 impl TryFrom<PayloadWithId<'_, GrantId>> for GrantProjection {
     type Error = ProjectionFromPayloadError;
     fn try_from(value: PayloadWithId<'_, GrantId>) -> Result<Self, ProjectionFromPayloadError> {
         match value.payload {
-            GrantPayload::Created => Ok(Self {}),
+            GrantPayload::Created => Ok(Self { revoked: false }),
             _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
                 value.payload
             ))),
         }
+    }
+}
+
+impl ApplyPayload<'_, GrantId> for GrantProjection {
+    fn apply(&mut self, payload: &GrantPayload) -> &mut Self {
+        match payload {
+            GrantPayload::Created => {}
+            GrantPayload::Revoked => self.revoked = true,
+        }
+        self
     }
 }
 

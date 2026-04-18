@@ -54,7 +54,7 @@ use crate::ident::{AccountId, ProjectionFromPayloadError};
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
 use crate::name::Name;
-use crate::store::universal::{AnyPayload, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, ApplyPayload, Payload, PayloadWithId};
 use crate::transaction::EntryType;
 use crate::transaction::TransactionPayload;
 use crate::transaction::TransactionProjection;
@@ -96,29 +96,16 @@ pub struct AccountProjection {
     pub parent_account_id: Option<AccountId>,
 }
 
-impl AccountProjection {
-    pub fn apply(&mut self, event: AccountPayload) {
-        use AccountPayload::*;
-        match event {
-            Created {
-                journal_id,
-                name,
-                parent_account_id,
-            } => {
-                self.journal_id = journal_id;
-                self.name = name;
-                self.parent_account_id = parent_account_id;
-            }
-            Renamed { new_name, .. } => {
-                self.name = new_name;
-            }
-            Deleted => {
-                self.deleted = true;
-            }
+impl ApplyPayload<'_, AccountId> for AccountProjection {
+    fn apply(&mut self, payload: &AccountPayload) -> &mut Self {
+        match payload {
+            AccountPayload::Created { .. } => {}
+            AccountPayload::Renamed { new_name } => self.name = new_name.clone(),
+            AccountPayload::Deleted => self.deleted = true,
         }
+        self
     }
 }
-
 impl TryFrom<PayloadWithId<'_, AccountId>> for AccountProjection {
     type Error = ProjectionFromPayloadError;
     fn try_from(value: PayloadWithId<'_, AccountId>) -> Result<Self, ProjectionFromPayloadError> {
@@ -240,7 +227,7 @@ impl EventStore for AccountMemoryStore {
                     && let Some(mut state) = self.account_table.get_mut(&id)
                 {
                     local_events.push(event.clone());
-                    state.apply(payload);
+                    state.apply(&payload);
 
                     Ok(event_id)
                 } else {
@@ -355,6 +342,28 @@ impl AccountStore for AccountMemoryStore {
                             }
                         } else {
                             Err(InvalidAccount(update.account_id))?
+                        }
+                    }
+                } else {
+                    return Err(TransactionWithoutPriorState(transaction_id));
+                }
+            }
+            TransactionPayload::Deleted => {
+                if let Some(transaction) = old_transaction {
+                    for update in transaction.updates.iter() {
+                        if let Some(mut account_state) =
+                            self.account_table.get_mut(&update.account_id)
+                        {
+                            match update.entry_type {
+                                EntryType::Debit => {
+                                    account_state.balance += update.amount as i64;
+                                }
+                                EntryType::Credit => {
+                                    account_state.balance -= update.amount as i64;
+                                }
+                            }
+                        } else {
+                            return Err(InvalidAccount(update.account_id));
                         }
                     }
                 } else {

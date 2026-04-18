@@ -456,6 +456,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             let user = super::user::UserProjection {
                 id: user_id,
                 email: email_validated,
+                deleted: false,
             };
             auth_session
                 .login(&user)

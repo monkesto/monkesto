@@ -5,7 +5,7 @@ use crate::event::EventStore;
 use crate::ident::Ident;
 use crate::ident::ProjectionFromPayloadError;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::{AnyPayload, EntityType, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, Payload, PayloadWithId};
 use axum::response::Redirect;
 use nutype::nutype;
 use serde::Deserialize;
@@ -47,6 +47,7 @@ pub struct Email(String);
 pub struct UserProjection {
     pub id: UserId,
     pub email: Email,
+    pub deleted: bool,
 }
 
 impl TryFrom<PayloadWithId<'_, UserId>> for UserProjection {
@@ -59,12 +60,23 @@ impl TryFrom<PayloadWithId<'_, UserId>> for UserProjection {
             } => Ok(Self {
                 id: value.id,
                 email,
+                deleted: false,
             }),
             _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
                 value.payload
             ))),
         }
+    }
+}
+
+impl ApplyPayload<'_, UserId> for UserProjection {
+    fn apply(&mut self, payload: &UserPayload) -> &mut Self {
+        match payload {
+            UserPayload::Created { .. } => {}
+            UserPayload::Deleted => self.deleted = true,
+        }
+        self
     }
 }
 
@@ -461,6 +473,8 @@ impl UserStore for MemoryUserStore {
             .map(|email| UserProjection {
                 id: user_id,
                 email: email.clone(),
+                // user_id_to_email will only return Some when deleted isn't false
+                deleted: false,
             }))
     }
 

@@ -4,7 +4,7 @@ pub mod person;
 pub mod service;
 pub mod views;
 
-use crate::store::universal::{AnyPayload, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, ApplyPayload, Payload, PayloadWithId};
 pub use service::JournalService;
 
 use axum::Router;
@@ -421,6 +421,28 @@ impl TryFrom<PayloadWithId<'_, JournalId>> for JournalProjection {
         }
     }
 }
+
+impl ApplyPayload<'_, JournalId> for JournalProjection {
+    fn apply(&mut self, payload: &JournalPayload) -> &mut Self {
+        match payload {
+            JournalPayload::Created { .. } => {}
+            JournalPayload::Renamed { name } => self.name = name.clone(),
+            JournalPayload::AddedTenant { id, permissions } => {
+                _ = self.members.insert(*id, *permissions)
+            }
+            JournalPayload::TransferredOwnership { new_owner } => self.owner = *new_owner,
+            JournalPayload::RemovedTenant { id } => _ = self.members.remove(id),
+            JournalPayload::UpdatedTenantPermissions { id, permissions } => {
+                if self.members.contains_key(id) {
+                    _ = self.members.insert(*id, *permissions)
+                }
+            }
+            JournalPayload::Deleted => self.deleted = true,
+        }
+        self
+    }
+}
+
 pub trait JournalNameOrUnknown {
     fn or_unknown(&self) -> String;
 }

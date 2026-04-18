@@ -12,7 +12,7 @@ use crate::store::Select;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::universal::{AnyPayload, EntityType, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, Payload, PayloadWithId};
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
@@ -34,19 +34,30 @@ entity!(
 
 #[derive(Clone)]
 pub struct RoleProjection {
-    // TODO
+    actors: Vec<Actor>,
 }
 
 impl TryFrom<PayloadWithId<'_, RoleId>> for RoleProjection {
     type Error = ProjectionFromPayloadError;
     fn try_from(value: PayloadWithId<'_, RoleId>) -> Result<Self, ProjectionFromPayloadError> {
         match value.payload {
-            RolePayload::Created => Ok(Self {}),
+            RolePayload::Created => Ok(Self { actors: Vec::new() }),
             _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
                 value.payload
             ))),
         }
+    }
+}
+
+impl ApplyPayload<'_, RoleId> for RoleProjection {
+    fn apply(&mut self, payload: &RolePayload) -> &mut Self {
+        match payload {
+            RolePayload::Created => {}
+            RolePayload::ActorAdded(actor) => self.actors.push(actor.clone()),
+            RolePayload::ActorRemoved(actor) => self.actors.retain(|a| a != actor),
+        }
+        self
     }
 }
 
