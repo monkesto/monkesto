@@ -49,13 +49,13 @@ use crate::auth::user::Email;
 use crate::authority::Authority;
 use crate::event::Event;
 use crate::event::EventStore;
-use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
+use crate::ident::{AccountId, ProjectionFromPayloadError};
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
 use crate::name::Name;
-use crate::store::universal::{EmailUpdate, Payload};
+use crate::store::universal::{EmailUpdate, Payload, PayloadWithId};
 use crate::transaction::EntryType;
 use crate::transaction::TransactionPayload;
 use crate::transaction::TransactionProjection;
@@ -120,6 +120,30 @@ impl AccountProjection {
             Deleted => {
                 self.deleted = true;
             }
+        }
+    }
+}
+
+impl TryFrom<PayloadWithId<'_, AccountId>> for AccountProjection {
+    type Error = ProjectionFromPayloadError;
+    fn try_from(value: PayloadWithId<'_, AccountId>) -> Result<Self, ProjectionFromPayloadError> {
+        match value.payload {
+            AccountPayload::Created {
+                journal_id,
+                name,
+                parent_account_id,
+            } => Ok(Self {
+                id: value.id,
+                name,
+                journal_id,
+                balance: 0,
+                deleted: false,
+                parent_account_id,
+            }),
+            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+                "{:?}",
+                value.payload
+            ))),
         }
     }
 }

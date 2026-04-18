@@ -4,7 +4,7 @@ pub mod person;
 pub mod service;
 pub mod views;
 
-use crate::store::universal::{EmailUpdate, Payload};
+use crate::store::universal::{EmailUpdate, Payload, PayloadWithId};
 pub use service::JournalService;
 
 use axum::Router;
@@ -83,8 +83,8 @@ use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::event::Event;
 use crate::event::EventStore;
-use crate::ident::IdentError;
 use crate::ident::JournalId;
+use crate::ident::{IdentError, ProjectionFromPayloadError};
 use crate::journal::JournalStoreError::InvalidJournal;
 use crate::name::Name;
 use bitflags::bitflags;
@@ -449,6 +449,29 @@ pub struct JournalProjection {
     pub parent_journal_id: Option<JournalId>,
 }
 
+impl TryFrom<PayloadWithId<'_, JournalId>> for JournalProjection {
+    type Error = ProjectionFromPayloadError;
+    fn try_from(value: PayloadWithId<JournalId>) -> Result<Self, Self::Error> {
+        match &value.payload {
+            JournalPayload::Created {
+                name,
+                owner,
+                parent_journal_id,
+            } => Ok(Self {
+                id: value.id,
+                name: name.clone(),
+                owner: *owner,
+                members: HashMap::new(),
+                deleted: false,
+                parent_journal_id: *parent_journal_id,
+            }),
+            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+                "{:?}",
+                value
+            ))),
+        }
+    }
+}
 pub trait JournalNameOrUnknown {
     fn or_unknown(&self) -> String;
 }

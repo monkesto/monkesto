@@ -4,7 +4,7 @@ pub mod views;
 
 pub use service::TransactionService;
 
-use crate::store::universal::{EmailUpdate, Payload};
+use crate::store::universal::{EmailUpdate, Payload, PayloadWithId};
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -29,9 +29,9 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::authority::Authority;
-use crate::ident::AccountId;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
+use crate::ident::{AccountId, ProjectionFromPayloadError};
 
 use crate::account::AccountStoreError;
 use crate::auth::user::Email;
@@ -374,6 +374,27 @@ impl TransactionProjection {
             TransactionPayload::UpdatedBalancedUpdates {
                 new_balanceupdates, ..
             } => self.updates = new_balanceupdates,
+        }
+    }
+}
+
+impl TryFrom<PayloadWithId<'_, TransactionId>> for TransactionProjection {
+    type Error = ProjectionFromPayloadError;
+    fn try_from(
+        value: PayloadWithId<'_, TransactionId>,
+    ) -> Result<Self, ProjectionFromPayloadError> {
+        match value.payload {
+            TransactionPayload::Created {
+                updates,
+                journal_id,
+            } => Ok(Self {
+                journal_id,
+                updates,
+            }),
+            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+                "{:?}",
+                value.payload
+            ))),
         }
     }
 }

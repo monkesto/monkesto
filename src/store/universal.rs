@@ -29,6 +29,12 @@ pub trait EmailUpdate {
     fn email(&self) -> Option<&Email>;
 }
 
+#[derive(Debug)]
+pub struct PayloadWithId<'a, T: EntityId<'a>> {
+    pub payload: T::Payload,
+    pub id: T,
+}
+
 pub trait Payload<'a>: Send + Sync + Clone + Serialize + Deserialize<'a> + EmailUpdate {
     fn serialize(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize payload")

@@ -1,6 +1,5 @@
-use crate::ident::EntityId;
-use crate::ident::IdentError;
-use crate::store::universal::{EmailUpdate, EntityType, Payload};
+use crate::ident::ProjectionFromPayloadError;
+use crate::store::universal::{EmailUpdate, EntityType, Payload, PayloadWithId};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -326,6 +325,26 @@ entity!(
 pub struct PasskeyProjection {
     pub id: PasskeyId,
     pub passkey: webauthn_rs::prelude::Passkey,
+}
+
+impl TryFrom<PayloadWithId<'_, PasskeyId>> for PasskeyProjection {
+    type Error = ProjectionFromPayloadError;
+
+    fn try_from(value: PayloadWithId<PasskeyId>) -> Result<Self, ProjectionFromPayloadError> {
+        match value.payload {
+            PasskeyPayload::Created {
+                user_id: _user_id,
+                passkey,
+            } => Ok(Self {
+                id: value.id,
+                passkey,
+            }),
+            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+                "{:?}",
+                value.payload
+            ))),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Payload)]

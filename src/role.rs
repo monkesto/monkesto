@@ -4,9 +4,8 @@ use crate::auth::user::Email;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::entity;
-use crate::ident::EntityId;
 use crate::ident::Ident;
-use crate::ident::IdentError;
+use crate::ident::ProjectionFromPayloadError;
 use crate::store::After;
 use crate::store::EventId;
 use crate::store::Outcome;
@@ -14,7 +13,7 @@ use crate::store::Select;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::universal::{EmailUpdate, EntityType, Payload};
+use crate::store::universal::{EmailUpdate, EntityType, Payload, PayloadWithId};
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
@@ -37,6 +36,19 @@ entity!(
 #[derive(Clone)]
 pub struct RoleProjection {
     // TODO
+}
+
+impl TryFrom<PayloadWithId<'_, RoleId>> for RoleProjection {
+    type Error = ProjectionFromPayloadError;
+    fn try_from(value: PayloadWithId<'_, RoleId>) -> Result<Self, ProjectionFromPayloadError> {
+        match value.payload {
+            RolePayload::Created => Ok(Self {}),
+            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+                "{:?}",
+                value.payload
+            ))),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Payload)]

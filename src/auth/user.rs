@@ -2,11 +2,10 @@ use crate::authority::Authority;
 use crate::entity;
 use crate::event::Event;
 use crate::event::EventStore;
-use crate::ident::EntityId;
 use crate::ident::Ident;
-use crate::ident::IdentError;
+use crate::ident::ProjectionFromPayloadError;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::{EmailUpdate, EntityType, Payload};
+use crate::store::universal::{EmailUpdate, EntityType, Payload, PayloadWithId};
 use axum::response::Redirect;
 use nutype::nutype;
 use serde::Deserialize;
@@ -48,6 +47,25 @@ pub struct Email(String);
 pub struct UserProjection {
     pub id: UserId,
     pub email: Email,
+}
+
+impl TryFrom<PayloadWithId<'_, UserId>> for UserProjection {
+    type Error = ProjectionFromPayloadError;
+    fn try_from(value: PayloadWithId<UserId>) -> Result<Self, ProjectionFromPayloadError> {
+        match value.payload {
+            UserPayload::Created {
+                email,
+                webauthn_uuid: _webauthn_uuid,
+            } => Ok(Self {
+                id: value.id,
+                email,
+            }),
+            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+                "{:?}",
+                value.payload
+            ))),
+        }
+    }
 }
 
 impl axum_login::AuthUser for UserProjection {

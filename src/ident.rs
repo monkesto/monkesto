@@ -1,6 +1,6 @@
 use crate::account::{AccountPayload, AccountProjection};
 use crate::journal::{JournalPayload, JournalProjection};
-use crate::store::universal::{EntityType, Payload};
+use crate::store::universal::{EntityType, Payload, PayloadWithId};
 use crate::transaction::{TransactionPayload, TransactionProjection};
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
@@ -135,11 +135,20 @@ impl Display for Ident {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum ProjectionFromPayloadError {
+    #[error("Expected a \"Created\" enum variant, but found {0}")]
+    IncorrectVariant(String),
+}
+
 pub trait EntityId<'a>:
     Deref<Target = Ident> + FromStr<Err = IdentError> + Display + TryFrom<&'a [u8]> + Clone
 {
     type Payload: Payload<'a>;
-    type Projection: Send + Sync + Clone;
+    type Projection: Send
+        + Sync
+        + Clone
+        + TryFrom<PayloadWithId<'a, Self>, Error = ProjectionFromPayloadError>;
     #[expect(dead_code)]
     fn as_bytes(&self) -> &[u8];
 
@@ -169,7 +178,7 @@ pub trait EntityId<'a>:
 macro_rules! entity {
     ($id_name: ident, $payload: ty, $projection: ty, $entity_type: expr, $new_fn: expr) => {
         #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-        pub struct $id_name(Ident);
+        pub struct $id_name($crate::ident::Ident);
 
         impl $id_name {
             pub fn new() -> Self {
@@ -186,7 +195,7 @@ macro_rules! entity {
         }
 
         impl FromStr for $id_name {
-            type Err = IdentError;
+            type Err = $crate::ident::IdentError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
                 Ok(Self(Ident::from_str(s)?))
@@ -200,14 +209,14 @@ macro_rules! entity {
         }
 
         impl TryFrom<&[u8]> for $id_name {
-            type Error = IdentError;
+            type Error = $crate::ident::IdentError;
 
-            fn try_from(bytes: &[u8]) -> Result<Self, IdentError> {
+            fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
                 Ok(Self(Ident::try_from(bytes)?))
             }
         }
 
-        impl EntityId<'_> for $id_name {
+        impl $crate::ident::EntityId<'_> for $id_name {
             type Payload = $payload;
             type Projection = $projection;
             fn as_bytes(&self) -> &[u8] {
