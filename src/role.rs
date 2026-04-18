@@ -2,8 +2,9 @@
 
 use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::id;
+use crate::entity;
 use crate::ident::Ident;
+use crate::ident::ProjectionFromPayloadError;
 use crate::store::After;
 use crate::store::EventId;
 use crate::store::Outcome;
@@ -11,16 +12,56 @@ use crate::store::Select;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::universal::{AnyPayload, Payload};
+use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, PayloadWithId, Projection};
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::error::Error as StdError;
+use std::fmt::Display;
+use std::ops::Deref;
+use std::str::FromStr;
 use thiserror::Error;
 
-id!(RoleId, Ident::new16());
+entity!(
+    RoleId,
+    RolePayload,
+    RoleProjection,
+    EntityType::Role,
+    Ident::new16()
+);
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct RoleProjection {
+    actors: Vec<Actor>,
+}
+
+impl Projection<'_, RoleId> for RoleProjection {}
+
+impl TryFrom<PayloadWithId<'_, RoleId>> for RoleProjection {
+    type Error = ProjectionFromPayloadError;
+    fn try_from(value: PayloadWithId<'_, RoleId>) -> Result<Self, ProjectionFromPayloadError> {
+        match value.payload {
+            RolePayload::Created => Ok(Self { actors: Vec::new() }),
+            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+                "{:?}",
+                value.payload
+            ))),
+        }
+    }
+}
+
+impl ApplyPayload<'_, RoleId> for RoleProjection {
+    fn apply(&mut self, payload: &RolePayload) -> &mut Self {
+        match payload {
+            RolePayload::Created => {}
+            RolePayload::ActorAdded(actor) => self.actors.push(actor.clone()),
+            RolePayload::ActorRemoved(actor) => self.actors.retain(|a| a != actor),
+        }
+        self
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Payload)]
 pub enum RolePayload {
@@ -32,45 +73,6 @@ pub enum RolePayload {
 impl From<RolePayload> for AnyPayload {
     fn from(val: RolePayload) -> Self {
         AnyPayload::Role(val)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum RoleState {
-    Absent,
-    Present {
-        actors: HashSet<Actor>,
-        when: When<EventId>,
-    },
-}
-
-#[derive(Debug, Error)]
-#[error("invalid role state transition")]
-struct RoleStateError;
-
-impl RoleState {
-    fn apply(
-        &mut self,
-        event: crate::store::Event<RoleId, RolePayload>,
-    ) -> Result<(), RoleStateError> {
-        let when = When::Within(event.event_id);
-        *self = match (self.clone(), event.payload) {
-            (RoleState::Absent, RolePayload::Created) => RoleState::Present {
-                actors: HashSet::new(),
-                when,
-            },
-            (RoleState::Present { mut actors, .. }, RolePayload::ActorAdded(actor)) => {
-                actors.insert(actor);
-                RoleState::Present { actors, when }
-            }
-            (RoleState::Present { mut actors, .. }, RolePayload::ActorRemoved(actor)) => {
-                actors.remove(&actor);
-                RoleState::Present { actors, when }
-            }
-            _ => return Err(RoleStateError),
-        };
-
-        Ok(())
     }
 }
 
@@ -168,7 +170,7 @@ impl<R: Store<RoleStream>> RoleService<R> {
         }
 
         let mut after = After::Start;
-        let mut roles = HashMap::<RoleId, RoleState>::new();
+        let mut roles = HashMap::<RoleId, Option<HashSet<Actor>>>::new();
 
         loop {
             let page = self
@@ -178,10 +180,8 @@ impl<R: Store<RoleStream>> RoleService<R> {
 
             for event in page.items {
                 let role_id = event.id;
-                let state = roles.entry(role_id).or_insert(RoleState::Absent);
-                state
-                    .apply(event)
-                    .expect("all role events should form valid role state");
+                let state = roles.entry(role_id).or_default();
+                Self::apply_payload(state, event.payload);
             }
 
             if !page.more {
@@ -194,7 +194,7 @@ impl<R: Store<RoleStream>> RoleService<R> {
         Ok(roles
             .into_iter()
             .filter_map(|(role_id, state)| match state {
-                RoleState::Present { actors, .. } if actors.contains(actor) => Some(role_id),
+                Some(actors) if actors.contains(actor) => Some(role_id),
                 _ => None,
             })
             .collect())
@@ -292,8 +292,8 @@ impl<R: Store<RoleStream>> RoleService<R> {
 
     async fn load(&self, role_id: RoleId) -> Result<Option<LoadedRole>, RoleLookupError<R::Error>> {
         let mut after = After::Start;
-        let mut state = RoleState::Absent;
-        let mut saw_event = false;
+        let mut actors = None;
+        let mut latest_event_id = None;
 
         loop {
             let page = self
@@ -306,10 +306,8 @@ impl<R: Store<RoleStream>> RoleService<R> {
             }
 
             for event in page.items {
-                saw_event = true;
-                state
-                    .apply(event)
-                    .expect("all role events should form valid role state");
+                latest_event_id = Some(event.event_id);
+                Self::apply_payload(&mut actors, event.payload);
             }
 
             if !page.more {
@@ -319,20 +317,32 @@ impl<R: Store<RoleStream>> RoleService<R> {
             after = After::Specific(page.next);
         }
 
-        if !saw_event {
-            return Ok(None);
-        }
-
-        Ok(match state {
-            RoleState::Present {
-                actors,
-                when: When::Within(latest_event_id),
-            } => Some(LoadedRole {
+        Ok(match (actors, latest_event_id) {
+            (Some(actors), Some(latest_event_id)) => Some(LoadedRole {
                 actors,
                 latest_event_id,
             }),
             _ => None,
         })
+    }
+
+    fn apply_payload(state: &mut Option<HashSet<Actor>>, payload: RolePayload) {
+        match payload {
+            RolePayload::Created if state.is_none() => {
+                *state = Some(HashSet::new());
+            }
+            RolePayload::ActorAdded(actor) => {
+                if let Some(actors) = state.as_mut() {
+                    actors.insert(actor);
+                }
+            }
+            RolePayload::ActorRemoved(actor) => {
+                if let Some(actors) = state.as_mut() {
+                    actors.remove(&actor);
+                }
+            }
+            RolePayload::Created => {}
+        }
     }
 }
 

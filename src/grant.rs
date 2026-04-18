@@ -1,22 +1,60 @@
 use crate::authority::Authority;
-use crate::id;
+use crate::entity;
 use crate::ident::Ident;
+use crate::ident::ProjectionFromPayloadError;
 use crate::store::After;
-use crate::store::Event;
-use crate::store::EventId;
 use crate::store::Outcome;
 use crate::store::Select;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::universal::{AnyPayload, Payload};
+use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, PayloadWithId, Projection};
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
 use std::error::Error as StdError;
+use std::fmt::Display;
+use std::ops::Deref;
+use std::str::FromStr;
 use thiserror::Error;
 
-id!(GrantId, Ident::new16());
+entity!(
+    GrantId,
+    GrantPayload,
+    GrantProjection,
+    EntityType::Grant,
+    Ident::new16()
+);
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct GrantProjection {
+    revoked: bool, // TODO
+}
+
+impl Projection<'_, GrantId> for GrantProjection {}
+
+impl TryFrom<PayloadWithId<'_, GrantId>> for GrantProjection {
+    type Error = ProjectionFromPayloadError;
+    fn try_from(value: PayloadWithId<'_, GrantId>) -> Result<Self, ProjectionFromPayloadError> {
+        match value.payload {
+            GrantPayload::Created => Ok(Self { revoked: false }),
+            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+                "{:?}",
+                value.payload
+            ))),
+        }
+    }
+}
+
+impl ApplyPayload<'_, GrantId> for GrantProjection {
+    fn apply(&mut self, payload: &GrantPayload) -> &mut Self {
+        match payload {
+            GrantPayload::Created => {}
+            GrantPayload::Revoked => self.revoked = true,
+        }
+        self
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Payload)]
 pub enum GrantPayload {
@@ -27,29 +65,6 @@ pub enum GrantPayload {
 impl From<GrantPayload> for AnyPayload {
     fn from(val: GrantPayload) -> Self {
         AnyPayload::Grant(val)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GrantState {
-    Absent,
-    Active { when: When<EventId> },
-    Revoked { when: When<EventId> },
-}
-
-#[derive(Debug, Error)]
-#[error("invalid grant state transition")]
-struct GrantStateError;
-
-impl GrantState {
-    fn apply(&mut self, event: Event<GrantId, GrantPayload>) -> Result<(), GrantStateError> {
-        let when = When::Within(event.event_id);
-        *self = match (*self, event.payload) {
-            (GrantState::Absent, GrantPayload::Created) => GrantState::Active { when },
-            (GrantState::Active { .. }, GrantPayload::Revoked) => GrantState::Revoked { when },
-            _ => return Err(GrantStateError),
-        };
-        Ok(())
     }
 }
 
@@ -143,18 +158,14 @@ impl<G: Store<GrantStream>> GrantService<G> {
                 return Err(GrantRevokeError::UnexpectedHistory(grant_id));
             }
 
-            let mut state = GrantState::Absent;
-            for event in page.items {
-                state
-                    .apply(event)
-                    .map_err(|_| GrantRevokeError::UnexpectedHistory(grant_id))?;
-            }
-
-            let when = match state {
-                GrantState::Absent => return Err(GrantRevokeError::InvalidGrant(grant_id)),
-                GrantState::Revoked { .. } => return Ok(()),
-                GrantState::Active { when } => when,
+            let Some(latest_event) = page.items.last() else {
+                return Err(GrantRevokeError::InvalidGrant(grant_id));
             };
+
+            match &latest_event.payload {
+                GrantPayload::Revoked => return Ok(()),
+                GrantPayload::Created => {}
+            }
 
             let outcome = self
                 .store
@@ -163,7 +174,7 @@ impl<G: Store<GrantStream>> GrantService<G> {
                     Utc::now(),
                     grant_id,
                     GrantPayload::Revoked,
-                    when,
+                    When::Within(latest_event.event_id),
                 )
                 .await?;
 

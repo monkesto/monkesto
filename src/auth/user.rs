@@ -5,7 +5,7 @@ use crate::event::EventStore;
 use crate::ident::Ident;
 use crate::ident::ProjectionFromPayloadError;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, PayloadWithId, Projection};
 use axum::response::Redirect;
 use nutype::nutype;
 use serde::Deserialize;
@@ -43,12 +43,14 @@ entity!(
 )]
 pub struct Email(String);
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct UserProjection {
     pub id: UserId,
     pub email: Email,
     pub deleted: bool,
 }
+
+impl Projection<'_, UserId> for UserProjection {}
 
 impl TryFrom<PayloadWithId<'_, UserId>> for UserProjection {
     type Error = ProjectionFromPayloadError;

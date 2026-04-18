@@ -1,5 +1,5 @@
 use crate::ident::ProjectionFromPayloadError;
-use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, PayloadWithId, Projection};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -321,11 +321,13 @@ entity!(
     Ident::new16()
 );
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PasskeyProjection {
     pub id: PasskeyId,
     pub passkey: webauthn_rs::prelude::Passkey,
 }
+
+impl Projection<'_, PasskeyId> for PasskeyProjection {}
 
 impl TryFrom<PayloadWithId<'_, PasskeyId>> for PasskeyProjection {
     type Error = ProjectionFromPayloadError;

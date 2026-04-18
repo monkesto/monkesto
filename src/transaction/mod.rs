@@ -4,7 +4,7 @@ pub mod views;
 
 pub use service::TransactionService;
 
-use crate::store::universal::{AnyPayload, ApplyPayload, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, ApplyPayload, PayloadWithId, Projection};
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -315,6 +315,8 @@ pub struct TransactionProjection {
     pub updates: Vec<BalanceUpdate>,
     pub deleted: bool,
 }
+
+impl Projection<'_, TransactionId> for TransactionProjection {}
 
 impl TryFrom<PayloadWithId<'_, TransactionId>> for TransactionProjection {
     type Error = ProjectionFromPayloadError;

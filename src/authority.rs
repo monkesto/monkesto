@@ -28,7 +28,6 @@ impl Authority {
         }
     }
 
-    #[expect(dead_code)]
     pub fn as_bytes(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize authority")
     }
