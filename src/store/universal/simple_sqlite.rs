@@ -76,8 +76,8 @@ impl SimpleSqliteStore {
 
             sqlx::query(
                 r#"
-                UPDATE account_balances SET balance = balance + ? WHERE account_id = ?
-                "#,
+                    UPDATE account_balances SET balance = balance + ? WHERE account_id = ?
+                    "#,
             )
             .bind(if reverse { -amount } else { amount })
             .bind(update.account_id.as_bytes())
@@ -131,8 +131,8 @@ impl Store for SimpleSqliteStore {
 
         let store_entity_type: Option<EntityType> = query_scalar(
             r#"
-            SELECT entity_type FROM entities WHERE id = ?
-            "#,
+                SELECT entity_type FROM entities WHERE id = ?
+                "#,
         )
         .bind(entity_id.as_bytes())
         .fetch_optional(&mut *tx)
@@ -158,8 +158,8 @@ impl Store for SimpleSqliteStore {
 
             query(
                 r#"
-                INSERT INTO entities (id, entity_type) VALUES (?, ?);
-            "#,
+                    INSERT INTO entities (id, entity_type) VALUES (?, ?);
+                    "#,
             )
             .bind(entity_id.as_bytes())
             .bind(id_entity_type)
@@ -198,8 +198,8 @@ impl Store for SimpleSqliteStore {
 
             let projection_bytes: Vec<u8> = query_scalar(
                 r#"
-                SELECT projection FROM projections WHERE entity_id = ?
-            "#,
+                    SELECT projection FROM projections WHERE entity_id = ?
+                    "#,
             )
             .bind(entity_id.as_bytes())
             .fetch_one(&mut *tx)
@@ -238,8 +238,8 @@ impl Store for SimpleSqliteStore {
             AnyPayload::Account(AccountPayload::Created { journal_id, .. }) => {
                 sqlx::query(
                     r#"
-                                INSERT INTO account_lookup (account_id, journal_id) VALUES (?, ?)
-                                "#,
+                        INSERT INTO account_lookup (account_id, journal_id) VALUES (?, ?)
+                        "#,
                 )
                 .bind(entity_id.as_bytes())
                 .bind(journal_id.as_bytes())
@@ -248,8 +248,8 @@ impl Store for SimpleSqliteStore {
 
                 sqlx::query(
                     r#"
-                            INSERT INTO account_balance (id, balance) VALUES (?, ?)
-                                "#,
+                        INSERT INTO account_balance (id, balance) VALUES (?, ?)
+                        "#,
                 )
                 .bind(entity_id.as_bytes())
                 .bind(0)
@@ -320,8 +320,8 @@ impl Store for SimpleSqliteStore {
                 } => {
                     sqlx::query(
                         r#"
-                                        INSERT INTO user_lookup (entity_id, email) VALUES (?, ?)
-                                        "#,
+                            INSERT INTO user_lookup (entity_id, email) VALUES (?, ?)
+                            "#,
                     )
                     .bind(entity_id.as_bytes())
                     .bind(email.to_string())
@@ -331,8 +331,8 @@ impl Store for SimpleSqliteStore {
                 UserPayload::Deleted => {
                     sqlx::query(
                         r#"
-                                        DELETE FROM user_lookup WHERE entity_id = ?
-                                        "#,
+                            DELETE FROM user_lookup WHERE entity_id = ?
+                            "#,
                     )
                     .bind(entity_id.as_bytes())
                     .execute(&mut *tx)
