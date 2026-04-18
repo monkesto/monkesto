@@ -1,7 +1,6 @@
 use crate::authority::Authority;
-use crate::entity;
+use crate::id;
 use crate::ident::Ident;
-use crate::ident::ProjectionFromPayloadError;
 use crate::store::After;
 use crate::store::Event;
 use crate::store::EventId;
@@ -10,51 +9,14 @@ use crate::store::Select;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, Payload, PayloadWithId};
+use crate::store::universal::{AnyPayload, Payload};
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
 use std::error::Error as StdError;
-use std::fmt::Display;
-use std::ops::Deref;
-use std::str::FromStr;
 use thiserror::Error;
 
-entity!(
-    GrantId,
-    GrantPayload,
-    GrantProjection,
-    EntityType::Grant,
-    Ident::new16()
-);
-
-#[derive(Clone)]
-pub struct GrantProjection {
-    revoked: bool, // TODO
-}
-
-impl TryFrom<PayloadWithId<'_, GrantId>> for GrantProjection {
-    type Error = ProjectionFromPayloadError;
-    fn try_from(value: PayloadWithId<'_, GrantId>) -> Result<Self, ProjectionFromPayloadError> {
-        match value.payload {
-            GrantPayload::Created => Ok(Self { revoked: false }),
-            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
-                "{:?}",
-                value.payload
-            ))),
-        }
-    }
-}
-
-impl ApplyPayload<'_, GrantId> for GrantProjection {
-    fn apply(&mut self, payload: &GrantPayload) -> &mut Self {
-        match payload {
-            GrantPayload::Created => {}
-            GrantPayload::Revoked => self.revoked = true,
-        }
-        self
-    }
-}
+id!(GrantId, Ident::new16());
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Payload)]
 pub enum GrantPayload {

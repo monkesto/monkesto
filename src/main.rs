@@ -5,6 +5,7 @@ mod authorization;
 mod entitlement;
 mod event;
 mod grant;
+mod id;
 mod ident;
 mod journal;
 mod monkesto_error;
