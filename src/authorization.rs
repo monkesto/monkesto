@@ -8,11 +8,11 @@ use crate::role::RoleId;
 use crate::role::RolePayload;
 use crate::role::RoleStream;
 use crate::store::After;
+use crate::store::Event;
 use crate::store::EventId;
+use crate::store::Observe;
+use crate::store::Store;
 use crate::store::When;
-use crate::store::multi::Event;
-use crate::store::multi::Observe;
-use crate::store::multi::Store;
 use chrono::Utc;
 use std::error::Error as StdError;
 use thiserror::Error;
@@ -160,7 +160,7 @@ where
 mod tests {
     use super::*;
     use crate::authority::Actor;
-    use crate::store::multi::memory::memory_store;
+    use crate::store::memory::memory_store;
 
     memory_store! {
         type TestStore = MemoryStore<Authority, RoleStream, GrantStream>

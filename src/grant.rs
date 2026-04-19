@@ -3,11 +3,11 @@
 use crate::authority::Authority;
 use crate::id;
 use crate::ident::Ident;
+use crate::store::Event;
+use crate::store::Outcome;
+use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::multi::Event;
-use crate::store::multi::Outcome;
-use crate::store::multi::Store;
 use crate::store::universal::registry::AnyPayload;
 use crate::store::{After, EventId};
 use chrono::Utc;
@@ -177,7 +177,7 @@ impl<G: Store<Authority, GrantStream>> GrantService<G> {
 mod tests {
     use super::*;
     use crate::authority::Actor;
-    use crate::store::multi::memory::memory_store;
+    use crate::store::memory::memory_store;
 
     memory_store! {
         type TestStore = MemoryStore<Authority, GrantStream>

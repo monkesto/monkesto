@@ -69,7 +69,7 @@ macro_rules! memory_store {
                     <$stream as crate::store::Stream>::Id,
                     <$stream as crate::store::Stream>::Payload,
                 >,
-                global_events: Vec<crate::store::multi::Event<
+                global_events: Vec<crate::store::Event<
                     $authority,
                     <$stream as crate::store::Stream>::Id,
                     <$stream as crate::store::Stream>::Payload,
@@ -93,7 +93,7 @@ macro_rules! memory_store {
                 }
             }
 
-            impl crate::store::multi::Store<$authority, $stream> for $name {
+            impl crate::store::Store<$authority, $stream> for $name {
                 type Error = std::convert::Infallible;
 
                 async fn record(
@@ -104,7 +104,7 @@ macro_rules! memory_store {
                     payload: <$stream as crate::store::Stream>::Payload,
                     when: crate::store::When<crate::store::EventId>,
                 ) -> Result<
-                    crate::store::multi::Outcome<
+                    crate::store::Outcome<
                         $authority,
                         <$stream as crate::store::Stream>::Id,
                         <$stream as crate::store::Stream>::Payload,
@@ -116,7 +116,7 @@ macro_rules! memory_store {
                     match when {
                         crate::store::When::Empty => {
                             if stream.select_events.contains_key(&id) {
-                                return Ok(crate::store::multi::Outcome::Skipped);
+                                return Ok(crate::store::Outcome::Skipped);
                             }
                         }
                         crate::store::When::Within(event_id) => {
@@ -127,12 +127,12 @@ macro_rules! memory_store {
                                 .map(|e| e.event_id <= event_id)
                                 .unwrap_or(false);
                             if !condition_met {
-                                return Ok(crate::store::multi::Outcome::Skipped);
+                                return Ok(crate::store::Outcome::Skipped);
                             }
                         }
                     }
                     state.latest = state.latest.next();
-                    let event = crate::store::multi::Event {
+                    let event = crate::store::Event {
                         event_id: state.latest,
                         timestamp: at,
                         authority: by,
@@ -147,7 +147,7 @@ macro_rules! memory_store {
                         .or_default()
                         .push(event.clone());
                     state.global_events.push(event.clone());
-                    Ok(crate::store::multi::Outcome::Recorded(event))
+                    Ok(crate::store::Outcome::Recorded(event))
                 }
 
                 async fn review(
@@ -156,7 +156,7 @@ macro_rules! memory_store {
                     after: crate::store::After<crate::store::EventId>,
                     limit: usize,
                 ) -> Result<
-                    crate::store::multi::Page<crate::store::multi::Event<
+                    crate::store::Page<crate::store::Event<
                         $authority,
                         <$stream as crate::store::Stream>::Id,
                         <$stream as crate::store::Stream>::Payload,
@@ -166,7 +166,7 @@ macro_rules! memory_store {
                     let state = self.state.lock().expect("poisoned");
                     let stream = &state.[<$stream:snake>];
                     let full = stream.select_events.get(&id).cloned().unwrap_or_default();
-                    let filtered: Vec<crate::store::multi::Event<
+                    let filtered: Vec<crate::store::Event<
                         $authority,
                         <$stream as crate::store::Stream>::Id,
                         <$stream as crate::store::Stream>::Payload,
@@ -187,12 +187,12 @@ macro_rules! memory_store {
                         .last()
                         .map(|e| e.event_id)
                         .unwrap_or(state.latest);
-                    Ok(crate::store::multi::Page { items, more, next })
+                    Ok(crate::store::Page { items, more, next })
                 }
             }
 
-            impl crate::store::multi::Observe for $name {
-                type Event = crate::store::multi::Event<
+            impl crate::store::Observe for $name {
+                type Event = crate::store::Event<
                     $authority,
                     <$stream as crate::store::Stream>::Id,
                     <$stream as crate::store::Stream>::Payload,
@@ -203,7 +203,7 @@ macro_rules! memory_store {
                     &self,
                     after: crate::store::After<crate::store::EventId>,
                     limit: usize,
-                ) -> Result<crate::store::multi::Page<Self::Event>, Self::Error> {
+                ) -> Result<crate::store::Page<Self::Event>, Self::Error> {
                     let state = self.state.lock().expect("poisoned");
                     let full = &state.global_events;
                     let filtered: Vec<Self::Event> = match after {
@@ -224,7 +224,7 @@ macro_rules! memory_store {
                         .last()
                         .map(|e| e.event_id)
                         .unwrap_or(state.latest);
-                    Ok(crate::store::multi::Page { items, more, next })
+                    Ok(crate::store::Page { items, more, next })
                 }
             }
         }
@@ -244,7 +244,7 @@ macro_rules! memory_store {
                 memory_store!(@store_impl_with_event $name, $authority, $estream, $event, $variant);
             )+
 
-            impl crate::store::multi::Observe for $name {
+            impl crate::store::Observe for $name {
                 type Event = $event;
                 type Error = std::convert::Infallible;
 
@@ -252,7 +252,7 @@ macro_rules! memory_store {
                     &self,
                     after: crate::store::After<crate::store::EventId>,
                     limit: usize,
-                ) -> Result<crate::store::multi::Page<Self::Event>, Self::Error> {
+                ) -> Result<crate::store::Page<Self::Event>, Self::Error> {
                     let state = self.state.lock().expect("poisoned");
                     let full = &state.global_events;
                     let filtered: Vec<$event> = match after {
@@ -280,7 +280,7 @@ macro_rules! memory_store {
                             $($event::$variant(inner) => inner.event_id,)+
                         })
                         .unwrap_or(state.latest);
-                    Ok(crate::store::multi::Page { items, more, next })
+                    Ok(crate::store::Page { items, more, next })
                 }
             }
         }
@@ -288,7 +288,7 @@ macro_rules! memory_store {
     // Helper: StreamState detail module
     (@detail) => {
         mod __memory_store_detail {
-            use crate::store::multi::Event;
+            use crate::store::Event;
             use std::collections::HashMap;
             use std::hash::Hash;
 
@@ -388,7 +388,7 @@ macro_rules! memory_store {
     // Helper: Store<S> impl without global push
     (@store_impl $name:ident, $authority:ty, $stream:ident) => {
         paste::paste! {
-            impl crate::store::multi::Store<$authority, $stream> for $name {
+            impl crate::store::Store<$authority, $stream> for $name {
                 type Error = std::convert::Infallible;
 
                 async fn record(
@@ -399,7 +399,7 @@ macro_rules! memory_store {
                     payload: <$stream as crate::store::Stream>::Payload,
                     when: crate::store::When<crate::store::EventId>,
                 ) -> Result<
-                    crate::store::multi::Outcome<
+                    crate::store::Outcome<
                         $authority,
                         <$stream as crate::store::Stream>::Id,
                         <$stream as crate::store::Stream>::Payload,
@@ -411,7 +411,7 @@ macro_rules! memory_store {
                     match when {
                         crate::store::When::Empty => {
                             if stream.select_events.contains_key(&id) {
-                                return Ok(crate::store::multi::Outcome::Skipped);
+                                return Ok(crate::store::Outcome::Skipped);
                             }
                         }
                         crate::store::When::Within(event_id) => {
@@ -422,12 +422,12 @@ macro_rules! memory_store {
                                 .map(|e| e.event_id <= event_id)
                                 .unwrap_or(false);
                             if !condition_met {
-                                return Ok(crate::store::multi::Outcome::Skipped);
+                                return Ok(crate::store::Outcome::Skipped);
                             }
                         }
                     }
                     state.latest = state.latest.next();
-                    let event = crate::store::multi::Event {
+                    let event = crate::store::Event {
                         event_id: state.latest,
                         timestamp: at,
                         authority: by,
@@ -441,7 +441,7 @@ macro_rules! memory_store {
                         .entry(id)
                         .or_default()
                         .push(event.clone());
-                    Ok(crate::store::multi::Outcome::Recorded(event))
+                    Ok(crate::store::Outcome::Recorded(event))
                 }
 
                 async fn review(
@@ -450,7 +450,7 @@ macro_rules! memory_store {
                     after: crate::store::After<crate::store::EventId>,
                     limit: usize,
                 ) -> Result<
-                    crate::store::multi::Page<crate::store::multi::Event<
+                    crate::store::Page<crate::store::Event<
                         $authority,
                         <$stream as crate::store::Stream>::Id,
                         <$stream as crate::store::Stream>::Payload,
@@ -460,7 +460,7 @@ macro_rules! memory_store {
                     let state = self.state.lock().expect("poisoned");
                     let stream = &state.[<$stream:snake>];
                     let full = stream.select_events.get(&id).cloned().unwrap_or_default();
-                    let filtered: Vec<crate::store::multi::Event<
+                    let filtered: Vec<crate::store::Event<
                         $authority,
                         <$stream as crate::store::Stream>::Id,
                         <$stream as crate::store::Stream>::Payload,
@@ -481,7 +481,7 @@ macro_rules! memory_store {
                         .last()
                         .map(|e| e.event_id)
                         .unwrap_or(state.latest);
-                    Ok(crate::store::multi::Page { items, more, next })
+                    Ok(crate::store::Page { items, more, next })
                 }
             }
         }
@@ -489,7 +489,7 @@ macro_rules! memory_store {
     // Helper: Store<S> impl with global push
     (@store_impl_with_event $name:ident, $authority:ty, $stream:ident, $event:ident, $variant:ident) => {
         paste::paste! {
-            impl crate::store::multi::Store<$authority, $stream> for $name {
+            impl crate::store::Store<$authority, $stream> for $name {
                 type Error = std::convert::Infallible;
 
                 async fn record(
@@ -500,7 +500,7 @@ macro_rules! memory_store {
                     payload: <$stream as crate::store::Stream>::Payload,
                     when: crate::store::When<crate::store::EventId>,
                 ) -> Result<
-                    crate::store::multi::Outcome<
+                    crate::store::Outcome<
                         $authority,
                         <$stream as crate::store::Stream>::Id,
                         <$stream as crate::store::Stream>::Payload,
@@ -512,7 +512,7 @@ macro_rules! memory_store {
                     match when {
                         crate::store::When::Empty => {
                             if stream.select_events.contains_key(&id) {
-                                return Ok(crate::store::multi::Outcome::Skipped);
+                                return Ok(crate::store::Outcome::Skipped);
                             }
                         }
                         crate::store::When::Within(event_id) => {
@@ -523,12 +523,12 @@ macro_rules! memory_store {
                                 .map(|e| e.event_id <= event_id)
                                 .unwrap_or(false);
                             if !condition_met {
-                                return Ok(crate::store::multi::Outcome::Skipped);
+                                return Ok(crate::store::Outcome::Skipped);
                             }
                         }
                     }
                     state.latest = state.latest.next();
-                    let event = crate::store::multi::Event {
+                    let event = crate::store::Event {
                         event_id: state.latest,
                         timestamp: at,
                         authority: by,
@@ -543,7 +543,7 @@ macro_rules! memory_store {
                         .or_default()
                         .push(event.clone());
                     state.global_events.push($event::$variant(event.clone()));
-                    Ok(crate::store::multi::Outcome::Recorded(event))
+                    Ok(crate::store::Outcome::Recorded(event))
                 }
 
                 async fn review(
@@ -552,7 +552,7 @@ macro_rules! memory_store {
                     after: crate::store::After<crate::store::EventId>,
                     limit: usize,
                 ) -> Result<
-                    crate::store::multi::Page<crate::store::multi::Event<
+                    crate::store::Page<crate::store::Event<
                         $authority,
                         <$stream as crate::store::Stream>::Id,
                         <$stream as crate::store::Stream>::Payload,
@@ -562,7 +562,7 @@ macro_rules! memory_store {
                     let state = self.state.lock().expect("poisoned");
                     let stream = &state.[<$stream:snake>];
                     let full = stream.select_events.get(&id).cloned().unwrap_or_default();
-                    let filtered: Vec<crate::store::multi::Event<
+                    let filtered: Vec<crate::store::Event<
                         $authority,
                         <$stream as crate::store::Stream>::Id,
                         <$stream as crate::store::Stream>::Payload,
@@ -583,7 +583,7 @@ macro_rules! memory_store {
                         .last()
                         .map(|e| e.event_id)
                         .unwrap_or(state.latest);
-                    Ok(crate::store::multi::Page { items, more, next })
+                    Ok(crate::store::Page { items, more, next })
                 }
             }
         }
@@ -595,8 +595,8 @@ pub(crate) use memory_store;
 
 #[cfg(test)]
 mod tests {
+    use crate::store::Event;
     use crate::store::Stream;
-    use crate::store::multi::Event;
 
     pub struct TestStream;
     impl Stream for TestStream {
@@ -618,9 +618,9 @@ mod tests {
     #[tokio::test]
     async fn observe_returns_bare_events_without_enum() {
         use crate::store::After;
+        use crate::store::Observe;
+        use crate::store::Store;
         use crate::store::When;
-        use crate::store::multi::Observe;
-        use crate::store::multi::Store;
         use chrono::Utc;
 
         let store = TestStore::new();

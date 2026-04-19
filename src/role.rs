@@ -5,13 +5,13 @@ use crate::authority::Authority;
 use crate::id;
 use crate::ident::Ident;
 use crate::store::After;
+use crate::store::Event;
 use crate::store::EventId;
+use crate::store::Observe;
+use crate::store::Outcome;
+use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::multi::Event;
-use crate::store::multi::Observe;
-use crate::store::multi::Outcome;
-use crate::store::multi::Store;
 use crate::store::universal::registry::AnyPayload;
 use chrono::Utc;
 use serde::Deserialize;
@@ -400,7 +400,7 @@ struct LoadedRole {
 mod tests {
     use super::*;
     use crate::auth::user::UserId;
-    use crate::store::multi::memory::memory_store;
+    use crate::store::memory::memory_store;
 
     memory_store! {
         type TestStore = MemoryStore<Authority, RoleStream>
