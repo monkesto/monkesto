@@ -89,7 +89,7 @@ pub enum RoleLookupError<E: StdError + Send + Sync + 'static> {
     RequiresSystemAuthority,
 
     #[error(transparent)]
-    Store(#[from] E),
+    Projection(#[from] E),
 }
 
 #[derive(Debug, Error)]
@@ -122,51 +122,33 @@ impl Stream for RoleStream {
     type Payload = RolePayload;
 }
 
-pub struct RoleService<R: Store<RoleStream>> {
+/// Read-side role lookup abstraction.
+///
+/// Implementations may derive their answers in any way.
+/// How those answers stay current is implementation-specific.
+pub trait RoleProjection: Send + Sync {
+    type Error: StdError + Send + Sync + 'static;
+
+    async fn roles(&self, actor: &Actor) -> Result<HashSet<RoleId>, Self::Error>;
+}
+
+/// Resolve lookups by replaying the role stream.
+pub struct ObserveRoleProjection<R: Store<RoleStream>> {
     store: R,
 }
 
-impl<R: Store<RoleStream>> RoleService<R> {
-    const MAX_CREATE_ATTEMPTS: usize = 8;
-    const MAX_UPDATE_ATTEMPTS: usize = 8;
+impl<R: Store<RoleStream>> ObserveRoleProjection<R> {
     const REVIEW_PAGE_SIZE: usize = 128;
 
     pub fn new(store: R) -> Self {
         Self { store }
     }
+}
 
-    pub async fn create(&self, authority: Authority) -> Result<RoleId, RoleCreateError<R::Error>> {
-        for _ in 0..Self::MAX_CREATE_ATTEMPTS {
-            let role_id = RoleId::new();
-            let outcome = self
-                .store
-                .record(
-                    authority.clone(),
-                    Utc::now(),
-                    role_id,
-                    RolePayload::Created,
-                    When::Empty,
-                )
-                .await?;
+impl<R: Store<RoleStream>> RoleProjection for ObserveRoleProjection<R> {
+    type Error = R::Error;
 
-            match outcome {
-                Outcome::Recorded(_) => return Ok(role_id),
-                Outcome::Skipped => continue,
-            }
-        }
-
-        Err(RoleCreateError::AttemptsExceeded)
-    }
-
-    pub async fn roles(
-        &self,
-        authority: Authority,
-        actor: &Actor,
-    ) -> Result<HashSet<RoleId>, RoleLookupError<R::Error>> {
-        if !matches!(authority.actor(), Actor::System) {
-            return Err(RoleLookupError::RequiresSystemAuthority);
-        }
-
+    async fn roles(&self, actor: &Actor) -> Result<HashSet<RoleId>, Self::Error> {
         let mut after = After::Start;
         let mut roles = HashMap::<RoleId, RoleState>::new();
 
@@ -199,6 +181,81 @@ impl<R: Store<RoleStream>> RoleService<R> {
             })
             .collect())
     }
+}
+
+pub struct RoleService<R: Store<RoleStream>, P: RoleProjection> {
+    store: R,
+    projection: P,
+}
+
+impl<R, P> RoleService<R, P>
+where
+    R: Store<RoleStream>,
+    P: RoleProjection,
+{
+    const MAX_CREATE_ATTEMPTS: usize = 8;
+    const MAX_UPDATE_ATTEMPTS: usize = 8;
+    const REVIEW_PAGE_SIZE: usize = 128;
+
+    pub fn with_projection(store: R, projection: P) -> Self {
+        Self { store, projection }
+    }
+}
+
+impl<R> RoleService<R, ObserveRoleProjection<R>>
+where
+    R: Store<RoleStream> + Clone,
+{
+    pub fn new(store: R) -> Self {
+        let projection = ObserveRoleProjection::new(store.clone());
+        Self::with_projection(store, projection)
+    }
+}
+
+impl<R, P> RoleService<R, P>
+where
+    R: Store<RoleStream>,
+    P: RoleProjection,
+{
+    pub async fn create(&self, authority: Authority) -> Result<RoleId, RoleCreateError<R::Error>> {
+        for _ in 0..Self::MAX_CREATE_ATTEMPTS {
+            let role_id = RoleId::new();
+            let outcome = self
+                .store
+                .record(
+                    authority.clone(),
+                    Utc::now(),
+                    role_id,
+                    RolePayload::Created,
+                    When::Empty,
+                )
+                .await?;
+
+            match outcome {
+                Outcome::Recorded(_) => {
+                    return Ok(role_id);
+                }
+                Outcome::Skipped => continue,
+            }
+        }
+
+        Err(RoleCreateError::AttemptsExceeded)
+    }
+
+    pub async fn roles(
+        &self,
+        authority: Authority,
+        actor: &Actor,
+    ) -> Result<HashSet<RoleId>, RoleLookupError<P::Error>> {
+        if !matches!(authority.actor(), Actor::System) {
+            return Err(RoleLookupError::RequiresSystemAuthority);
+        }
+
+        self.projection
+            .roles(actor)
+            .await
+            .map_err(RoleLookupError::Projection)
+    }
 
     pub async fn add(
         &self,
@@ -210,13 +267,9 @@ impl<R: Store<RoleStream>> RoleService<R> {
             let LoadedRole {
                 mut actors,
                 latest_event_id,
-            } = match self.load(role_id).await {
-                Ok(Some(loaded)) => loaded,
-                Ok(None) => return Err(RoleAddError::InvalidRole),
-                Err(RoleLookupError::Store(err)) => return Err(RoleAddError::Store(err)),
-                Err(RoleLookupError::RequiresSystemAuthority) => {
-                    unreachable!("load does not validate authority")
-                }
+            } = match self.load(role_id).await? {
+                Some(loaded) => loaded,
+                None => return Err(RoleAddError::InvalidRole),
             };
 
             if actors.contains(&actor) {
@@ -237,7 +290,9 @@ impl<R: Store<RoleStream>> RoleService<R> {
                 .await?;
 
             match outcome {
-                Outcome::Recorded(_) => return Ok(()),
+                Outcome::Recorded(_) => {
+                    return Ok(());
+                }
                 Outcome::Skipped => continue,
             }
         }
@@ -255,13 +310,9 @@ impl<R: Store<RoleStream>> RoleService<R> {
             let LoadedRole {
                 mut actors,
                 latest_event_id,
-            } = match self.load(role_id).await {
-                Ok(Some(loaded)) => loaded,
-                Ok(None) => return Err(RoleRemoveError::InvalidRole),
-                Err(RoleLookupError::Store(err)) => return Err(RoleRemoveError::Store(err)),
-                Err(RoleLookupError::RequiresSystemAuthority) => {
-                    unreachable!("load does not validate authority")
-                }
+            } = match self.load(role_id).await? {
+                Some(loaded) => loaded,
+                None => return Err(RoleRemoveError::InvalidRole),
             };
 
             if !actors.contains(&actor) {
@@ -282,7 +333,9 @@ impl<R: Store<RoleStream>> RoleService<R> {
                 .await?;
 
             match outcome {
-                Outcome::Recorded(_) => return Ok(()),
+                Outcome::Recorded(_) => {
+                    return Ok(());
+                }
                 Outcome::Skipped => continue,
             }
         }
@@ -290,7 +343,7 @@ impl<R: Store<RoleStream>> RoleService<R> {
         Err(RoleRemoveError::AttemptsExceeded)
     }
 
-    async fn load(&self, role_id: RoleId) -> Result<Option<LoadedRole>, RoleLookupError<R::Error>> {
+    async fn load(&self, role_id: RoleId) -> Result<Option<LoadedRole>, R::Error> {
         let mut after = After::Start;
         let mut state = RoleState::Absent;
         let mut saw_event = false;
