@@ -1,6 +1,7 @@
 use crate::account::{AccountPayload, AccountProjection};
 use crate::journal::{JournalPayload, JournalProjection};
-use crate::store::universal::{EntityType, Payload, Projection};
+use crate::store::universal::registry::EntityType;
+use crate::store::universal::{Payload, Projection};
 use crate::transaction::{TransactionPayload, TransactionProjection};
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
@@ -172,7 +173,7 @@ pub trait EntityId<'a>:
 #[macro_export]
 macro_rules! entity {
     ($id_name: ident, $payload: ty, $projection: ty, $entity_type: expr, $new_fn: expr) => {
-        #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub struct $id_name($crate::ident::Ident);
 
         impl $id_name {
@@ -181,7 +182,7 @@ macro_rules! entity {
             }
         }
 
-        impl Deref for $id_name {
+        impl std::ops::Deref for $id_name {
             type Target = Ident;
 
             fn deref(&self) -> &Self::Target {
@@ -189,7 +190,7 @@ macro_rules! entity {
             }
         }
 
-        impl FromStr for $id_name {
+        impl core::str::FromStr for $id_name {
             type Err = $crate::ident::IdentError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -197,13 +198,13 @@ macro_rules! entity {
             }
         }
 
-        impl Display for $id_name {
+        impl std::fmt::Display for $id_name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 write!(f, "{}", self.0)
             }
         }
 
-        impl TryFrom<&[u8]> for $id_name {
+        impl core::convert::TryFrom<&[u8]> for $id_name {
             type Error = $crate::ident::IdentError;
 
             fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
@@ -215,7 +216,7 @@ macro_rules! entity {
             type Payload = $payload;
             type Projection = $projection;
             fn as_bytes(&self) -> &[u8] {
-                self.deref().as_bytes()
+                self.0.as_bytes()
             }
             fn entity_type(&self) -> EntityType {
                 $entity_type

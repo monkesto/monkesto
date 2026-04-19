@@ -4,7 +4,7 @@ pub mod person;
 pub mod service;
 pub mod views;
 
-use crate::store::universal::{AnyPayload, ApplyPayload, PayloadWithId, Projection};
+use crate::store::universal::{ApplyPayload, PayloadWithId, Projection};
 pub use service::JournalService;
 
 use axum::Router;
@@ -87,6 +87,7 @@ use crate::ident::JournalId;
 use crate::ident::{IdentError, ProjectionFromPayloadError};
 use crate::journal::JournalStoreError::InvalidJournal;
 use crate::name::Name;
+use crate::store::universal::registry::AnyPayload;
 use bitflags::bitflags;
 use chrono::DateTime;
 use chrono::Utc;

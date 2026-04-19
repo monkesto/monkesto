@@ -1,5 +1,6 @@
 use crate::ident::ProjectionFromPayloadError;
-use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, PayloadWithId, Projection};
+use crate::store::universal::registry::{AnyPayload, EntityType};
+use crate::store::universal::{ApplyPayload, PayloadWithId, Projection};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -69,9 +70,7 @@ impl IntoResponse for PasskeyError {
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
-use std::fmt::Display;
 use std::ops::Deref;
-use std::str::FromStr;
 
 pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
     Extension(passkey_store): Extension<Arc<P>>,

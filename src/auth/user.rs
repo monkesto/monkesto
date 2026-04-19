@@ -5,14 +5,12 @@ use crate::event::EventStore;
 use crate::ident::Ident;
 use crate::ident::ProjectionFromPayloadError;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::{AnyPayload, ApplyPayload, EntityType, PayloadWithId, Projection};
+use crate::store::universal::{ApplyPayload, PayloadWithId, Projection};
 use axum::response::Redirect;
 use nutype::nutype;
 use serde::Deserialize;
 use serde::Serialize;
-use std::fmt::Display;
 use std::ops::Deref;
-use std::str::FromStr;
 
 // Define UserId here in the user module
 entity!(
@@ -346,6 +344,7 @@ pub trait UserStore:
     }
 }
 
+use crate::store::universal::registry::{AnyPayload, EntityType};
 use axum_login::AuthSession;
 use axum_login::AuthnBackend;
 use dashmap::DashMap;

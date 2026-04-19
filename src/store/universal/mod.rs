@@ -1,12 +1,6 @@
-use crate::account::AccountPayload;
-use crate::auth::passkey::PasskeyPayload;
-use crate::auth::user::UserPayload;
 use crate::authority::Authority;
-use crate::grant::GrantPayload;
 use crate::ident::{EntityId, Ident, ProjectionFromPayloadError};
-use crate::journal::JournalPayload;
-use crate::role::RolePayload;
-use crate::transaction::TransactionPayload;
+use crate::store::universal::registry::{AnyPayload, EntityType};
 use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -14,6 +8,8 @@ use std::ops::{Add, Deref};
 use thiserror::Error;
 use tower_sessions::SessionStore;
 
+mod example_entity;
+pub mod registry;
 mod simple_sqlite;
 
 #[derive(Debug, Error, Clone, Deserialize)]
@@ -60,17 +56,6 @@ pub type StoreResult<T> = Result<T, StoreError>;
 pub struct PayloadWithId<'a, T: EntityId<'a>> {
     pub payload: T::Payload,
     pub id: T,
-}
-
-#[allow(clippy::large_enum_variant)]
-pub enum AnyPayload {
-    Account(AccountPayload),
-    Passkey(PasskeyPayload),
-    User(UserPayload),
-    Journal(JournalPayload),
-    Transaction(TransactionPayload),
-    Grant(GrantPayload),
-    Role(RolePayload),
 }
 
 pub trait Payload<'a>:
@@ -134,23 +119,11 @@ impl From<i64> for SequenceId {
 }
 
 impl Add<u64> for SequenceId {
-    type Output = SequenceId;
+    type Output = Self;
 
     fn add(self, rhs: u64) -> Self::Output {
-        self.0.checked_add(rhs).expect("SequenceId overflow");
-        self
+        Self(self.0.checked_add(rhs).expect("SequenceId overflow"))
     }
-}
-#[repr(i8)]
-#[derive(Debug, Clone, PartialEq, Deserialize, sqlx::Type, Copy)]
-pub enum EntityType {
-    Journal = 0,
-    Account = 1,
-    Transaction = 2,
-    Passkey = 3,
-    User = 4,
-    Grant = 5,
-    Role = 6,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

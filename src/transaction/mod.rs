@@ -4,7 +4,7 @@ pub mod views;
 
 pub use service::TransactionService;
 
-use crate::store::universal::{AnyPayload, ApplyPayload, PayloadWithId, Projection};
+use crate::store::universal::{ApplyPayload, PayloadWithId, Projection};
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -38,6 +38,7 @@ use crate::event::Event;
 use crate::event::EventStore;
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
+use crate::store::universal::registry::AnyPayload;
 use crate::transaction::TransactionStoreError::InvalidEntryType;
 use TransactionStoreError::InvalidTransaction;
 use dashmap::DashMap;
