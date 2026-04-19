@@ -6,11 +6,12 @@ use crate::id;
 use crate::ident::Ident;
 use crate::store::After;
 use crate::store::EventId;
-use crate::store::Outcome;
-use crate::store::Select;
-use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
+use crate::store::multi::Event;
+use crate::store::multi::Observe;
+use crate::store::multi::Outcome;
+use crate::store::multi::Store;
 use crate::store::universal::registry::AnyPayload;
 use chrono::Utc;
 use serde::Deserialize;
@@ -51,7 +52,7 @@ struct RoleStateError;
 impl RoleState {
     fn apply(
         &mut self,
-        event: crate::store::Event<RoleId, RolePayload>,
+        event: Event<Authority, RoleId, RolePayload>,
     ) -> Result<(), RoleStateError> {
         let when = When::Within(event.event_id);
         *self = match (self.clone(), event.payload) {
@@ -133,11 +134,11 @@ pub trait RoleProjection: Send + Sync {
 }
 
 /// Resolve lookups by replaying the role stream.
-pub struct ObserveRoleProjection<R: Store<RoleStream>> {
+pub struct ObserveRoleProjection<R: Observe<Event = Event<Authority, RoleId, RolePayload>>> {
     store: R,
 }
 
-impl<R: Store<RoleStream>> ObserveRoleProjection<R> {
+impl<R: Observe<Event = Event<Authority, RoleId, RolePayload>>> ObserveRoleProjection<R> {
     const REVIEW_PAGE_SIZE: usize = 128;
 
     pub fn new(store: R) -> Self {
@@ -145,7 +146,9 @@ impl<R: Store<RoleStream>> ObserveRoleProjection<R> {
     }
 }
 
-impl<R: Store<RoleStream>> RoleProjection for ObserveRoleProjection<R> {
+impl<R: Observe<Event = Event<Authority, RoleId, RolePayload>>> RoleProjection
+    for ObserveRoleProjection<R>
+{
     type Error = R::Error;
 
     async fn roles(&self, actor: &Actor) -> Result<HashSet<RoleId>, Self::Error> {
@@ -153,10 +156,7 @@ impl<R: Store<RoleStream>> RoleProjection for ObserveRoleProjection<R> {
         let mut roles = HashMap::<RoleId, RoleState>::new();
 
         loop {
-            let page = self
-                .store
-                .review(Select::All, after, Self::REVIEW_PAGE_SIZE)
-                .await?;
+            let page = self.store.observe(after, Self::REVIEW_PAGE_SIZE).await?;
 
             for event in page.items {
                 let role_id = event.id;
@@ -183,14 +183,14 @@ impl<R: Store<RoleStream>> RoleProjection for ObserveRoleProjection<R> {
     }
 }
 
-pub struct RoleService<R: Store<RoleStream>, P: RoleProjection> {
+pub struct RoleService<R: Store<Authority, RoleStream>, P: RoleProjection> {
     store: R,
     projection: P,
 }
 
 impl<R, P> RoleService<R, P>
 where
-    R: Store<RoleStream>,
+    R: Store<Authority, RoleStream>,
     P: RoleProjection,
 {
     const MAX_CREATE_ATTEMPTS: usize = 8;
@@ -204,7 +204,9 @@ where
 
 impl<R> RoleService<R, ObserveRoleProjection<R>>
 where
-    R: Store<RoleStream> + Clone,
+    R: Store<Authority, RoleStream>
+        + Observe<Event = Event<Authority, RoleId, RolePayload>>
+        + Clone,
 {
     pub fn new(store: R) -> Self {
         let projection = ObserveRoleProjection::new(store.clone());
@@ -214,7 +216,7 @@ where
 
 impl<R, P> RoleService<R, P>
 where
-    R: Store<RoleStream>,
+    R: Store<Authority, RoleStream>,
     P: RoleProjection,
 {
     pub async fn create(&self, authority: Authority) -> Result<RoleId, RoleCreateError<R::Error>> {
@@ -351,7 +353,7 @@ where
         loop {
             let page = self
                 .store
-                .review(Select::One(role_id), after, Self::REVIEW_PAGE_SIZE)
+                .review(role_id, after, Self::REVIEW_PAGE_SIZE)
                 .await?;
 
             if page.items.is_empty() {
@@ -398,10 +400,15 @@ struct LoadedRole {
 mod tests {
     use super::*;
     use crate::auth::user::UserId;
-    use crate::store::MemoryStore;
+    use crate::store::multi::memory::memory_store;
+
+    memory_store! {
+        type TestStore = MemoryStore<Authority, RoleStream>
+    }
+
     #[tokio::test]
     async fn returns_empty_roles_for_actor_without_membership() {
-        let service = RoleService::new(MemoryStore::<RoleId, RolePayload>::default());
+        let service = RoleService::new(TestStore::new());
         let authority = Authority::Direct(Actor::System);
         let actor = Actor::User(UserId::new());
 
@@ -420,7 +427,7 @@ mod tests {
 
     #[tokio::test]
     async fn adds_many_actors() {
-        let service = RoleService::new(MemoryStore::<RoleId, RolePayload>::default());
+        let service = RoleService::new(TestStore::new());
         let authority = Authority::Direct(Actor::System);
         let role_id = service
             .create(authority.clone())
@@ -467,7 +474,7 @@ mod tests {
 
     #[tokio::test]
     async fn deduplicates_adds() {
-        let service = RoleService::new(MemoryStore::<RoleId, RolePayload>::default());
+        let service = RoleService::new(TestStore::new());
         let authority = Authority::Direct(Actor::System);
         let role_id = service
             .create(authority.clone())
@@ -495,7 +502,7 @@ mod tests {
 
     #[tokio::test]
     async fn removes_actor() {
-        let service = RoleService::new(MemoryStore::<RoleId, RolePayload>::default());
+        let service = RoleService::new(TestStore::new());
         let authority = Authority::Direct(Actor::System);
         let role_id = service
             .create(authority.clone())
@@ -522,7 +529,7 @@ mod tests {
 
     #[tokio::test]
     async fn returns_all_roles_for_actor() {
-        let store = MemoryStore::<RoleId, RolePayload>::default();
+        let store = TestStore::new();
         let service = RoleService::new(store);
         let authority = Authority::Direct(Actor::System);
         let actor = Actor::User(UserId::new());
@@ -556,7 +563,7 @@ mod tests {
 
     #[tokio::test]
     async fn roles_requires_system_authority() {
-        let service = RoleService::new(MemoryStore::<RoleId, RolePayload>::default());
+        let service = RoleService::new(TestStore::new());
         let actor = Actor::User(UserId::new());
         let authority = Authority::Direct(Actor::User(UserId::new()));
 

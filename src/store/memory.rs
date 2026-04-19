@@ -17,7 +17,6 @@ use std::hash::Hash;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-#[cfg_attr(not(test), expect(dead_code))]
 #[derive(Debug)]
 pub enum MemoryStoreError {}
 
@@ -29,7 +28,6 @@ impl fmt::Display for MemoryStoreError {
 
 impl Error for MemoryStoreError {}
 
-#[cfg_attr(not(test), expect(dead_code))]
 struct MemoryStoreState<I, P>
 where
     I: Send + Sync + Copy + Clone + Eq + Hash + Sized,
@@ -40,7 +38,6 @@ where
     select_events: HashMap<I, Vec<Event<I, P>>>,
 }
 
-#[cfg_attr(not(test), expect(dead_code))]
 #[derive(Clone)]
 pub struct MemoryStore<I, P>
 where

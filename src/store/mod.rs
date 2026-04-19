@@ -1,4 +1,4 @@
-#[cfg_attr(not(test), expect(unused_imports))]
+#[expect(unused_imports)]
 pub use self::memory::MemoryStore;
 
 use crate::authority::Authority;
@@ -18,7 +18,6 @@ pub trait Stream {
 pub struct EventId(u64);
 
 impl EventId {
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn next(&self) -> Self {
         EventId(self.0 + 1)
     }
@@ -49,12 +48,11 @@ pub struct Event<I: Copy + Clone + Sized, P: Clone + Sized> {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Outcome<I: Copy + Clone + Sized, P: Clone + Sized> {
-    #[cfg_attr(not(test), expect(dead_code))]
     Recorded(Event<I, P>),
-    #[cfg_attr(not(test), expect(dead_code))]
     Skipped,
 }
 
+#[cfg_attr(not(test), expect(dead_code))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Select<T: Copy> {
     All,
@@ -86,6 +84,7 @@ pub struct Page<I: Copy + Clone + Sized, P: Clone + Sized> {
     pub next: EventId,
 }
 
+#[cfg_attr(not(test), expect(dead_code))]
 pub trait Store<S: Stream>: Send + Sync {
     type Error: Error + Send + Sync + 'static;
 
