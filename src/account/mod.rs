@@ -55,7 +55,7 @@ use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
 use crate::name::Name;
 use crate::store::universal::registry::AnyPayload;
-use crate::store::universal::{ApplyPayload, PayloadWithId, Projection};
+use crate::store::universal::{ApplyPayload, PayloadWithId};
 use crate::transaction::EntryType;
 use crate::transaction::TransactionPayload;
 use crate::transaction::TransactionProjection;
@@ -96,8 +96,6 @@ pub struct AccountProjection {
     pub deleted: bool,
     pub parent_account_id: Option<AccountId>,
 }
-
-impl Projection<'_, AccountId> for AccountProjection {}
 
 impl ApplyPayload<'_, AccountId> for AccountProjection {
     fn apply(&mut self, payload: &AccountPayload) -> &mut Self {

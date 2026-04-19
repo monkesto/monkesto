@@ -326,8 +326,6 @@ pub struct PasskeyProjection {
     pub passkey: webauthn_rs::prelude::Passkey,
 }
 
-impl Projection<'_, PasskeyId> for PasskeyProjection {}
-
 impl TryFrom<PayloadWithId<'_, PasskeyId>> for PasskeyProjection {
     type Error = ProjectionFromPayloadError;
 

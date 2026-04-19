@@ -222,6 +222,8 @@ macro_rules! entity {
                 $entity_type
             }
         }
+
+        impl Projection<'_, $id_name> for $projection {}
     };
 }
 

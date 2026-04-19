@@ -56,5 +56,3 @@ impl ApplyPayload<'_, ExampleId> for ExampleProjection {
         self
     }
 }
-
-impl Projection<'_, ExampleId> for ExampleProjection {}

@@ -4,7 +4,7 @@ pub mod person;
 pub mod service;
 pub mod views;
 
-use crate::store::universal::{ApplyPayload, PayloadWithId, Projection};
+use crate::store::universal::{ApplyPayload, PayloadWithId};
 pub use service::JournalService;
 
 use axum::Router;
@@ -398,8 +398,6 @@ pub struct JournalProjection {
     pub deleted: bool,
     pub parent_journal_id: Option<JournalId>,
 }
-
-impl Projection<'_, JournalId> for JournalProjection {}
 
 impl TryFrom<PayloadWithId<'_, JournalId>> for JournalProjection {
     type Error = ProjectionFromPayloadError;

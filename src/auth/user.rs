@@ -48,8 +48,6 @@ pub struct UserProjection {
     pub deleted: bool,
 }
 
-impl Projection<'_, UserId> for UserProjection {}
-
 impl TryFrom<PayloadWithId<'_, UserId>> for UserProjection {
     type Error = ProjectionFromPayloadError;
     fn try_from(value: PayloadWithId<UserId>) -> Result<Self, ProjectionFromPayloadError> {
