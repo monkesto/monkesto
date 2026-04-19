@@ -11,18 +11,19 @@ use serde::Deserialize;
 #[repr(i8)]
 #[derive(Debug, Clone, PartialEq, Deserialize, sqlx::Type, Copy)]
 pub enum EntityType {
-    Journal = 0,
-    Account = 1,
-    Transaction = 2,
-    Passkey = 3,
-    User = 4,
-    Grant = 5,
-    Role = 6,
-    Example = 7,
+    Example = 1,
+    Journal = 2,
+    Account = 3,
+    Transaction = 4,
+    Passkey = 5,
+    User = 6,
+    Grant = 7,
+    Role = 8,
 }
 
 #[allow(clippy::large_enum_variant)]
 pub enum AnyPayload {
+    Example(ExamplePayload),
     Account(AccountPayload),
     Passkey(PasskeyPayload),
     User(UserPayload),
@@ -30,5 +31,4 @@ pub enum AnyPayload {
     Transaction(TransactionPayload),
     Grant(GrantPayload),
     Role(RolePayload),
-    Example(ExamplePayload),
 }
