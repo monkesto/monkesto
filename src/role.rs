@@ -12,13 +12,17 @@ use crate::store::Outcome;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
+use crate::store::memory::memory_store;
 use crate::store::universal::registry::AnyPayload;
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::convert::Infallible;
 use std::error::Error as StdError;
+use std::sync::Arc;
+use std::sync::Mutex;
 use thiserror::Error;
 
 id!(RoleId, Ident::new16());
@@ -123,6 +127,10 @@ impl Stream for RoleStream {
     type Payload = RolePayload;
 }
 
+memory_store! {
+    type RoleMemoryStore = MemoryStore<Authority, RoleStream>
+}
+
 /// Read-side role lookup abstraction.
 ///
 /// Implementations may derive their answers in any way.
@@ -183,9 +191,52 @@ impl<R: Observe<Event = Event<Authority, RoleId, RolePayload>>> RoleProjection
     }
 }
 
+pub struct MemoryRoleProjection {
+    state: Arc<Mutex<HashMap<Actor, HashSet<RoleId>>>>,
+}
+
+impl MemoryRoleProjection {
+    pub async fn new(store: &RoleMemoryStore) -> Result<Arc<Self>, Infallible> {
+        let projection = Arc::new(Self {
+            state: Arc::new(Mutex::new(HashMap::new())),
+        });
+        let registered = projection.clone();
+        store.register_callback(After::Start, move |event| registered.recorded(event));
+
+        Ok(projection)
+    }
+
+    fn recorded(&self, event: &Event<Authority, RoleId, RolePayload>) {
+        let mut state = self.state.lock().expect("poisoned");
+        match &event.payload {
+            RolePayload::Created => {}
+            RolePayload::ActorAdded(actor) => {
+                state.entry(actor.clone()).or_default().insert(event.id);
+            }
+            RolePayload::ActorRemoved(actor) => {
+                if let Some(roles) = state.get_mut(actor) {
+                    roles.remove(&event.id);
+                    if roles.is_empty() {
+                        state.remove(actor);
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl RoleProjection for MemoryRoleProjection {
+    type Error = Infallible;
+
+    async fn roles(&self, actor: &Actor) -> Result<HashSet<RoleId>, Self::Error> {
+        let state = self.state.lock().expect("poisoned");
+        Ok(state.get(actor).cloned().unwrap_or_default())
+    }
+}
+
 pub struct RoleService<R: Store<Authority, RoleStream>, P: RoleProjection> {
     store: R,
-    projection: P,
+    projection: Arc<P>,
 }
 
 impl<R, P> RoleService<R, P>
@@ -193,12 +244,11 @@ where
     R: Store<Authority, RoleStream>,
     P: RoleProjection,
 {
-    const MAX_CREATE_ATTEMPTS: usize = 8;
-    const MAX_UPDATE_ATTEMPTS: usize = 8;
-    const REVIEW_PAGE_SIZE: usize = 128;
-
     pub fn with_projection(store: R, projection: P) -> Self {
-        Self { store, projection }
+        Self {
+            store,
+            projection: Arc::new(projection),
+        }
     }
 }
 
@@ -214,11 +264,22 @@ where
     }
 }
 
+impl RoleService<RoleMemoryStore, MemoryRoleProjection> {
+    pub async fn with_memory_projection(store: RoleMemoryStore) -> Result<Self, Infallible> {
+        let projection = MemoryRoleProjection::new(&store).await?;
+        Ok(Self { store, projection })
+    }
+}
+
 impl<R, P> RoleService<R, P>
 where
     R: Store<Authority, RoleStream>,
     P: RoleProjection,
 {
+    const MAX_CREATE_ATTEMPTS: usize = 8;
+    const MAX_UPDATE_ATTEMPTS: usize = 8;
+    const REVIEW_PAGE_SIZE: usize = 128;
+
     pub async fn create(&self, authority: Authority) -> Result<RoleId, RoleCreateError<R::Error>> {
         for _ in 0..Self::MAX_CREATE_ATTEMPTS {
             let role_id = RoleId::new();
@@ -254,6 +315,7 @@ where
         }
 
         self.projection
+            .as_ref()
             .roles(actor)
             .await
             .map_err(RoleLookupError::Projection)
@@ -400,15 +462,10 @@ struct LoadedRole {
 mod tests {
     use super::*;
     use crate::auth::user::UserId;
-    use crate::store::memory::memory_store;
-
-    memory_store! {
-        type TestStore = MemoryStore<Authority, RoleStream>
-    }
 
     #[tokio::test]
     async fn returns_empty_roles_for_actor_without_membership() {
-        let service = RoleService::new(TestStore::new());
+        let service = RoleService::new(RoleMemoryStore::new());
         let authority = Authority::Direct(Actor::System);
         let actor = Actor::User(UserId::new());
 
@@ -427,7 +484,7 @@ mod tests {
 
     #[tokio::test]
     async fn adds_many_actors() {
-        let service = RoleService::new(TestStore::new());
+        let service = RoleService::new(RoleMemoryStore::new());
         let authority = Authority::Direct(Actor::System);
         let role_id = service
             .create(authority.clone())
@@ -474,7 +531,7 @@ mod tests {
 
     #[tokio::test]
     async fn deduplicates_adds() {
-        let service = RoleService::new(TestStore::new());
+        let service = RoleService::new(RoleMemoryStore::new());
         let authority = Authority::Direct(Actor::System);
         let role_id = service
             .create(authority.clone())
@@ -502,7 +559,7 @@ mod tests {
 
     #[tokio::test]
     async fn removes_actor() {
-        let service = RoleService::new(TestStore::new());
+        let service = RoleService::new(RoleMemoryStore::new());
         let authority = Authority::Direct(Actor::System);
         let role_id = service
             .create(authority.clone())
@@ -529,7 +586,7 @@ mod tests {
 
     #[tokio::test]
     async fn returns_all_roles_for_actor() {
-        let store = TestStore::new();
+        let store = RoleMemoryStore::new();
         let service = RoleService::new(store);
         let authority = Authority::Direct(Actor::System);
         let actor = Actor::User(UserId::new());
@@ -563,7 +620,7 @@ mod tests {
 
     #[tokio::test]
     async fn roles_requires_system_authority() {
-        let service = RoleService::new(TestStore::new());
+        let service = RoleService::new(RoleMemoryStore::new());
         let actor = Actor::User(UserId::new());
         let authority = Authority::Direct(Actor::User(UserId::new()));
 
@@ -573,5 +630,30 @@ mod tests {
             result,
             Err(RoleLookupError::RequiresSystemAuthority)
         ));
+    }
+
+    #[tokio::test]
+    async fn memory_projection_stays_current_after_writes() {
+        let service = RoleService::with_memory_projection(RoleMemoryStore::new())
+            .await
+            .expect("memory projection should initialize");
+        let authority = Authority::Direct(Actor::System);
+        let actor = Actor::User(UserId::new());
+        let role_id = service
+            .create(authority.clone())
+            .await
+            .expect("create should succeed");
+
+        service
+            .add(authority.clone(), role_id, actor.clone())
+            .await
+            .expect("add should succeed");
+
+        let roles = service
+            .roles(authority.clone(), &actor)
+            .await
+            .expect("lookup should succeed");
+
+        assert_eq!(roles, HashSet::from([role_id]));
     }
 }

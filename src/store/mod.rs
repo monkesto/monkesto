@@ -14,7 +14,6 @@ pub trait Stream {
 pub struct EventId(u64);
 
 impl EventId {
-    #[cfg_attr(not(test), expect(dead_code))]
     pub fn next(&self) -> Self {
         EventId(self.0 + 1)
     }
@@ -67,7 +66,6 @@ pub struct Event<A: Clone + Sized, I: Copy + Clone + Sized, P: Clone + Sized> {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(not(test), expect(dead_code))]
 pub enum Outcome<A: Clone + Sized, I: Copy + Clone + Sized, P: Clone + Sized> {
     Recorded(Event<A, I, P>),
     Skipped,

@@ -1,4 +1,3 @@
-#[cfg(test)]
 /// A multi-stream in-memory store.
 ///
 /// Implemented as a struct with a shared `EventId` counter and per-stream state,
@@ -69,6 +68,13 @@ macro_rules! memory_store {
                     <$stream as crate::store::Stream>::Id,
                     <$stream as crate::store::Stream>::Payload,
                 >,
+                callbacks: Vec<std::sync::Arc<dyn Fn(
+                    &crate::store::Event<
+                        $authority,
+                        <$stream as crate::store::Stream>::Id,
+                        <$stream as crate::store::Stream>::Payload,
+                    >,
+                ) + Send + Sync>>,
                 global_events: Vec<crate::store::Event<
                     $authority,
                     <$stream as crate::store::Stream>::Id,
@@ -87,9 +93,42 @@ macro_rules! memory_store {
                         state: std::sync::Arc::new(std::sync::Mutex::new([<$name State>] {
                             latest: crate::store::EventId::from(0),
                             [<$stream:snake>]: __memory_store_detail::StreamState::default(),
+                            callbacks: Vec::new(),
                             global_events: Vec::new(),
                         })),
                     }
+                }
+
+                #[allow(dead_code)]
+                pub fn register_callback(
+                    &self,
+                    after: crate::store::After<crate::store::EventId>,
+                    callback: impl Fn(
+                            &<Self as crate::store::Observe>::Event,
+                        )
+                        + Send
+                        + Sync
+                        + 'static,
+                ) {
+                    let mut state = self.state.lock().expect("poisoned");
+                    let callback = std::sync::Arc::new(callback);
+                    match after {
+                        crate::store::After::Start => {
+                            for event in &state.global_events {
+                                callback(event);
+                            }
+                        }
+                        crate::store::After::Specific(after_event_id) => {
+                            for event in state
+                            .global_events
+                            .iter()
+                            .filter(|event| event.event_id > after_event_id)
+                            {
+                                callback(event);
+                            }
+                        }
+                    }
+                    state.callbacks.push(callback);
                 }
             }
 
@@ -139,6 +178,9 @@ macro_rules! memory_store {
                         id,
                         payload,
                     };
+                    for callback in &state.callbacks {
+                        callback(&event);
+                    }
                     let stream = &mut state.[<$stream:snake>];
                     stream.events.push(event.clone());
                     stream
@@ -243,6 +285,36 @@ macro_rules! memory_store {
             $(
                 memory_store!(@store_impl_with_event $name, $authority, $estream, $event, $variant);
             )+
+
+            impl $name {
+                #[allow(dead_code)]
+                pub fn register_callback(
+                    &self,
+                    after: crate::store::After<crate::store::EventId>,
+                    callback: impl Fn(&<Self as crate::store::Observe>::Event)
+                        + Send
+                        + Sync
+                        + 'static,
+                ) {
+                    let mut state = self.state.lock().expect("poisoned");
+                    let callback = std::sync::Arc::new(callback);
+                    match after {
+                        crate::store::After::Start => {
+                            for event in &state.global_events {
+                                callback(event);
+                            }
+                        }
+                        crate::store::After::Specific(after_event_id) => state
+                            .global_events
+                            .iter()
+                            .filter(|event| match event {
+                                $($event::$variant(inner) => inner.event_id > after_event_id,)+
+                            })
+                            .for_each(|event| callback(event)),
+                    }
+                    state.callbacks.push(callback);
+                }
+            }
 
             impl crate::store::Observe for $name {
                 type Event = $event;
@@ -362,6 +434,7 @@ macro_rules! memory_store {
                         <$stream as crate::store::Stream>::Payload,
                     >,
                 )+
+                callbacks: Vec<std::sync::Arc<dyn Fn(&$event) + Send + Sync>>,
                 global_events: Vec<$event>,
             }
 
@@ -378,6 +451,7 @@ macro_rules! memory_store {
                             $(
                                 [<$stream:snake>]: __memory_store_detail::StreamState::default(),
                             )+
+                            callbacks: Vec::new(),
                             global_events: Vec::new(),
                         })),
                     }
@@ -535,6 +609,10 @@ macro_rules! memory_store {
                         id,
                         payload,
                     };
+                    let observed = $event::$variant(event.clone());
+                    for callback in &state.callbacks {
+                        callback(&observed);
+                    }
                     let stream = &mut state.[<$stream:snake>];
                     stream.events.push(event.clone());
                     stream
@@ -542,7 +620,7 @@ macro_rules! memory_store {
                         .entry(id)
                         .or_default()
                         .push(event.clone());
-                    state.global_events.push($event::$variant(event.clone()));
+                    state.global_events.push(observed);
                     Ok(crate::store::Outcome::Recorded(event))
                 }
 
@@ -590,7 +668,6 @@ macro_rules! memory_store {
     };
 }
 
-#[cfg(test)]
 pub(crate) use memory_store;
 
 #[cfg(test)]
@@ -636,5 +713,59 @@ mod tests {
         // Access fields directly — no enum match needed
         assert_eq!(page.items[0].id, 1u32);
         assert_eq!(page.items[0].payload, "hello");
+    }
+
+    #[tokio::test]
+    async fn registered_callback_receives_recorded_event() {
+        use crate::store::When;
+        use chrono::Utc;
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        let store = TestStore::new();
+        let seen = Arc::new(Mutex::new(false));
+        let callback_seen = seen.clone();
+        store.register_callback(After::Start, move |_event| {
+            *callback_seen.lock().expect("poisoned") = true;
+        });
+
+        let outcome = store
+            .record(0, Utc::now(), 1u32, "hello".to_string(), When::Empty)
+            .await;
+
+        assert!(*seen.lock().expect("poisoned"));
+        assert!(matches!(outcome, Ok(crate::store::Outcome::Recorded(_))));
+    }
+
+    #[tokio::test]
+    async fn registered_callback_replays_events_after_cursor() {
+        use crate::store::When;
+        use chrono::Utc;
+        use std::sync::Arc;
+        use std::sync::Mutex;
+
+        let store = TestStore::new();
+        let first = store
+            .record(0, Utc::now(), 1u32, "first".to_string(), When::Empty)
+            .await
+            .expect("should succeed");
+        let crate::store::Outcome::Recorded(first) = first else {
+            panic!("expected recorded");
+        };
+        store
+            .record(0, Utc::now(), 2u32, "second".to_string(), When::Empty)
+            .await
+            .expect("should succeed");
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let callback_seen = seen.clone();
+        store.register_callback(
+            crate::store::After::Specific(first.event_id),
+            move |event| {
+                callback_seen.lock().expect("poisoned").push(event.id);
+            },
+        );
+
+        assert_eq!(&*seen.lock().expect("poisoned"), &[2u32]);
     }
 }
