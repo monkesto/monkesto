@@ -75,6 +75,13 @@ pub trait ApplyPayload<'a, T: EntityId<'a>> {
     fn apply(&mut self, payload: &T::Payload) -> &mut T::Projection;
 }
 
+pub trait Entity<'a> {
+    type Id: EntityId<'a>;
+    type Payload: Payload<'a>;
+
+    type Projection: Projection<'a, Self::Id>;
+}
+
 pub trait Projection<'a, T: EntityId<'a>>:
     Send
     + Sync

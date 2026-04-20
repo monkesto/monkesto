@@ -394,7 +394,7 @@ mod tests {
             .bind(table)
             .fetch_one(&store.pool)
             .await
-            .expect("Failed to fetch table");
+            .unwrap();
 
             assert!(table_exists);
         }
