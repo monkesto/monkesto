@@ -6,7 +6,6 @@ use crate::transaction::{TransactionPayload, TransactionProjection};
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
 use cuid::is_cuid2;
-use paste::paste;
 use phf::phf_set;
 use serde::Deserialize;
 use serde::Serialize;
@@ -277,7 +276,7 @@ macro_rules! entity_two {
                 fn as_bytes(&self) -> &[u8] {
                     self.0.as_bytes()
                 }
-                fn entity_type(&self) -> crate::store::universal::registry::EntityType {
+                fn entity_type(&self) -> $crate::store::universal::registry::EntityType {
                     $crate::store::universal::registry::EntityType($entity_type)
                 }
             }
@@ -317,11 +316,11 @@ macro_rules! entity_two {
                 type Projection = [<$entity_type Projection>];
             }
 
-            impl Projection<'_, $id_name> for $projection {}
+            impl $crate::store::universal::Projection<'_, $id_name> for $projection {}
 
             pub struct [<$entity_type Entity>];
 
-            impl<'a> crate::store::universal::Entity<'a> for [<$entity_type Entity>] {
+            impl<'a> $crate::store::universal::Entity<'a> for [<$entity_type Entity>] {
                 type Id = [<$entity_type Id>];
                 type Payload = [<$entity_type Payload>];
                 type Projection = [<$entity_type Projection>];
