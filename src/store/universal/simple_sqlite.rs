@@ -1,10 +1,10 @@
 use crate::account::AccountPayload;
 use crate::auth::user::UserPayload;
 use crate::authority::Authority;
-use crate::ident::EntityId;
+use crate::ident::Ident;
 use crate::store::universal::{
-    AnyPayload, ApplyPayload, EntityType, Event, EventId, Payload, PayloadWithId, Projection,
-    SequenceId, Store, StoreError, StoreResult,
+    AnyPayload, ApplyPayload, Entity, EntityId, EntityType, Event, EventId, Payload, PayloadWithId,
+    Projection, SequenceId, Store, StoreError, StoreResult,
 };
 use crate::transaction::{BalanceUpdate, EntryType, TransactionPayload};
 use chrono::{DateTime, Utc};
@@ -89,9 +89,9 @@ impl SimpleSqliteStore {
     }
 
     // requiring a transaction id would be better here, but it is guaranteed at compile time that it will be one even if the compiler can't directly prove it
-    async fn latest_transaction_payload<'a, T: EntityId<'a>>(
+    async fn latest_transaction_payload(
         &self,
-        transaction_id: T,
+        transaction_id: Ident,
         tx: &mut SqliteTransaction<'_>,
     ) -> StoreResult<TransactionPayload> {
         let raw_payloads: Vec<Vec<u8>> = sqlx::query_scalar(
@@ -109,17 +109,17 @@ impl SimpleSqliteStore {
         }
 
         Err(StoreError::TransactionModifiedBeforeCreation(
-            *transaction_id.deref(),
+            transaction_id,
         ))
     }
 }
 
 impl Store for SimpleSqliteStore {
-    async fn record<'a, I: EntityId<'a>>(
+    async fn record<'a, I: Entity<'a>>(
         &self,
         authority: Authority,
         at: DateTime<Utc>,
-        entity_id: I,
+        entity_id: I::Id,
         payload: I::Payload,
         expected_sequence: SequenceId,
     ) -> StoreResult<EventId> {
@@ -138,7 +138,7 @@ impl Store for SimpleSqliteStore {
         .fetch_optional(&mut *tx)
         .await?;
 
-        let id_entity_type = entity_id.entity_type();
+        let id_entity_type = I::entity_type();
 
         let projection = if payload.creates_entity() {
             // the entity should not already exist if it is being created
@@ -267,20 +267,22 @@ impl Store for SimpleSqliteStore {
 
                     TransactionPayload::UpdatedBalancedUpdates { new_balanceupdates } => {
                         // undo the latest prior updates
-                        let old_updates =
-                            match self.latest_transaction_payload(entity_id, &mut tx).await? {
-                                TransactionPayload::Created { updates, .. } => updates,
+                        let old_updates = match self
+                            .latest_transaction_payload(*entity_id.deref(), &mut tx)
+                            .await?
+                        {
+                            TransactionPayload::Created { updates, .. } => updates,
 
-                                TransactionPayload::UpdatedBalancedUpdates {
-                                    new_balanceupdates,
-                                } => new_balanceupdates,
+                            TransactionPayload::UpdatedBalancedUpdates { new_balanceupdates } => {
+                                new_balanceupdates
+                            }
 
-                                TransactionPayload::Deleted => {
-                                    return Err(StoreError::TransactionModifiedAfterDeletion(
-                                        *entity_id.deref(),
-                                    ));
-                                }
-                            };
+                            TransactionPayload::Deleted => {
+                                return Err(StoreError::TransactionModifiedAfterDeletion(
+                                    *entity_id.deref(),
+                                ));
+                            }
+                        };
 
                         self.update_account_balances(old_updates, true, &mut tx)
                             .await?;
@@ -291,20 +293,22 @@ impl Store for SimpleSqliteStore {
                     }
                     TransactionPayload::Deleted => {
                         // just undo the old updates
-                        let old_updates =
-                            match self.latest_transaction_payload(entity_id, &mut tx).await? {
-                                TransactionPayload::Created { updates, .. } => updates,
+                        let old_updates = match self
+                            .latest_transaction_payload(*entity_id.deref(), &mut tx)
+                            .await?
+                        {
+                            TransactionPayload::Created { updates, .. } => updates,
 
-                                TransactionPayload::UpdatedBalancedUpdates {
-                                    new_balanceupdates,
-                                } => new_balanceupdates,
+                            TransactionPayload::UpdatedBalancedUpdates { new_balanceupdates } => {
+                                new_balanceupdates
+                            }
 
-                                TransactionPayload::Deleted => {
-                                    return Err(StoreError::TransactionModifiedAfterDeletion(
-                                        *entity_id.deref(),
-                                    ));
-                                }
-                            };
+                            TransactionPayload::Deleted => {
+                                return Err(StoreError::TransactionModifiedAfterDeletion(
+                                    *entity_id.deref(),
+                                ));
+                            }
+                        };
 
                         self.update_account_balances(old_updates, true, &mut tx)
                             .await?;
@@ -348,24 +352,24 @@ impl Store for SimpleSqliteStore {
         Ok(EventId(event_id as u64))
     }
 
-    async fn replay_events<'a, I: EntityId<'a>>(
+    async fn replay_events<'a, I: Entity<'a>>(
         &self,
-        _entity_id: I,
+        _entity_id: I::Id,
         _starting_sequence: SequenceId,
     ) -> Vec<Event<'a, I>> {
         todo!()
     }
 
-    async fn get_projection<'a, I: EntityId<'a>>(
+    async fn get_projection<'a, I: Entity<'a>>(
         &self,
-        _entity_id: I,
+        _entity_id: I::Id,
     ) -> StoreResult<(I::Projection, SequenceId)> {
         todo!()
     }
 
-    async fn rebuild_projection<'a, I: EntityId<'a>>(
+    async fn rebuild_projection<'a, I: Entity<'a>>(
         &self,
-        _entity_id: I,
+        _entity_id: I::Id,
         _events: Vec<Event<'a, I>>,
     ) -> StoreResult<()> {
         todo!()

@@ -5,7 +5,7 @@ use crate::event::EventStore;
 use crate::ident::Ident;
 use crate::ident::ProjectionFromPayloadError;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::{ApplyPayload, PayloadWithId, Projection};
+use crate::store::universal::{ApplyPayload, PayloadWithId};
 use axum::response::Redirect;
 use nutype::nutype;
 use serde::Deserialize;
@@ -14,10 +14,11 @@ use std::ops::Deref;
 
 // Define UserId here in the user module
 entity!(
+    UserEntity,
+    EntityType::User,
     UserId,
     UserPayload,
     UserProjection,
-    EntityType::User,
     Ident::new16()
 );
 
@@ -48,9 +49,9 @@ pub struct UserProjection {
     pub deleted: bool,
 }
 
-impl TryFrom<PayloadWithId<'_, UserId>> for UserProjection {
+impl TryFrom<PayloadWithId<'_, UserEntity>> for UserProjection {
     type Error = ProjectionFromPayloadError;
-    fn try_from(value: PayloadWithId<UserId>) -> Result<Self, ProjectionFromPayloadError> {
+    fn try_from(value: PayloadWithId<UserEntity>) -> Result<Self, ProjectionFromPayloadError> {
         match value.payload {
             UserPayload::Created {
                 email,
@@ -68,7 +69,7 @@ impl TryFrom<PayloadWithId<'_, UserId>> for UserProjection {
     }
 }
 
-impl ApplyPayload<'_, UserId> for UserProjection {
+impl ApplyPayload<'_, UserEntity> for UserProjection {
     fn apply(&mut self, payload: &UserPayload) -> &mut Self {
         match payload {
             UserPayload::Created { .. } => {}

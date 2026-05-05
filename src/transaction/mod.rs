@@ -4,6 +4,7 @@ pub mod views;
 
 pub use service::TransactionService;
 
+use crate::ident::TransactionEntity;
 use crate::store::universal::{ApplyPayload, PayloadWithId};
 use axum::Router;
 use axum::routing::get;
@@ -317,10 +318,10 @@ pub struct TransactionProjection {
     pub deleted: bool,
 }
 
-impl TryFrom<PayloadWithId<'_, TransactionId>> for TransactionProjection {
+impl TryFrom<PayloadWithId<'_, TransactionEntity>> for TransactionProjection {
     type Error = ProjectionFromPayloadError;
     fn try_from(
-        value: PayloadWithId<'_, TransactionId>,
+        value: PayloadWithId<'_, TransactionEntity>,
     ) -> Result<Self, ProjectionFromPayloadError> {
         match value.payload {
             TransactionPayload::Created {
@@ -339,7 +340,7 @@ impl TryFrom<PayloadWithId<'_, TransactionId>> for TransactionProjection {
     }
 }
 
-impl ApplyPayload<'_, TransactionId> for TransactionProjection {
+impl ApplyPayload<'_, TransactionEntity> for TransactionProjection {
     fn apply(&mut self, payload: &TransactionPayload) -> &mut Self {
         match payload {
             TransactionPayload::Created { .. } => {}

@@ -1,7 +1,6 @@
 use crate::account::{AccountPayload, AccountProjection};
 use crate::journal::{JournalPayload, JournalProjection};
 use crate::store::universal::registry::EntityType;
-use crate::store::universal::{Payload, Projection};
 use crate::transaction::{TransactionPayload, TransactionProjection};
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
@@ -11,7 +10,6 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::fmt::Display;
 use std::fmt::{self};
-use std::ops::Deref;
 use std::str::FromStr;
 use thiserror::Error;
 
@@ -142,97 +140,9 @@ pub enum ProjectionFromPayloadError {
     IncorrectVariant(String),
 }
 
-pub trait EntityId<'a>:
-    Deref<Target = Ident> + FromStr<Err = IdentError> + Display + TryFrom<&'a [u8]> + Clone + Copy
-{
-    type Payload: Payload<'a>;
-    type Projection: Projection<'a, Self>;
-    fn as_bytes(&self) -> &[u8];
-
-    fn entity_type(&self) -> EntityType;
-}
-
-/// A macro to create an entity with the id of id_name and an associated payload, projection, and entity type
-///
-/// # Parameters
-/// `id_name`: The name of the id to create along with the entity (`UserId`, for example)
-///
-/// `payload`: The payload type associated with this entity
-///
-/// `projection`: The projection type associated with this entity
-///
-/// `entity_type`: A variant of the `EntityType` enum this entity should be associated with
-///
-/// `new_fn`: A function that returns an `Ident`
-///
-/// # Examples
-///
-/// ```
-/// entity!(UserId, UserPayload, UserProjection, EntityType::User, Ident::new16());
-/// ```
-#[macro_export]
-macro_rules! entity {
-    ($id_name: ident, $payload: ty, $projection: ty, $entity_type: expr, $new_fn: expr) => {
-        #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-        pub struct $id_name($crate::ident::Ident);
-
-        impl $id_name {
-            pub fn new() -> Self {
-                Self($new_fn)
-            }
-        }
-
-        impl std::ops::Deref for $id_name {
-            type Target = Ident;
-
-            fn deref(&self) -> &Self::Target {
-                &self.0
-            }
-        }
-
-        impl core::str::FromStr for $id_name {
-            type Err = $crate::ident::IdentError;
-
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                Ok(Self(Ident::from_str(s)?))
-            }
-        }
-
-        impl std::fmt::Display for $id_name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                write!(f, "{}", self.0)
-            }
-        }
-
-        impl core::convert::TryFrom<&[u8]> for $id_name {
-            type Error = $crate::ident::IdentError;
-
-            fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-                Ok(Self(Ident::try_from(bytes)?))
-            }
-        }
-
-        impl $crate::ident::EntityId<'_> for $id_name {
-            type Payload = $payload;
-            type Projection = $projection;
-            fn as_bytes(&self) -> &[u8] {
-                self.0.as_bytes()
-            }
-            fn entity_type(&self) -> EntityType {
-                $entity_type
-            }
-        }
-
-        impl Projection<'_, $id_name> for $projection {}
-    };
-}
-
 /// A macro to create an entity and associate it with an Id, Payload, and Projection type
 ///
 /// # Constraints
-/// There exists a `Payload` and `Projection` type with a suffix matching the `entity_type`
-/// parameter in the calling module
-///
 /// The `Payload` type derives `Payload`, `Clone`, `Serialize`, `Deserialize`, and `Debug`
 ///
 /// The `Projection` type derives `Clone`, `Serialize`, and `Deserialize`
@@ -247,13 +157,19 @@ macro_rules! entity {
 /// The `EntityType` and `AnyPayload` enums in crate::store::universal::registry are updated
 /// to include the relevant variants for your entity.
 ///
-/// # Result
-/// This macro will create an `{id_name}Entity` and a `{id_name}Id`, as well as implementing various necessary traits
 ///
 /// # Parameters
-/// `id_name`: The name of the id to create along with the entity (`UserId`, for example)
+/// `entity_type`: The name of the entity marker type to create. It should have the suffix `Entity`.
 ///
-/// `new_fn`: A function that returns an `Ident`
+/// `registry_entry`: An entry in the universal store registry enum corresponding to the entity type.
+///
+/// `id_type`: The name of the id type to create. It should have the suffix `Id`.
+///
+/// `payload_type`: An existing payload type. It should have the suffix `Payload`.
+///
+/// `projection_type`: An existing projection type. It should have the suffix `Projection`.
+///
+/// `id_new_fn`: A function that returns an `Ident`
 ///
 /// # Examples
 ///
@@ -261,96 +177,93 @@ macro_rules! entity {
 /// entity!(Example, Ident::new16());
 /// ```
 #[macro_export]
-macro_rules! entity_two {
-    ($entity_type: tt, $new_fn: expr) => {
-        paste! {
-            #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
-            pub struct [<$entity_type Id>]($crate::ident::Ident);
+macro_rules! entity {
+    ($entity_type: ident, $registry_entry: expr, $id_type: ident, $payload_type: ty, $projection_type: ty, $id_new_fn: expr) => {
+        #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        pub struct $id_type($crate::ident::Ident);
 
-
-            impl [<$entity_type Id>] {
-                pub fn new() -> Self {
-                    Self($new_fn)
-                }
-
-                fn as_bytes(&self) -> &[u8] {
-                    self.0.as_bytes()
-                }
-                fn entity_type(&self) -> $crate::store::universal::registry::EntityType {
-                    $crate::store::universal::registry::EntityType($entity_type)
-                }
+        impl $id_type {
+            pub fn new() -> Self {
+                Self($id_new_fn)
             }
+        }
 
-            impl std::ops::Deref for [<$entity_type Id>] {
-                type Target = Ident;
-
-                fn deref(&self) -> &Self::Target {
-                    &self.0
-                }
+        impl $crate::store::universal::EntityId for $id_type {
+            fn as_bytes(&self) -> &[u8] {
+                self.0.as_bytes()
             }
+        }
 
-            impl core::str::FromStr for [<$entity_type Id>] {
-                type Err = $crate::ident::IdentError;
+        impl std::ops::Deref for $id_type {
+            type Target = Ident;
 
-                fn from_str(s: &str) -> Result<Self, Self::Err> {
-                    Ok(Self(Ident::from_str(s)?))
-                }
+            fn deref(&self) -> &Self::Target {
+                &self.0
             }
+        }
 
-            impl std::fmt::Display for [<$entity_type Id>] {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "{}", self.0)
-                }
+        impl core::str::FromStr for $id_type {
+            type Err = $crate::ident::IdentError;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                Ok(Self(Ident::from_str(s)?))
             }
+        }
 
-            impl core::convert::TryFrom<&[u8]> for [<$entity_type Id>] {
-                type Error = $crate::ident::IdentError;
-
-                fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-                    Ok(Self(Ident::try_from(bytes)?))
-                }
+        impl std::fmt::Display for $id_type {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.0)
             }
+        }
 
-            impl $crate::ident::EntityId<'_> for [<$entity_type Id>] {
-                type Payload = [<$entity_type Payload>];
-                type Projection = [<$entity_type Projection>];
+        impl core::convert::TryFrom<&[u8]> for $id_type {
+            type Error = $crate::ident::IdentError;
+
+            fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
+                Ok(Self(Ident::try_from(bytes)?))
             }
+        }
 
-            impl $crate::store::universal::Projection<'_, $id_name> for $projection {}
+        impl $crate::store::universal::Projection<'_, $entity_type> for $projection_type {}
 
-            pub struct [<$entity_type Entity>];
+        #[derive(Debug)]
+        pub struct $entity_type;
 
-            impl<'a> $crate::store::universal::Entity<'a> for [<$entity_type Entity>] {
-                type Id = [<$entity_type Id>];
-                type Payload = [<$entity_type Payload>];
-                type Projection = [<$entity_type Projection>];
+        impl<'a> $crate::store::universal::Entity<'a> for $entity_type {
+            type Id = $id_type;
+            type Payload = $payload_type;
+            type Projection = $projection_type;
+
+            fn entity_type() -> $crate::store::universal::registry::EntityType {
+                $registry_entry
             }
         }
     };
 }
 
 entity!(
+    JournalEntity,
+    EntityType::Journal,
     JournalId,
     JournalPayload,
     JournalProjection,
-    EntityType::Journal,
     Ident::new10()
 );
 
-//entity_two!("Test", Ident::new16());
-
 entity!(
+    AccountEntity,
+    EntityType::Account,
     AccountId,
     AccountPayload,
     AccountProjection,
-    EntityType::Account,
     Ident::new10()
 );
 
 entity!(
+    TransactionEntity,
+    EntityType::Transaction,
     TransactionId,
     TransactionPayload,
     TransactionProjection,
-    EntityType::Transaction,
     Ident::new16()
 );

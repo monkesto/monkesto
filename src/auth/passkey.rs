@@ -1,6 +1,6 @@
 use crate::ident::ProjectionFromPayloadError;
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{ApplyPayload, PayloadWithId, Projection};
+use crate::store::universal::{ApplyPayload, PayloadWithId};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -313,10 +313,11 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
 }
 
 entity!(
+    PasskeyEntity,
+    EntityType::Passkey,
     PasskeyId,
     PasskeyPayload,
     PasskeyProjection,
-    EntityType::Passkey,
     Ident::new16()
 );
 
@@ -326,10 +327,10 @@ pub struct PasskeyProjection {
     pub passkey: webauthn_rs::prelude::Passkey,
 }
 
-impl TryFrom<PayloadWithId<'_, PasskeyId>> for PasskeyProjection {
+impl TryFrom<PayloadWithId<'_, PasskeyEntity>> for PasskeyProjection {
     type Error = ProjectionFromPayloadError;
 
-    fn try_from(value: PayloadWithId<PasskeyId>) -> Result<Self, ProjectionFromPayloadError> {
+    fn try_from(value: PayloadWithId<PasskeyEntity>) -> Result<Self, ProjectionFromPayloadError> {
         match value.payload {
             PasskeyPayload::Created {
                 user_id: _user_id,
@@ -346,7 +347,7 @@ impl TryFrom<PayloadWithId<'_, PasskeyId>> for PasskeyProjection {
     }
 }
 
-impl ApplyPayload<'_, PasskeyId> for PasskeyProjection {
+impl ApplyPayload<'_, PasskeyEntity> for PasskeyProjection {
     fn apply(&mut self, _payload: &PasskeyPayload) -> &mut Self {
         todo!("Applying PasskeyProjection to PasskeyPayload is not yet implemented")
     }

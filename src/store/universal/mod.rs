@@ -1,5 +1,5 @@
 use crate::authority::Authority;
-use crate::ident::{EntityId, Ident, ProjectionFromPayloadError};
+use crate::ident::{Ident, ProjectionFromPayloadError};
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
@@ -53,9 +53,13 @@ impl From<sqlx::Error> for StoreError {
 pub type StoreResult<T> = Result<T, StoreError>;
 
 #[derive(Debug)]
-pub struct PayloadWithId<'a, T: EntityId<'a>> {
+pub struct PayloadWithId<'a, T: Entity<'a>> {
     pub payload: T::Payload,
-    pub id: T,
+    pub id: T::Id,
+}
+
+pub trait EntityId: Deref<Target = Ident> + Copy {
+    fn as_bytes(&self) -> &[u8];
 }
 
 pub trait Payload<'a>:
@@ -71,18 +75,19 @@ pub trait Payload<'a>:
     fn creates_entity(&self) -> bool;
 }
 
-pub trait ApplyPayload<'a, T: EntityId<'a>> {
+pub trait ApplyPayload<'a, T: Entity<'a>> {
     fn apply(&mut self, payload: &T::Payload) -> &mut T::Projection;
 }
 
-pub trait Entity<'a> {
-    type Id: EntityId<'a>;
+pub trait Entity<'a>: Sized {
+    type Id: EntityId;
     type Payload: Payload<'a>;
+    type Projection: Projection<'a, Self>;
 
-    type Projection: Projection<'a, Self::Id>;
+    fn entity_type() -> EntityType;
 }
 
-pub trait Projection<'a, T: EntityId<'a>>:
+pub trait Projection<'a, T: Entity<'a>>:
     Send
     + Sync
     + Clone
@@ -134,7 +139,7 @@ impl Add<u64> for SequenceId {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Event<'a, I: EntityId<'a>> {
+pub struct Event<'a, I: Entity<'a>> {
     pub event_id: EventId,
     pub sequence_id: SequenceId,
     pub timestamp: DateTime<Utc>,
@@ -152,32 +157,32 @@ pub trait Store {
     ///
     /// Returns a `Sequence` error and does not record the event if the latest sequence number
     /// recorded by the store (prior to this event) does not match `expected_sequence`
-    async fn record<'a, I: EntityId<'a>>(
+    async fn record<'a, I: Entity<'a>>(
         &self,
         authority: Authority,
         at: DateTime<Utc>,
-        entity_id: I,
+        entity_id: I::Id,
         payload: I::Payload,
         expected_sequence: SequenceId,
     ) -> StoreResult<EventId>;
 
     /// Returns a vector of all events that have occurred concerning an entity starting at `starting_sequence`
-    async fn replay_events<'a, I: EntityId<'a>>(
+    async fn replay_events<'a, I: Entity<'a>>(
         &self,
-        entity_id: I,
+        entity_id: I::Id,
         starting_sequence: SequenceId,
     ) -> Vec<Event<'a, I>>;
 
     /// Returns a projection of the given entity and the sequence id associated with the last event applied to it
-    async fn get_projection<'a, I: EntityId<'a>>(
+    async fn get_projection<'a, I: Entity<'a>>(
         &self,
-        entity_id: I,
+        entity_id: I::Id,
     ) -> StoreResult<(I::Projection, SequenceId)>;
 
     /// Rebuilds the projection of an entity with the given events
-    async fn rebuild_projection<'a, I: EntityId<'a>>(
+    async fn rebuild_projection<'a, I: Entity<'a>>(
         &self,
-        entity_id: I,
+        entity_id: I::Id,
         events: Vec<Event<'a, I>>,
     ) -> StoreResult<()>;
 

@@ -4,6 +4,7 @@ pub mod person;
 pub mod service;
 pub mod views;
 
+use crate::ident::JournalEntity;
 use crate::store::universal::{ApplyPayload, PayloadWithId};
 pub use service::JournalService;
 
@@ -399,9 +400,9 @@ pub struct JournalProjection {
     pub parent_journal_id: Option<JournalId>,
 }
 
-impl TryFrom<PayloadWithId<'_, JournalId>> for JournalProjection {
+impl TryFrom<PayloadWithId<'_, JournalEntity>> for JournalProjection {
     type Error = ProjectionFromPayloadError;
-    fn try_from(value: PayloadWithId<JournalId>) -> Result<Self, Self::Error> {
+    fn try_from(value: PayloadWithId<JournalEntity>) -> Result<Self, Self::Error> {
         match &value.payload {
             JournalPayload::Created {
                 name,
@@ -423,7 +424,7 @@ impl TryFrom<PayloadWithId<'_, JournalId>> for JournalProjection {
     }
 }
 
-impl ApplyPayload<'_, JournalId> for JournalProjection {
+impl ApplyPayload<'_, JournalEntity> for JournalProjection {
     fn apply(&mut self, payload: &JournalPayload) -> &mut Self {
         match payload {
             JournalPayload::Created { .. } => {}

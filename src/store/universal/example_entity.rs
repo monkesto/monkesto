@@ -1,14 +1,15 @@
 use crate::entity;
 use crate::ident::{Ident, ProjectionFromPayloadError};
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{ApplyPayload, PayloadWithId, Projection};
+use crate::store::universal::{ApplyPayload, PayloadWithId};
 use serde::{Deserialize, Serialize};
 
 entity!(
+    ExampleEntity,
+    EntityType::Example,
     ExampleId,
     ExamplePayload,
     ExampleProjection,
-    EntityType::Example,
     Ident::new16()
 );
 
@@ -30,10 +31,10 @@ pub struct ExampleProjection {
     deleted: bool,
 }
 
-impl TryFrom<PayloadWithId<'_, ExampleId>> for ExampleProjection {
+impl TryFrom<PayloadWithId<'_, ExampleEntity>> for ExampleProjection {
     type Error = ProjectionFromPayloadError;
 
-    fn try_from(value: PayloadWithId<ExampleId>) -> Result<Self, Self::Error> {
+    fn try_from(value: PayloadWithId<ExampleEntity>) -> Result<Self, Self::Error> {
         match value.payload {
             ExamplePayload::Created => Ok(Self {
                 id: value.id,
@@ -47,7 +48,7 @@ impl TryFrom<PayloadWithId<'_, ExampleId>> for ExampleProjection {
     }
 }
 
-impl ApplyPayload<'_, ExampleId> for ExampleProjection {
+impl ApplyPayload<'_, ExampleEntity> for ExampleProjection {
     fn apply(&mut self, payload: &ExamplePayload) -> &mut ExampleProjection {
         match payload {
             ExamplePayload::Created => {}
