@@ -62,7 +62,7 @@ pub trait EntityId: Deref<Target = Ident> + Copy {
     fn as_bytes(&self) -> &[u8];
 }
 
-pub trait Payload: Send + Sync + Clone + Serialize + DeserializeOwned + Into<AnyPayload> {
+pub trait Payload: Send + Sync + Clone + Serialize + DeserializeOwned {
     fn as_bytes(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize payload")
     }
@@ -79,7 +79,7 @@ pub trait ApplyPayload<T: Entity> {
 
 pub trait Entity: Sized {
     type Id: EntityId;
-    type Payload: Payload;
+    type Payload: Payload + Into<AnyPayload>;
     type Projection: Projection<Self>;
 
     fn entity_type() -> EntityType;

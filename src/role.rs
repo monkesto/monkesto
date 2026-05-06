@@ -13,7 +13,6 @@ use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
 use crate::store::memory::memory_store;
-use crate::store::universal::registry::AnyPayload;
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
@@ -32,12 +31,6 @@ pub enum RolePayload {
     Created,
     ActorAdded(Actor),
     ActorRemoved(Actor),
-}
-
-impl From<RolePayload> for AnyPayload {
-    fn from(val: RolePayload) -> Self {
-        AnyPayload::Role(val)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

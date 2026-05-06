@@ -16,6 +16,7 @@ use std::ops::Deref;
 entity!(
     UserEntity,
     EntityType::User,
+    AnyPayload::User,
     UserId,
     UserPayload,
     UserProjection,
@@ -239,12 +240,6 @@ mod tests {
 pub enum UserPayload {
     Created { email: Email, webauthn_uuid: Uuid },
     Deleted,
-}
-
-impl From<UserPayload> for AnyPayload {
-    fn from(val: UserPayload) -> Self {
-        AnyPayload::User(val)
-    }
 }
 
 use webauthn_rs::prelude::Uuid;

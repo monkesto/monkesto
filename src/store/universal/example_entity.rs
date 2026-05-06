@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 entity!(
     ExampleEntity,
     EntityType::Example,
+    AnyPayload::Example,
     ExampleId,
     ExamplePayload,
     ExampleProjection,
@@ -17,12 +18,6 @@ entity!(
 pub enum ExamplePayload {
     Created,
     Deleted,
-}
-
-impl From<ExamplePayload> for AnyPayload {
-    fn from(val: ExamplePayload) -> Self {
-        AnyPayload::Example(val)
-    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]

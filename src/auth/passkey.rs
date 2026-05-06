@@ -315,6 +315,7 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
 entity!(
     PasskeyEntity,
     EntityType::Passkey,
+    AnyPayload::Passkey,
     PasskeyId,
     PasskeyPayload,
     PasskeyProjection,
@@ -363,12 +364,6 @@ pub enum PasskeyPayload {
     Deleted {
         user_id: UserId,
     },
-}
-
-impl From<PasskeyPayload> for AnyPayload {
-    fn from(val: PasskeyPayload) -> Self {
-        AnyPayload::Passkey(val)
-    }
 }
 
 #[derive(Debug, Error)]

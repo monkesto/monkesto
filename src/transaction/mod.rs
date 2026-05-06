@@ -39,7 +39,6 @@ use crate::event::Event;
 use crate::event::EventStore;
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
-use crate::store::universal::registry::AnyPayload;
 use crate::transaction::TransactionStoreError::InvalidEntryType;
 use TransactionStoreError::InvalidTransaction;
 use dashmap::DashMap;
@@ -303,12 +302,6 @@ pub enum TransactionPayload {
         new_balanceupdates: Vec<BalanceUpdate>,
     },
     Deleted,
-}
-
-impl From<TransactionPayload> for AnyPayload {
-    fn from(val: TransactionPayload) -> Self {
-        AnyPayload::Transaction(val)
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]

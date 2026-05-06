@@ -8,7 +8,6 @@ use crate::store::Outcome;
 use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
-use crate::store::universal::registry::AnyPayload;
 use crate::store::{After, EventId};
 use chrono::Utc;
 use serde::Deserialize;
@@ -20,12 +19,6 @@ use thiserror::Error;
 pub enum GrantPayload {
     Created,
     Revoked,
-}
-
-impl From<GrantPayload> for AnyPayload {
-    fn from(val: GrantPayload) -> Self {
-        AnyPayload::Grant(val)
-    }
 }
 
 id!(GrantId, Ident::new16());

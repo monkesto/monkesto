@@ -88,7 +88,6 @@ use crate::ident::JournalId;
 use crate::ident::{IdentError, ProjectionFromPayloadError};
 use crate::journal::JournalStoreError::InvalidJournal;
 use crate::name::Name;
-use crate::store::universal::registry::AnyPayload;
 use bitflags::bitflags;
 use chrono::DateTime;
 use chrono::Utc;
@@ -382,12 +381,6 @@ pub enum JournalPayload {
         permissions: Permissions,
     },
     Deleted,
-}
-
-impl From<JournalPayload> for AnyPayload {
-    fn from(val: JournalPayload) -> Self {
-        AnyPayload::Journal(val)
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]

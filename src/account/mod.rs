@@ -55,7 +55,6 @@ use crate::ident::{AccountId, ProjectionFromPayloadError};
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
 use crate::name::Name;
-use crate::store::universal::registry::AnyPayload;
 use crate::store::universal::{ApplyPayload, PayloadWithId};
 use crate::transaction::EntryType;
 use crate::transaction::TransactionPayload;
@@ -80,12 +79,6 @@ pub enum AccountPayload {
         new_name: Name,
     },
     Deleted,
-}
-
-impl From<AccountPayload> for AnyPayload {
-    fn from(val: AccountPayload) -> Self {
-        AnyPayload::Account(val)
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]

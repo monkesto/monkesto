@@ -1,6 +1,6 @@
 use crate::account::{AccountPayload, AccountProjection};
 use crate::journal::{JournalPayload, JournalProjection};
-use crate::store::universal::registry::EntityType;
+use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::transaction::{TransactionPayload, TransactionProjection};
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
@@ -147,21 +147,22 @@ pub enum ProjectionFromPayloadError {
 ///
 /// The `Projection` type derives `Clone`, `Serialize`, and `Deserialize`
 ///
-/// The `Projection` type implements TryFrom<PayloadWithId<'_, {`entity_type`}Id>> with an
+/// The `Projection` type implements TryFrom<PayloadWithId<{`entity_type`}Id>> with an
 /// error type of `ProjectionFromPayloadError`. It should return `IncorrectVariant`
 /// if the payload isn't the `Created` variant.
 ///
-/// The `Projection` type implements `ApplyPayload<'_, {`entity_type`}Id>`.
+/// The `Projection` type implements `ApplyPayload<{`entity_type`}Id>`.
 /// It should leave the projection unchanged if the `Payload` is of the `Created` variant.
 ///
 /// The `EntityType` and `AnyPayload` enums in crate::store::universal::registry are updated
 /// to include the relevant variants for your entity.
 ///
-///
 /// # Parameters
 /// `entity_type`: The name of the entity marker type to create. It should have the suffix `Entity`.
 ///
-/// `registry_entry`: An entry in the universal store registry enum corresponding to the entity type.
+/// `registry_entry_entitytype`: An entry in the universal store registry `EntityType` enum corresponding to the entity type.
+///
+/// `registry_entry_anypayload`: An entry in the universal store registry `AnyPayload` enum corresponding to the entity type.
 ///
 /// `id_type`: The name of the id type to create. It should have the suffix `Id`.
 ///
@@ -178,7 +179,7 @@ pub enum ProjectionFromPayloadError {
 /// ```
 #[macro_export]
 macro_rules! entity {
-    ($entity_type: ident, $registry_entry: expr, $id_type: ident, $payload_type: ty, $projection_type: ty, $id_new_fn: expr) => {
+    ($entity_type: ident, $registry_entry_entitytype: expr, $registry_entry_anypayload: expr, $id_type: ident, $payload_type: ty, $projection_type: ty, $id_new_fn: expr) => {
         #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub struct $id_type($crate::ident::Ident);
 
@@ -226,6 +227,12 @@ macro_rules! entity {
 
         impl $crate::store::universal::Projection<$entity_type> for $projection_type {}
 
+        impl From<$payload_type> for $crate::store::universal::registry::AnyPayload {
+            fn from(val: $payload_type) -> Self {
+                $registry_entry_anypayload(val)
+            }
+        }
+
         #[derive(Debug)]
         pub struct $entity_type;
 
@@ -235,7 +242,7 @@ macro_rules! entity {
             type Projection = $projection_type;
 
             fn entity_type() -> $crate::store::universal::registry::EntityType {
-                $registry_entry
+                $registry_entry_entitytype
             }
         }
     };
@@ -244,6 +251,7 @@ macro_rules! entity {
 entity!(
     JournalEntity,
     EntityType::Journal,
+    AnyPayload::Journal,
     JournalId,
     JournalPayload,
     JournalProjection,
@@ -253,6 +261,7 @@ entity!(
 entity!(
     AccountEntity,
     EntityType::Account,
+    AnyPayload::Account,
     AccountId,
     AccountPayload,
     AccountProjection,
@@ -262,6 +271,7 @@ entity!(
 entity!(
     TransactionEntity,
     EntityType::Transaction,
+    AnyPayload::Transaction,
     TransactionId,
     TransactionPayload,
     TransactionProjection,
