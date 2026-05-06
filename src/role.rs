@@ -2,7 +2,6 @@
 
 use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::id;
 use crate::ident::Ident;
 use crate::store::After;
 use crate::store::Event;
@@ -13,6 +12,8 @@ use crate::store::Store;
 use crate::store::Stream;
 use crate::store::When;
 use crate::store::memory::memory_store;
+use crate::store::universal::registry::AnyPayload;
+use crate::{id, payload};
 use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
@@ -26,11 +27,14 @@ use thiserror::Error;
 
 id!(RoleId, Ident::new16());
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Payload)]
-pub enum RolePayload {
-    Created,
-    ActorAdded(Actor),
-    ActorRemoved(Actor),
+payload! {
+    AnyPayload::Role,
+
+    pub enum RolePayload {
+        Created,
+        ActorAdded(Actor),
+        ActorRemoved(Actor),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

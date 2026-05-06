@@ -52,12 +52,6 @@ impl From<sqlx::Error> for StoreError {
 
 pub type StoreResult<T> = Result<T, StoreError>;
 
-#[derive(Debug)]
-pub struct PayloadWithId<T: Entity> {
-    pub payload: T::Payload,
-    pub id: T::Id,
-}
-
 pub trait EntityId: Deref<Target = Ident> + Copy {
     fn as_bytes(&self) -> &[u8];
 }
@@ -80,20 +74,14 @@ pub trait ApplyPayload<T: Entity> {
 pub trait Entity: Sized {
     type Id: EntityId;
     type Payload: Payload + Into<AnyPayload>;
-    type Projection: Projection<Self>;
+    type Projection: Projection
+        + TryFrom<(Self::Id, Self::Payload), Error = ProjectionFromPayloadError>
+        + ApplyPayload<Self>;
 
     fn entity_type() -> EntityType;
 }
 
-pub trait Projection<T: Entity>:
-    Send
-    + Sync
-    + Clone
-    + TryFrom<PayloadWithId<T>, Error = ProjectionFromPayloadError>
-    + Serialize
-    + DeserializeOwned
-    + ApplyPayload<T>
-{
+pub trait Projection: Send + Sync + Clone + Serialize + DeserializeOwned {
     fn as_bytes(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize payload")
     }

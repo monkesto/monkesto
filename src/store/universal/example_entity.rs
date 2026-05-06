@@ -1,43 +1,44 @@
-use crate::entity;
 use crate::ident::{Ident, ProjectionFromPayloadError};
+use crate::store::universal::ApplyPayload;
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{ApplyPayload, PayloadWithId};
+use crate::{entity, payload, projection};
 use serde::{Deserialize, Serialize};
 
 entity!(
     ExampleEntity,
     EntityType::Example,
-    AnyPayload::Example,
     ExampleId,
     ExamplePayload,
     ExampleProjection,
     Ident::new16()
 );
 
-#[derive(Payload, Clone, Serialize, Deserialize, Debug)]
-pub enum ExamplePayload {
-    Created,
-    Deleted,
+payload! {
+    AnyPayload::Example,
+
+    pub enum ExamplePayload {
+        Created,
+        Deleted,
+    }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct ExampleProjection {
-    id: ExampleId,
-    deleted: bool,
+projection! {
+    pub struct ExampleProjection {
+        id: ExampleId,
+        deleted: bool,
+    }
 }
 
-impl TryFrom<PayloadWithId<ExampleEntity>> for ExampleProjection {
+impl TryFrom<(ExampleId, ExamplePayload)> for ExampleProjection {
     type Error = ProjectionFromPayloadError;
 
-    fn try_from(value: PayloadWithId<ExampleEntity>) -> Result<Self, Self::Error> {
-        match value.payload {
-            ExamplePayload::Created => Ok(Self {
-                id: value.id,
-                deleted: false,
-            }),
+    fn try_from(value: (ExampleId, ExamplePayload)) -> Result<Self, Self::Error> {
+        let (id, payload) = value;
+        match payload {
+            ExamplePayload::Created => Ok(Self { id, deleted: false }),
             _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
-                value.payload
+                payload
             ))),
         }
     }

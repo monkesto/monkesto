@@ -5,7 +5,7 @@ pub mod views;
 pub use service::TransactionService;
 
 use crate::ident::TransactionEntity;
-use crate::store::universal::{ApplyPayload, PayloadWithId};
+use crate::store::universal::ApplyPayload;
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -39,7 +39,9 @@ use crate::event::Event;
 use crate::event::EventStore;
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
+use crate::store::universal::registry::AnyPayload;
 use crate::transaction::TransactionStoreError::InvalidEntryType;
+use crate::{payload, projection};
 use TransactionStoreError::InvalidTransaction;
 use dashmap::DashMap;
 use rust_decimal::Decimal;
@@ -292,31 +294,36 @@ pub struct BalanceUpdate {
     pub entry_type: EntryType,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Payload)]
-pub enum TransactionPayload {
-    Created {
-        journal_id: JournalId,
-        updates: Vec<BalanceUpdate>,
-    },
-    UpdatedBalancedUpdates {
-        new_balanceupdates: Vec<BalanceUpdate>,
-    },
-    Deleted,
+payload! {
+    AnyPayload::Transaction,
+
+    pub enum TransactionPayload {
+        Created {
+            journal_id: JournalId,
+            updates: Vec<BalanceUpdate>,
+        },
+        UpdatedBalancedUpdates {
+            new_balanceupdates: Vec<BalanceUpdate>,
+        },
+        Deleted,
+    }
+}
+projection! {
+    pub struct TransactionProjection {
+        pub journal_id: JournalId,
+        pub updates: Vec<BalanceUpdate>,
+        pub deleted: bool,
+    }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct TransactionProjection {
-    pub journal_id: JournalId,
-    pub updates: Vec<BalanceUpdate>,
-    pub deleted: bool,
-}
-
-impl TryFrom<PayloadWithId<TransactionEntity>> for TransactionProjection {
+impl TryFrom<(TransactionId, TransactionPayload)> for TransactionProjection {
     type Error = ProjectionFromPayloadError;
     fn try_from(
-        value: PayloadWithId<TransactionEntity>,
+        value: (TransactionId, TransactionPayload),
     ) -> Result<Self, ProjectionFromPayloadError> {
-        match value.payload {
+        let (_id, payload) = value;
+
+        match payload {
             TransactionPayload::Created {
                 updates,
                 journal_id,
@@ -327,7 +334,7 @@ impl TryFrom<PayloadWithId<TransactionEntity>> for TransactionProjection {
             }),
             _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
-                value.payload
+                payload
             ))),
         }
     }

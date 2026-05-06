@@ -3,6 +3,7 @@ mod auth;
 mod authority;
 mod authorization;
 mod entitlement;
+mod entity;
 mod event;
 mod grant;
 mod id;

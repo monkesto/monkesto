@@ -3,8 +3,8 @@ use crate::auth::user::UserPayload;
 use crate::authority::Authority;
 use crate::ident::Ident;
 use crate::store::universal::{
-    AnyPayload, ApplyPayload, Entity, EntityId, EntityType, Event, EventId, Payload, PayloadWithId,
-    Projection, SequenceId, Store, StoreError, StoreResult,
+    AnyPayload, ApplyPayload, Entity, EntityId, EntityType, Event, EventId, Payload, Projection,
+    SequenceId, Store, StoreError, StoreResult,
 };
 use crate::transaction::{BalanceUpdate, EntryType, TransactionPayload};
 use chrono::{DateTime, Utc};
@@ -166,10 +166,7 @@ impl Store for SimpleSqliteStore {
             .execute(&mut *tx)
             .await?;
 
-            I::Projection::try_from(PayloadWithId {
-                payload: payload.clone(),
-                id: entity_id,
-            })?
+            I::Projection::try_from((entity_id, payload.clone()))?
         } else {
             if store_entity_type != Some(id_entity_type) {
                 return Err(StoreError::EntityType {

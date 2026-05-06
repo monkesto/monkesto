@@ -1,6 +1,6 @@
 use crate::ident::ProjectionFromPayloadError;
+use crate::store::universal::ApplyPayload;
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{ApplyPayload, PayloadWithId};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -23,10 +23,10 @@ use super::user::UserId;
 use super::user::UserStore;
 use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::entity;
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::Ident;
+use crate::{entity, payload, projection};
 use maud::PreEscaped;
 use maud::html;
 
@@ -315,34 +315,32 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
 entity!(
     PasskeyEntity,
     EntityType::Passkey,
-    AnyPayload::Passkey,
     PasskeyId,
     PasskeyPayload,
     PasskeyProjection,
     Ident::new16()
 );
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PasskeyProjection {
-    pub id: PasskeyId,
-    pub passkey: webauthn_rs::prelude::Passkey,
+projection! {
+    pub struct PasskeyProjection {
+        pub id: PasskeyId,
+        pub passkey: webauthn_rs::prelude::Passkey,
+    }
 }
 
-impl TryFrom<PayloadWithId<PasskeyEntity>> for PasskeyProjection {
+impl TryFrom<(PasskeyId, PasskeyPayload)> for PasskeyProjection {
     type Error = ProjectionFromPayloadError;
 
-    fn try_from(value: PayloadWithId<PasskeyEntity>) -> Result<Self, ProjectionFromPayloadError> {
-        match value.payload {
+    fn try_from(value: (PasskeyId, PasskeyPayload)) -> Result<Self, ProjectionFromPayloadError> {
+        let (id, payload) = value;
+        match payload {
             PasskeyPayload::Created {
                 user_id: _user_id,
                 passkey,
-            } => Ok(Self {
-                id: value.id,
-                passkey,
-            }),
+            } => Ok(Self { id, passkey }),
             _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
-                value.payload
+                payload
             ))),
         }
     }
@@ -354,16 +352,19 @@ impl ApplyPayload<PasskeyEntity> for PasskeyProjection {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Payload)]
-#[allow(clippy::large_enum_variant)]
-pub enum PasskeyPayload {
-    Created {
-        user_id: UserId,
-        passkey: webauthn_rs::prelude::Passkey,
-    },
-    Deleted {
-        user_id: UserId,
-    },
+payload! {
+    AnyPayload::Passkey,
+
+    #[allow(clippy::large_enum_variant)]
+    pub enum PasskeyPayload {
+        Created {
+            user_id: UserId,
+            passkey: webauthn_rs::prelude::Passkey,
+        },
+        Deleted {
+            user_id: UserId,
+        },
+    }
 }
 
 #[derive(Debug, Error)]

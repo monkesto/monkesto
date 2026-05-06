@@ -55,10 +55,12 @@ use crate::ident::{AccountId, ProjectionFromPayloadError};
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
 use crate::name::Name;
-use crate::store::universal::{ApplyPayload, PayloadWithId};
+use crate::store::universal::ApplyPayload;
+use crate::store::universal::registry::AnyPayload;
 use crate::transaction::EntryType;
 use crate::transaction::TransactionPayload;
 use crate::transaction::TransactionProjection;
+use crate::{payload, projection};
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
@@ -68,27 +70,30 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Payload)]
-pub enum AccountPayload {
-    Created {
-        journal_id: JournalId,
-        name: Name,
-        parent_account_id: Option<AccountId>,
-    },
-    Renamed {
-        new_name: Name,
-    },
-    Deleted,
+payload! {
+    AnyPayload::Account,
+    pub enum AccountPayload {
+        Created {
+            journal_id: JournalId,
+            name: Name,
+            parent_account_id: Option<AccountId>,
+        },
+        Renamed {
+            new_name: Name,
+        },
+        Deleted,
+    }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct AccountProjection {
-    pub id: AccountId,
-    pub name: Name,
-    pub journal_id: JournalId,
-    pub balance: i64,
-    pub deleted: bool,
-    pub parent_account_id: Option<AccountId>,
+projection! {
+    pub struct AccountProjection {
+        pub id: AccountId,
+        pub name: Name,
+        pub journal_id: JournalId,
+        pub balance: i64,
+        pub deleted: bool,
+        pub parent_account_id: Option<AccountId>,
+    }
 }
 
 impl ApplyPayload<AccountEntity> for AccountProjection {
@@ -101,16 +106,18 @@ impl ApplyPayload<AccountEntity> for AccountProjection {
         self
     }
 }
-impl TryFrom<PayloadWithId<AccountEntity>> for AccountProjection {
+impl TryFrom<(AccountId, AccountPayload)> for AccountProjection {
     type Error = ProjectionFromPayloadError;
-    fn try_from(value: PayloadWithId<AccountEntity>) -> Result<Self, ProjectionFromPayloadError> {
-        match value.payload {
+    fn try_from(value: (AccountId, AccountPayload)) -> Result<Self, ProjectionFromPayloadError> {
+        let (id, payload) = value;
+
+        match payload {
             AccountPayload::Created {
                 journal_id,
                 name,
                 parent_account_id,
             } => Ok(Self {
-                id: value.id,
+                id,
                 name,
                 journal_id,
                 balance: 0,
@@ -119,7 +126,7 @@ impl TryFrom<PayloadWithId<AccountEntity>> for AccountProjection {
             }),
             _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
-                value.payload
+                payload
             ))),
         }
     }

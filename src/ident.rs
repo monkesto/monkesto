@@ -179,7 +179,7 @@ pub enum ProjectionFromPayloadError {
 /// ```
 #[macro_export]
 macro_rules! entity {
-    ($entity_type: ident, $registry_entry_entitytype: expr, $registry_entry_anypayload: expr, $id_type: ident, $payload_type: ty, $projection_type: ty, $id_new_fn: expr) => {
+    ($entity_type: ident, $registry_entry_entitytype: expr, $id_type: ident, $payload_type: ty, $projection_type: ty, $id_new_fn: expr) => {
         #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
         pub struct $id_type($crate::ident::Ident);
 
@@ -225,14 +225,6 @@ macro_rules! entity {
             }
         }
 
-        impl $crate::store::universal::Projection<$entity_type> for $projection_type {}
-
-        impl From<$payload_type> for $crate::store::universal::registry::AnyPayload {
-            fn from(val: $payload_type) -> Self {
-                $registry_entry_anypayload(val)
-            }
-        }
-
         #[derive(Debug)]
         pub struct $entity_type;
 
@@ -251,7 +243,6 @@ macro_rules! entity {
 entity!(
     JournalEntity,
     EntityType::Journal,
-    AnyPayload::Journal,
     JournalId,
     JournalPayload,
     JournalProjection,
@@ -261,7 +252,6 @@ entity!(
 entity!(
     AccountEntity,
     EntityType::Account,
-    AnyPayload::Account,
     AccountId,
     AccountPayload,
     AccountProjection,
@@ -271,7 +261,6 @@ entity!(
 entity!(
     TransactionEntity,
     EntityType::Transaction,
-    AnyPayload::Transaction,
     TransactionId,
     TransactionPayload,
     TransactionProjection,

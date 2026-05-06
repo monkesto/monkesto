@@ -1,11 +1,11 @@
 use crate::authority::Authority;
-use crate::entity;
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::Ident;
 use crate::ident::ProjectionFromPayloadError;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::{ApplyPayload, PayloadWithId};
+use crate::store::universal::ApplyPayload;
+use crate::{entity, payload, projection};
 use axum::response::Redirect;
 use nutype::nutype;
 use serde::Deserialize;
@@ -16,7 +16,6 @@ use std::ops::Deref;
 entity!(
     UserEntity,
     EntityType::User,
-    AnyPayload::User,
     UserId,
     UserPayload,
     UserProjection,
@@ -43,28 +42,31 @@ entity!(
 )]
 pub struct Email(String);
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct UserProjection {
-    pub id: UserId,
-    pub email: Email,
-    pub deleted: bool,
+projection! {
+    pub struct UserProjection {
+        pub id: UserId,
+        pub email: Email,
+        pub deleted: bool,
+    }
 }
 
-impl TryFrom<PayloadWithId<UserEntity>> for UserProjection {
+impl TryFrom<(UserId, UserPayload)> for UserProjection {
     type Error = ProjectionFromPayloadError;
-    fn try_from(value: PayloadWithId<UserEntity>) -> Result<Self, ProjectionFromPayloadError> {
-        match value.payload {
+    fn try_from(value: (UserId, UserPayload)) -> Result<Self, ProjectionFromPayloadError> {
+        let (id, payload) = value;
+
+        match payload {
             UserPayload::Created {
                 email,
                 webauthn_uuid: _webauthn_uuid,
             } => Ok(Self {
-                id: value.id,
+                id,
                 email,
                 deleted: false,
             }),
             _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
-                value.payload
+                payload
             ))),
         }
     }
@@ -236,10 +238,13 @@ mod tests {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Payload)]
-pub enum UserPayload {
-    Created { email: Email, webauthn_uuid: Uuid },
-    Deleted,
+payload! {
+    AnyPayload::User,
+
+    pub enum UserPayload {
+        Created { email: Email, webauthn_uuid: Uuid },
+        Deleted,
+    }
 }
 
 use webauthn_rs::prelude::Uuid;

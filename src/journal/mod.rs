@@ -5,7 +5,7 @@ pub mod service;
 pub mod views;
 
 use crate::ident::JournalEntity;
-use crate::store::universal::{ApplyPayload, PayloadWithId};
+use crate::store::universal::ApplyPayload;
 pub use service::JournalService;
 
 use axum::Router;
@@ -88,6 +88,8 @@ use crate::ident::JournalId;
 use crate::ident::{IdentError, ProjectionFromPayloadError};
 use crate::journal::JournalStoreError::InvalidJournal;
 use crate::name::Name;
+use crate::payload;
+use crate::store::universal::registry::AnyPayload;
 use bitflags::bitflags;
 use chrono::DateTime;
 use chrono::Utc;
@@ -356,34 +358,37 @@ impl Display for PermissionDecodeError {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Payload)]
-pub enum JournalPayload {
-    Created {
-        name: Name,
-        owner: UserId,
-        parent_journal_id: Option<JournalId>,
-    },
-    Renamed {
-        name: Name,
-    },
-    AddedTenant {
-        id: UserId,
-        permissions: Permissions,
-    },
-    TransferredOwnership {
-        new_owner: UserId,
-    },
-    RemovedTenant {
-        id: UserId,
-    },
-    UpdatedTenantPermissions {
-        id: UserId,
-        permissions: Permissions,
-    },
-    Deleted,
+payload! {
+    AnyPayload::Journal,
+
+    pub enum JournalPayload {
+        Created {
+            name: Name,
+            owner: UserId,
+            parent_journal_id: Option<JournalId>,
+        },
+        Renamed {
+            name: Name,
+        },
+        AddedTenant {
+            id: UserId,
+            permissions: Permissions,
+        },
+        TransferredOwnership {
+            new_owner: UserId,
+        },
+        RemovedTenant {
+            id: UserId,
+        },
+        UpdatedTenantPermissions {
+            id: UserId,
+            permissions: Permissions,
+        },
+        Deleted,
+    }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Projection)]
 pub struct JournalProjection {
     pub id: JournalId,
     pub name: Name,
@@ -393,16 +398,18 @@ pub struct JournalProjection {
     pub parent_journal_id: Option<JournalId>,
 }
 
-impl TryFrom<PayloadWithId<JournalEntity>> for JournalProjection {
+impl TryFrom<(JournalId, JournalPayload)> for JournalProjection {
     type Error = ProjectionFromPayloadError;
-    fn try_from(value: PayloadWithId<JournalEntity>) -> Result<Self, Self::Error> {
-        match &value.payload {
+    fn try_from(value: (JournalId, JournalPayload)) -> Result<Self, Self::Error> {
+        let (id, payload) = value;
+
+        match &payload {
             JournalPayload::Created {
                 name,
                 owner,
                 parent_journal_id,
             } => Ok(Self {
-                id: value.id,
+                id,
                 name: name.clone(),
                 owner: *owner,
                 members: HashMap::new(),
@@ -411,7 +418,7 @@ impl TryFrom<PayloadWithId<JournalEntity>> for JournalProjection {
             }),
             _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
-                value
+                payload
             ))),
         }
     }
