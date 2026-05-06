@@ -224,12 +224,12 @@ macro_rules! entity {
             }
         }
 
-        impl $crate::store::universal::Projection<'_, $entity_type> for $projection_type {}
+        impl $crate::store::universal::Projection<$entity_type> for $projection_type {}
 
         #[derive(Debug)]
         pub struct $entity_type;
 
-        impl<'a> $crate::store::universal::Entity<'a> for $entity_type {
+        impl $crate::store::universal::Entity for $entity_type {
             type Id = $id_type;
             type Payload = $payload_type;
             type Projection = $projection_type;

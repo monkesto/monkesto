@@ -115,7 +115,7 @@ impl SimpleSqliteStore {
 }
 
 impl Store for SimpleSqliteStore {
-    async fn record<'a, I: Entity<'a>>(
+    async fn record<I: Entity>(
         &self,
         authority: Authority,
         at: DateTime<Utc>,
@@ -352,25 +352,25 @@ impl Store for SimpleSqliteStore {
         Ok(EventId(event_id as u64))
     }
 
-    async fn replay_events<'a, I: Entity<'a>>(
+    async fn replay_events<I: Entity>(
         &self,
         _entity_id: I::Id,
         _starting_sequence: SequenceId,
-    ) -> Vec<Event<'a, I>> {
+    ) -> Vec<Event<I>> {
         todo!()
     }
 
-    async fn get_projection<'a, I: Entity<'a>>(
+    async fn get_projection<I: Entity>(
         &self,
         _entity_id: I::Id,
     ) -> StoreResult<(I::Projection, SequenceId)> {
         todo!()
     }
 
-    async fn rebuild_projection<'a, I: Entity<'a>>(
+    async fn rebuild_projection<I: Entity>(
         &self,
         _entity_id: I::Id,
-        _events: Vec<Event<'a, I>>,
+        _events: Vec<Event<I>>,
     ) -> StoreResult<()> {
         todo!()
     }

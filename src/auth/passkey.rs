@@ -327,7 +327,7 @@ pub struct PasskeyProjection {
     pub passkey: webauthn_rs::prelude::Passkey,
 }
 
-impl TryFrom<PayloadWithId<'_, PasskeyEntity>> for PasskeyProjection {
+impl TryFrom<PayloadWithId<PasskeyEntity>> for PasskeyProjection {
     type Error = ProjectionFromPayloadError;
 
     fn try_from(value: PayloadWithId<PasskeyEntity>) -> Result<Self, ProjectionFromPayloadError> {
@@ -347,7 +347,7 @@ impl TryFrom<PayloadWithId<'_, PasskeyEntity>> for PasskeyProjection {
     }
 }
 
-impl ApplyPayload<'_, PasskeyEntity> for PasskeyProjection {
+impl ApplyPayload<PasskeyEntity> for PasskeyProjection {
     fn apply(&mut self, _payload: &PasskeyPayload) -> &mut Self {
         todo!("Applying PasskeyProjection to PasskeyPayload is not yet implemented")
     }

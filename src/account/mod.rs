@@ -98,7 +98,7 @@ pub struct AccountProjection {
     pub parent_account_id: Option<AccountId>,
 }
 
-impl ApplyPayload<'_, AccountEntity> for AccountProjection {
+impl ApplyPayload<AccountEntity> for AccountProjection {
     fn apply(&mut self, payload: &AccountPayload) -> &mut Self {
         match payload {
             AccountPayload::Created { .. } => {}
@@ -108,11 +108,9 @@ impl ApplyPayload<'_, AccountEntity> for AccountProjection {
         self
     }
 }
-impl TryFrom<PayloadWithId<'_, AccountEntity>> for AccountProjection {
+impl TryFrom<PayloadWithId<AccountEntity>> for AccountProjection {
     type Error = ProjectionFromPayloadError;
-    fn try_from(
-        value: PayloadWithId<'_, AccountEntity>,
-    ) -> Result<Self, ProjectionFromPayloadError> {
+    fn try_from(value: PayloadWithId<AccountEntity>) -> Result<Self, ProjectionFromPayloadError> {
         match value.payload {
             AccountPayload::Created {
                 journal_id,

@@ -400,7 +400,7 @@ pub struct JournalProjection {
     pub parent_journal_id: Option<JournalId>,
 }
 
-impl TryFrom<PayloadWithId<'_, JournalEntity>> for JournalProjection {
+impl TryFrom<PayloadWithId<JournalEntity>> for JournalProjection {
     type Error = ProjectionFromPayloadError;
     fn try_from(value: PayloadWithId<JournalEntity>) -> Result<Self, Self::Error> {
         match &value.payload {
@@ -424,7 +424,7 @@ impl TryFrom<PayloadWithId<'_, JournalEntity>> for JournalProjection {
     }
 }
 
-impl ApplyPayload<'_, JournalEntity> for JournalProjection {
+impl ApplyPayload<JournalEntity> for JournalProjection {
     fn apply(&mut self, payload: &JournalPayload) -> &mut Self {
         match payload {
             JournalPayload::Created { .. } => {}

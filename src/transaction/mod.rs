@@ -318,10 +318,10 @@ pub struct TransactionProjection {
     pub deleted: bool,
 }
 
-impl TryFrom<PayloadWithId<'_, TransactionEntity>> for TransactionProjection {
+impl TryFrom<PayloadWithId<TransactionEntity>> for TransactionProjection {
     type Error = ProjectionFromPayloadError;
     fn try_from(
-        value: PayloadWithId<'_, TransactionEntity>,
+        value: PayloadWithId<TransactionEntity>,
     ) -> Result<Self, ProjectionFromPayloadError> {
         match value.payload {
             TransactionPayload::Created {
@@ -340,7 +340,7 @@ impl TryFrom<PayloadWithId<'_, TransactionEntity>> for TransactionProjection {
     }
 }
 
-impl ApplyPayload<'_, TransactionEntity> for TransactionProjection {
+impl ApplyPayload<TransactionEntity> for TransactionProjection {
     fn apply(&mut self, payload: &TransactionPayload) -> &mut Self {
         match payload {
             TransactionPayload::Created { .. } => {}

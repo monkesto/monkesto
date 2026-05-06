@@ -49,7 +49,7 @@ pub struct UserProjection {
     pub deleted: bool,
 }
 
-impl TryFrom<PayloadWithId<'_, UserEntity>> for UserProjection {
+impl TryFrom<PayloadWithId<UserEntity>> for UserProjection {
     type Error = ProjectionFromPayloadError;
     fn try_from(value: PayloadWithId<UserEntity>) -> Result<Self, ProjectionFromPayloadError> {
         match value.payload {
@@ -69,7 +69,7 @@ impl TryFrom<PayloadWithId<'_, UserEntity>> for UserProjection {
     }
 }
 
-impl ApplyPayload<'_, UserEntity> for UserProjection {
+impl ApplyPayload<UserEntity> for UserProjection {
     fn apply(&mut self, payload: &UserPayload) -> &mut Self {
         match payload {
             UserPayload::Created { .. } => {}

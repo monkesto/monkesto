@@ -53,7 +53,7 @@ impl From<sqlx::Error> for StoreError {
 pub type StoreResult<T> = Result<T, StoreError>;
 
 #[derive(Debug)]
-pub struct PayloadWithId<'a, T: Entity<'a>> {
+pub struct PayloadWithId<T: Entity> {
     pub payload: T::Payload,
     pub id: T::Id,
 }
@@ -62,45 +62,43 @@ pub trait EntityId: Deref<Target = Ident> + Copy {
     fn as_bytes(&self) -> &[u8];
 }
 
-pub trait Payload<'a>:
-    Send + Sync + Clone + Serialize + Deserialize<'a> + Into<AnyPayload>
-{
+pub trait Payload: Send + Sync + Clone + Serialize + DeserializeOwned + Into<AnyPayload> {
     fn as_bytes(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize payload")
     }
-    fn from_bytes(bytes: &'a [u8]) -> StoreResult<Self> {
+    fn from_bytes(bytes: &[u8]) -> StoreResult<Self> {
         postcard::from_bytes(bytes)?
     }
 
     fn creates_entity(&self) -> bool;
 }
 
-pub trait ApplyPayload<'a, T: Entity<'a>> {
+pub trait ApplyPayload<T: Entity> {
     fn apply(&mut self, payload: &T::Payload) -> &mut T::Projection;
 }
 
-pub trait Entity<'a>: Sized {
+pub trait Entity: Sized {
     type Id: EntityId;
-    type Payload: Payload<'a>;
-    type Projection: Projection<'a, Self>;
+    type Payload: Payload;
+    type Projection: Projection<Self>;
 
     fn entity_type() -> EntityType;
 }
 
-pub trait Projection<'a, T: Entity<'a>>:
+pub trait Projection<T: Entity>:
     Send
     + Sync
     + Clone
-    + TryFrom<PayloadWithId<'a, T>, Error = ProjectionFromPayloadError>
+    + TryFrom<PayloadWithId<T>, Error = ProjectionFromPayloadError>
     + Serialize
     + DeserializeOwned
-    + ApplyPayload<'a, T>
+    + ApplyPayload<T>
 {
     fn as_bytes(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize payload")
     }
 
-    fn from_bytes(bytes: &[u8]) -> Result<Self, StoreError> {
+    fn from_bytes(bytes: &[u8]) -> StoreResult<Self> {
         postcard::from_bytes(bytes)?
     }
 }
@@ -139,7 +137,7 @@ impl Add<u64> for SequenceId {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Event<'a, I: Entity<'a>> {
+pub struct Event<I: Entity> {
     pub event_id: EventId,
     pub sequence_id: SequenceId,
     pub timestamp: DateTime<Utc>,
@@ -157,7 +155,7 @@ pub trait Store {
     ///
     /// Returns a `Sequence` error and does not record the event if the latest sequence number
     /// recorded by the store (prior to this event) does not match `expected_sequence`
-    async fn record<'a, I: Entity<'a>>(
+    async fn record<I: Entity>(
         &self,
         authority: Authority,
         at: DateTime<Utc>,
@@ -167,23 +165,23 @@ pub trait Store {
     ) -> StoreResult<EventId>;
 
     /// Returns a vector of all events that have occurred concerning an entity starting at `starting_sequence`
-    async fn replay_events<'a, I: Entity<'a>>(
+    async fn replay_events<I: Entity>(
         &self,
         entity_id: I::Id,
         starting_sequence: SequenceId,
-    ) -> Vec<Event<'a, I>>;
+    ) -> Vec<Event<I>>;
 
     /// Returns a projection of the given entity and the sequence id associated with the last event applied to it
-    async fn get_projection<'a, I: Entity<'a>>(
+    async fn get_projection<I: Entity>(
         &self,
         entity_id: I::Id,
     ) -> StoreResult<(I::Projection, SequenceId)>;
 
     /// Rebuilds the projection of an entity with the given events
-    async fn rebuild_projection<'a, I: Entity<'a>>(
+    async fn rebuild_projection<I: Entity>(
         &self,
         entity_id: I::Id,
-        events: Vec<Event<'a, I>>,
+        events: Vec<Event<I>>,
     ) -> StoreResult<()>;
 
     async fn session_store(&self) -> &impl SessionStore;
