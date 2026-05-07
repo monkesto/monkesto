@@ -1,9 +1,11 @@
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::sqlite::SqliteTypeInfo;
+use sqlx::{Decode, Encode, Sqlite, Type};
 use std::fmt::Display;
 use thiserror::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode)]
 pub struct Name(String);
 
 impl Name {
@@ -21,6 +23,12 @@ impl Name {
 impl Display for Name {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+impl Type<Sqlite> for Name {
+    fn type_info() -> SqliteTypeInfo {
+        <String as Type<Sqlite>>::type_info()
     }
 }
 

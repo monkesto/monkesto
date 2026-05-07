@@ -2,7 +2,6 @@ use crate::ident::{Ident, ProjectionFromPayloadError};
 use crate::store::universal::ApplyPayload;
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::{entity, payload, projection};
-use serde::{Deserialize, Serialize};
 
 entity!(
     ExampleEntity,

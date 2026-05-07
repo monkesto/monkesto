@@ -29,7 +29,7 @@ macro_rules! projection {
             $($fields:tt)*
         }
     ) => {
-        #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Projection)]
+        #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Projection, sqlx::FromRow, sqlx::Decode)]
         $(#[$meta])*
         $vis struct $struct_name {
             $($fields)*

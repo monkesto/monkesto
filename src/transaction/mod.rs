@@ -39,6 +39,7 @@ use crate::event::Event;
 use crate::event::EventStore;
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
+use crate::postcard::Postcard;
 use crate::store::universal::registry::AnyPayload;
 use crate::transaction::TransactionStoreError::InvalidEntryType;
 use crate::{payload, projection};
@@ -176,7 +177,7 @@ impl EventStore for TransactionMemoryStore {
         {
             let state = TransactionProjection {
                 journal_id,
-                updates,
+                updates: Postcard(updates),
                 deleted: false,
             };
 
@@ -311,7 +312,7 @@ payload! {
 projection! {
     pub struct TransactionProjection {
         pub journal_id: JournalId,
-        pub updates: Vec<BalanceUpdate>,
+        pub updates: Postcard<Vec<BalanceUpdate>>,
         pub deleted: bool,
     }
 }
@@ -329,7 +330,7 @@ impl TryFrom<(TransactionId, TransactionPayload)> for TransactionProjection {
                 journal_id,
             } => Ok(Self {
                 journal_id,
-                updates,
+                updates: Postcard(updates),
                 deleted: false,
             }),
             _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
@@ -345,7 +346,7 @@ impl ApplyPayload<TransactionEntity> for TransactionProjection {
         match payload {
             TransactionPayload::Created { .. } => {}
             TransactionPayload::UpdatedBalancedUpdates { new_balanceupdates } => {
-                self.updates = new_balanceupdates.clone()
+                self.updates = Postcard(new_balanceupdates.clone())
             }
             TransactionPayload::Deleted => self.deleted = true,
         }

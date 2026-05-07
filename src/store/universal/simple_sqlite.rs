@@ -1,10 +1,8 @@
-use crate::account::AccountPayload;
-use crate::auth::user::UserPayload;
 use crate::authority::Authority;
 use crate::ident::Ident;
 use crate::store::universal::{
-    AnyPayload, ApplyPayload, Entity, EntityId, EntityType, Event, EventId, Payload, Projection,
-    SequenceId, Store, StoreError, StoreResult,
+    ApplyPayload, Entity, EntityId, EntityType, Event, EventId, Payload, Projection, SequenceId,
+    Store, StoreError, StoreResult,
 };
 use crate::transaction::{BalanceUpdate, EntryType, TransactionPayload};
 use chrono::{DateTime, Utc};
@@ -58,7 +56,7 @@ impl SimpleSqliteStore {
                     "#,
             )
             .bind(EntityType::Account)
-            .bind(update.account_id.as_bytes())
+            .bind(update.account_id)
             .fetch_one(&mut **tx)
             .await?;
 
@@ -80,7 +78,7 @@ impl SimpleSqliteStore {
                     "#,
             )
             .bind(if reverse { -amount } else { amount })
-            .bind(update.account_id.as_bytes())
+            .bind(update.account_id)
             .execute(&mut **tx)
             .await?;
         }
@@ -99,7 +97,7 @@ impl SimpleSqliteStore {
                 SELECT payload FROM event_log WHERE entity_id = ? ORDER BY id DESC
                 "#,
         )
-        .bind(transaction_id.as_bytes())
+        .bind(transaction_id)
         .fetch_all(&mut **tx)
         .await?;
 
@@ -123,11 +121,7 @@ impl Store for SimpleSqliteStore {
         payload: I::Payload,
         expected_sequence: SequenceId,
     ) -> StoreResult<EventId> {
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .expect("Failed to begin transaction");
+        let mut tx = self.pool.begin().await?;
 
         let store_entity_type: Option<EntityType> = query_scalar(
             r#"
@@ -140,7 +134,7 @@ impl Store for SimpleSqliteStore {
 
         let id_entity_type = I::entity_type();
 
-        let projection = if payload.creates_entity() {
+        let _projection = if payload.creates_entity() {
             // the entity should not already exist if it is being created
             if store_entity_type.is_some() {
                 return Err(StoreError::EntityType {
@@ -218,131 +212,8 @@ impl Store for SimpleSqliteStore {
                 "#
         ).bind(entity_id.as_bytes()).bind(payload.as_bytes()).bind((*expected_sequence + 1) as i64).bind(authority.as_bytes()).bind(timestamp).fetch_one(&mut *tx).await?;
 
-        // update the projection
-        sqlx::query(
-            r#"
-                UPDATE projections SET projection = ? WHERE entity_id = ?
-                "#,
-        )
-        .bind(projection.as_bytes())
-        .bind(entity_id.as_bytes())
-        .execute(&mut *tx)
-        .await?;
-
-        // update lookup tables where necessary
-        match payload.into() {
-            // insert an entry into the balance table when creating an account
-            AnyPayload::Account(AccountPayload::Created { journal_id, .. }) => {
-                sqlx::query(
-                    r#"
-                        INSERT INTO account_lookup (account_id, journal_id) VALUES (?, ?)
-                        "#,
-                )
-                .bind(entity_id.as_bytes())
-                .bind(journal_id.as_bytes())
-                .execute(&mut *tx)
-                .await?;
-
-                sqlx::query(
-                    r#"
-                        INSERT INTO account_balance (id, balance) VALUES (?, ?)
-                        "#,
-                )
-                .bind(entity_id.as_bytes())
-                .bind(0)
-                .execute(&mut *tx)
-                .await?;
-            }
-
-            // update account balances for a transaction
-            AnyPayload::Transaction(transaction_payload) => {
-                match transaction_payload {
-                    TransactionPayload::Created { updates, .. } => {
-                        self.update_account_balances(updates, false, &mut tx)
-                            .await?;
-                    }
-
-                    TransactionPayload::UpdatedBalancedUpdates { new_balanceupdates } => {
-                        // undo the latest prior updates
-                        let old_updates = match self
-                            .latest_transaction_payload(*entity_id.deref(), &mut tx)
-                            .await?
-                        {
-                            TransactionPayload::Created { updates, .. } => updates,
-
-                            TransactionPayload::UpdatedBalancedUpdates { new_balanceupdates } => {
-                                new_balanceupdates
-                            }
-
-                            TransactionPayload::Deleted => {
-                                return Err(StoreError::TransactionModifiedAfterDeletion(
-                                    *entity_id.deref(),
-                                ));
-                            }
-                        };
-
-                        self.update_account_balances(old_updates, true, &mut tx)
-                            .await?;
-
-                        // apply the new updates
-                        self.update_account_balances(new_balanceupdates, false, &mut tx)
-                            .await?;
-                    }
-                    TransactionPayload::Deleted => {
-                        // just undo the old updates
-                        let old_updates = match self
-                            .latest_transaction_payload(*entity_id.deref(), &mut tx)
-                            .await?
-                        {
-                            TransactionPayload::Created { updates, .. } => updates,
-
-                            TransactionPayload::UpdatedBalancedUpdates { new_balanceupdates } => {
-                                new_balanceupdates
-                            }
-
-                            TransactionPayload::Deleted => {
-                                return Err(StoreError::TransactionModifiedAfterDeletion(
-                                    *entity_id.deref(),
-                                ));
-                            }
-                        };
-
-                        self.update_account_balances(old_updates, true, &mut tx)
-                            .await?;
-                    }
-                }
-            }
-
-            // maintain an index of email -> user
-            AnyPayload::User(user_payload) => match user_payload {
-                UserPayload::Created {
-                    email,
-                    webauthn_uuid: _webauthn_uuid,
-                } => {
-                    sqlx::query(
-                        r#"
-                            INSERT INTO user_lookup (entity_id, email) VALUES (?, ?)
-                            "#,
-                    )
-                    .bind(entity_id.as_bytes())
-                    .bind(email.to_string())
-                    .execute(&mut *tx)
-                    .await?;
-                }
-                UserPayload::Deleted => {
-                    sqlx::query(
-                        r#"
-                            DELETE FROM user_lookup WHERE entity_id = ?
-                            "#,
-                    )
-                    .bind(entity_id.as_bytes())
-                    .execute(&mut *tx)
-                    .await?;
-                }
-            },
-
-            _ => {}
-        }
+        // update the state
+        // match payload.into() {}
 
         tx.commit().await?;
 

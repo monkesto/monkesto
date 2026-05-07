@@ -89,6 +89,7 @@ use crate::ident::{IdentError, ProjectionFromPayloadError};
 use crate::journal::JournalStoreError::InvalidJournal;
 use crate::name::Name;
 use crate::payload;
+use crate::postcard::Postcard;
 use crate::store::universal::registry::AnyPayload;
 use bitflags::bitflags;
 use chrono::DateTime;
@@ -96,6 +97,7 @@ use chrono::Utc;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::FromRow;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -227,7 +229,7 @@ impl EventStore for JournalMemoryStore {
                 id,
                 name,
                 owner,
-                members: HashMap::new(),
+                members: Postcard(HashMap::new()),
                 deleted: false,
                 parent_journal_id,
             };
@@ -388,12 +390,12 @@ payload! {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Projection)]
+#[derive(Serialize, Deserialize, Clone, Projection, FromRow)]
 pub struct JournalProjection {
     pub id: JournalId,
     pub name: Name,
     pub owner: UserId,
-    pub members: HashMap<UserId, Permissions>,
+    pub members: Postcard<HashMap<UserId, Permissions>>,
     pub deleted: bool,
     pub parent_journal_id: Option<JournalId>,
 }
@@ -412,7 +414,7 @@ impl TryFrom<(JournalId, JournalPayload)> for JournalProjection {
                 id,
                 name: name.clone(),
                 owner: *owner,
-                members: HashMap::new(),
+                members: Postcard(HashMap::new()),
                 deleted: false,
                 parent_journal_id: *parent_journal_id,
             }),

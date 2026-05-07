@@ -9,6 +9,7 @@ use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
+use std::borrow::Cow;
 use thiserror::Error;
 
 use std::collections::HashMap;
@@ -70,6 +71,10 @@ impl IntoResponse for PasskeyError {
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::sqlite::{SqliteArgumentValue, SqliteTypeInfo, SqliteValueRef};
+use sqlx::{Decode, Encode, Sqlite, Type};
 use std::ops::Deref;
 
 pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
@@ -145,7 +150,10 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
                     .record(
                         passkey_id,
                         Authority::Direct(Actor::User(user_id)),
-                        PasskeyPayload::Created { user_id, passkey },
+                        PasskeyPayload::Created {
+                            user_id,
+                            passkey: Passkey(passkey),
+                        },
                     )
                     .await
                     .is_err()
@@ -311,6 +319,41 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
 
     layout(None, content)
 }
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct Passkey(pub webauthn_rs::prelude::Passkey);
+
+impl Deref for Passkey {
+    type Target = webauthn_rs::prelude::Passkey;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Type<Sqlite> for Passkey {
+    fn type_info() -> SqliteTypeInfo {
+        <&[u8] as Type<Sqlite>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Sqlite> for Passkey {
+    fn encode_by_ref(
+        &self,
+        args: &mut Vec<SqliteArgumentValue<'q>>,
+    ) -> Result<IsNull, BoxDynError> {
+        args.push(SqliteArgumentValue::Blob(Cow::Owned(
+            postcard::to_allocvec(self).expect("Failed to serialize passkey"),
+        )));
+        Ok(IsNull::No)
+    }
+}
+
+impl<'r> Decode<'r, Sqlite> for Passkey {
+    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
+        let bytes = <&[u8] as Decode<Sqlite>>::decode(value)?;
+
+        Ok(postcard::from_bytes::<Self>(bytes)?)
+    }
+}
 
 entity!(
     PasskeyEntity,
@@ -324,7 +367,7 @@ entity!(
 projection! {
     pub struct PasskeyProjection {
         pub id: PasskeyId,
-        pub passkey: webauthn_rs::prelude::Passkey,
+        pub passkey: Passkey,
     }
 }
 
@@ -359,7 +402,7 @@ payload! {
     pub enum PasskeyPayload {
         Created {
             user_id: UserId,
-            passkey: webauthn_rs::prelude::Passkey,
+            passkey: Passkey,
         },
         Deleted {
             user_id: UserId,
@@ -523,7 +566,7 @@ impl PasskeyStore for MemoryPasskeyStore {
             .keys
             .values()
             .flatten()
-            .map(|stored| stored.passkey.clone())
+            .map(|stored| stored.passkey.0.clone())
             .collect();
         Ok(credentials)
     }

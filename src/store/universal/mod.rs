@@ -4,6 +4,8 @@ use crate::store::universal::registry::{AnyPayload, EntityType};
 use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use sqlx::sqlite::SqliteRow;
 use std::ops::{Add, Deref};
 use thiserror::Error;
 use tower_sessions::SessionStore;
@@ -76,7 +78,8 @@ pub trait Entity: Sized {
     type Payload: Payload + Into<AnyPayload>;
     type Projection: Projection
         + TryFrom<(Self::Id, Self::Payload), Error = ProjectionFromPayloadError>
-        + ApplyPayload<Self>;
+        + ApplyPayload<Self>
+        + FromRow<'static, SqliteRow>;
 
     fn entity_type() -> EntityType;
 }

@@ -12,6 +12,7 @@ mod journal;
 mod monkesto_error;
 pub mod name;
 mod notfoundpage;
+mod postcard;
 mod role;
 mod seed;
 mod store;

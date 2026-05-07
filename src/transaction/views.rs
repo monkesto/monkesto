@@ -49,7 +49,7 @@ async fn build_transaction_node(
     state: &StateType,
 ) -> Value {
     let mut entries_html = String::new();
-    for entry in &transaction_state.updates {
+    for entry in &transaction_state.updates.0 {
         let amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
         let account = match state
             .account_service

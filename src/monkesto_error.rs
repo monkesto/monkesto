@@ -25,7 +25,7 @@ pub enum MonkestoError {
     IdentCreation(#[from] IdentError),
 
     #[error("failed to create an email: {0}")]
-    EmailCreation(String),
+    EmailCreation(#[from] EmailError),
 
     #[error("an error was returned from the journal store: {0}")]
     JournalStore(#[from] JournalStoreError),
@@ -66,13 +66,6 @@ pub struct UrlError {
     pub err: Option<String>,
     #[expect(dead_code)]
     pub next: Option<String>,
-}
-
-// we have to implement this manually because EmailError doesn't implement deserialize
-impl From<EmailError> for MonkestoError {
-    fn from(err: EmailError) -> Self {
-        Self::EmailCreation(err.to_string())
-    }
 }
 
 pub type MonkestoResult<T> = Result<T, MonkestoError>;

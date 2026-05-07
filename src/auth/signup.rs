@@ -21,9 +21,9 @@ use webauthn_rs_proto::AuthenticatorSelectionCriteria;
 use webauthn_rs_proto::ResidentKeyRequirement;
 
 use super::AuthSession;
-use super::passkey::PasskeyId;
 use super::passkey::PasskeyPayload;
 use super::passkey::PasskeyStore;
+use super::passkey::{Passkey, PasskeyId};
 use super::user::Email;
 use super::user::UserId;
 use super::user::UserPayload;
@@ -444,7 +444,10 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 .record(
                     passkey_id,
                     Authority::Direct(Actor::User(user_id)),
-                    PasskeyPayload::Created { user_id, passkey },
+                    PasskeyPayload::Created {
+                        user_id,
+                        passkey: Passkey(passkey),
+                    },
                 )
                 .await
                 .is_err()

@@ -7,9 +7,9 @@ use crate::monkesto_error::OrRedirect;
 use crate::store::universal::ApplyPayload;
 use crate::{entity, payload, projection};
 use axum::response::Redirect;
-use nutype::nutype;
 use serde::Deserialize;
 use serde::Serialize;
+use std::fmt::Display;
 use std::ops::Deref;
 
 // Define UserId here in the user module
@@ -22,25 +22,46 @@ entity!(
     Ident::new16()
 );
 
-#[nutype(
-    derive(
-        Debug,
-        Clone,
-        PartialEq,
-        Eq,
-        Hash,
-        Serialize,
-        Deserialize,
-        AsRef,
-        Display,
-        TryFrom,
-        Default
-    ),
-    sanitize(trim, lowercase),
-    validate(regex = r"^[\w\-\.]+@([\w-]+\.)+[\w-]{2,}$"),
-    default = "test@email.com"
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
 pub struct Email(String);
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Error)]
+pub enum EmailError {
+    #[error("invalid email address")]
+    RegexViolated,
+}
+
+impl Email {
+    pub fn try_new<T: Into<String>>(value: T) -> Result<Self, EmailError> {
+        let sanitized = value.into().trim().to_lowercase();
+
+        let re = Regex::new(r"^[\w\-.]+@([\w-]+\.)+[\w-]{2,}$").expect("Regex parse failure");
+
+        if re.is_match(&sanitized) {
+            return Ok(Self(sanitized));
+        }
+
+        Err(EmailError::RegexViolated)
+    }
+}
+
+impl Display for Email {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl AsRef<str> for Email {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Type<Sqlite> for Email {
+    fn type_info() -> SqliteTypeInfo {
+        <String as Type<Sqlite>>::type_info()
+    }
+}
 
 projection! {
     pub struct UserProjection {
@@ -347,7 +368,11 @@ use crate::store::universal::registry::{AnyPayload, EntityType};
 use axum_login::AuthSession;
 use axum_login::AuthnBackend;
 use dashmap::DashMap;
+use regex::Regex;
+use sqlx::sqlite::SqliteTypeInfo;
+use sqlx::{Sqlite, Type};
 use std::sync::Arc;
+use thiserror::Error;
 use tokio::sync::Mutex;
 
 /// In-memory storage implementation for users using HashMap

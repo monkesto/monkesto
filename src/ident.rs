@@ -1,6 +1,6 @@
 use crate::account::{AccountPayload, AccountProjection};
 use crate::journal::{JournalPayload, JournalProjection};
-use crate::store::universal::registry::{AnyPayload, EntityType};
+use crate::store::universal::registry::EntityType;
 use crate::transaction::{TransactionPayload, TransactionProjection};
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
@@ -8,6 +8,11 @@ use cuid::is_cuid2;
 use phf::phf_set;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::sqlite::{SqliteArgumentValue, SqliteTypeInfo, SqliteValueRef};
+use sqlx::{Decode, Encode, Sqlite, Type};
+use std::borrow::Cow;
 use std::fmt::Display;
 use std::fmt::{self};
 use std::str::FromStr;
@@ -134,6 +139,32 @@ impl Display for Ident {
     }
 }
 
+impl Type<Sqlite> for Ident {
+    fn type_info() -> SqliteTypeInfo {
+        <&[u8] as Type<Sqlite>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Sqlite> for Ident {
+    fn encode_by_ref(
+        &self,
+        args: &mut Vec<SqliteArgumentValue<'q>>,
+    ) -> Result<IsNull, BoxDynError> {
+        args.push(SqliteArgumentValue::Blob(Cow::Owned(
+            self.as_bytes().to_vec(),
+        )));
+        Ok(IsNull::No)
+    }
+}
+
+impl<'r> Decode<'r, Sqlite> for Ident {
+    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
+        let bytes = <&[u8] as Decode<Sqlite>>::decode(value)?;
+
+        Ok(Self::try_from(bytes)?)
+    }
+}
+
 #[derive(Debug, Error, Clone, Deserialize)]
 pub enum ProjectionFromPayloadError {
     #[error("Expected a \"Created\" enum variant, but found {0}")]
@@ -143,9 +174,7 @@ pub enum ProjectionFromPayloadError {
 /// A macro to create an entity and associate it with an Id, Payload, and Projection type
 ///
 /// # Constraints
-/// The `Payload` type derives `Payload`, `Clone`, `Serialize`, `Deserialize`, and `Debug`
-///
-/// The `Projection` type derives `Clone`, `Serialize`, and `Deserialize`
+/// The `Payload` and `Projection` types are created with their respective macros.
 ///
 /// The `Projection` type implements TryFrom<PayloadWithId<{`entity_type`}Id>> with an
 /// error type of `ProjectionFromPayloadError`. It should return `IncorrectVariant`
@@ -161,8 +190,6 @@ pub enum ProjectionFromPayloadError {
 /// `entity_type`: The name of the entity marker type to create. It should have the suffix `Entity`.
 ///
 /// `registry_entry_entitytype`: An entry in the universal store registry `EntityType` enum corresponding to the entity type.
-///
-/// `registry_entry_anypayload`: An entry in the universal store registry `AnyPayload` enum corresponding to the entity type.
 ///
 /// `id_type`: The name of the id type to create. It should have the suffix `Id`.
 ///
@@ -180,7 +207,18 @@ pub enum ProjectionFromPayloadError {
 #[macro_export]
 macro_rules! entity {
     ($entity_type: ident, $registry_entry_entitytype: expr, $id_type: ident, $payload_type: ty, $projection_type: ty, $id_new_fn: expr) => {
-        #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+        #[derive(
+            serde::Serialize,
+            serde::Deserialize,
+            Clone,
+            Copy,
+            Debug,
+            PartialEq,
+            Eq,
+            Hash,
+            sqlx::Type,
+        )]
+        #[sqlx(transparent)]
         pub struct $id_type($crate::ident::Ident);
 
         impl $id_type {
