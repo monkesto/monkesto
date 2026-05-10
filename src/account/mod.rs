@@ -46,6 +46,7 @@ pub fn router() -> Router<crate::StateType> {
 use crate::account::AccountStoreError::InvalidAccount;
 use crate::account::AccountStoreError::TransactionWithoutPriorState;
 use crate::authority::Authority;
+use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::AccountEntity;
 use crate::ident::JournalId;
@@ -68,7 +69,6 @@ use std::ops::Deref;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
-use crate::event::Event;
 
 payload! {
     AnyPayload::Account,
