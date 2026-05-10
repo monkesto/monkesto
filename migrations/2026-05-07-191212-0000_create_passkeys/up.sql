@@ -1,0 +1,4 @@
+CREATE TABLE passkeys (
+    id BLOB PRIMARY KEY NOT NULL,
+    passkey BLOB NOT NULL
+)

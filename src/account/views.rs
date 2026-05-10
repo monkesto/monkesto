@@ -1,6 +1,6 @@
 use crate::BackendType;
 use crate::StateType;
-use crate::account::AccountProjection;
+use crate::account::AccountState;
 use crate::auth::user;
 use crate::authority::Actor;
 use crate::authority::Authority;
@@ -28,7 +28,7 @@ struct AccountItem {
 }
 
 fn render_account_tree(
-    accounts: &[(AccountId, AccountProjection)],
+    accounts: &[(AccountId, AccountState)],
     parent_id: Option<AccountId>,
     depth: usize,
     journal_id: &str,
@@ -79,7 +79,7 @@ fn render_account_tree(
 }
 
 pub(crate) fn render_account_options(
-    accounts: &[(AccountId, AccountProjection)],
+    accounts: &[(AccountId, AccountState)],
     parent_id: Option<AccountId>,
     depth: usize,
 ) -> Markup {

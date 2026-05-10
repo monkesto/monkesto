@@ -1,18 +1,16 @@
 use crate::authority::Authority;
-use crate::ident::{Ident, ProjectionFromPayloadError};
+use crate::ident::{Ident, StateFromPayloadError};
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use chrono::{DateTime, Utc};
+use diesel::{Queryable, Selectable};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-use sqlx::sqlite::SqliteRow;
 use std::ops::{Add, Deref};
 use thiserror::Error;
 use tower_sessions::SessionStore;
 
 mod example_entity;
 pub mod registry;
-mod simple_sqlite;
 
 #[derive(Debug, Error, Clone, Deserialize)]
 pub enum StoreError {
@@ -31,11 +29,8 @@ pub enum StoreError {
         found: Option<EntityType>,
     },
 
-    #[error("sqlx returned an error: {0}")]
-    Sqlx(String),
-
     #[error(transparent)]
-    ProjectionFromPayload(#[from] ProjectionFromPayloadError),
+    StateFromPayload(#[from] StateFromPayloadError),
 
     #[error("attempted to apply an update to the transaction {0}, but it doesn't exist")]
     TransactionModifiedBeforeCreation(Ident),
@@ -45,11 +40,6 @@ pub enum StoreError {
 
     #[error("attempted to apply an update to the account {0}, but it doesn't exist")]
     AccountModifiedBeforeCreation(Ident),
-}
-impl From<sqlx::Error> for StoreError {
-    fn from(error: sqlx::Error) -> Self {
-        StoreError::Sqlx(error.to_string())
-    }
 }
 
 pub type StoreResult<T> = Result<T, StoreError>;
@@ -70,21 +60,36 @@ pub trait Payload: Send + Sync + Clone + Serialize + DeserializeOwned {
 }
 
 pub trait ApplyPayload<T: Entity> {
-    fn apply(&mut self, payload: &T::Payload) -> &mut T::Projection;
+    fn apply(&mut self, payload: &T::Payload) -> &mut T::State;
 }
 
 pub trait Entity: Sized {
     type Id: EntityId;
     type Payload: Payload + Into<AnyPayload>;
-    type Projection: Projection
-        + TryFrom<(Self::Id, Self::Payload), Error = ProjectionFromPayloadError>
-        + ApplyPayload<Self>
-        + FromRow<'static, SqliteRow>;
+    type State: State
+        + TryFrom<(Self::Id, Self::Payload), Error = StateFromPayloadError>
+        + ApplyPayload<Self>;
 
     fn entity_type() -> EntityType;
 }
 
-pub trait Projection: Send + Sync + Clone + Serialize + DeserializeOwned {
+#[derive(Queryable, Selectable)]
+#[diesel(table_name = crate::schema::entities)]
+pub struct AnyEntity<T: Entity> {
+    id: T::Id,
+    entity_type: EntityType,
+}
+
+impl<T: Entity> AnyEntity<T> {
+    fn new(id: T::Id) -> Self {
+        Self {
+            id,
+            entity_type: T::entity_type(),
+        }
+    }
+}
+
+pub trait State: Send + Sync + Clone + Serialize + DeserializeOwned {
     fn as_bytes(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize payload")
     }
@@ -127,18 +132,19 @@ impl Add<u64> for SequenceId {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Queryable, Selectable)]
+#[diesel(table_name = crate::schema::events)]
 pub struct Event<I: Entity> {
     pub event_id: EventId,
     pub sequence_id: SequenceId,
     pub timestamp: DateTime<Utc>,
     pub authority: Authority,
-    pub entity_id: I,
+    pub entity_id: I::Id,
     pub payload: I::Payload,
 }
 
 pub trait Store {
-    /// Records an event to the store and updates the projection
+    /// Records an event to the store and updates the State
     ///
     /// # Errors
     /// Returns an `EntityType` error if `entity_id.entity_type()` does
@@ -162,14 +168,11 @@ pub trait Store {
         starting_sequence: SequenceId,
     ) -> Vec<Event<I>>;
 
-    /// Returns a projection of the given entity and the sequence id associated with the last event applied to it
-    async fn get_projection<I: Entity>(
-        &self,
-        entity_id: I::Id,
-    ) -> StoreResult<(I::Projection, SequenceId)>;
+    /// Returns a State of the given entity and the sequence id associated with the last event applied to it
+    async fn get_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<(I::State, SequenceId)>;
 
-    /// Rebuilds the projection of an entity with the given events
-    async fn rebuild_projection<I: Entity>(
+    /// Rebuilds the State of an entity with the given events
+    async fn rebuild_state<I: Entity>(
         &self,
         entity_id: I::Id,
         events: Vec<Event<I>>,

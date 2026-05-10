@@ -1,24 +1,29 @@
-use crate::account::{AccountPayload, AccountProjection};
-use crate::journal::{JournalPayload, JournalProjection};
+use crate::account::{AccountPayload, AccountState};
+use crate::journal::{JournalPayload, JournalState};
 use crate::store::universal::registry::EntityType;
-use crate::transaction::{TransactionPayload, TransactionProjection};
+use crate::transaction::{TransactionPayload, TransactionState};
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
 use cuid::is_cuid2;
+use diesel::backend::Backend;
+use diesel::deserialize::FromSql;
+use diesel::expression::AsExpression;
+use diesel::serialize::{Output, ToSql};
+use diesel::sql_types::Binary;
+use diesel::{FromSqlRow, deserialize, serialize};
 use phf::phf_set;
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::encode::IsNull;
-use sqlx::error::BoxDynError;
-use sqlx::sqlite::{SqliteArgumentValue, SqliteTypeInfo, SqliteValueRef};
-use sqlx::{Decode, Encode, Sqlite, Type};
-use std::borrow::Cow;
 use std::fmt::Display;
 use std::fmt::{self};
+use std::io::Write;
 use std::str::FromStr;
 use thiserror::Error;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, AsExpression, FromSqlRow,
+)]
+#[diesel(sql_type = Binary)]
 pub enum Ident {
     Cuid10([u8; 10]),
     Cuid16([u8; 16]),
@@ -60,6 +65,30 @@ impl Ident {
             Ident::Cuid16(id) => id.as_ref(),
             Ident::Custom(id) => id.as_ref(),
         }
+    }
+}
+
+impl ToSql<Binary, diesel::sqlite::Sqlite> for Ident {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> serialize::Result {
+        out.set_value(self.as_bytes().to_vec());
+        Ok(serialize::IsNull::No)
+    }
+}
+
+impl ToSql<Binary, diesel::pg::Pg> for Ident {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> serialize::Result {
+        out.write_all(self.as_bytes())?;
+        Ok(serialize::IsNull::No)
+    }
+}
+
+impl<DB: Backend> FromSql<Binary, DB> for Ident
+where
+    Vec<u8>: FromSql<Binary, DB>,
+{
+    fn from_sql(value: DB::RawValue<'_>) -> deserialize::Result<Self> {
+        let bytes = <Vec<u8> as FromSql<Binary, DB>>::from_sql(value)?;
+        Ok(Ident::try_from(bytes.as_ref())?)
     }
 }
 
@@ -139,49 +168,23 @@ impl Display for Ident {
     }
 }
 
-impl Type<Sqlite> for Ident {
-    fn type_info() -> SqliteTypeInfo {
-        <&[u8] as Type<Sqlite>>::type_info()
-    }
-}
-
-impl<'q> Encode<'q, Sqlite> for Ident {
-    fn encode_by_ref(
-        &self,
-        args: &mut Vec<SqliteArgumentValue<'q>>,
-    ) -> Result<IsNull, BoxDynError> {
-        args.push(SqliteArgumentValue::Blob(Cow::Owned(
-            self.as_bytes().to_vec(),
-        )));
-        Ok(IsNull::No)
-    }
-}
-
-impl<'r> Decode<'r, Sqlite> for Ident {
-    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
-        let bytes = <&[u8] as Decode<Sqlite>>::decode(value)?;
-
-        Ok(Self::try_from(bytes)?)
-    }
-}
-
 #[derive(Debug, Error, Clone, Deserialize)]
-pub enum ProjectionFromPayloadError {
+pub enum StateFromPayloadError {
     #[error("Expected a \"Created\" enum variant, but found {0}")]
     IncorrectVariant(String),
 }
 
-/// A macro to create an entity and associate it with an Id, Payload, and Projection type
+/// A macro to create an entity and associate it with an Id, Payload, and State type
 ///
 /// # Constraints
-/// The `Payload` and `Projection` types are created with their respective macros.
+/// The `Payload` and `State` types are created with their respective macros.
 ///
-/// The `Projection` type implements TryFrom<PayloadWithId<{`entity_type`}Id>> with an
-/// error type of `ProjectionFromPayloadError`. It should return `IncorrectVariant`
+/// The `State` type implements TryFrom<PayloadWithId<{`entity_type`}Id>> with an
+/// error type of `StateFromPayloadError`. It should return `IncorrectVariant`
 /// if the payload isn't the `Created` variant.
 ///
-/// The `Projection` type implements `ApplyPayload<{`entity_type`}Id>`.
-/// It should leave the projection unchanged if the `Payload` is of the `Created` variant.
+/// The `State` type implements `ApplyPayload<{`entity_type`}Id>`.
+/// It should leave the State unchanged if the `Payload` is of the `Created` variant.
 ///
 /// The `EntityType` and `AnyPayload` enums in crate::store::universal::registry are updated
 /// to include the relevant variants for your entity.
@@ -195,7 +198,7 @@ pub enum ProjectionFromPayloadError {
 ///
 /// `payload_type`: An existing payload type. It should have the suffix `Payload`.
 ///
-/// `projection_type`: An existing projection type. It should have the suffix `Projection`.
+/// `State_type`: An existing State type. It should have the suffix `State`.
 ///
 /// `id_new_fn`: A function that returns an `Ident`
 ///
@@ -206,7 +209,7 @@ pub enum ProjectionFromPayloadError {
 /// ```
 #[macro_export]
 macro_rules! entity {
-    ($entity_type: ident, $registry_entry_entitytype: expr, $id_type: ident, $payload_type: ty, $projection_type: ty, $id_new_fn: expr) => {
+    ($entity_type: ident, $registry_entry_entitytype: expr, $id_type: ident, $payload_type: ty, $State_type: ty, $id_new_fn: expr) => {
         #[derive(
             serde::Serialize,
             serde::Deserialize,
@@ -216,9 +219,10 @@ macro_rules! entity {
             PartialEq,
             Eq,
             Hash,
-            sqlx::Type,
+            diesel::AsExpression,
+            diesel::FromSqlRow,
         )]
-        #[sqlx(transparent)]
+        #[diesel(sql_type = diesel::sql_types::Binary)]
         pub struct $id_type($crate::ident::Ident);
 
         impl $id_type {
@@ -269,7 +273,7 @@ macro_rules! entity {
         impl $crate::store::universal::Entity for $entity_type {
             type Id = $id_type;
             type Payload = $payload_type;
-            type Projection = $projection_type;
+            type State = $State_type;
 
             fn entity_type() -> $crate::store::universal::registry::EntityType {
                 $registry_entry_entitytype
@@ -283,7 +287,7 @@ entity!(
     EntityType::Journal,
     JournalId,
     JournalPayload,
-    JournalProjection,
+    JournalState,
     Ident::new10()
 );
 
@@ -292,7 +296,7 @@ entity!(
     EntityType::Account,
     AccountId,
     AccountPayload,
-    AccountProjection,
+    AccountState,
     Ident::new10()
 );
 
@@ -301,6 +305,6 @@ entity!(
     EntityType::Transaction,
     TransactionId,
     TransactionPayload,
-    TransactionProjection,
+    TransactionState,
     Ident::new16()
 );

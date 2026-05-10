@@ -14,6 +14,7 @@ pub mod name;
 mod notfoundpage;
 mod postcard;
 mod role;
+mod schema;
 mod seed;
 mod store;
 mod theme;

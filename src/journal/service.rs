@@ -4,7 +4,7 @@ use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::ident::JournalId;
 use crate::journal::JournalPayload;
-use crate::journal::JournalProjection;
+use crate::journal::JournalState;
 use crate::journal::JournalStore;
 use crate::journal::JournalStoreError;
 use crate::journal::JournalStoreError::InvalidJournal;
@@ -153,7 +153,7 @@ where
     pub async fn list_journals(
         &self,
         actor: UserId,
-    ) -> JournalStoreResult<Vec<(JournalId, JournalProjection)>> {
+    ) -> JournalStoreResult<Vec<(JournalId, JournalState)>> {
         let ids = self.journal_store.get_user_journals(actor).await?;
 
         let mut journals = Vec::new();
@@ -178,7 +178,7 @@ where
         &self,
         journal_id: JournalId,
         authority: &Authority,
-    ) -> JournalStoreResult<Option<JournalProjection>> {
+    ) -> JournalStoreResult<Option<JournalState>> {
         let state = match self.journal_store.get_journal(journal_id).await? {
             Some(s) => s,
             None => return Ok(None),
@@ -226,7 +226,7 @@ where
         &self,
         journal_id: JournalId,
         authority: &Authority,
-    ) -> JournalStoreResult<Vec<(JournalId, JournalProjection)>> {
+    ) -> JournalStoreResult<Vec<(JournalId, JournalState)>> {
         let perms = self.effective_permissions(journal_id, authority).await?;
         if !perms.contains(Permissions::READ) {
             return Err(PermissionError(Permissions::READ));
@@ -248,7 +248,7 @@ where
         &self,
         journal_id: JournalId,
         authority: &Authority,
-    ) -> JournalStoreResult<Vec<(JournalId, JournalProjection)>> {
+    ) -> JournalStoreResult<Vec<(JournalId, JournalState)>> {
         let perms = self.effective_permissions(journal_id, authority).await?;
         if !perms.contains(Permissions::READ) {
             return Err(PermissionError(Permissions::READ));

@@ -21,15 +21,16 @@ use webauthn_rs_proto::AuthenticatorSelectionCriteria;
 use webauthn_rs_proto::ResidentKeyRequirement;
 
 use super::AuthSession;
+use super::passkey::PasskeyId;
 use super::passkey::PasskeyPayload;
 use super::passkey::PasskeyStore;
-use super::passkey::{Passkey, PasskeyId};
 use super::user::Email;
 use super::user::UserId;
 use super::user::UserPayload;
 use super::user::UserStore;
 use crate::authority::Actor;
 use crate::authority::Authority;
+use crate::postcard::Postcard;
 use crate::theme::theme_with_head;
 
 /// Errors that occur during the signup flow.
@@ -446,7 +447,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                     Authority::Direct(Actor::User(user_id)),
                     PasskeyPayload::Created {
                         user_id,
-                        passkey: Passkey(passkey),
+                        passkey: Postcard(passkey),
                     },
                 )
                 .await
@@ -456,7 +457,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             }
 
             // Log in the newly registered user via axum_login
-            let user = super::user::UserProjection {
+            let user = super::user::UserState {
                 id: user_id,
                 email: email_validated,
                 deleted: false,

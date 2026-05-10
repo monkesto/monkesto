@@ -85,19 +85,18 @@ use crate::authority::UserId;
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::JournalId;
-use crate::ident::{IdentError, ProjectionFromPayloadError};
+use crate::ident::{IdentError, StateFromPayloadError};
 use crate::journal::JournalStoreError::InvalidJournal;
 use crate::name::Name;
-use crate::payload;
 use crate::postcard::Postcard;
 use crate::store::universal::registry::AnyPayload;
+use crate::{payload, state};
 use bitflags::bitflags;
 use chrono::DateTime;
 use chrono::Utc;
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::FromRow;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::Formatter;
@@ -115,10 +114,7 @@ pub trait JournalStore:
     + EventStore<Id = JournalId, Payload = JournalPayload, Error = JournalStoreError>
 {
     /// returns the cached state of the journal
-    async fn get_journal(
-        &self,
-        journal_id: JournalId,
-    ) -> JournalStoreResult<Option<JournalProjection>>;
+    async fn get_journal(&self, journal_id: JournalId) -> JournalStoreResult<Option<JournalState>>;
 
     /// returns all journals that a user is a member of (owner or tenant)
     async fn get_user_journals(&self, user_id: UserId) -> JournalStoreResult<Vec<JournalId>>;
@@ -178,7 +174,7 @@ pub struct JournalMemoryStore {
     global_events: Arc<RwLock<Vec<Arc<Event<JournalPayload, JournalId>>>>>,
     local_events: Arc<DashMap<JournalId, Vec<Arc<Event<JournalPayload, JournalId>>>>>,
 
-    journal_table: Arc<DashMap<JournalId, JournalProjection>>,
+    journal_table: Arc<DashMap<JournalId, JournalState>>,
     /// Index of user_id -> set of journal_ids they belong to
     user_journals: Arc<DashMap<UserId, std::collections::HashSet<JournalId>>>,
     /// Index of parent_journal_id -> set of child journal_ids
@@ -225,7 +221,7 @@ impl EventStore for JournalMemoryStore {
         {
             self.local_events.insert(id, vec![event.clone()]);
 
-            let state = JournalProjection {
+            let state = JournalState {
                 id,
                 name,
                 owner,
@@ -287,10 +283,7 @@ impl EventStore for JournalMemoryStore {
 }
 
 impl JournalStore for JournalMemoryStore {
-    async fn get_journal(
-        &self,
-        journal_id: JournalId,
-    ) -> JournalStoreResult<Option<JournalProjection>> {
+    async fn get_journal(&self, journal_id: JournalId) -> JournalStoreResult<Option<JournalState>> {
         Ok(self
             .journal_table
             .get(&journal_id)
@@ -390,18 +383,20 @@ payload! {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Projection, FromRow)]
-pub struct JournalProjection {
-    pub id: JournalId,
-    pub name: Name,
-    pub owner: UserId,
-    pub members: Postcard<HashMap<UserId, Permissions>>,
-    pub deleted: bool,
-    pub parent_journal_id: Option<JournalId>,
+state! {
+    #[diesel(table_name = crate::schema::journals)]
+    pub struct JournalState {
+        pub id: JournalId,
+        pub name: Name,
+        pub owner: UserId,
+        pub members: Postcard<HashMap<UserId, Permissions>>,
+        pub deleted: bool,
+        pub parent_journal_id: Option<JournalId>,
+    }
 }
 
-impl TryFrom<(JournalId, JournalPayload)> for JournalProjection {
-    type Error = ProjectionFromPayloadError;
+impl TryFrom<(JournalId, JournalPayload)> for JournalState {
+    type Error = StateFromPayloadError;
     fn try_from(value: (JournalId, JournalPayload)) -> Result<Self, Self::Error> {
         let (id, payload) = value;
 
@@ -418,7 +413,7 @@ impl TryFrom<(JournalId, JournalPayload)> for JournalProjection {
                 deleted: false,
                 parent_journal_id: *parent_journal_id,
             }),
-            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+            _ => Err(StateFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
                 payload
             ))),
@@ -426,7 +421,7 @@ impl TryFrom<(JournalId, JournalPayload)> for JournalProjection {
     }
 }
 
-impl ApplyPayload<JournalEntity> for JournalProjection {
+impl ApplyPayload<JournalEntity> for JournalState {
     fn apply(&mut self, payload: &JournalPayload) -> &mut Self {
         match payload {
             JournalPayload::Created { .. } => {}
@@ -451,7 +446,7 @@ pub trait JournalNameOrUnknown {
     fn or_unknown(&self) -> String;
 }
 
-impl<E> JournalNameOrUnknown for Result<Option<JournalProjection>, E>
+impl<E> JournalNameOrUnknown for Result<Option<JournalState>, E>
 where
     E: std::error::Error,
 {
@@ -477,7 +472,7 @@ where
     }
 }
 
-impl JournalProjection {
+impl JournalState {
     pub fn apply(&mut self, payload: JournalPayload) {
         match payload {
             JournalPayload::Created {

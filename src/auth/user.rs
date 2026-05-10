@@ -2,10 +2,10 @@ use crate::authority::Authority;
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::Ident;
-use crate::ident::ProjectionFromPayloadError;
+use crate::ident::StateFromPayloadError;
 use crate::monkesto_error::OrRedirect;
 use crate::store::universal::ApplyPayload;
-use crate::{entity, payload, projection};
+use crate::{entity, payload, state};
 use axum::response::Redirect;
 use serde::Deserialize;
 use serde::Serialize;
@@ -18,11 +18,12 @@ entity!(
     EntityType::User,
     UserId,
     UserPayload,
-    UserProjection,
+    UserState,
     Ident::new16()
 );
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Type)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, AsExpression, FromSqlRow)]
+#[diesel(sql_type = Text)]
 pub struct Email(String);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Error)]
@@ -57,23 +58,36 @@ impl AsRef<str> for Email {
     }
 }
 
-impl Type<Sqlite> for Email {
-    fn type_info() -> SqliteTypeInfo {
-        <String as Type<Sqlite>>::type_info()
+impl<DB: Backend> ToSql<Text, DB> for Email
+where
+    String: ToSql<Text, DB>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> serialize::Result {
+        self.0.to_sql(out)
     }
 }
 
-projection! {
-    pub struct UserProjection {
+impl<DB: Backend> FromSql<Text, DB> for Email
+where
+    String: FromSql<Text, DB>,
+{
+    fn from_sql(value: DB::RawValue<'_>) -> deserialize::Result<Self> {
+        Ok(Email::try_new(String::from_sql(value)?)?)
+    }
+}
+
+state! {
+    #[diesel(table_name = crate::schema::users)]
+    pub struct UserState {
         pub id: UserId,
         pub email: Email,
         pub deleted: bool,
     }
 }
 
-impl TryFrom<(UserId, UserPayload)> for UserProjection {
-    type Error = ProjectionFromPayloadError;
-    fn try_from(value: (UserId, UserPayload)) -> Result<Self, ProjectionFromPayloadError> {
+impl TryFrom<(UserId, UserPayload)> for UserState {
+    type Error = StateFromPayloadError;
+    fn try_from(value: (UserId, UserPayload)) -> Result<Self, StateFromPayloadError> {
         let (id, payload) = value;
 
         match payload {
@@ -85,7 +99,7 @@ impl TryFrom<(UserId, UserPayload)> for UserProjection {
                 email,
                 deleted: false,
             }),
-            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+            _ => Err(StateFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
                 payload
             ))),
@@ -93,7 +107,7 @@ impl TryFrom<(UserId, UserPayload)> for UserProjection {
     }
 }
 
-impl ApplyPayload<UserEntity> for UserProjection {
+impl ApplyPayload<UserEntity> for UserState {
     fn apply(&mut self, payload: &UserPayload) -> &mut Self {
         match payload {
             UserPayload::Created { .. } => {}
@@ -103,7 +117,7 @@ impl ApplyPayload<UserEntity> for UserProjection {
     }
 }
 
-impl axum_login::AuthUser for UserProjection {
+impl axum_login::AuthUser for UserState {
     type Id = UserId;
 
     fn id(&self) -> Self::Id {
@@ -116,9 +130,9 @@ impl axum_login::AuthUser for UserProjection {
     }
 }
 
-pub fn get_user<T>(session: AuthSession<T>) -> Result<UserProjection, Redirect>
+pub fn get_user<T>(session: AuthSession<T>) -> Result<UserState, Redirect>
 where
-    T: AuthnBackend<User = UserProjection>,
+    T: AuthnBackend<User = UserState>,
 {
     session
         .user
@@ -295,7 +309,7 @@ pub trait UserStore:
     async fn get_user(
         &self,
         user_id: UserId,
-    ) -> Result<Option<UserProjection>, <Self as EventStore>::Error>;
+    ) -> Result<Option<UserState>, <Self as EventStore>::Error>;
 
     async fn get_user_email(
         &self,
@@ -351,7 +365,7 @@ pub trait UserStore:
     }
 
     /// Returns dev users for displaying in the dev login form.
-    async fn get_dev_users(&self) -> Vec<UserProjection> {
+    async fn get_dev_users(&self) -> Vec<UserState> {
         let mut users = Vec::new();
         for email in DEV_USERS {
             if let Ok(Some(user_id)) = self.lookup_user_id(email).await
@@ -368,9 +382,12 @@ use crate::store::universal::registry::{AnyPayload, EntityType};
 use axum_login::AuthSession;
 use axum_login::AuthnBackend;
 use dashmap::DashMap;
+use diesel::backend::Backend;
+use diesel::deserialize::FromSql;
+use diesel::serialize::{Output, ToSql};
+use diesel::sql_types::Text;
+use diesel::{AsExpression, FromSqlRow, deserialize, serialize};
 use regex::Regex;
-use sqlx::sqlite::SqliteTypeInfo;
-use sqlx::{Sqlite, Type};
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -491,16 +508,13 @@ impl UserStore for MemoryUserStore {
         Ok(self.email_to_user_id.contains_key(email))
     }
 
-    async fn get_user(&self, user_id: UserId) -> Result<Option<UserProjection>, UserStoreError> {
-        Ok(self
-            .user_id_to_email
-            .get(&user_id)
-            .map(|email| UserProjection {
-                id: user_id,
-                email: email.clone(),
-                // user_id_to_email will only return Some when deleted isn't false
-                deleted: false,
-            }))
+    async fn get_user(&self, user_id: UserId) -> Result<Option<UserState>, UserStoreError> {
+        Ok(self.user_id_to_email.get(&user_id).map(|email| UserState {
+            id: user_id,
+            email: email.clone(),
+            // user_id_to_email will only return Some when deleted isn't false
+            deleted: false,
+        }))
     }
 
     async fn get_user_email(&self, user_id: UserId) -> Result<Option<String>, UserStoreError> {
@@ -524,7 +538,7 @@ impl UserStore for MemoryUserStore {
 pub struct WebauthnCredentials;
 
 impl AuthnBackend for MemoryUserStore {
-    type User = UserProjection;
+    type User = UserState;
     type Credentials = WebauthnCredentials;
     type Error = UserStoreError;
 

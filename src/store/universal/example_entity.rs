@@ -1,14 +1,14 @@
-use crate::ident::{Ident, ProjectionFromPayloadError};
+use crate::ident::{Ident, StateFromPayloadError};
 use crate::store::universal::ApplyPayload;
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::{entity, payload, projection};
+use crate::{entity, payload, state};
 
 entity!(
     ExampleEntity,
     EntityType::Example,
     ExampleId,
     ExamplePayload,
-    ExampleProjection,
+    ExampleState,
     Ident::new16()
 );
 
@@ -21,21 +21,22 @@ payload! {
     }
 }
 
-projection! {
-    pub struct ExampleProjection {
+state! {
+    #[diesel(table_name = crate::schema::examples)]
+    pub struct ExampleState {
         id: ExampleId,
         deleted: bool,
     }
 }
 
-impl TryFrom<(ExampleId, ExamplePayload)> for ExampleProjection {
-    type Error = ProjectionFromPayloadError;
+impl TryFrom<(ExampleId, ExamplePayload)> for ExampleState {
+    type Error = StateFromPayloadError;
 
     fn try_from(value: (ExampleId, ExamplePayload)) -> Result<Self, Self::Error> {
         let (id, payload) = value;
         match payload {
             ExamplePayload::Created => Ok(Self { id, deleted: false }),
-            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+            _ => Err(StateFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
                 payload
             ))),
@@ -43,8 +44,8 @@ impl TryFrom<(ExampleId, ExamplePayload)> for ExampleProjection {
     }
 }
 
-impl ApplyPayload<ExampleEntity> for ExampleProjection {
-    fn apply(&mut self, payload: &ExamplePayload) -> &mut ExampleProjection {
+impl ApplyPayload<ExampleEntity> for ExampleState {
+    fn apply(&mut self, payload: &ExamplePayload) -> &mut ExampleState {
         match payload {
             ExamplePayload::Created => {}
             ExamplePayload::Deleted => self.deleted = true,

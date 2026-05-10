@@ -1,0 +1,5 @@
+CREATE TABLE users (
+    id BLOB PRIMARY KEY NOT NULL,
+    email TEXT NOT NULL,
+    deleted BOOLEAN NOT NULL
+)

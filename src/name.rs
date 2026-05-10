@@ -1,11 +1,15 @@
+use diesel::backend::Backend;
+use diesel::deserialize::FromSql;
+use diesel::serialize::{Output, ToSql};
+use diesel::sql_types::Text;
+use diesel::{AsExpression, FromSqlRow, deserialize, serialize};
 use serde::Deserialize;
 use serde::Serialize;
-use sqlx::sqlite::SqliteTypeInfo;
-use sqlx::{Decode, Encode, Sqlite, Type};
 use std::fmt::Display;
 use thiserror::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Encode, Decode)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, AsExpression, FromSqlRow)]
+#[diesel(sql_type = Text)]
 pub struct Name(String);
 
 impl Name {
@@ -26,9 +30,21 @@ impl Display for Name {
     }
 }
 
-impl Type<Sqlite> for Name {
-    fn type_info() -> SqliteTypeInfo {
-        <String as Type<Sqlite>>::type_info()
+impl<DB: Backend> ToSql<Text, DB> for Name
+where
+    String: ToSql<Text, DB>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> serialize::Result {
+        self.0.to_sql(out)
+    }
+}
+
+impl<DB: Backend> FromSql<Text, DB> for Name
+where
+    String: FromSql<Text, DB>,
+{
+    fn from_sql(value: DB::RawValue<'_>) -> deserialize::Result<Self> {
+        Ok(Name::try_new(String::from_sql(value)?)?)
     }
 }
 

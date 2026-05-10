@@ -46,12 +46,11 @@ pub fn router() -> Router<crate::StateType> {
 use crate::account::AccountStoreError::InvalidAccount;
 use crate::account::AccountStoreError::TransactionWithoutPriorState;
 use crate::authority::Authority;
-use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::AccountEntity;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
-use crate::ident::{AccountId, ProjectionFromPayloadError};
+use crate::ident::{AccountId, StateFromPayloadError};
 use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
 use crate::name::Name;
@@ -59,8 +58,8 @@ use crate::store::universal::ApplyPayload;
 use crate::store::universal::registry::AnyPayload;
 use crate::transaction::EntryType;
 use crate::transaction::TransactionPayload;
-use crate::transaction::TransactionProjection;
-use crate::{payload, projection};
+use crate::transaction::TransactionState;
+use crate::{payload, state};
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
@@ -69,6 +68,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
+use crate::event::Event;
 
 payload! {
     AnyPayload::Account,
@@ -85,8 +85,10 @@ payload! {
     }
 }
 
-projection! {
-    pub struct AccountProjection {
+state! {
+    #[diesel(table_name = crate::schema::accounts)]
+    #[diesel(treat_none_as_null = true)]
+    pub struct AccountState {
         pub id: AccountId,
         pub name: Name,
         pub journal_id: JournalId,
@@ -96,7 +98,7 @@ projection! {
     }
 }
 
-impl ApplyPayload<AccountEntity> for AccountProjection {
+impl ApplyPayload<AccountEntity> for AccountState {
     fn apply(&mut self, payload: &AccountPayload) -> &mut Self {
         match payload {
             AccountPayload::Created { .. } => {}
@@ -106,9 +108,9 @@ impl ApplyPayload<AccountEntity> for AccountProjection {
         self
     }
 }
-impl TryFrom<(AccountId, AccountPayload)> for AccountProjection {
-    type Error = ProjectionFromPayloadError;
-    fn try_from(value: (AccountId, AccountPayload)) -> Result<Self, ProjectionFromPayloadError> {
+impl TryFrom<(AccountId, AccountPayload)> for AccountState {
+    type Error = StateFromPayloadError;
+    fn try_from(value: (AccountId, AccountPayload)) -> Result<Self, StateFromPayloadError> {
         let (id, payload) = value;
 
         match payload {
@@ -124,7 +126,7 @@ impl TryFrom<(AccountId, AccountPayload)> for AccountProjection {
                 deleted: false,
                 parent_account_id,
             }),
-            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+            _ => Err(StateFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
                 payload
             ))),
@@ -144,16 +146,14 @@ pub trait AccountStore:
         journal_id: JournalId,
     ) -> AccountStoreResult<HashSet<AccountId>>;
 
-    async fn get_account(
-        &self,
-        account_id: &AccountId,
-    ) -> AccountStoreResult<Option<AccountProjection>>;
+    async fn get_account(&self, account_id: &AccountId)
+    -> AccountStoreResult<Option<AccountState>>;
 
     async fn update_balances(
         &self,
         transaction_id: TransactionId,
         transaction_event: &TransactionPayload,
-        old_transaction: Option<&TransactionProjection>,
+        old_transaction: Option<&TransactionState>,
     ) -> AccountStoreResult<()>;
 }
 
@@ -162,7 +162,7 @@ pub trait AccountStore:
 pub struct AccountMemoryStore {
     global_events: Arc<Mutex<Vec<Arc<Event<AccountPayload, AccountId>>>>>,
     local_events: Arc<DashMap<AccountId, Vec<Arc<Event<AccountPayload, AccountId>>>>>,
-    account_table: Arc<DashMap<AccountId, AccountProjection>>,
+    account_table: Arc<DashMap<AccountId, AccountState>>,
 
     account_lookup_table: Arc<DashMap<JournalId, Vec<AccountId>>>,
 }
@@ -206,7 +206,7 @@ impl EventStore for AccountMemoryStore {
             } => {
                 self.local_events.insert(id, vec![event.clone()]);
 
-                let state = AccountProjection {
+                let state = AccountState {
                     id,
                     name,
                     journal_id,
@@ -280,7 +280,7 @@ impl AccountStore for AccountMemoryStore {
     async fn get_account(
         &self,
         account_id: &AccountId,
-    ) -> AccountStoreResult<Option<AccountProjection>> {
+    ) -> AccountStoreResult<Option<AccountState>> {
         Ok(self.account_table.get(account_id).map(|s| (*s).clone()))
     }
 
@@ -288,7 +288,7 @@ impl AccountStore for AccountMemoryStore {
         &self,
         transaction_id: TransactionId,
         transaction_event: &TransactionPayload,
-        old_transaction: Option<&TransactionProjection>,
+        old_transaction: Option<&TransactionState>,
     ) -> AccountStoreResult<()> {
         match transaction_event {
             TransactionPayload::Created { updates, .. } => {

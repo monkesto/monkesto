@@ -9,7 +9,7 @@ use crate::transaction::TransactionPayload;
 use serde::Deserialize;
 
 #[repr(i8)]
-#[derive(Debug, Clone, PartialEq, Deserialize, sqlx::Type, Copy)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Copy)]
 pub enum EntityType {
     Example = 1,
     Journal = 2,

@@ -1,0 +1,4 @@
+CREATE TABLE examples (
+     id BLOB PRIMARY KEY NOT NULL,
+     deleted BOOLEAN NOT NULL
+)

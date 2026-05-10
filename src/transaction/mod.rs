@@ -32,7 +32,7 @@ use std::sync::Arc;
 use crate::authority::Authority;
 use crate::ident::JournalId;
 use crate::ident::TransactionId;
-use crate::ident::{AccountId, ProjectionFromPayloadError};
+use crate::ident::{AccountId, StateFromPayloadError};
 
 use crate::account::AccountStoreError;
 use crate::event::Event;
@@ -42,7 +42,7 @@ use crate::journal::Permissions;
 use crate::postcard::Postcard;
 use crate::store::universal::registry::AnyPayload;
 use crate::transaction::TransactionStoreError::InvalidEntryType;
-use crate::{payload, projection};
+use crate::{payload, state};
 use TransactionStoreError::InvalidTransaction;
 use dashmap::DashMap;
 use rust_decimal::Decimal;
@@ -121,7 +121,7 @@ pub trait TransactionStore:
     async fn get_transaction(
         &self,
         transaction_id: &TransactionId,
-    ) -> TransactionStoreResult<Option<TransactionProjection>>;
+    ) -> TransactionStoreResult<Option<TransactionState>>;
 
     async fn get_transaction_authority(
         &self,
@@ -135,7 +135,7 @@ pub struct TransactionMemoryStore {
     global_events: Arc<Mutex<Vec<Arc<Event<TransactionPayload, TransactionId>>>>>,
     local_events: Arc<DashMap<TransactionId, Vec<Arc<Event<TransactionPayload, TransactionId>>>>>,
 
-    transaction_table: Arc<DashMap<TransactionId, TransactionProjection>>,
+    transaction_table: Arc<DashMap<TransactionId, TransactionState>>,
     journal_lookup_table: Arc<DashMap<JournalId, Vec<TransactionId>>>,
 }
 
@@ -175,7 +175,8 @@ impl EventStore for TransactionMemoryStore {
             updates,
         } = payload
         {
-            let state = TransactionProjection {
+            let state = TransactionState {
+                id,
                 journal_id,
                 updates: Postcard(updates),
                 deleted: false,
@@ -239,7 +240,7 @@ impl TransactionStore for TransactionMemoryStore {
     async fn get_transaction(
         &self,
         transaction_id: &TransactionId,
-    ) -> TransactionStoreResult<Option<TransactionProjection>> {
+    ) -> TransactionStoreResult<Option<TransactionState>> {
         Ok(self
             .transaction_table
             .get(transaction_id)
@@ -309,31 +310,32 @@ payload! {
         Deleted,
     }
 }
-projection! {
-    pub struct TransactionProjection {
+state! {
+    #[diesel(table_name = crate::schema::transactions)]
+    pub struct TransactionState {
+        pub id: TransactionId,
         pub journal_id: JournalId,
         pub updates: Postcard<Vec<BalanceUpdate>>,
         pub deleted: bool,
     }
 }
 
-impl TryFrom<(TransactionId, TransactionPayload)> for TransactionProjection {
-    type Error = ProjectionFromPayloadError;
-    fn try_from(
-        value: (TransactionId, TransactionPayload),
-    ) -> Result<Self, ProjectionFromPayloadError> {
-        let (_id, payload) = value;
+impl TryFrom<(TransactionId, TransactionPayload)> for TransactionState {
+    type Error = StateFromPayloadError;
+    fn try_from(value: (TransactionId, TransactionPayload)) -> Result<Self, StateFromPayloadError> {
+        let (id, payload) = value;
 
         match payload {
             TransactionPayload::Created {
                 updates,
                 journal_id,
             } => Ok(Self {
+                id,
                 journal_id,
                 updates: Postcard(updates),
                 deleted: false,
             }),
-            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+            _ => Err(StateFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
                 payload
             ))),
@@ -341,7 +343,7 @@ impl TryFrom<(TransactionId, TransactionPayload)> for TransactionProjection {
     }
 }
 
-impl ApplyPayload<TransactionEntity> for TransactionProjection {
+impl ApplyPayload<TransactionEntity> for TransactionState {
     fn apply(&mut self, payload: &TransactionPayload) -> &mut Self {
         match payload {
             TransactionPayload::Created { .. } => {}

@@ -49,13 +49,13 @@ pub fn derive_payload(input: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-#[proc_macro_derive(Projection)]
-pub fn derive_projection(input: TokenStream) -> TokenStream {
+#[proc_macro_derive(State)]
+pub fn derive_state(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     let name = &ast.ident;
 
     let expanded = quote! {
-        impl crate::store::universal::Projection for #name {}
+        impl crate::store::universal::State for #name {}
     };
 
     TokenStream::from(expanded)

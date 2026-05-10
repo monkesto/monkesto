@@ -1,4 +1,4 @@
-use crate::ident::ProjectionFromPayloadError;
+use crate::ident::StateFromPayloadError;
 use crate::store::universal::ApplyPayload;
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use axum::extract::Extension;
@@ -9,7 +9,6 @@ use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
-use std::borrow::Cow;
 use thiserror::Error;
 
 use std::collections::HashMap;
@@ -27,7 +26,7 @@ use crate::authority::Authority;
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::Ident;
-use crate::{entity, payload, projection};
+use crate::{entity, payload, state};
 use maud::PreEscaped;
 use maud::html;
 
@@ -69,12 +68,6 @@ impl IntoResponse for PasskeyError {
 }
 
 use dashmap::DashMap;
-use serde::Deserialize;
-use serde::Serialize;
-use sqlx::encode::IsNull;
-use sqlx::error::BoxDynError;
-use sqlx::sqlite::{SqliteArgumentValue, SqliteTypeInfo, SqliteValueRef};
-use sqlx::{Decode, Encode, Sqlite, Type};
 use std::ops::Deref;
 
 pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
@@ -152,7 +145,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
                         Authority::Direct(Actor::User(user_id)),
                         PasskeyPayload::Created {
                             user_id,
-                            passkey: Passkey(passkey),
+                            passkey: Postcard(passkey),
                         },
                     )
                     .await
@@ -319,69 +312,35 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
 
     layout(None, content)
 }
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct Passkey(pub webauthn_rs::prelude::Passkey);
-
-impl Deref for Passkey {
-    type Target = webauthn_rs::prelude::Passkey;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl Type<Sqlite> for Passkey {
-    fn type_info() -> SqliteTypeInfo {
-        <&[u8] as Type<Sqlite>>::type_info()
-    }
-}
-
-impl<'q> Encode<'q, Sqlite> for Passkey {
-    fn encode_by_ref(
-        &self,
-        args: &mut Vec<SqliteArgumentValue<'q>>,
-    ) -> Result<IsNull, BoxDynError> {
-        args.push(SqliteArgumentValue::Blob(Cow::Owned(
-            postcard::to_allocvec(self).expect("Failed to serialize passkey"),
-        )));
-        Ok(IsNull::No)
-    }
-}
-
-impl<'r> Decode<'r, Sqlite> for Passkey {
-    fn decode(value: SqliteValueRef<'r>) -> Result<Self, BoxDynError> {
-        let bytes = <&[u8] as Decode<Sqlite>>::decode(value)?;
-
-        Ok(postcard::from_bytes::<Self>(bytes)?)
-    }
-}
 
 entity!(
     PasskeyEntity,
     EntityType::Passkey,
     PasskeyId,
     PasskeyPayload,
-    PasskeyProjection,
+    PasskeyState,
     Ident::new16()
 );
 
-projection! {
-    pub struct PasskeyProjection {
+state! {
+    #[diesel(table_name = crate::schema::passkeys)]
+    pub struct PasskeyState {
         pub id: PasskeyId,
-        pub passkey: Passkey,
+        pub passkey: Postcard<webauthn_rs::prelude::Passkey>,
     }
 }
 
-impl TryFrom<(PasskeyId, PasskeyPayload)> for PasskeyProjection {
-    type Error = ProjectionFromPayloadError;
+impl TryFrom<(PasskeyId, PasskeyPayload)> for PasskeyState {
+    type Error = StateFromPayloadError;
 
-    fn try_from(value: (PasskeyId, PasskeyPayload)) -> Result<Self, ProjectionFromPayloadError> {
+    fn try_from(value: (PasskeyId, PasskeyPayload)) -> Result<Self, StateFromPayloadError> {
         let (id, payload) = value;
         match payload {
             PasskeyPayload::Created {
                 user_id: _user_id,
                 passkey,
             } => Ok(Self { id, passkey }),
-            _ => Err(ProjectionFromPayloadError::IncorrectVariant(format!(
+            _ => Err(StateFromPayloadError::IncorrectVariant(format!(
                 "{:?}",
                 payload
             ))),
@@ -389,9 +348,9 @@ impl TryFrom<(PasskeyId, PasskeyPayload)> for PasskeyProjection {
     }
 }
 
-impl ApplyPayload<PasskeyEntity> for PasskeyProjection {
+impl ApplyPayload<PasskeyEntity> for PasskeyState {
     fn apply(&mut self, _payload: &PasskeyPayload) -> &mut Self {
-        todo!("Applying PasskeyProjection to PasskeyPayload is not yet implemented")
+        todo!("Applying PasskeyState to PasskeyPayload is not yet implemented")
     }
 }
 
@@ -402,7 +361,7 @@ payload! {
     pub enum PasskeyPayload {
         Created {
             user_id: UserId,
-            passkey: Passkey,
+            passkey: Postcard<webauthn_rs::prelude::Passkey>,
         },
         Deleted {
             user_id: UserId,
@@ -424,10 +383,7 @@ pub enum PasskeyStoreError {
 pub trait PasskeyStore:
     EventStore<Id = PasskeyId, Payload = PasskeyPayload, Error = PasskeyStoreError>
 {
-    async fn get_user_passkeys(
-        &self,
-        user_id: &UserId,
-    ) -> Result<Vec<PasskeyProjection>, Self::Error>;
+    async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<PasskeyState>, Self::Error>;
 
     async fn get_all_credentials(&self) -> Result<Vec<webauthn_rs::prelude::Passkey>, Self::Error>;
 
@@ -437,10 +393,11 @@ pub trait PasskeyStore:
     ) -> Result<Option<(UserId, PasskeyId)>, Self::Error>;
 }
 
+use crate::postcard::Postcard;
 use tokio::sync::Mutex;
 
 struct PasskeyData {
-    keys: HashMap<UserId, Vec<PasskeyProjection>>,
+    keys: HashMap<UserId, Vec<PasskeyState>>,
 }
 
 impl PasskeyData {
@@ -503,7 +460,7 @@ impl EventStore for MemoryPasskeyStore {
                 ref passkey,
             } => {
                 let passkeys = data.keys.entry(user_id).or_default();
-                passkeys.push(PasskeyProjection {
+                passkeys.push(PasskeyState {
                     id,
                     passkey: passkey.clone(),
                 });
@@ -553,7 +510,7 @@ impl PasskeyStore for MemoryPasskeyStore {
     async fn get_user_passkeys(
         &self,
         user_id: &UserId,
-    ) -> Result<Vec<PasskeyProjection>, PasskeyStoreError> {
+    ) -> Result<Vec<PasskeyState>, PasskeyStoreError> {
         let data = self.data.lock().await;
         Ok(data.keys.get(user_id).cloned().unwrap_or_default())
     }

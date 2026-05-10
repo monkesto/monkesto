@@ -22,14 +22,14 @@ macro_rules! payload {
 }
 
 #[macro_export]
-macro_rules! projection {
+macro_rules! state {
     (
         $(#[$meta:meta])*
         $vis:vis struct $struct_name:ident {
             $($fields:tt)*
         }
     ) => {
-        #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Projection, sqlx::FromRow, sqlx::Decode)]
+        #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, State, diesel::Queryable, diesel::Selectable, diesel::Insertable)]
         $(#[$meta])*
         $vis struct $struct_name {
             $($fields)*

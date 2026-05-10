@@ -1,5 +1,5 @@
 use crate::account::AccountPayload;
-use crate::account::AccountProjection;
+use crate::account::AccountState;
 use crate::account::AccountStore;
 use crate::account::AccountStoreError::AccountExists;
 use crate::account::AccountStoreError::InvalidAccount;
@@ -87,7 +87,7 @@ where
         &self,
         journal_id: JournalId,
         authority: &Authority,
-    ) -> AccountStoreResult<Vec<(AccountId, AccountProjection)>> {
+    ) -> AccountStoreResult<Vec<(AccountId, AccountState)>> {
         let journal_state = self
             .journal_service
             .get_journal(journal_id, authority)
