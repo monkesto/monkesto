@@ -38,10 +38,14 @@ axum-extra = { version = "0.12.5", features = ["form"] }
 rust_decimal = { version = "1.40.0", features = ["macros"] }
 axum-test = "20.0.0"
 paste = "1.0.15"
-diesel = { version = "2.3.9", features = ["sqlite", "returning_clauses_for_sqlite_3_35", "postgres"] }
+diesel = {version = "2.3.9", features = ["sqlite", "postgres"]}
+deadpool-diesel = { version = "0.6.1", features = ["postgres", "sqlite"] }
+
 libsqlite3-sys = { version = "0.37.0", features = ["bundled"] }
 pq-sys = { version = "0.7.5", features = ["bundled"] }
 openssl-sys = { version = "0.9.115", features = ["vendored"] }
+tower-sessions-core = "0.15.0"
+async-trait = "0.1.89"
 
 [lints.clippy]
 unwrap_used = "deny"

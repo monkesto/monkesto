@@ -55,6 +55,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    sessions (id) {
+        id -> Binary,
+        data -> Binary,
+        expiry_date -> BigInt,
+    }
+}
+
+diesel::table! {
     transactions (id) {
         id -> Binary,
         journal_id -> Binary,
@@ -78,6 +86,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     examples,
     journals,
     passkeys,
+    sessions,
     transactions,
     users,
 );

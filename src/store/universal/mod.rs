@@ -9,6 +9,7 @@ use std::ops::{Add, Deref};
 use thiserror::Error;
 use tower_sessions::SessionStore;
 
+mod diesel_sqlite;
 mod example_entity;
 pub mod registry;
 
