@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Deref};
 use thiserror::Error;
-use tower_sessions::SessionStore;
+use tower_sessions::ExpiredDeletion;
 
 mod diesel_sqlite;
 mod example_entity;
@@ -179,5 +179,5 @@ pub trait Store {
         events: Vec<Event<I>>,
     ) -> StoreResult<()>;
 
-    async fn session_store(&self) -> &impl SessionStore;
+    async fn session_store(&self) -> &impl ExpiredDeletion;
 }

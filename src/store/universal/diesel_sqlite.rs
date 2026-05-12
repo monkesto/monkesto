@@ -15,10 +15,10 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use tower_sessions::SessionStore;
 use tower_sessions::cookie::time::OffsetDateTime;
 use tower_sessions::session::{Id, Record};
 use tower_sessions::session_store::Error::Backend;
+use tower_sessions::{ExpiredDeletion, SessionStore, session_store};
 
 pub struct DieselSqliteStore {
     pool: Pool<Manager<SqliteConnection>>,
@@ -74,21 +74,18 @@ impl From<Session> for Record {
 }
 
 trait IntoSessionResult<T> {
-    fn into_session_result(self) -> tower_sessions::session_store::Result<T>;
+    fn into_session_result(self) -> session_store::Result<T>;
 }
 
 impl<T, E: Error + Display> IntoSessionResult<T> for Result<T, E> {
-    fn into_session_result(self) -> tower_sessions::session_store::Result<T> {
+    fn into_session_result(self) -> session_store::Result<T> {
         self.map_err(|e| Backend(e.to_string()))
     }
 }
 
 #[async_trait]
 impl SessionStore for DieselSqliteStore {
-    async fn create(
-        &self,
-        session_record: &mut Record,
-    ) -> tower_sessions::session_store::Result<()> {
+    async fn create(&self, session_record: &mut Record) -> session_store::Result<()> {
         let conn = self.pool.get().await.into_session_result()?;
         let mut session = Session::from(session_record.clone());
 
@@ -119,7 +116,7 @@ impl SessionStore for DieselSqliteStore {
         Ok(())
     }
 
-    async fn save(&self, session_record: &Record) -> tower_sessions::session_store::Result<()> {
+    async fn save(&self, session_record: &Record) -> session_store::Result<()> {
         let conn = self.pool.get().await.into_session_result()?;
         let session = Session::from(session_record.clone());
 
@@ -141,7 +138,7 @@ impl SessionStore for DieselSqliteStore {
         Ok(())
     }
 
-    async fn load(&self, session_id: &Id) -> tower_sessions::session_store::Result<Option<Record>> {
+    async fn load(&self, session_id: &Id) -> session_store::Result<Option<Record>> {
         let conn = self.pool.get().await.into_session_result()?;
         let session_id = Postcard(*session_id);
 
@@ -158,12 +155,31 @@ impl SessionStore for DieselSqliteStore {
             .map(|session| session.into()))
     }
 
-    async fn delete(&self, session_id: &Id) -> tower_sessions::session_store::Result<()> {
+    async fn delete(&self, session_id: &Id) -> session_store::Result<()> {
         let conn = self.pool.get().await.into_session_result()?;
         let session_id = Postcard(*session_id);
 
         conn.interact(move |conn| {
             diesel::delete(sessions.filter(id.eq(&session_id)))
+                .execute(conn)
+                .into_session_result()
+        })
+        .await
+        .into_session_result()??;
+
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl ExpiredDeletion for DieselSqliteStore {
+    async fn delete_expired(&self) -> session_store::Result<()> {
+        let conn = self.pool.get().await.into_session_result()?;
+
+        let now = OffsetDateTime::now_utc().unix_timestamp();
+
+        conn.interact(move |conn| {
+            diesel::delete(sessions.filter(expiry_date.lt(now)))
                 .execute(conn)
                 .into_session_result()
         })
@@ -207,7 +223,7 @@ impl Store for DieselSqliteStore {
         todo!()
     }
 
-    async fn session_store(&self) -> &impl SessionStore {
+    async fn session_store(&self) -> &impl ExpiredDeletion {
         self
     }
 }
