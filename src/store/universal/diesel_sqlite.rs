@@ -86,7 +86,7 @@ impl<T, E: Error + Display> IntoSessionResult<T> for Result<T, E> {
 #[async_trait]
 impl SessionStore for DieselSqliteStore {
     async fn save(&self, session_record: &Record) -> tower_sessions::session_store::Result<()> {
-        let conn = self.pool.get().await.map_err(|e| Backend(e.to_string()))?;
+        let conn = self.pool.get().await.into_session_result()?;
         let session = Session::from(session_record.clone());
 
         conn.interact(move |conn| {
@@ -111,7 +111,7 @@ impl SessionStore for DieselSqliteStore {
         &self,
         session_record: &mut Record,
     ) -> tower_sessions::session_store::Result<()> {
-        let conn = self.pool.get().await.map_err(|e| Backend(e.to_string()))?;
+        let conn = self.pool.get().await.into_session_result()?;
         let mut session = Session::from(session_record.clone());
 
         let session_id = conn
@@ -142,7 +142,7 @@ impl SessionStore for DieselSqliteStore {
     }
 
     async fn load(&self, session_id: &Id) -> tower_sessions::session_store::Result<Option<Record>> {
-        let conn = self.pool.get().await.map_err(|e| Backend(e.to_string()))?;
+        let conn = self.pool.get().await.into_session_result()?;
         let session_id = Postcard(*session_id);
 
         Ok(conn
@@ -159,7 +159,7 @@ impl SessionStore for DieselSqliteStore {
     }
 
     async fn delete(&self, session_id: &Id) -> tower_sessions::session_store::Result<()> {
-        let conn = self.pool.get().await.map_err(|e| Backend(e.to_string()))?;
+        let conn = self.pool.get().await.into_session_result()?;
         let session_id = Postcard(*session_id);
 
         conn.interact(move |conn| {
