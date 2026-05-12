@@ -85,28 +85,6 @@ impl<T, E: Error + Display> IntoSessionResult<T> for Result<T, E> {
 
 #[async_trait]
 impl SessionStore for DieselSqliteStore {
-    async fn save(&self, session_record: &Record) -> tower_sessions::session_store::Result<()> {
-        let conn = self.pool.get().await.into_session_result()?;
-        let session = Session::from(session_record.clone());
-
-        conn.interact(move |conn| {
-            diesel::insert_into(sessions)
-                .values(&session)
-                .on_conflict(id)
-                .do_update()
-                .set((
-                    data.eq(excluded(data)),
-                    expiry_date.eq(excluded(expiry_date)),
-                ))
-                .execute(conn)
-                .into_session_result()
-        })
-        .await
-        .into_session_result()??;
-
-        Ok(())
-    }
-
     async fn create(
         &self,
         session_record: &mut Record,
@@ -125,7 +103,7 @@ impl SessionStore for DieselSqliteStore {
                                 DatabaseErrorKind::UniqueViolation,
                                 _,
                             )) => {
-                                session.id = Postcard(Id::default());
+                                session.id.0 = Id::default();
                             }
                             Err(e) => break Err(e),
                         }
@@ -137,6 +115,28 @@ impl SessionStore for DieselSqliteStore {
             .into_session_result()?;
 
         session_record.id = session_id;
+
+        Ok(())
+    }
+
+    async fn save(&self, session_record: &Record) -> tower_sessions::session_store::Result<()> {
+        let conn = self.pool.get().await.into_session_result()?;
+        let session = Session::from(session_record.clone());
+
+        conn.interact(move |conn| {
+            diesel::insert_into(sessions)
+                .values(&session)
+                .on_conflict(id)
+                .do_update()
+                .set((
+                    data.eq(excluded(data)),
+                    expiry_date.eq(excluded(expiry_date)),
+                ))
+                .execute(conn)
+                .into_session_result()
+        })
+        .await
+        .into_session_result()??;
 
         Ok(())
     }
