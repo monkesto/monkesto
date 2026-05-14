@@ -1,6 +1,7 @@
 use crate::auth::user::UserState;
-use crate::authority::Authority;
+use crate::authority::{Authority, UserId};
 use crate::ident::Ident;
+use crate::journal::JournalId;
 use crate::postcard::Postcard;
 use crate::schema::sessions;
 use crate::schema::users;
@@ -26,6 +27,13 @@ use tower_sessions::cookie::time::OffsetDateTime;
 use tower_sessions::session::{Id, Record};
 use tower_sessions::session_store::Error::Backend;
 use tower_sessions::{ExpiredDeletion, SessionStore, session_store};
+
+#[derive(Debug, Queryable, Selectable, Insertable)]
+#[diesel(table_name = crate::schema::journal_members_lookup)]
+pub struct JournalMembersLookup {
+    user_id: UserId,
+    journal_id: JournalId,
+}
 
 #[derive(Clone)]
 pub struct DieselSqliteStore {

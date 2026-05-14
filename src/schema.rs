@@ -37,6 +37,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    journal_members_lookup (rowid) {
+        rowid -> Integer,
+        user_id -> Binary,
+        journal_id -> Binary,
+    }
+}
+
+diesel::table! {
     journals (id) {
         id -> Binary,
         name -> Text,
@@ -87,6 +95,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     entities,
     events,
     examples,
+    journal_members_lookup,
     journals,
     passkeys,
     sessions,
