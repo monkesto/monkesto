@@ -1,10 +1,10 @@
 use crate::BackendType;
 use crate::StateType;
+use crate::account::AccountId;
 use crate::auth::user::{self};
 use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::ident::AccountId;
-use crate::ident::JournalId;
+use crate::journal::JournalId;
 use crate::monkesto_error::OrRedirect;
 use crate::name::Name;
 use axum::extract::Path;

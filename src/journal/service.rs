@@ -2,9 +2,6 @@ use crate::auth::user::Email;
 use crate::auth::user::UserStore;
 use crate::authority::Authority;
 use crate::authority::UserId;
-use crate::ident::JournalId;
-use crate::journal::JournalPayload;
-use crate::journal::JournalState;
 use crate::journal::JournalStore;
 use crate::journal::JournalStoreError;
 use crate::journal::JournalStoreError::InvalidJournal;
@@ -15,6 +12,8 @@ use crate::journal::JournalStoreError::UserDoesntHaveAccess;
 use crate::journal::JournalStoreError::UserLookupFailed;
 use crate::journal::JournalStoreResult;
 use crate::journal::Permissions;
+use crate::journal::{JournalId, JournalPayload};
+use crate::journal::{JournalModifiedPayload, JournalState};
 use crate::name::Name;
 use chrono::DateTime;
 use chrono::Utc;
@@ -355,10 +354,10 @@ where
             .record(
                 journal_id,
                 authority.clone(),
-                JournalPayload::AddedTenant {
+                JournalPayload::Modified(JournalModifiedPayload::AddedTenant {
                     id: invitee_id,
                     permissions,
-                },
+                }),
             )
             .await
     }
@@ -395,10 +394,10 @@ where
             .record(
                 journal_id,
                 authority,
-                JournalPayload::UpdatedTenantPermissions {
+                JournalPayload::Modified(JournalModifiedPayload::UpdatedTenantPermissions {
                     id: target_user,
                     permissions,
-                },
+                }),
             )
             .await
     }
@@ -434,7 +433,7 @@ where
             .record(
                 journal_id,
                 authority,
-                JournalPayload::RemovedTenant { id: target_user },
+                JournalPayload::Modified(JournalModifiedPayload::RemovedTenant { id: target_user }),
             )
             .await
     }

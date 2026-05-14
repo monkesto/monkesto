@@ -50,7 +50,9 @@ diesel::table! {
 diesel::table! {
     passkeys (id) {
         id -> Binary,
+        user_id -> Binary,
         passkey -> Binary,
+        deleted -> Bool,
     }
 }
 
@@ -74,6 +76,7 @@ diesel::table! {
 diesel::table! {
     users (id) {
         id -> Binary,
+        webauthn_uuid -> Binary,
         email -> Text,
         deleted -> Bool,
     }

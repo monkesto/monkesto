@@ -1,6 +1,5 @@
-use crate::ident::StateFromPayloadError;
-use crate::store::universal::ApplyPayload;
 use crate::store::universal::registry::{AnyPayload, EntityType};
+use crate::store::universal::{GetPayloadUsage, PayloadUsage};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -9,6 +8,7 @@ use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
+use std::io::Write;
 use thiserror::Error;
 
 use std::collections::HashMap;
@@ -68,6 +68,7 @@ impl IntoResponse for PasskeyError {
 }
 
 use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 
 pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
@@ -92,7 +93,7 @@ pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
         .record(
             passkey_id,
             Authority::Direct(Actor::User(user_id)),
-            PasskeyPayload::Deleted { user_id },
+            PasskeyPayload::Modified(PasskeyModifiedPayload::Deleted),
         )
         .await
         .map_err(|e| PasskeyError::StoreError(e.to_string()))?;
@@ -143,10 +144,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
                     .record(
                         passkey_id,
                         Authority::Direct(Actor::User(user_id)),
-                        PasskeyPayload::Created {
-                            user_id,
-                            passkey: Postcard(passkey),
-                        },
+                        PasskeyPayload::Created { user_id, passkey },
                     )
                     .await
                     .is_err()
@@ -326,32 +324,14 @@ state! {
     #[diesel(table_name = crate::schema::passkeys)]
     pub struct PasskeyState {
         pub id: PasskeyId,
+        pub user_id: UserId,
         pub passkey: Postcard<webauthn_rs::prelude::Passkey>,
+        pub deleted: bool
     }
 }
-
-impl TryFrom<(PasskeyId, PasskeyPayload)> for PasskeyState {
-    type Error = StateFromPayloadError;
-
-    fn try_from(value: (PasskeyId, PasskeyPayload)) -> Result<Self, StateFromPayloadError> {
-        let (id, payload) = value;
-        match payload {
-            PasskeyPayload::Created {
-                user_id: _user_id,
-                passkey,
-            } => Ok(Self { id, passkey }),
-            _ => Err(StateFromPayloadError::IncorrectVariant(format!(
-                "{:?}",
-                payload
-            ))),
-        }
-    }
-}
-
-impl ApplyPayload<PasskeyEntity> for PasskeyState {
-    fn apply(&mut self, _payload: &PasskeyPayload) -> &mut Self {
-        todo!("Applying PasskeyState to PasskeyPayload is not yet implemented")
-    }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum PasskeyModifiedPayload {
+    Deleted,
 }
 
 payload! {
@@ -361,11 +341,31 @@ payload! {
     pub enum PasskeyPayload {
         Created {
             user_id: UserId,
-            passkey: Postcard<webauthn_rs::prelude::Passkey>,
+            passkey: webauthn_rs::prelude::Passkey,
         },
-        Deleted {
-            user_id: UserId,
-        },
+        Modified(PasskeyModifiedPayload)
+    }
+}
+
+impl GetPayloadUsage<PasskeyEntity> for PasskeyPayload {
+    fn usage<T: Into<PasskeyId>>(self, entity_id: T) -> PayloadUsage<PasskeyEntity> {
+        match self {
+            PasskeyPayload::Created { user_id, passkey } => {
+                PayloadUsage::CreatesState(PasskeyState {
+                    id: entity_id.into(),
+                    user_id,
+                    passkey: Postcard(passkey),
+                    deleted: false,
+                })
+            }
+            PasskeyPayload::Modified(modified_payload) => {
+                PayloadUsage::ModifiesState(Box::new(|state: &mut PasskeyState| {
+                    match modified_payload {
+                        PasskeyModifiedPayload::Deleted => state.deleted = true,
+                    }
+                }))
+            }
+        }
     }
 }
 
@@ -397,13 +397,15 @@ use crate::postcard::Postcard;
 use tokio::sync::Mutex;
 
 struct PasskeyData {
-    keys: HashMap<UserId, Vec<PasskeyState>>,
+    user_to_passkeys: HashMap<UserId, Vec<PasskeyId>>,
+    passkeys: HashMap<PasskeyId, PasskeyState>,
 }
 
 impl PasskeyData {
     fn new() -> Self {
         Self {
-            keys: HashMap::new(),
+            user_to_passkeys: HashMap::new(),
+            passkeys: HashMap::new(),
         }
     }
 }
@@ -454,25 +456,31 @@ impl EventStore for MemoryPasskeyStore {
 
         let mut data = self.data.lock().await;
 
-        match payload {
-            PasskeyPayload::Created {
-                user_id,
-                ref passkey,
-            } => {
-                let passkeys = data.keys.entry(user_id).or_default();
-                passkeys.push(PasskeyState {
-                    id,
-                    passkey: passkey.clone(),
-                });
+        match payload.usage(id) {
+            PayloadUsage::CreatesState(passkey_state) => {
+                data.passkeys.insert(id, passkey_state.clone());
+                data.user_to_passkeys
+                    .entry(passkey_state.user_id)
+                    .or_default()
+                    .push(id);
                 self.local_events.entry(id).or_default().push(event);
             }
-            PasskeyPayload::Deleted { user_id } => {
+            PayloadUsage::ModifiesState(mod_fn) => {
                 if let Some(mut local_events) = self.local_events.get_mut(&id) {
                     local_events.push(event);
                 }
 
-                if let Some(passkeys) = data.keys.get_mut(&user_id) {
-                    passkeys.retain(|stored| stored.id != id);
+                let user_id = if let Some(passkey) = data.passkeys.get_mut(&id) {
+                    mod_fn(passkey);
+                    Some(passkey.user_id)
+                } else {
+                    None
+                };
+
+                if let Some(user_id) = user_id
+                    && let Some(passkeys) = data.user_to_passkeys.get_mut(&user_id)
+                {
+                    passkeys.retain(|stored| *stored != id);
                 }
             }
         }
@@ -512,20 +520,30 @@ impl PasskeyStore for MemoryPasskeyStore {
         user_id: &UserId,
     ) -> Result<Vec<PasskeyState>, PasskeyStoreError> {
         let data = self.data.lock().await;
-        Ok(data.keys.get(user_id).cloned().unwrap_or_default())
+        let passkey_ids = data.user_to_passkeys.get(user_id);
+
+        let mut passkeys = Vec::new();
+
+        if let Some(passkey_ids) = passkey_ids {
+            for passkey_id in passkey_ids {
+                if let Some(passkey) = data.passkeys.get(passkey_id) {
+                    passkeys.push(passkey.clone())
+                }
+            }
+        }
+
+        Ok(passkeys)
     }
 
     async fn get_all_credentials(
         &self,
     ) -> Result<Vec<webauthn_rs::prelude::Passkey>, PasskeyStoreError> {
         let data = self.data.lock().await;
-        let credentials = data
-            .keys
+        Ok(data
+            .passkeys
             .values()
-            .flatten()
-            .map(|stored| stored.passkey.0.clone())
-            .collect();
-        Ok(credentials)
+            .map(|state| state.passkey.0.clone())
+            .collect())
     }
 
     async fn find_user_by_credential(
@@ -534,15 +552,11 @@ impl PasskeyStore for MemoryPasskeyStore {
     ) -> Result<Option<(UserId, PasskeyId)>, PasskeyStoreError> {
         let data = self.data.lock().await;
 
-        for (user_id, passkeys) in &data.keys {
-            for stored in passkeys {
-                if stored.passkey.cred_id().as_slice() == credential_id {
-                    return Ok(Some((*user_id, stored.id)));
-                }
-            }
-        }
-
-        Ok(None)
+        Ok(data
+            .passkeys
+            .iter()
+            .find(|(_, state)| state.passkey.cred_id().as_slice() == credential_id)
+            .map(|(_, state)| (state.user_id, state.id)))
     }
 }
 
@@ -571,7 +585,7 @@ mod tests {
             .record(
                 passkey_id,
                 Authority::Direct(Actor::User(user_id)),
-                PasskeyPayload::Deleted { user_id },
+                PasskeyPayload::Modified(PasskeyModifiedPayload::Deleted),
             )
             .await
             .expect("Should succeed even for non-existent passkey");

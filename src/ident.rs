@@ -1,7 +1,3 @@
-use crate::account::{AccountPayload, AccountState};
-use crate::journal::{JournalPayload, JournalState};
-use crate::store::universal::registry::EntityType;
-use crate::transaction::{TransactionPayload, TransactionState};
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
 use cuid::is_cuid2;
@@ -168,12 +164,6 @@ impl Display for Ident {
     }
 }
 
-#[derive(Debug, Error, Clone, Deserialize)]
-pub enum StateFromPayloadError {
-    #[error("Expected a \"Created\" enum variant, but found {0}")]
-    IncorrectVariant(String),
-}
-
 /// A macro to create an entity and associate it with an Id, Payload, and State type
 ///
 /// # Constraints
@@ -238,7 +228,7 @@ macro_rules! entity {
         }
 
         impl std::ops::Deref for $id_type {
-            type Target = Ident;
+            type Target = $crate::ident::Ident;
 
             fn deref(&self) -> &Self::Target {
                 &self.0
@@ -249,7 +239,7 @@ macro_rules! entity {
             type Err = $crate::ident::IdentError;
 
             fn from_str(s: &str) -> Result<Self, Self::Err> {
-                Ok(Self(Ident::from_str(s)?))
+                Ok(Self($crate::ident::Ident::from_str(s)?))
             }
         }
 
@@ -263,7 +253,52 @@ macro_rules! entity {
             type Error = $crate::ident::IdentError;
 
             fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-                Ok(Self(Ident::try_from(bytes)?))
+                Ok(Self($crate::ident::Ident::try_from(bytes)?))
+            }
+        }
+
+        impl From<Ident> for $id_type {
+            fn from(id: Ident) -> Self {
+                $id_type(id)
+            }
+        }
+
+        #[allow(unused_imports)]
+        use std::io::Write as _;
+
+        impl diesel::serialize::ToSql<diesel::sql_types::Binary, diesel::sqlite::Sqlite>
+            for $id_type
+        {
+            fn to_sql<'b>(
+                &'b self,
+                out: &mut diesel::serialize::Output<'b, '_, diesel::sqlite::Sqlite>,
+            ) -> diesel::serialize::Result {
+                out.set_value(self.as_bytes().to_vec());
+                Ok(diesel::serialize::IsNull::No)
+            }
+        }
+
+        impl diesel::serialize::ToSql<diesel::sql_types::Binary, diesel::pg::Pg> for $id_type {
+            fn to_sql<'b>(
+                &'b self,
+                out: &mut diesel::serialize::Output<'b, '_, diesel::pg::Pg>,
+            ) -> diesel::serialize::Result {
+                out.write_all(self.as_bytes())?;
+                Ok(diesel::serialize::IsNull::No)
+            }
+        }
+
+        impl<DB: diesel::backend::Backend>
+            diesel::deserialize::FromSql<diesel::sql_types::Binary, DB> for $id_type
+        where
+            Vec<u8>: diesel::deserialize::FromSql<diesel::sql_types::Binary, DB>,
+        {
+            fn from_sql(value: DB::RawValue<'_>) -> diesel::deserialize::Result<Self> {
+                let bytes = <Vec<u8> as diesel::deserialize::FromSql<
+                    diesel::sql_types::Binary,
+                    DB,
+                >>::from_sql(value)?;
+                Ok(Self(Ident::try_from(bytes.as_ref())?))
             }
         }
 
@@ -281,30 +316,3 @@ macro_rules! entity {
         }
     };
 }
-
-entity!(
-    JournalEntity,
-    EntityType::Journal,
-    JournalId,
-    JournalPayload,
-    JournalState,
-    Ident::new10()
-);
-
-entity!(
-    AccountEntity,
-    EntityType::Account,
-    AccountId,
-    AccountPayload,
-    AccountState,
-    Ident::new10()
-);
-
-entity!(
-    TransactionEntity,
-    EntityType::Transaction,
-    TransactionId,
-    TransactionPayload,
-    TransactionState,
-    Ident::new16()
-);

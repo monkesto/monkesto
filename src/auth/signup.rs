@@ -445,10 +445,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 .record(
                     passkey_id,
                     Authority::Direct(Actor::User(user_id)),
-                    PasskeyPayload::Created {
-                        user_id,
-                        passkey: Postcard(passkey),
-                    },
+                    PasskeyPayload::Created { user_id, passkey },
                 )
                 .await
                 .is_err()
@@ -459,6 +456,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             // Log in the newly registered user via axum_login
             let user = super::user::UserState {
                 id: user_id,
+                webauthn_uuid: Postcard(webauthn_uuid),
                 email: email_validated,
                 deleted: false,
             };

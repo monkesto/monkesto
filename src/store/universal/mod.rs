@@ -1,6 +1,6 @@
 use crate::authority::Authority;
-use crate::ident::{Ident, StateFromPayloadError};
-use crate::store::universal::registry::{AnyPayload, EntityType};
+use crate::ident::Ident;
+use crate::store::universal::registry::EntityType;
 use chrono::{DateTime, Utc};
 use diesel::{Queryable, Selectable};
 use serde::de::DeserializeOwned;
@@ -30,9 +30,6 @@ pub enum StoreError {
         found: Option<EntityType>,
     },
 
-    #[error(transparent)]
-    StateFromPayload(#[from] StateFromPayloadError),
-
     #[error("attempted to apply an update to the transaction {0}, but it doesn't exist")]
     TransactionModifiedBeforeCreation(Ident),
 
@@ -60,16 +57,20 @@ pub trait Payload: Send + Sync + Clone + Serialize + DeserializeOwned {
     fn creates_entity(&self) -> bool;
 }
 
-pub trait ApplyPayload<T: Entity> {
-    fn apply(&mut self, payload: &T::Payload) -> &mut T::State;
+#[allow(clippy::type_complexity)]
+pub enum PayloadUsage<T: Entity> {
+    CreatesState(T::State),
+    ModifiesState(Box<dyn FnOnce(&mut T::State)>),
+}
+
+pub trait GetPayloadUsage<T: Entity> {
+    fn usage<U: Into<T::Id>>(self, entity_id: U) -> PayloadUsage<T>;
 }
 
 pub trait Entity: Sized {
     type Id: EntityId;
-    type Payload: Payload + Into<AnyPayload>;
-    type State: State
-        + TryFrom<(Self::Id, Self::Payload), Error = StateFromPayloadError>
-        + ApplyPayload<Self>;
+    type Payload: Payload + GetPayloadUsage<Self>;
+    type State: State;
 
     fn entity_type() -> EntityType;
 }
@@ -100,11 +101,11 @@ pub trait State: Send + Sync + Clone + Serialize + DeserializeOwned {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Eq)]
-pub struct EventId(u64);
+#[derive(Debug, Clone, PartialEq, Deserialize, Eq, PartialOrd, Ord)]
+pub struct EventId(i64);
 
 impl Deref for EventId {
-    type Target = u64;
+    type Target = i64;
     fn deref(&self) -> &Self::Target {
         &self.0
     }

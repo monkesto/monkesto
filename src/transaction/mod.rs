@@ -4,8 +4,8 @@ pub mod views;
 
 pub use service::TransactionService;
 
-use crate::ident::TransactionEntity;
-use crate::store::universal::ApplyPayload;
+use crate::ident::Ident;
+use crate::store::universal::{GetPayloadUsage, PayloadUsage};
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -30,19 +30,16 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::authority::Authority;
-use crate::ident::JournalId;
-use crate::ident::TransactionId;
-use crate::ident::{AccountId, StateFromPayloadError};
 
-use crate::account::AccountStoreError;
+use crate::account::{AccountId, AccountStoreError};
 use crate::event::Event;
 use crate::event::EventStore;
-use crate::journal::JournalStoreError;
 use crate::journal::Permissions;
+use crate::journal::{JournalId, JournalStoreError};
 use crate::postcard::Postcard;
-use crate::store::universal::registry::AnyPayload;
+use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::transaction::TransactionStoreError::InvalidEntryType;
-use crate::{payload, state};
+use crate::{entity, payload, state};
 use TransactionStoreError::InvalidTransaction;
 use dashmap::DashMap;
 use rust_decimal::Decimal;
@@ -170,36 +167,29 @@ impl EventStore for TransactionMemoryStore {
             (event_id, event)
         };
 
-        if let TransactionPayload::Created {
-            journal_id,
-            updates,
-        } = payload
-        {
-            let state = TransactionState {
-                id,
-                journal_id,
-                updates: Postcard(updates),
-                deleted: false,
-            };
+        match payload.usage(id) {
+            PayloadUsage::CreatesState(state) => {
+                let journal_id = state.journal_id;
+                self.local_events.insert(id, vec![event.clone()]);
+                self.transaction_table.insert(id, state);
 
-            self.local_events.insert(id, vec![event.clone()]);
-            self.transaction_table.insert(id, state);
-
-            self.journal_lookup_table
-                .entry(journal_id)
-                .or_default()
-                .push(id);
-
-            Ok(event_id)
-        } else if let Some(mut local_events) = self.local_events.get_mut(&id)
-            && let Some(mut state) = self.transaction_table.get_mut(&id)
-        {
-            state.apply(&payload);
-            local_events.push(event);
-            Ok(event_id)
-        } else {
-            Err(InvalidTransaction(id))
+                self.journal_lookup_table
+                    .entry(journal_id)
+                    .or_default()
+                    .push(id);
+            }
+            PayloadUsage::ModifiesState(mod_fn) => {
+                if let Some(mut local_events) = self.local_events.get_mut(&id)
+                    && let Some(mut state) = self.transaction_table.get_mut(&id)
+                {
+                    mod_fn(&mut state);
+                    local_events.push(event);
+                } else {
+                    return Err(InvalidTransaction(id));
+                }
+            }
         }
+        Ok(event_id)
     }
 
     async fn get_events(
@@ -288,12 +278,29 @@ impl FromStr for EntryType {
     }
 }
 
+entity!(
+    TransactionEntity,
+    EntityType::Transaction,
+    TransactionId,
+    TransactionPayload,
+    TransactionState,
+    Ident::new16()
+);
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BalanceUpdate {
     pub journal_id: JournalId,
     pub account_id: AccountId,
     pub amount: u64,
     pub entry_type: EntryType,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum TransactionModifiedPayload {
+    UpdatedBalancedUpdates {
+        new_balanceupdates: Vec<BalanceUpdate>,
+    },
+    Deleted,
 }
 
 payload! {
@@ -304,10 +311,7 @@ payload! {
             journal_id: JournalId,
             updates: Vec<BalanceUpdate>,
         },
-        UpdatedBalancedUpdates {
-            new_balanceupdates: Vec<BalanceUpdate>,
-        },
-        Deleted,
+        Modified(TransactionModifiedPayload)
     }
 }
 state! {
@@ -320,38 +324,28 @@ state! {
     }
 }
 
-impl TryFrom<(TransactionId, TransactionPayload)> for TransactionState {
-    type Error = StateFromPayloadError;
-    fn try_from(value: (TransactionId, TransactionPayload)) -> Result<Self, StateFromPayloadError> {
-        let (id, payload) = value;
-
-        match payload {
+impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
+    fn usage<T: Into<TransactionId>>(self, entity_id: T) -> PayloadUsage<TransactionEntity> {
+        match self {
             TransactionPayload::Created {
-                updates,
                 journal_id,
-            } => Ok(Self {
-                id,
+                updates,
+            } => PayloadUsage::CreatesState(TransactionState {
+                id: entity_id.into(),
                 journal_id,
                 updates: Postcard(updates),
                 deleted: false,
             }),
-            _ => Err(StateFromPayloadError::IncorrectVariant(format!(
-                "{:?}",
-                payload
-            ))),
-        }
-    }
-}
-
-impl ApplyPayload<TransactionEntity> for TransactionState {
-    fn apply(&mut self, payload: &TransactionPayload) -> &mut Self {
-        match payload {
-            TransactionPayload::Created { .. } => {}
-            TransactionPayload::UpdatedBalancedUpdates { new_balanceupdates } => {
-                self.updates = Postcard(new_balanceupdates.clone())
+            TransactionPayload::Modified(modified_payload) => {
+                PayloadUsage::ModifiesState(Box::new(move |state: &mut TransactionState| {
+                    match modified_payload {
+                        TransactionModifiedPayload::UpdatedBalancedUpdates {
+                            new_balanceupdates,
+                        } => state.updates = Postcard(new_balanceupdates),
+                        TransactionModifiedPayload::Deleted => state.deleted = true,
+                    }
+                }))
             }
-            TransactionPayload::Deleted => self.deleted = true,
         }
-        self
     }
 }

@@ -2,12 +2,9 @@ use crate::account::AccountService;
 use crate::account::AccountStore;
 use crate::auth::user::UserStore;
 use crate::authority::Authority;
-use crate::ident::JournalId;
-use crate::ident::TransactionId;
-use crate::journal::JournalService;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
-use crate::transaction::BalanceUpdate;
+use crate::journal::{JournalId, JournalService};
 use crate::transaction::TransactionPayload;
 use crate::transaction::TransactionState;
 use crate::transaction::TransactionStore;
@@ -16,6 +13,7 @@ use crate::transaction::TransactionStoreError::InvalidJournal;
 use crate::transaction::TransactionStoreError::InvalidTransaction;
 use crate::transaction::TransactionStoreError::PermissionError;
 use crate::transaction::TransactionStoreResult;
+use crate::transaction::{BalanceUpdate, TransactionId};
 
 #[derive(Clone)]
 pub struct TransactionService<T, A, J, U>

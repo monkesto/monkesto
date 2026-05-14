@@ -1,4 +1,3 @@
-use crate::account::AccountPayload;
 use crate::account::AccountState;
 use crate::account::AccountStore;
 use crate::account::AccountStoreError::AccountExists;
@@ -6,13 +5,12 @@ use crate::account::AccountStoreError::InvalidAccount;
 use crate::account::AccountStoreError::InvalidJournal;
 use crate::account::AccountStoreError::PermissionError;
 use crate::account::AccountStoreResult;
+use crate::account::{AccountId, AccountPayload};
 use crate::auth::user::UserStore;
 use crate::authority::Authority;
-use crate::ident::AccountId;
-use crate::ident::JournalId;
-use crate::journal::JournalService;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
+use crate::journal::{JournalId, JournalService};
 use crate::name::Name;
 
 #[derive(Clone)]

@@ -1,7 +1,9 @@
-use crate::ident::{Ident, StateFromPayloadError};
-use crate::store::universal::ApplyPayload;
+use crate::ident::Ident;
 use crate::store::universal::registry::{AnyPayload, EntityType};
+use crate::store::universal::{GetPayloadUsage, PayloadUsage};
 use crate::{entity, payload, state};
+use serde::{Deserialize, Serialize};
+use std::io::Write;
 
 entity!(
     ExampleEntity,
@@ -12,12 +14,17 @@ entity!(
     Ident::new16()
 );
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum ExampleModifiedPayload {
+    Deleted,
+}
+
 payload! {
     AnyPayload::Example,
 
     pub enum ExamplePayload {
         Created,
-        Deleted,
+        Modified(ExampleModifiedPayload)
     }
 }
 
@@ -29,27 +36,20 @@ state! {
     }
 }
 
-impl TryFrom<(ExampleId, ExamplePayload)> for ExampleState {
-    type Error = StateFromPayloadError;
-
-    fn try_from(value: (ExampleId, ExamplePayload)) -> Result<Self, Self::Error> {
-        let (id, payload) = value;
-        match payload {
-            ExamplePayload::Created => Ok(Self { id, deleted: false }),
-            _ => Err(StateFromPayloadError::IncorrectVariant(format!(
-                "{:?}",
-                payload
-            ))),
+impl GetPayloadUsage<ExampleEntity> for ExamplePayload {
+    fn usage<T: Into<ExampleId>>(self, entity_id: T) -> PayloadUsage<ExampleEntity> {
+        match self {
+            ExamplePayload::Created => PayloadUsage::CreatesState(ExampleState {
+                id: entity_id.into(),
+                deleted: false,
+            }),
+            ExamplePayload::Modified(modified_payload) => {
+                PayloadUsage::ModifiesState(Box::new(move |state: &mut ExampleState| {
+                    match modified_payload {
+                        ExampleModifiedPayload::Deleted => state.deleted = true,
+                    }
+                }))
+            }
         }
-    }
-}
-
-impl ApplyPayload<ExampleEntity> for ExampleState {
-    fn apply(&mut self, payload: &ExamplePayload) -> &mut ExampleState {
-        match payload {
-            ExamplePayload::Created => {}
-            ExamplePayload::Deleted => self.deleted = true,
-        }
-        self
     }
 }

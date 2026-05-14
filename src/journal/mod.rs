@@ -4,8 +4,8 @@ pub mod person;
 pub mod service;
 pub mod views;
 
-use crate::ident::JournalEntity;
-use crate::store::universal::ApplyPayload;
+use crate::ident::Ident;
+use crate::store::universal::{GetPayloadUsage, PayloadUsage};
 pub use service::JournalService;
 
 use axum::Router;
@@ -84,13 +84,12 @@ use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::event::Event;
 use crate::event::EventStore;
-use crate::ident::JournalId;
-use crate::ident::{IdentError, StateFromPayloadError};
+use crate::ident::IdentError;
 use crate::journal::JournalStoreError::InvalidJournal;
 use crate::name::Name;
 use crate::postcard::Postcard;
-use crate::store::universal::registry::AnyPayload;
-use crate::{payload, state};
+use crate::store::universal::registry::{AnyPayload, EntityType};
+use crate::{entity, payload, state};
 use bitflags::bitflags;
 use chrono::DateTime;
 use chrono::Utc;
@@ -213,50 +212,47 @@ impl EventStore for JournalMemoryStore {
             (event_id, event)
         };
 
-        if let JournalPayload::Created {
-            name,
-            owner,
-            parent_journal_id,
-        } = payload
-        {
-            self.local_events.insert(id, vec![event.clone()]);
+        match payload.clone().usage(id) {
+            PayloadUsage::CreatesState(state) => {
+                self.local_events.insert(id, vec![event.clone()]);
 
-            let state = JournalState {
-                id,
-                name,
-                owner,
-                members: Postcard(HashMap::new()),
-                deleted: false,
-                parent_journal_id,
-            };
-            self.journal_table.insert(id, state);
+                // Add creator to the user_journals index
+                self.user_journals
+                    .entry(state.owner)
+                    .or_default()
+                    .insert(id);
 
-            // Add creator to the user_journals index
-            self.user_journals.entry(owner).or_default().insert(id);
+                // Add to subjournal index if this is a child journal
+                if let Some(parent_id) = state.parent_journal_id {
+                    self.subjournals.entry(parent_id).or_default().insert(id);
+                }
 
-            // Add to subjournal index if this is a child journal
-            if let Some(parent_id) = parent_journal_id {
-                self.subjournals.entry(parent_id).or_default().insert(id);
+                self.journal_table.insert(id, state);
             }
+            PayloadUsage::ModifiesState(mod_fn) => {
+                if let Some(mut local_events) = self.local_events.get_mut(&id)
+                    && let Some(mut state) = self.journal_table.get_mut(&id)
+                {
+                    match payload {
+                        JournalPayload::Modified(JournalModifiedPayload::AddedTenant {
+                            id: user_id,
+                            ..
+                        }) => _ = self.user_journals.entry(user_id).or_default().insert(id),
+                        JournalPayload::Modified(JournalModifiedPayload::RemovedTenant {
+                            id: user_id,
+                        }) => _ = self.user_journals.entry(user_id).or_default().remove(&id),
+                        _ => {}
+                    }
 
-            Ok(event_id)
-        } else if let Some(mut local_events) = self.local_events.get_mut(&id)
-            && let Some(mut state) = self.journal_table.get_mut(&id)
-        {
-            // Update user_journals index for membership changes
-            if let JournalPayload::AddedTenant { id: user_id, .. } = &payload {
-                self.user_journals.entry(*user_id).or_default().insert(id);
-            } else if let JournalPayload::RemovedTenant { id: user_id } = &payload {
-                self.user_journals.entry(*user_id).or_default().remove(&id);
+                    local_events.push(event.clone());
+                    mod_fn(&mut state);
+                } else {
+                    return Err(InvalidJournal(id));
+                }
             }
-
-            local_events.push(event.clone());
-            state.apply(payload);
-
-            Ok(event_id)
-        } else {
-            Err(InvalidJournal(id))
         }
+
+        Ok(event_id)
     }
 
     async fn get_events(
@@ -353,6 +349,37 @@ impl Display for PermissionDecodeError {
     }
 }
 
+entity!(
+    JournalEntity,
+    EntityType::Journal,
+    JournalId,
+    JournalPayload,
+    JournalState,
+    Ident::new10()
+);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum JournalModifiedPayload {
+    Renamed {
+        name: Name,
+    },
+    AddedTenant {
+        id: UserId,
+        permissions: Permissions,
+    },
+    TransferredOwnership {
+        new_owner: UserId,
+    },
+    RemovedTenant {
+        id: UserId,
+    },
+    UpdatedTenantPermissions {
+        id: UserId,
+        permissions: Permissions,
+    },
+    Deleted,
+}
+
 payload! {
     AnyPayload::Journal,
 
@@ -362,24 +389,7 @@ payload! {
             owner: UserId,
             parent_journal_id: Option<JournalId>,
         },
-        Renamed {
-            name: Name,
-        },
-        AddedTenant {
-            id: UserId,
-            permissions: Permissions,
-        },
-        TransferredOwnership {
-            new_owner: UserId,
-        },
-        RemovedTenant {
-            id: UserId,
-        },
-        UpdatedTenantPermissions {
-            id: UserId,
-            permissions: Permissions,
-        },
-        Deleted,
+        Modified(JournalModifiedPayload)
     }
 }
 
@@ -395,50 +405,46 @@ state! {
     }
 }
 
-impl TryFrom<(JournalId, JournalPayload)> for JournalState {
-    type Error = StateFromPayloadError;
-    fn try_from(value: (JournalId, JournalPayload)) -> Result<Self, Self::Error> {
-        let (id, payload) = value;
-
-        match &payload {
+impl GetPayloadUsage<JournalEntity> for JournalPayload {
+    fn usage<T: Into<JournalId>>(self, entity_id: T) -> PayloadUsage<JournalEntity> {
+        match self {
             JournalPayload::Created {
                 name,
                 owner,
                 parent_journal_id,
-            } => Ok(Self {
-                id,
-                name: name.clone(),
-                owner: *owner,
+            } => PayloadUsage::CreatesState(JournalState {
+                id: entity_id.into(),
+                name,
+                owner,
                 members: Postcard(HashMap::new()),
                 deleted: false,
-                parent_journal_id: *parent_journal_id,
+                parent_journal_id,
             }),
-            _ => Err(StateFromPayloadError::IncorrectVariant(format!(
-                "{:?}",
-                payload
-            ))),
-        }
-    }
-}
-
-impl ApplyPayload<JournalEntity> for JournalState {
-    fn apply(&mut self, payload: &JournalPayload) -> &mut Self {
-        match payload {
-            JournalPayload::Created { .. } => {}
-            JournalPayload::Renamed { name } => self.name = name.clone(),
-            JournalPayload::AddedTenant { id, permissions } => {
-                _ = self.members.insert(*id, *permissions)
+            JournalPayload::Modified(modified_payload) => {
+                PayloadUsage::ModifiesState(Box::new(move |state: &mut JournalState| {
+                    match modified_payload {
+                        JournalModifiedPayload::Renamed { name } => state.name = name,
+                        JournalModifiedPayload::AddedTenant { id, permissions } => {
+                            _ = state.members.insert(id, permissions)
+                        }
+                        JournalModifiedPayload::TransferredOwnership { new_owner } => {
+                            state.owner = new_owner
+                        }
+                        JournalModifiedPayload::RemovedTenant { id } => {
+                            _ = state.members.remove(&id)
+                        }
+                        JournalModifiedPayload::UpdatedTenantPermissions { id, permissions } => {
+                            if let std::collections::hash_map::Entry::Occupied(mut e) =
+                                state.members.entry(id)
+                            {
+                                _ = Some(e.insert(permissions))
+                            }
+                        }
+                        JournalModifiedPayload::Deleted => state.deleted = true,
+                    }
+                }))
             }
-            JournalPayload::TransferredOwnership { new_owner } => self.owner = *new_owner,
-            JournalPayload::RemovedTenant { id } => _ = self.members.remove(id),
-            JournalPayload::UpdatedTenantPermissions { id, permissions } => {
-                if self.members.contains_key(id) {
-                    _ = self.members.insert(*id, *permissions)
-                }
-            }
-            JournalPayload::Deleted => self.deleted = true,
         }
-        self
     }
 }
 
@@ -473,38 +479,6 @@ where
 }
 
 impl JournalState {
-    pub fn apply(&mut self, payload: JournalPayload) {
-        match payload {
-            JournalPayload::Created {
-                name,
-                owner,
-                parent_journal_id,
-            } => {
-                self.name = name;
-                self.owner = owner;
-                self.parent_journal_id = parent_journal_id;
-            }
-
-            JournalPayload::Renamed { name } => self.name = name,
-
-            JournalPayload::AddedTenant { id, permissions } => {
-                _ = self.members.insert(id, permissions);
-            }
-
-            JournalPayload::TransferredOwnership { new_owner } => self.owner = new_owner,
-
-            JournalPayload::RemovedTenant { id } => {
-                _ = self.members.remove(&id);
-            }
-            JournalPayload::UpdatedTenantPermissions { id, permissions } => {
-                if let Some(member_permissions) = self.members.get_mut(&id) {
-                    *member_permissions = permissions;
-                }
-            }
-            JournalPayload::Deleted => self.deleted = true,
-        }
-    }
-
     pub fn get_actor_permissions(&self, authority: &Authority) -> Permissions {
         match authority {
             Authority::Direct(actor) => match actor {

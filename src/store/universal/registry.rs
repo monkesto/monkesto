@@ -22,6 +22,7 @@ pub enum EntityType {
 }
 
 #[allow(clippy::large_enum_variant)]
+#[derive(Clone)]
 pub enum AnyPayload {
     Example(ExamplePayload),
     Account(AccountPayload),

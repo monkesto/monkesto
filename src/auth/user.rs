@@ -2,9 +2,8 @@ use crate::authority::Authority;
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::Ident;
-use crate::ident::StateFromPayloadError;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::ApplyPayload;
+use crate::store::universal::{GetPayloadUsage, PayloadUsage};
 use crate::{entity, payload, state};
 use axum::response::Redirect;
 use serde::Deserialize;
@@ -76,44 +75,50 @@ where
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum UserModifiedPayload {
+    Deleted,
+}
+
+payload! {
+    AnyPayload::User,
+
+    pub enum UserPayload {
+        Created { email: Email, webauthn_uuid: Uuid },
+        Modified(UserModifiedPayload),
+    }
+}
+
 state! {
     #[diesel(table_name = crate::schema::users)]
     pub struct UserState {
         pub id: UserId,
+        pub webauthn_uuid: Postcard<Uuid>,
         pub email: Email,
         pub deleted: bool,
     }
 }
 
-impl TryFrom<(UserId, UserPayload)> for UserState {
-    type Error = StateFromPayloadError;
-    fn try_from(value: (UserId, UserPayload)) -> Result<Self, StateFromPayloadError> {
-        let (id, payload) = value;
-
-        match payload {
+impl GetPayloadUsage<UserEntity> for UserPayload {
+    fn usage<T: Into<UserId>>(self, entity_id: T) -> PayloadUsage<UserEntity> {
+        match self {
             UserPayload::Created {
                 email,
-                webauthn_uuid: _webauthn_uuid,
-            } => Ok(Self {
-                id,
+                webauthn_uuid,
+            } => PayloadUsage::CreatesState(UserState {
+                id: entity_id.into(),
+                webauthn_uuid: Postcard(webauthn_uuid),
                 email,
                 deleted: false,
             }),
-            _ => Err(StateFromPayloadError::IncorrectVariant(format!(
-                "{:?}",
-                payload
-            ))),
+            UserPayload::Modified(modified_payload) => {
+                PayloadUsage::ModifiesState(Box::new(move |state: &mut UserState| {
+                    match modified_payload {
+                        UserModifiedPayload::Deleted => state.deleted = true,
+                    }
+                }))
+            }
         }
-    }
-}
-
-impl ApplyPayload<UserEntity> for UserState {
-    fn apply(&mut self, payload: &UserPayload) -> &mut Self {
-        match payload {
-            UserPayload::Created { .. } => {}
-            UserPayload::Deleted => self.deleted = true,
-        }
-        self
     }
 }
 
@@ -273,15 +278,6 @@ mod tests {
     }
 }
 
-payload! {
-    AnyPayload::User,
-
-    pub enum UserPayload {
-        Created { email: Email, webauthn_uuid: Uuid },
-        Deleted,
-    }
-}
-
 use webauthn_rs::prelude::Uuid;
 
 #[derive(Debug, thiserror::Error, Serialize, Deserialize, Eq, PartialEq)]
@@ -378,6 +374,7 @@ pub trait UserStore:
     }
 }
 
+use crate::postcard::Postcard;
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use axum_login::AuthSession;
 use axum_login::AuthnBackend;
@@ -449,7 +446,6 @@ impl EventStore for MemoryUserStore {
                 webauthn_uuid,
             } => {
                 self.local_events.entry(id).or_default().push(event.clone());
-
                 let email_str = email.to_string();
                 if self.email_to_user_id.contains_key(&email_str) {
                     return Err(UserStoreError::EmailAlreadyExists);
@@ -459,7 +455,7 @@ impl EventStore for MemoryUserStore {
                 self.user_id_to_webauthn_uuid.insert(id, webauthn_uuid);
                 self.webauthn_uuid_to_user_id.insert(webauthn_uuid, id);
             }
-            UserPayload::Deleted => {
+            UserPayload::Modified(UserModifiedPayload::Deleted) => {
                 if let Some(mut local_events) = self.local_events.get_mut(&id) {
                     local_events.push(event.clone());
                 } else {
@@ -509,12 +505,18 @@ impl UserStore for MemoryUserStore {
     }
 
     async fn get_user(&self, user_id: UserId) -> Result<Option<UserState>, UserStoreError> {
-        Ok(self.user_id_to_email.get(&user_id).map(|email| UserState {
-            id: user_id,
-            email: email.clone(),
-            // user_id_to_email will only return Some when deleted isn't false
-            deleted: false,
-        }))
+        if let Some(email) = self.user_id_to_email.get(&user_id)
+            && let Some(webauthn_uuid) = self.user_id_to_webauthn_uuid.get(&user_id)
+        {
+            Ok(Some(UserState {
+                id: user_id,
+                webauthn_uuid: Postcard(*webauthn_uuid),
+                email: email.clone(),
+                deleted: false,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn get_user_email(&self, user_id: UserId) -> Result<Option<String>, UserStoreError> {

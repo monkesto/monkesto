@@ -48,19 +48,16 @@ use crate::account::AccountStoreError::TransactionWithoutPriorState;
 use crate::authority::Authority;
 use crate::event::Event;
 use crate::event::EventStore;
-use crate::ident::AccountEntity;
-use crate::ident::JournalId;
-use crate::ident::TransactionId;
-use crate::ident::{AccountId, StateFromPayloadError};
-use crate::journal::JournalStoreError;
+use crate::ident::Ident;
 use crate::journal::Permissions;
+use crate::journal::{JournalId, JournalStoreError};
 use crate::name::Name;
-use crate::store::universal::ApplyPayload;
-use crate::store::universal::registry::AnyPayload;
-use crate::transaction::EntryType;
-use crate::transaction::TransactionPayload;
+use crate::store::universal::registry::{AnyPayload, EntityType};
+use crate::store::universal::{GetPayloadUsage, PayloadUsage};
 use crate::transaction::TransactionState;
-use crate::{payload, state};
+use crate::transaction::{EntryType, TransactionId};
+use crate::transaction::{TransactionModifiedPayload, TransactionPayload};
+use crate::{entity, payload, state};
 use dashmap::DashMap;
 use serde::Deserialize;
 use serde::Serialize;
@@ -70,6 +67,21 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
+entity!(
+    AccountEntity,
+    EntityType::Account,
+    AccountId,
+    AccountPayload,
+    AccountState,
+    Ident::new10()
+);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum AccountModifiedPayload {
+    Renamed { new_name: Name },
+    Deleted,
+}
+
 payload! {
     AnyPayload::Account,
     pub enum AccountPayload {
@@ -78,10 +90,7 @@ payload! {
             name: Name,
             parent_account_id: Option<AccountId>,
         },
-        Renamed {
-            new_name: Name,
-        },
-        Deleted,
+        Modified(AccountModifiedPayload)
     }
 }
 
@@ -98,38 +107,29 @@ state! {
     }
 }
 
-impl ApplyPayload<AccountEntity> for AccountState {
-    fn apply(&mut self, payload: &AccountPayload) -> &mut Self {
-        match payload {
-            AccountPayload::Created { .. } => {}
-            AccountPayload::Renamed { new_name } => self.name = new_name.clone(),
-            AccountPayload::Deleted => self.deleted = true,
-        }
-        self
-    }
-}
-impl TryFrom<(AccountId, AccountPayload)> for AccountState {
-    type Error = StateFromPayloadError;
-    fn try_from(value: (AccountId, AccountPayload)) -> Result<Self, StateFromPayloadError> {
-        let (id, payload) = value;
-
-        match payload {
+impl GetPayloadUsage<AccountEntity> for AccountPayload {
+    fn usage<T: Into<AccountId>>(self, entity_id: T) -> PayloadUsage<AccountEntity> {
+        match self {
             AccountPayload::Created {
                 journal_id,
                 name,
                 parent_account_id,
-            } => Ok(Self {
-                id,
+            } => PayloadUsage::CreatesState(AccountState {
+                id: entity_id.into(),
                 name,
                 journal_id,
                 balance: 0,
                 deleted: false,
                 parent_account_id,
             }),
-            _ => Err(StateFromPayloadError::IncorrectVariant(format!(
-                "{:?}",
-                payload
-            ))),
+            AccountPayload::Modified(modified_payload) => {
+                PayloadUsage::ModifiesState(Box::new(move |state: &mut AccountState| {
+                    match modified_payload {
+                        AccountModifiedPayload::Renamed { new_name } => state.name = new_name,
+                        AccountModifiedPayload::Deleted => state.deleted = true,
+                    }
+                }))
+            }
         }
     }
 }
@@ -198,24 +198,13 @@ impl EventStore for AccountMemoryStore {
             (event_id, event)
         };
 
-        match payload.clone() {
-            AccountPayload::Created {
-                journal_id,
-                name,
-                parent_account_id,
-            } => {
-                self.local_events.insert(id, vec![event.clone()]);
-
-                let state = AccountState {
-                    id,
-                    name,
-                    journal_id,
-                    balance: 0,
-                    deleted: false,
-                    parent_account_id,
-                };
+        match payload.usage(id) {
+            PayloadUsage::CreatesState(state) => {
+                let journal_id = state.journal_id;
 
                 self.account_table.insert(id, state);
+
+                self.local_events.insert(id, vec![event.clone()]);
 
                 self.account_lookup_table
                     .entry(journal_id)
@@ -224,12 +213,12 @@ impl EventStore for AccountMemoryStore {
 
                 Ok(event_id)
             }
-            _ => {
+            PayloadUsage::ModifiesState(mod_fn) => {
                 if let Some(mut local_events) = self.local_events.get_mut(&id)
                     && let Some(mut state) = self.account_table.get_mut(&id)
                 {
                     local_events.push(event.clone());
-                    state.apply(&payload);
+                    mod_fn(&mut state);
 
                     Ok(event_id)
                 } else {
@@ -308,9 +297,10 @@ impl AccountStore for AccountMemoryStore {
                     }
                 }
             }
-            TransactionPayload::UpdatedBalancedUpdates {
-                new_balanceupdates, ..
-            } => {
+            TransactionPayload::Modified(TransactionModifiedPayload::UpdatedBalancedUpdates {
+                new_balanceupdates,
+                ..
+            }) => {
                 if let Some(transaction) = old_transaction {
                     // reverse the old transaction
                     for update in transaction.updates.iter() {
@@ -350,7 +340,7 @@ impl AccountStore for AccountMemoryStore {
                     return Err(TransactionWithoutPriorState(transaction_id));
                 }
             }
-            TransactionPayload::Deleted => {
+            TransactionPayload::Modified(TransactionModifiedPayload::Deleted) => {
                 if let Some(transaction) = old_transaction {
                     for update in transaction.updates.iter() {
                         if let Some(mut account_state) =
