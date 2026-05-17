@@ -1,8 +1,23 @@
+use crate::account::AccountPayload;
+use crate::auth::passkey::PasskeyPayload;
+use crate::auth::user::UserPayload;
 use crate::authority::Authority;
 use crate::ident::Ident;
-use crate::store::universal::registry::EntityType;
+use crate::journal::JournalPayload;
+use crate::postcard::Postcard;
+use crate::store::universal::example_entity::ExamplePayload;
+use crate::store::universal::registry::{AnyPayload, EntityType};
+use crate::transaction::TransactionPayload;
 use chrono::{DateTime, Utc};
-use diesel::{Queryable, Selectable};
+use diesel::backend::Backend;
+use diesel::deserialize::FromSql;
+use diesel::query_builder::bind_collector::RawBytesBindCollector;
+use diesel::serialize::{Output, ToSql};
+use diesel::sql_types::{BigInt, Integer};
+use diesel::{
+    AsExpression, FromSqlRow, Insertable, Queryable, QueryableByName, Selectable, deserialize,
+    serialize,
+};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Deref};
@@ -75,22 +90,6 @@ pub trait Entity: Sized {
     fn entity_type() -> EntityType;
 }
 
-#[derive(Queryable, Selectable)]
-#[diesel(table_name = crate::schema::entities)]
-pub struct AnyEntity<T: Entity> {
-    id: T::Id,
-    entity_type: EntityType,
-}
-
-impl<T: Entity> AnyEntity<T> {
-    fn new(id: T::Id) -> Self {
-        Self {
-            id,
-            entity_type: T::entity_type(),
-        }
-    }
-}
-
 pub trait State: Send + Sync + Clone + Serialize + DeserializeOwned {
     fn as_bytes(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize payload")
@@ -101,8 +100,37 @@ pub trait State: Send + Sync + Clone + Serialize + DeserializeOwned {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Eq, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, PartialEq, Deserialize, Eq, PartialOrd, Ord, Copy, AsExpression, FromSqlRow,
+)]
+#[diesel(sql_type = diesel::sql_types::BigInt)]
 pub struct EventId(i64);
+
+impl Add<i32> for EventId {
+    type Output = EventId;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        EventId(self.0 + rhs as i64)
+    }
+}
+
+impl<DB: Backend> ToSql<BigInt, DB> for EventId
+where
+    i64: ToSql<BigInt, DB>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> serialize::Result {
+        self.0.to_sql(out)
+    }
+}
+
+impl<DB: Backend> FromSql<BigInt, DB> for EventId
+where
+    i64: FromSql<BigInt, DB>,
+{
+    fn from_sql(value: DB::RawValue<'_>) -> deserialize::Result<Self> {
+        i64::from_sql(value).map(EventId)
+    }
+}
 
 impl Deref for EventId {
     type Target = i64;
@@ -110,39 +138,100 @@ impl Deref for EventId {
         &self.0
     }
 }
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Eq)]
-pub struct SequenceId(u64);
+#[derive(Debug, Clone, PartialEq, Deserialize, Eq, AsExpression, FromSqlRow)]
+#[diesel(sql_type = diesel::sql_types::Integer)]
+pub struct SequenceId(i32);
 impl Deref for SequenceId {
-    type Target = u64;
+    type Target = i32;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<i64> for SequenceId {
-    fn from(id: i64) -> Self {
-        SequenceId(id as u64)
+impl<DB: Backend> ToSql<Integer, DB> for SequenceId
+where
+    i32: ToSql<Integer, DB>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> serialize::Result {
+        self.0.to_sql(out)
     }
 }
 
-impl Add<u64> for SequenceId {
-    type Output = Self;
-
-    fn add(self, rhs: u64) -> Self::Output {
-        Self(self.0.checked_add(rhs).expect("SequenceId overflow"))
+impl<DB: Backend> FromSql<Integer, DB> for SequenceId
+where
+    i32: FromSql<Integer, DB>,
+{
+    fn from_sql(value: DB::RawValue<'_>) -> deserialize::Result<Self> {
+        i32::from_sql(value).map(SequenceId)
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Queryable, Selectable)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Eq, AsExpression, FromSqlRow)]
+#[diesel(sql_type = diesel::sql_types::BigInt)]
+pub struct TimeStamp(DateTime<Utc>);
+
+impl<DB: Backend> ToSql<BigInt, DB> for TimeStamp
+where
+    i64: ToSql<BigInt, DB>,
+    for<'b> DB: Backend<BindCollector<'b> = RawBytesBindCollector<DB>>,
+{
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> serialize::Result {
+        let millis = self.0.timestamp_millis();
+        millis.to_sql(&mut out.reborrow())
+    }
+}
+
+impl<DB: Backend> FromSql<BigInt, DB> for TimeStamp
+where
+    i64: FromSql<BigInt, DB>,
+{
+    fn from_sql(value: DB::RawValue<'_>) -> deserialize::Result<Self> {
+        i64::from_sql(value).map(|val| {
+            TimeStamp(DateTime::from_timestamp_millis(val).expect("failed to parse a timestamp"))
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Queryable, Selectable, Insertable, QueryableByName)]
 #[diesel(table_name = crate::schema::events)]
 pub struct Event<I: Entity> {
     pub event_id: EventId,
     pub sequence_id: SequenceId,
-    pub timestamp: DateTime<Utc>,
-    pub authority: Authority,
+    pub timestamp: TimeStamp,
+    pub authority: Postcard<Authority>,
     pub entity_id: I::Id,
     pub payload: I::Payload,
+    pub entity_type: EntityType,
+    pub applied_to_state: bool,
+}
+
+macro_rules! payload_from_bytes_match {
+    ($bytes: ident, $entity_type: ident, $( $variant:path => $payload_type:ty),* $(,)?) => {
+        match $entity_type{
+                $(
+                    $variant => Ok(postcard::from_bytes::<$payload_type>(
+                        $bytes,
+                    )?.into()),
+                )*
+                EntityType::Grant | EntityType::Role => todo!("grant and role entities do not have suitable payload types yet")
+            }
+    };
+}
+
+pub fn payload_from_bytes(bytes: &[u8], entity_type: EntityType) -> postcard::Result<AnyPayload> {
+    payload_from_bytes_match! (
+        bytes,
+        entity_type,
+        EntityType::Example => ExamplePayload,
+        EntityType::Journal => JournalPayload,
+        EntityType::Account => AccountPayload,
+        EntityType::Transaction => TransactionPayload,
+        EntityType::Passkey => PasskeyPayload,
+        EntityType::User => UserPayload,
+        // EntityType::Grant => GrantPayload,
+        // EntityType::Role => RolePayload,
+    )
+    // NOTE: Grant and Role entity types do not have an associated payload, they will panic
 }
 
 pub trait Store {

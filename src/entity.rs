@@ -29,7 +29,7 @@ macro_rules! state {
             $($fields:tt)*
         }
     ) => {
-        #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, State, diesel::Queryable, diesel::QueryableByName ,diesel::Selectable, diesel::Insertable)]
+        #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, State, diesel::Queryable, diesel::QueryableByName, diesel::Selectable, diesel::Insertable, diesel::AsChangeset)]
         $(#[$meta])*
         $vis struct $struct_name {
             $($fields)*

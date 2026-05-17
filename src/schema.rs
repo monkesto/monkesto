@@ -12,20 +12,15 @@ diesel::table! {
 }
 
 diesel::table! {
-    entities (id) {
-        id -> Binary,
-        entity_type -> Integer,
-    }
-}
-
-diesel::table! {
     events (event_id) {
-        event_id -> Integer,
+        event_id -> BigInt,
         sequence_id -> Integer,
         timestamp -> BigInt,
         authority -> Binary,
         entity_id -> Binary,
         payload -> Binary,
+        entity_type -> SmallInt,
+        applied_to_state -> Bool,
     }
 }
 
@@ -92,7 +87,6 @@ diesel::table! {
 
 diesel::allow_tables_to_appear_in_same_query!(
     accounts,
-    entities,
     events,
     examples,
     journal_members_lookup,

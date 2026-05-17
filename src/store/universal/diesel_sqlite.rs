@@ -1,17 +1,23 @@
+use crate::account::AccountState;
+use crate::auth::passkey::PasskeyState;
 use crate::auth::user::UserState;
 use crate::authority::{Authority, UserId};
 use crate::ident::Ident;
-use crate::journal::JournalId;
+use crate::journal::{JournalId, JournalState};
 use crate::postcard::Postcard;
+use crate::schema::events;
 use crate::schema::sessions;
-use crate::schema::users;
-use crate::store::universal::registry::AnyPayload;
+use crate::store::universal::example_entity::ExampleState;
+use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::store::universal::{
     Entity, Event, EventId, GetPayloadUsage, PayloadUsage, SequenceId, Store, StoreResult,
+    payload_from_bytes,
 };
+use crate::transaction::TransactionState;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use deadpool_diesel::Runtime;
+use deadpool_diesel::sqlite::Object;
 use deadpool_diesel::{Manager, Pool};
 use diesel::result::DatabaseErrorKind;
 use diesel::upsert::excluded;
@@ -22,11 +28,34 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
+use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, watch};
 use tower_sessions::cookie::time::OffsetDateTime;
 use tower_sessions::session::{Id, Record};
 use tower_sessions::session_store::Error::Backend;
 use tower_sessions::{ExpiredDeletion, SessionStore, session_store};
+
+macro_rules! create_or_update_state {
+    ($conn:ident, $event_id: ident, $entity_id:ident, $payload:ident, $( $variant:path => $state_type:path as $table_name:ident),* $(,)?) => {
+        match $payload.clone() {
+            $(
+                $variant(variant_payload) => {
+                    match variant_payload.usage($entity_id) {
+                        PayloadUsage::CreatesState(state) => {
+                            diesel::insert_into($crate::schema::$table_name::dsl::$table_name).values(&state).execute($conn)?;
+                        }
+                        PayloadUsage::ModifiesState(mod_fn) => {
+                            let mut state = $crate::schema::$table_name::dsl::$table_name.filter($crate::schema::$table_name::id.eq(&$entity_id)).first::<$state_type>($conn)?;
+                            mod_fn(&mut state);
+
+                            diesel::update($crate::schema::$table_name::table.filter($crate::schema::$table_name::id.eq(&$entity_id))).set(&state).execute($conn)?;
+                        }
+                    }
+                },
+            )*
+        }
+    };
+}
 
 #[derive(Debug, Queryable, Selectable, Insertable)]
 #[diesel(table_name = crate::schema::journal_members_lookup)]
@@ -43,7 +72,7 @@ pub struct DieselSqliteStore {
 }
 
 impl DieselSqliteStore {
-    pub fn new(url: &str) -> DieselSqliteStore {
+    pub async fn new(url: &str) -> DieselSqliteStore {
         let manager = Manager::new(url, Runtime::Tokio1);
 
         let pool = Pool::builder(manager)
@@ -53,7 +82,27 @@ impl DieselSqliteStore {
 
         let (event_tx, event_rx) = mpsc::channel::<(EventId, Box<AnyPayload>, Ident)>(64);
 
-        let (processed_tx, processed_rx) = watch::channel::<EventId>(EventId(0));
+        let conn: Object = pool
+            .get()
+            .await
+            .expect("couldn't get a connection from pool");
+
+        let latest_applied_event = conn
+            .interact(|conn| {
+                events::dsl::events
+                    .filter(events::applied_to_state.eq(true))
+                    .order_by(events::event_id.desc())
+                    .select(events::event_id)
+                    .first::<i64>(conn)
+                    .optional()
+            })
+            .await
+            .expect("interaction panicked")
+            .expect("failed to fetch the id of the latest applied event");
+
+        // event ids start at 1
+        let (processed_tx, processed_rx) =
+            watch::channel::<EventId>(EventId(latest_applied_event.unwrap_or(0)));
 
         let store = DieselSqliteStore {
             pool: pool.clone(),
@@ -70,43 +119,123 @@ impl DieselSqliteStore {
         store
     }
 
-    // TODO: avoid unnecessary match statements using the type system
-    // TODO: finish this function
-    #[allow(unused)]
+    fn apply_event(
+        conn: &mut SqliteConnection,
+        event_id: EventId,
+        entity_id: Ident,
+        payload: AnyPayload,
+    ) -> diesel::QueryResult<()> {
+        conn.transaction(|tx| {
+            create_or_update_state!(
+                tx, event_id, entity_id, payload,
+                AnyPayload::User => UserState as users,
+                AnyPayload::Passkey => PasskeyState as passkeys,
+                AnyPayload::Account => AccountState as accounts,
+                AnyPayload::Journal => JournalState as journals,
+                AnyPayload::Transaction => TransactionState as transactions,
+                AnyPayload::Example => ExampleState as examples
+            );
+
+            diesel::update(events::dsl::events)
+                .filter(events::event_id.eq(event_id))
+                .set(events::applied_to_state.eq(true))
+                .execute(tx)?;
+
+            Ok(())
+        })
+    }
+
     async fn handle_payloads(
         mut event_rx: mpsc::Receiver<(EventId, Box<AnyPayload>, Ident)>,
         processed_tx: watch::Sender<EventId>,
         pool: Pool<Manager<SqliteConnection>>,
     ) -> ! {
-        let conn = pool
-            .get()
-            .await
-            .expect("couldn't get a connection from pool");
+        let mut leftover_event: Option<(EventId, Box<AnyPayload>, Ident)> = None;
+
+        let processed_rx = processed_tx.subscribe();
 
         loop {
-            // the sender should have a static lifetime; it being dropped is an unrecoverable error
-            let (event_id, payload, entity_id) = event_rx.recv().await.expect("couldn't get event");
+            let (event_id, event_payload, entity_id) = if let Some(ref leftover) = leftover_event {
+                leftover.clone()
+            } else {
+                event_rx.recv().await.expect("event channel closed")
+            };
 
-            conn.interact(move |conn| match *payload.clone() {
-                AnyPayload::User(user_payload) => {
-                    match user_payload.usage(entity_id) {
-                        PayloadUsage::CreatesState(state) => {}
-                        PayloadUsage::ModifiesState(user_payload) => {}
+            let conn = pool
+                .get()
+                .await
+                .expect("couldn't get a connection from pool");
+
+            if event_id == *processed_rx.borrow() + 1 {
+                conn.interact(move |conn| {
+                    DieselSqliteStore::apply_event(conn, event_id, entity_id, *event_payload)
+                        .expect("failed to apply event");
+                })
+                .await
+                .expect("interaction failed");
+                processed_tx.send(event_id).expect("all receivers dropped");
+            } else {
+                // we may be sent an event out of order
+                // if this happens, we need to gather all the un-applied events prior to the current one
+                // we might as well get future ones while we're at it
+
+                let highest_processed_id = conn
+                    .interact(move |conn| {
+                        let un_applied_events: Vec<_> = events::dsl::events
+                            .filter(events::applied_to_state.eq(false))
+                            .order_by(events::event_id.asc())
+                            .select((
+                                events::event_id,
+                                events::entity_id,
+                                events::entity_type,
+                                events::payload,
+                            ))
+                            .load::<(EventId, Ident, EntityType, Vec<u8>)>(conn)
+                            .expect("failed to fetch raw events")
+                            .iter()
+                            .map(|(event_id, entity_id, entity_type, payload_bytes)| {
+                                let payload = payload_from_bytes(payload_bytes, *entity_type)
+                                    .expect("failed to deserialize payload");
+                                (*event_id, *entity_id, payload)
+                            })
+                            .collect();
+
+                        let last_event_id = un_applied_events
+                            .last()
+                            .map(|(e_id, _, _)| *e_id)
+                            .unwrap_or(event_id);
+
+                        for (event_id, entity_id, payload) in un_applied_events {
+                            DieselSqliteStore::apply_event(conn, event_id, entity_id, payload)
+                                .expect("failed to apply event");
+                        }
+
+                        last_event_id
+                    })
+                    .await
+                    .expect("interaction failed");
+
+                processed_tx
+                    .send(highest_processed_id)
+                    .expect("all receivers dropped");
+
+                // clear the queue of already processed events
+                loop {
+                    match event_rx.try_recv() {
+                        Ok((event_id, event_payload, entity_id))
+                            if event_id > highest_processed_id =>
+                        {
+                            leftover_event = Some((event_id, event_payload, entity_id));
+                            break;
+                        }
+                        Ok(_) => {}
+                        Err(TryRecvError::Empty) => {
+                            break;
+                        }
+                        Err(e) => panic!("All senders dropped: {}", e),
                     }
-                    let user = users::dsl::users
-                        .filter(users::id.eq(&entity_id))
-                        .first::<UserState>(conn)
-                        .expect("user state doesn't exist");
                 }
-                AnyPayload::Passkey(passkey_payload) => {}
-
-                _ => {}
-            })
-            .await
-            .expect("interaction panicked");
-
-            // the receiver being dropped is an unrecoverable error
-            processed_tx.send(event_id).expect("all receivers dropped");
+            }
         }
     }
 
