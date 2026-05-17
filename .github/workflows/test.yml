@@ -38,32 +38,10 @@ jobs:
   test:
     runs-on: ubuntu-24.04-arm
 
-    services:
-      postgres:
-        image: postgres:18
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-
     steps:
-      # build the binary without waiting for the postgres container
       - uses: actions/checkout@v6
-      - run: rustup toolchain install nightly --profile minimal
+      - run: rustup toolchain install stable --profile minimal
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --release
-
-      # postgres should be healthy by now, but we check just in case
-      - name: Wait for Postgres port
-        run: |
-          until nc -z localhost 5432; do
-            sleep 1
-          done
-
-      # this should be much quicker because the binary is already built
-      - name: Run rust tests
-        env:
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
         run: cargo test --release
