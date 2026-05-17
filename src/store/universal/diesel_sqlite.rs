@@ -3,17 +3,19 @@ use crate::auth::passkey::PasskeyState;
 use crate::auth::user::UserState;
 use crate::authority::{Authority, UserId};
 use crate::ident::Ident;
-use crate::journal::{JournalId, JournalState};
+use crate::journal::{JournalId, JournalModifiedPayload, JournalPayload, JournalState};
 use crate::postcard::Postcard;
-use crate::schema::events;
 use crate::schema::sessions;
+use crate::schema::{accounts, events, journal_members_lookup};
 use crate::store::universal::example_entity::ExampleState;
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::store::universal::{
-    Entity, Event, EventId, GetPayloadUsage, PayloadUsage, SequenceId, Store, StoreResult,
+    Entity, Event, EventId, GetPayloadUsage, Payload, PayloadUsage, SequenceId, Store, StoreResult,
     payload_from_bytes,
 };
-use crate::transaction::TransactionState;
+use crate::transaction::{
+    EntryType, TransactionModifiedPayload, TransactionPayload, TransactionState,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use deadpool_diesel::Runtime;
@@ -126,6 +128,8 @@ impl DieselSqliteStore {
         payload: AnyPayload,
     ) -> diesel::QueryResult<()> {
         conn.transaction(|tx| {
+            let payload_clone = payload.clone();
+
             create_or_update_state!(
                 tx, event_id, entity_id, payload,
                 AnyPayload::User => UserState as users,
@@ -140,6 +144,122 @@ impl DieselSqliteStore {
                 .filter(events::event_id.eq(event_id))
                 .set(events::applied_to_state.eq(true))
                 .execute(tx)?;
+
+            // handle special cases
+            match payload_clone {
+                AnyPayload::Transaction(transaction_payload) => {
+                    match transaction_payload {
+                        TransactionPayload::Created { updates, .. } => {
+                            for update in updates {
+                                diesel::update(accounts::dsl::accounts)
+                                    .filter(accounts::id.eq(update.account_id))
+                                    .set(accounts::balance.eq(accounts::balance
+                                        + if update.entry_type == EntryType::Credit {
+                                            update.amount as i64
+                                        } else {
+                                            -(update.amount as i64)
+                                        }))
+                                    .execute(tx)?;
+                            }
+                        }
+                        TransactionPayload::Modified(modified_payload) => {
+                            let old_payload_bytes = events::dsl::events
+                                .filter(events::entity_id.eq(entity_id))
+                                .order_by(events::sequence_id.asc())
+                                .select(events::payload)
+                                .first::<Vec<u8>>(tx)?;
+
+                            let old_payload =
+                                TransactionPayload::from_bytes(old_payload_bytes.as_slice())
+                                    .expect("failed to parse old payload");
+
+                            let old_updates = match old_payload {
+                                TransactionPayload::Created { updates, .. } => updates,
+                                TransactionPayload::Modified(
+                                    TransactionModifiedPayload::UpdatedBalancedUpdates {
+                                        new_balanceupdates,
+                                    },
+                                ) => new_balanceupdates,
+                                TransactionPayload::Modified(
+                                    TransactionModifiedPayload::Deleted,
+                                ) => unreachable!(
+                                    "it should be impossible to modify a deleted transaction"
+                                ),
+                            };
+
+                            match modified_payload {
+                                TransactionModifiedPayload::UpdatedBalancedUpdates {
+                                    new_balanceupdates,
+                                } => {
+                                    // undo old updates
+                                    for old_update in old_updates {
+                                        diesel::update(accounts::dsl::accounts)
+                                            .filter(accounts::id.eq(old_update.account_id))
+                                            .set(accounts::balance.eq(accounts::balance
+                                                + if old_update.entry_type != EntryType::Credit {
+                                                    old_update.amount as i64
+                                                } else {
+                                                    -(old_update.amount as i64)
+                                                }))
+                                            .execute(tx)?;
+                                    }
+
+                                    // apply new updates
+                                    for update in new_balanceupdates {
+                                        diesel::update(accounts::dsl::accounts)
+                                            .filter(accounts::id.eq(update.account_id))
+                                            .set(accounts::balance.eq(accounts::balance
+                                                + if update.entry_type == EntryType::Credit {
+                                                    update.amount as i64
+                                                } else {
+                                                    -(update.amount as i64)
+                                                }))
+                                            .execute(tx)?;
+                                    }
+                                }
+                                TransactionModifiedPayload::Deleted => {
+                                    // undo old updates
+                                    for old_update in old_updates {
+                                        diesel::update(accounts::dsl::accounts)
+                                            .filter(accounts::id.eq(old_update.account_id))
+                                            .set(accounts::balance.eq(accounts::balance
+                                                + if old_update.entry_type != EntryType::Credit {
+                                                    old_update.amount as i64
+                                                } else {
+                                                    -(old_update.amount as i64)
+                                                }))
+                                            .execute(tx)?;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                AnyPayload::Journal(JournalPayload::Modified(journal_payload)) => {
+                    match journal_payload {
+                        JournalModifiedPayload::AddedTenant { id, .. } => {
+                            diesel::insert_into(
+                                journal_members_lookup::dsl::journal_members_lookup,
+                            )
+                            .values(JournalMembersLookup {
+                                user_id: id,
+                                journal_id: entity_id.into(),
+                            })
+                            .execute(tx)?;
+                        }
+                        JournalModifiedPayload::RemovedTenant { id, .. } => {
+                            diesel::delete(journal_members_lookup::dsl::journal_members_lookup)
+                                .filter(journal_members_lookup::user_id.eq(&id))
+                                .filter(journal_members_lookup::journal_id.eq(entity_id))
+                                .execute(tx)?;
+                        }
+                        _ => {}
+                    }
+                }
+
+                _ => {}
+            }
 
             Ok(())
         })
