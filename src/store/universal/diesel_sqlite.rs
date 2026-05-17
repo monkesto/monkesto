@@ -272,8 +272,6 @@ impl DieselSqliteStore {
     ) -> ! {
         let mut leftover_event: Option<(EventId, Box<AnyPayload>, Ident)> = None;
 
-        let processed_rx = processed_tx.subscribe();
-
         loop {
             let (event_id, event_payload, entity_id) = if let Some(ref leftover) = leftover_event {
                 leftover.clone()
@@ -286,7 +284,7 @@ impl DieselSqliteStore {
                 .await
                 .expect("couldn't get a connection from pool");
 
-            if event_id == *processed_rx.borrow() + 1 {
+            if event_id == *processed_tx.borrow() + 1 {
                 conn.interact(move |conn| {
                     DieselSqliteStore::apply_event(conn, event_id, entity_id, *event_payload)
                         .expect("failed to apply event");
@@ -320,10 +318,7 @@ impl DieselSqliteStore {
                             })
                             .collect();
 
-                        let last_event_id = un_applied_events
-                            .last()
-                            .map(|(e_id, _, _)| *e_id)
-                            .unwrap_or(event_id);
+                        let last_event_id = un_applied_events.last().map(|(e_id, _, _)| *e_id);
 
                         for (event_id, entity_id, payload) in un_applied_events {
                             DieselSqliteStore::apply_event(conn, event_id, entity_id, payload)
@@ -335,16 +330,20 @@ impl DieselSqliteStore {
                     .await
                     .expect("interaction failed");
 
-                processed_tx
-                    .send(highest_processed_id)
-                    .expect("all receivers dropped");
+                if let Some(highest_processed_id) = highest_processed_id
+                    && highest_processed_id > *processed_tx.borrow()
+                {
+                    processed_tx
+                        .send(highest_processed_id)
+                        .expect("all receivers dropped");
+                }
 
                 // clear the queue of already processed events
+                let max_id = *processed_tx.borrow();
+
                 loop {
                     match event_rx.try_recv() {
-                        Ok((event_id, event_payload, entity_id))
-                            if event_id > highest_processed_id =>
-                        {
+                        Ok((event_id, event_payload, entity_id)) if event_id > max_id => {
                             leftover_event = Some((event_id, event_payload, entity_id));
                             break;
                         }
