@@ -30,6 +30,8 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
+use std::sync::Arc;
+use std::sync::atomic::AtomicI64;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, watch};
 use tower_sessions::cookie::time::OffsetDateTime;
@@ -71,6 +73,8 @@ pub struct DieselSqliteStore {
     pool: Pool<Manager<SqliteConnection>>,
     sender: mpsc::Sender<(EventId, Box<AnyPayload>, Ident)>,
     processed_rx: watch::Receiver<EventId>,
+    processed_rebuilds_rx: watch::Receiver<EventId>,
+    rebuild_num: Arc<AtomicI64>,
 }
 
 impl DieselSqliteStore {
@@ -106,15 +110,20 @@ impl DieselSqliteStore {
         let (processed_tx, processed_rx) =
             watch::channel::<EventId>(EventId(latest_applied_event.unwrap_or(0)));
 
+        let (processed_rebuilds_tx, processed_rebuilds_rx) = watch::channel::<EventId>(EventId(-1));
+
         let store = DieselSqliteStore {
             pool: pool.clone(),
             sender: event_tx,
             processed_rx,
+            processed_rebuilds_rx,
+            rebuild_num: Arc::new(AtomicI64::new(-1)),
         };
 
         tokio::spawn(DieselSqliteStore::handle_payloads(
             event_rx,
             processed_tx,
+            processed_rebuilds_tx,
             pool,
         ));
 
@@ -268,6 +277,7 @@ impl DieselSqliteStore {
     async fn handle_payloads(
         mut event_rx: mpsc::Receiver<(EventId, Box<AnyPayload>, Ident)>,
         processed_tx: watch::Sender<EventId>,
+        processed_rebuilds_tx: watch::Sender<EventId>,
         pool: Pool<Manager<SqliteConnection>>,
     ) -> ! {
         let mut leftover_event: Option<(EventId, Box<AnyPayload>, Ident)> = None;
@@ -338,12 +348,22 @@ impl DieselSqliteStore {
                         .expect("all receivers dropped");
                 }
 
+                // signal to the rebuild requester that we are done
+                if event_id < EventId(0) {
+                    processed_rebuilds_tx
+                        .send(event_id)
+                        .expect("all receivers dropped");
+                }
+
                 // clear the queue of already processed events
                 let max_id = *processed_tx.borrow();
 
                 loop {
                     match event_rx.try_recv() {
-                        Ok((event_id, event_payload, entity_id)) if event_id > max_id => {
+                        // future rebuild requests must be acknowledged explicitly, even if they were handled here
+                        Ok((event_id, event_payload, entity_id))
+                            if event_id > max_id || event_id < EventId(0) =>
+                        {
                             leftover_event = Some((event_id, event_payload, entity_id));
                             break;
                         }

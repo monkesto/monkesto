@@ -7,6 +7,12 @@ pub trait TimeProvider {
 
 pub struct DefaultTimeProvider;
 
+impl DefaultTimeProvider {
+    fn new() -> Self {
+        Self
+    }
+}
+
 impl TimeProvider for DefaultTimeProvider {
     fn get_time(&self) -> DateTime<Utc> {
         Utc::now()
