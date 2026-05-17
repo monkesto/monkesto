@@ -7,6 +7,7 @@ use crate::journal::JournalPayload;
 use crate::postcard::Postcard;
 use crate::store::universal::example_entity::ExamplePayload;
 use crate::store::universal::registry::{AnyPayload, EntityType};
+use crate::store::universal::time_provider::TimeProvider;
 use crate::transaction::TransactionPayload;
 use chrono::{DateTime, Utc};
 use diesel::backend::Backend;
@@ -27,6 +28,7 @@ use tower_sessions::ExpiredDeletion;
 mod diesel_sqlite;
 mod example_entity;
 pub mod registry;
+mod time_provider;
 
 #[derive(Debug, Error, Clone, Deserialize)]
 pub enum StoreError {
@@ -243,10 +245,10 @@ pub trait Store {
     ///
     /// Returns a `Sequence` error and does not record the event if the latest sequence number
     /// recorded by the store (prior to this event) does not match `expected_sequence`
-    async fn record<I: Entity>(
+    async fn record<I: Entity, T: TimeProvider>(
         &self,
         authority: Authority,
-        at: DateTime<Utc>,
+        time_provider: &T,
         entity_id: I::Id,
         payload: I::Payload,
         expected_sequence: SequenceId,
@@ -262,12 +264,8 @@ pub trait Store {
     /// Returns a State of the given entity and the sequence id associated with the last event applied to it
     async fn get_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<(I::State, SequenceId)>;
 
-    /// Rebuilds the State of an entity with the given events
-    async fn rebuild_state<I: Entity>(
-        &self,
-        entity_id: I::Id,
-        events: Vec<Event<I>>,
-    ) -> StoreResult<()>;
+    /// Rebuilds the State of an entity from the stored events
+    async fn rebuild_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<()>;
 
     async fn session_store(&self) -> &impl ExpiredDeletion;
 }

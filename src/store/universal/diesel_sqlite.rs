@@ -9,6 +9,7 @@ use crate::schema::sessions;
 use crate::schema::{accounts, events, journal_members_lookup};
 use crate::store::universal::example_entity::ExampleState;
 use crate::store::universal::registry::{AnyPayload, EntityType};
+use crate::store::universal::time_provider::TimeProvider;
 use crate::store::universal::{
     Entity, Event, EventId, GetPayloadUsage, Payload, PayloadUsage, SequenceId, Store, StoreResult,
     payload_from_bytes,
@@ -17,7 +18,6 @@ use crate::transaction::{
     EntryType, TransactionModifiedPayload, TransactionPayload, TransactionState,
 };
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use deadpool_diesel::Runtime;
 use deadpool_diesel::sqlite::Object;
 use deadpool_diesel::{Manager, Pool};
@@ -527,10 +527,10 @@ impl ExpiredDeletion for DieselSqliteStore {
 
 #[expect(unused)]
 impl Store for DieselSqliteStore {
-    async fn record<I: Entity>(
+    async fn record<I: Entity, T: TimeProvider>(
         &self,
         authority: Authority,
-        at: DateTime<Utc>,
+        time_provider: &T,
         entity_id: I::Id,
         payload: I::Payload,
         expected_sequence: SequenceId,
@@ -550,11 +550,7 @@ impl Store for DieselSqliteStore {
         todo!()
     }
 
-    async fn rebuild_state<I: Entity>(
-        &self,
-        entity_id: I::Id,
-        events: Vec<Event<I>>,
-    ) -> StoreResult<()> {
+    async fn rebuild_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<()> {
         todo!()
     }
 
