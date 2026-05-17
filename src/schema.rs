@@ -8,6 +8,7 @@ diesel::table! {
         balance -> BigInt,
         deleted -> Bool,
         parent_account_id -> Nullable<Binary>,
+        as_of -> Integer,
     }
 }
 
@@ -28,6 +29,7 @@ diesel::table! {
     examples (id) {
         id -> Binary,
         deleted -> Bool,
+        as_of -> Integer,
     }
 }
 
@@ -47,6 +49,7 @@ diesel::table! {
         members -> Binary,
         deleted -> Bool,
         parent_journal_id -> Nullable<Binary>,
+        as_of -> Integer,
     }
 }
 
@@ -56,6 +59,7 @@ diesel::table! {
         user_id -> Binary,
         passkey -> Binary,
         deleted -> Bool,
+        as_of -> Integer,
     }
 }
 
@@ -73,6 +77,7 @@ diesel::table! {
         journal_id -> Binary,
         updates -> Binary,
         deleted -> Bool,
+        as_of -> Integer,
     }
 }
 
@@ -82,6 +87,7 @@ diesel::table! {
         webauthn_uuid -> Binary,
         email -> Text,
         deleted -> Bool,
+        as_of -> Integer,
     }
 }
 

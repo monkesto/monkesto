@@ -4,5 +4,6 @@ CREATE TABLE journals (
     owner BLOB NOT NULL,
     members BLOB NOT NULL,
     deleted BOOLEAN NOT NULL,
-    parent_journal_id BLOB
+    parent_journal_id BLOB,
+    as_of INTEGER NOT NULL
 )

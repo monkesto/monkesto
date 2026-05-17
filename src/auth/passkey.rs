@@ -1,5 +1,5 @@
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{GetPayloadUsage, PayloadUsage};
+use crate::store::universal::{GetPayloadUsage, PayloadUsage, SequenceId};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -326,7 +326,8 @@ state! {
         pub id: PasskeyId,
         pub user_id: UserId,
         pub passkey: Postcard<webauthn_rs::prelude::Passkey>,
-        pub deleted: bool
+        pub deleted: bool,
+        pub as_of: SequenceId
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -348,7 +349,11 @@ payload! {
 }
 
 impl GetPayloadUsage<PasskeyEntity> for PasskeyPayload {
-    fn usage<T: Into<PasskeyId>>(self, entity_id: T) -> PayloadUsage<PasskeyEntity> {
+    fn usage<T: Into<PasskeyId>>(
+        self,
+        entity_id: T,
+        sequence_id: SequenceId,
+    ) -> PayloadUsage<PasskeyEntity> {
         match self {
             PasskeyPayload::Created { user_id, passkey } => {
                 PayloadUsage::CreatesState(PasskeyState {
@@ -356,13 +361,15 @@ impl GetPayloadUsage<PasskeyEntity> for PasskeyPayload {
                     user_id,
                     passkey: Postcard(passkey),
                     deleted: false,
+                    as_of: sequence_id,
                 })
             }
             PasskeyPayload::Modified(modified_payload) => {
-                PayloadUsage::ModifiesState(Box::new(|state: &mut PasskeyState| {
+                PayloadUsage::ModifiesState(Box::new(move |state: &mut PasskeyState| {
                     match modified_payload {
                         PasskeyModifiedPayload::Deleted => state.deleted = true,
                     }
+                    state.as_of = sequence_id;
                 }))
             }
         }
@@ -456,7 +463,7 @@ impl EventStore for MemoryPasskeyStore {
 
         let mut data = self.data.lock().await;
 
-        match payload.usage(id) {
+        match payload.usage(id, SequenceId(0)) {
             PayloadUsage::CreatesState(passkey_state) => {
                 data.passkeys.insert(id, passkey_state.clone());
                 data.user_to_passkeys

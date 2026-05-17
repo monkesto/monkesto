@@ -53,7 +53,7 @@ use crate::journal::Permissions;
 use crate::journal::{JournalId, JournalStoreError};
 use crate::name::Name;
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{GetPayloadUsage, PayloadUsage};
+use crate::store::universal::{GetPayloadUsage, PayloadUsage, SequenceId};
 use crate::transaction::TransactionState;
 use crate::transaction::{EntryType, TransactionId};
 use crate::transaction::{TransactionModifiedPayload, TransactionPayload};
@@ -104,11 +104,16 @@ state! {
         pub balance: i64,
         pub deleted: bool,
         pub parent_account_id: Option<AccountId>,
+        pub as_of: SequenceId
     }
 }
 
 impl GetPayloadUsage<AccountEntity> for AccountPayload {
-    fn usage<T: Into<AccountId>>(self, entity_id: T) -> PayloadUsage<AccountEntity> {
+    fn usage<T: Into<AccountId>>(
+        self,
+        entity_id: T,
+        sequence_id: SequenceId,
+    ) -> PayloadUsage<AccountEntity> {
         match self {
             AccountPayload::Created {
                 journal_id,
@@ -121,6 +126,7 @@ impl GetPayloadUsage<AccountEntity> for AccountPayload {
                 balance: 0,
                 deleted: false,
                 parent_account_id,
+                as_of: sequence_id,
             }),
             AccountPayload::Modified(modified_payload) => {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut AccountState| {
@@ -128,6 +134,7 @@ impl GetPayloadUsage<AccountEntity> for AccountPayload {
                         AccountModifiedPayload::Renamed { new_name } => state.name = new_name,
                         AccountModifiedPayload::Deleted => state.deleted = true,
                     }
+                    state.as_of = sequence_id;
                 }))
             }
         }
@@ -198,7 +205,7 @@ impl EventStore for AccountMemoryStore {
             (event_id, event)
         };
 
-        match payload.usage(id) {
+        match payload.usage(id, SequenceId(0)) {
             PayloadUsage::CreatesState(state) => {
                 let journal_id = state.journal_id;
 

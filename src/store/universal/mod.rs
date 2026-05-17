@@ -81,7 +81,7 @@ pub enum PayloadUsage<T: Entity> {
 }
 
 pub trait GetPayloadUsage<T: Entity> {
-    fn usage<U: Into<T::Id>>(self, entity_id: U) -> PayloadUsage<T>;
+    fn usage<U: Into<T::Id>>(self, entity_id: U, sequence_id: SequenceId) -> PayloadUsage<T>;
 }
 
 pub trait Entity: Sized {
@@ -140,9 +140,9 @@ impl Deref for EventId {
         &self.0
     }
 }
-#[derive(Debug, Clone, PartialEq, Deserialize, Eq, AsExpression, FromSqlRow)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Eq, AsExpression, FromSqlRow)]
 #[diesel(sql_type = diesel::sql_types::Integer)]
-pub struct SequenceId(i32);
+pub struct SequenceId(pub i32);
 impl Deref for SequenceId {
     type Target = i32;
     fn deref(&self) -> &Self::Target {

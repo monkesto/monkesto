@@ -40,11 +40,11 @@ use tower_sessions::session_store::Error::Backend;
 use tower_sessions::{ExpiredDeletion, SessionStore, session_store};
 
 macro_rules! create_or_update_state {
-    ($conn:ident, $event_id: ident, $entity_id:ident, $payload:ident, $( $variant:path => $state_type:path as $table_name:ident),* $(,)?) => {
+    ($conn:ident, $event_id: ident, $sequence_id: ident, $entity_id:ident, $payload:ident, $( $variant:path => $state_type:path as $table_name:ident),* $(,)?) => {
         match $payload.clone() {
             $(
                 $variant(variant_payload) => {
-                    match variant_payload.usage($entity_id) {
+                    match variant_payload.usage($entity_id, $sequence_id) {
                         PayloadUsage::CreatesState(state) => {
                             diesel::insert_into($crate::schema::$table_name::dsl::$table_name).values(&state).execute($conn)?;
                         }
@@ -71,7 +71,7 @@ pub struct JournalMembersLookup {
 #[derive(Clone)]
 pub struct DieselSqliteStore {
     pool: Pool<Manager<SqliteConnection>>,
-    sender: mpsc::Sender<(EventId, Box<AnyPayload>, Ident)>,
+    sender: mpsc::Sender<(EventId, SequenceId, Box<AnyPayload>, Ident)>,
     processed_rx: watch::Receiver<EventId>,
     processed_rebuilds_rx: watch::Receiver<EventId>,
     rebuild_num: Arc<AtomicI64>,
@@ -86,7 +86,8 @@ impl DieselSqliteStore {
             .build()
             .expect("failed to initialize Diesel connection pool");
 
-        let (event_tx, event_rx) = mpsc::channel::<(EventId, Box<AnyPayload>, Ident)>(64);
+        let (event_tx, event_rx) =
+            mpsc::channel::<(EventId, SequenceId, Box<AnyPayload>, Ident)>(64);
 
         let conn: Object = pool
             .get()
@@ -133,6 +134,7 @@ impl DieselSqliteStore {
     fn apply_event(
         conn: &mut SqliteConnection,
         event_id: EventId,
+        sequence_id: SequenceId,
         entity_id: Ident,
         payload: AnyPayload,
     ) -> diesel::QueryResult<()> {
@@ -140,7 +142,7 @@ impl DieselSqliteStore {
             let payload_clone = payload.clone();
 
             create_or_update_state!(
-                tx, event_id, entity_id, payload,
+                tx, event_id, sequence_id ,entity_id, payload,
                 AnyPayload::User => UserState as users,
                 AnyPayload::Passkey => PasskeyState as passkeys,
                 AnyPayload::Account => AccountState as accounts,
@@ -275,19 +277,20 @@ impl DieselSqliteStore {
     }
 
     async fn handle_payloads(
-        mut event_rx: mpsc::Receiver<(EventId, Box<AnyPayload>, Ident)>,
+        mut event_rx: mpsc::Receiver<(EventId, SequenceId, Box<AnyPayload>, Ident)>,
         processed_tx: watch::Sender<EventId>,
         processed_rebuilds_tx: watch::Sender<EventId>,
         pool: Pool<Manager<SqliteConnection>>,
     ) -> ! {
-        let mut leftover_event: Option<(EventId, Box<AnyPayload>, Ident)> = None;
+        let mut leftover_event: Option<(EventId, SequenceId, Box<AnyPayload>, Ident)> = None;
 
         loop {
-            let (event_id, event_payload, entity_id) = if let Some(ref leftover) = leftover_event {
-                leftover.clone()
-            } else {
-                event_rx.recv().await.expect("event channel closed")
-            };
+            let (event_id, sequence_id, event_payload, entity_id) =
+                if let Some(ref leftover) = leftover_event {
+                    leftover.clone()
+                } else {
+                    event_rx.recv().await.expect("event channel closed")
+                };
 
             let conn = pool
                 .get()
@@ -296,8 +299,14 @@ impl DieselSqliteStore {
 
             if event_id == *processed_tx.borrow() + 1 {
                 conn.interact(move |conn| {
-                    DieselSqliteStore::apply_event(conn, event_id, entity_id, *event_payload)
-                        .expect("failed to apply event");
+                    DieselSqliteStore::apply_event(
+                        conn,
+                        event_id,
+                        sequence_id,
+                        entity_id,
+                        *event_payload,
+                    )
+                    .expect("failed to apply event");
                 })
                 .await
                 .expect("interaction failed");
@@ -314,25 +323,34 @@ impl DieselSqliteStore {
                             .order_by(events::event_id.asc())
                             .select((
                                 events::event_id,
+                                events::sequence_id,
                                 events::entity_id,
                                 events::entity_type,
                                 events::payload,
                             ))
-                            .load::<(EventId, Ident, EntityType, Vec<u8>)>(conn)
+                            .load::<(EventId, SequenceId, Ident, EntityType, Vec<u8>)>(conn)
                             .expect("failed to fetch raw events")
                             .iter()
-                            .map(|(event_id, entity_id, entity_type, payload_bytes)| {
-                                let payload = payload_from_bytes(payload_bytes, *entity_type)
-                                    .expect("failed to deserialize payload");
-                                (*event_id, *entity_id, payload)
-                            })
+                            .map(
+                                |(event_id, sequence_id, entity_id, entity_type, payload_bytes)| {
+                                    let payload = payload_from_bytes(payload_bytes, *entity_type)
+                                        .expect("failed to deserialize payload");
+                                    (*event_id, *sequence_id, *entity_id, payload)
+                                },
+                            )
                             .collect();
 
-                        let last_event_id = un_applied_events.last().map(|(e_id, _, _)| *e_id);
+                        let last_event_id = un_applied_events.last().map(|(e_id, _, _, _)| *e_id);
 
-                        for (event_id, entity_id, payload) in un_applied_events {
-                            DieselSqliteStore::apply_event(conn, event_id, entity_id, payload)
-                                .expect("failed to apply event");
+                        for (event_id, sequence_id, entity_id, payload) in un_applied_events {
+                            DieselSqliteStore::apply_event(
+                                conn,
+                                event_id,
+                                sequence_id,
+                                entity_id,
+                                payload,
+                            )
+                            .expect("failed to apply event");
                         }
 
                         last_event_id
@@ -361,10 +379,11 @@ impl DieselSqliteStore {
                 loop {
                     match event_rx.try_recv() {
                         // future rebuild requests must be acknowledged explicitly, even if they were handled here
-                        Ok((event_id, event_payload, entity_id))
+                        Ok((event_id, sequence_id, event_payload, entity_id))
                             if event_id > max_id || event_id < EventId(0) =>
                         {
-                            leftover_event = Some((event_id, event_payload, entity_id));
+                            leftover_event =
+                                Some((event_id, sequence_id, event_payload, entity_id));
                             break;
                         }
                         Ok(_) => {}

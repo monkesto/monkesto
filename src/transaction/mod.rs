@@ -5,7 +5,7 @@ pub mod views;
 pub use service::TransactionService;
 
 use crate::ident::Ident;
-use crate::store::universal::{GetPayloadUsage, PayloadUsage};
+use crate::store::universal::{GetPayloadUsage, PayloadUsage, SequenceId};
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -167,7 +167,7 @@ impl EventStore for TransactionMemoryStore {
             (event_id, event)
         };
 
-        match payload.usage(id) {
+        match payload.usage(id, SequenceId(0)) {
             PayloadUsage::CreatesState(state) => {
                 let journal_id = state.journal_id;
                 self.local_events.insert(id, vec![event.clone()]);
@@ -321,11 +321,16 @@ state! {
         pub journal_id: JournalId,
         pub updates: Postcard<Vec<BalanceUpdate>>,
         pub deleted: bool,
+        pub as_of: SequenceId
     }
 }
 
 impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
-    fn usage<T: Into<TransactionId>>(self, entity_id: T) -> PayloadUsage<TransactionEntity> {
+    fn usage<T: Into<TransactionId>>(
+        self,
+        entity_id: T,
+        sequence_id: SequenceId,
+    ) -> PayloadUsage<TransactionEntity> {
         match self {
             TransactionPayload::Created {
                 journal_id,
@@ -335,6 +340,7 @@ impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
                 journal_id,
                 updates: Postcard(updates),
                 deleted: false,
+                as_of: sequence_id,
             }),
             TransactionPayload::Modified(modified_payload) => {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut TransactionState| {
@@ -344,6 +350,7 @@ impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
                         } => state.updates = Postcard(new_balanceupdates),
                         TransactionModifiedPayload::Deleted => state.deleted = true,
                     }
+                    state.as_of = sequence_id;
                 }))
             }
         }

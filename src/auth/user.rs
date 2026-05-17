@@ -3,7 +3,7 @@ use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::Ident;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::{GetPayloadUsage, PayloadUsage};
+use crate::store::universal::{GetPayloadUsage, PayloadUsage, SequenceId};
 use crate::{entity, payload, state};
 use axum::response::Redirect;
 use serde::Deserialize;
@@ -96,11 +96,16 @@ state! {
         pub webauthn_uuid: Postcard<Uuid>,
         pub email: Email,
         pub deleted: bool,
+        pub as_of: SequenceId
     }
 }
 
 impl GetPayloadUsage<UserEntity> for UserPayload {
-    fn usage<T: Into<UserId>>(self, entity_id: T) -> PayloadUsage<UserEntity> {
+    fn usage<T: Into<UserId>>(
+        self,
+        entity_id: T,
+        sequence_id: SequenceId,
+    ) -> PayloadUsage<UserEntity> {
         match self {
             UserPayload::Created {
                 email,
@@ -110,12 +115,14 @@ impl GetPayloadUsage<UserEntity> for UserPayload {
                 webauthn_uuid: Postcard(webauthn_uuid),
                 email,
                 deleted: false,
+                as_of: sequence_id,
             }),
             UserPayload::Modified(modified_payload) => {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut UserState| {
                     match modified_payload {
                         UserModifiedPayload::Deleted => state.deleted = true,
                     }
+                    state.as_of = sequence_id;
                 }))
             }
         }
@@ -513,6 +520,7 @@ impl UserStore for MemoryUserStore {
                 webauthn_uuid: Postcard(*webauthn_uuid),
                 email: email.clone(),
                 deleted: false,
+                as_of: SequenceId(0),
             }))
         } else {
             Ok(None)

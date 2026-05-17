@@ -4,5 +4,6 @@ CREATE TABLE accounts (
     journal_id BLOB NOT NULL,
     balance BIGINT NOT NULL,
     deleted BOOLEAN NOT NULL,
-    parent_account_id BLOB
+    parent_account_id BLOB,
+    as_of INTEGER NOT NULL
 )
