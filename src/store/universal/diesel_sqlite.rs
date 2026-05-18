@@ -11,7 +11,7 @@ use crate::store::universal::example_entity::ExampleState;
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::store::universal::time_provider::TimeProvider;
 use crate::store::universal::{
-    Entity, Event, EventId, GetPayloadUsage, Payload, PayloadUsage, SequenceId, Store, StoreResult,
+    Entity, Event, EventId, GetPayloadUsage, PayloadUsage, SequenceId, Store, StoreResult,
     TimeStamp, payload_from_bytes,
 };
 use crate::transaction::{
@@ -23,7 +23,7 @@ use deadpool_diesel::sqlite::Object;
 use deadpool_diesel::{Manager, Pool};
 use diesel::result::DatabaseErrorKind;
 use diesel::upsert::excluded;
-use diesel::{Connection, QueryDsl, QueryableByName, RunQueryDsl};
+use diesel::{Connection, QueryDsl, RunQueryDsl};
 use diesel::{ExpressionMethods, OptionalExtension};
 use diesel::{Insertable, Queryable, Selectable, SqliteConnection};
 use serde_json::Value;
@@ -611,12 +611,10 @@ impl Store for DieselSqliteStore {
 
         let event_id: EventId = conn
             .interact(move |conn| {
-                Ok::<_, diesel::result::Error>(
-                    diesel::insert_into(events::dsl::events)
-                        .values(new_event)
-                        .returning(events::event_id)
-                        .get_result(conn)?,
-                )
+                diesel::insert_into(events::dsl::events)
+                    .values(new_event)
+                    .returning(events::event_id)
+                    .get_result(conn)
             })
             .await??;
 
@@ -643,13 +641,11 @@ impl Store for DieselSqliteStore {
 
         let raw_events: Vec<TypeErasedEvent> = conn
             .interact(move |conn| {
-                Ok::<_, diesel::result::Error>(
-                    events::dsl::events
-                        .filter(events::entity_id.eq(type_erased_id))
-                        .filter(events::sequence_id.ge(starting_sequence))
-                        .order_by(events::sequence_id.asc())
-                        .get_results::<TypeErasedEvent>(conn)?,
-                )
+                events::dsl::events
+                    .filter(events::entity_id.eq(type_erased_id))
+                    .filter(events::sequence_id.ge(starting_sequence))
+                    .order_by(events::sequence_id.asc())
+                    .get_results::<TypeErasedEvent>(conn)
             })
             .await??;
 

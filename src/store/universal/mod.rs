@@ -13,12 +13,11 @@ use chrono::{DateTime, Utc};
 use deadpool_diesel::{InteractError, PoolError};
 use diesel::backend::Backend;
 use diesel::deserialize::FromSql;
-use diesel::query_builder::bind_collector::RawBytesBindCollector;
 use diesel::serialize::{Output, ToSql};
-use diesel::sql_types::{BigInt, Binary, Integer, SmallInt};
+use diesel::sql_types::{BigInt, Binary, Integer};
 use diesel::{
-    AsExpression, FromSqlRow, Insertable, QueryResult, Queryable, QueryableByName, Selectable,
-    deserialize, serialize,
+    AsExpression, FromSqlRow, Insertable, Queryable, QueryableByName, Selectable, deserialize,
+    serialize,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
