@@ -15,7 +15,7 @@ use serde::Serialize;
 use std::error::Error as StdError;
 use thiserror::Error;
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Payload)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GrantPayload {
     Created,
     Revoked,

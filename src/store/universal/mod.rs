@@ -10,19 +10,21 @@ use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::store::universal::time_provider::TimeProvider;
 use crate::transaction::TransactionPayload;
 use chrono::{DateTime, Utc};
+use deadpool_diesel::{InteractError, PoolError};
 use diesel::backend::Backend;
 use diesel::deserialize::FromSql;
 use diesel::query_builder::bind_collector::RawBytesBindCollector;
 use diesel::serialize::{Output, ToSql};
-use diesel::sql_types::{BigInt, Integer};
+use diesel::sql_types::{BigInt, Binary, Integer, SmallInt};
 use diesel::{
-    AsExpression, FromSqlRow, Insertable, Queryable, QueryableByName, Selectable, deserialize,
-    serialize,
+    AsExpression, FromSqlRow, Insertable, QueryResult, Queryable, QueryableByName, Selectable,
+    deserialize, serialize,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Deref};
 use thiserror::Error;
+use tokio::sync::mpsc::error::SendError;
 use tower_sessions::ExpiredDeletion;
 
 mod diesel_sqlite;
@@ -55,15 +57,64 @@ pub enum StoreError {
 
     #[error("attempted to apply an update to the account {0}, but it doesn't exist")]
     AccountModifiedBeforeCreation(Ident),
+
+    #[error("deadpool_diesel returned an error: {0}")]
+    Pool(String),
+
+    #[error("a diesel query returned an error: {0}")]
+    Query(String),
+
+    #[error("a deadpool_diesel interaction returned an error")]
+    Interact(String),
+
+    #[error("failed to send a value through a tokio channel")]
+    Send(String),
+}
+
+impl From<PoolError> for StoreError {
+    fn from(value: PoolError) -> Self {
+        Self::Pool(value.to_string())
+    }
+}
+
+impl From<diesel::result::Error> for StoreError {
+    fn from(value: diesel::result::Error) -> Self {
+        Self::Query(value.to_string())
+    }
+}
+
+impl From<InteractError> for StoreError {
+    fn from(value: InteractError) -> Self {
+        Self::Interact(value.to_string())
+    }
+}
+
+impl<T> From<SendError<T>> for StoreError {
+    fn from(value: SendError<T>) -> Self {
+        Self::Send(value.to_string())
+    }
 }
 
 pub type StoreResult<T> = Result<T, StoreError>;
 
-pub trait EntityId: Deref<Target = Ident> + Copy {
+pub trait EntityId:
+    Deref<Target = Ident>
+    + Serialize
+    + Copy
+    + diesel::expression::AsExpression<diesel::sql_types::Binary>
+{
     fn as_bytes(&self) -> &[u8];
 }
 
-pub trait Payload: Send + Sync + Clone + Serialize + DeserializeOwned {
+pub trait Payload:
+    Send
+    + Sync
+    + Clone
+    + Serialize
+    + DeserializeOwned
+    + diesel::expression::AsExpression<Binary>
+    + Into<AnyPayload>
+{
     fn as_bytes(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize payload")
     }
@@ -150,12 +201,16 @@ impl Deref for SequenceId {
     }
 }
 
-impl<DB: Backend> ToSql<Integer, DB> for SequenceId
-where
-    i32: ToSql<Integer, DB>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> serialize::Result {
-        self.0.to_sql(out)
+impl ToSql<Integer, diesel::sqlite::Sqlite> for SequenceId {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> serialize::Result {
+        out.set_value(self.0);
+        Ok(serialize::IsNull::No)
+    }
+}
+
+impl ToSql<Integer, diesel::pg::Pg> for SequenceId {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> serialize::Result {
+        <i32 as ToSql<Integer, diesel::pg::Pg>>::to_sql(&self.0, &mut out.reborrow())
     }
 }
 
@@ -172,14 +227,17 @@ where
 #[diesel(sql_type = diesel::sql_types::BigInt)]
 pub struct TimeStamp(DateTime<Utc>);
 
-impl<DB: Backend> ToSql<BigInt, DB> for TimeStamp
-where
-    i64: ToSql<BigInt, DB>,
-    for<'b> DB: Backend<BindCollector<'b> = RawBytesBindCollector<DB>>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> serialize::Result {
+impl ToSql<BigInt, diesel::sqlite::Sqlite> for TimeStamp {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> serialize::Result {
+        out.set_value(self.0.timestamp_millis());
+        Ok(serialize::IsNull::No)
+    }
+}
+
+impl ToSql<BigInt, diesel::pg::Pg> for TimeStamp {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> serialize::Result {
         let millis = self.0.timestamp_millis();
-        millis.to_sql(&mut out.reborrow())
+        <i64 as ToSql<BigInt, diesel::pg::Pg>>::to_sql(&millis, &mut out.reborrow())
     }
 }
 
@@ -259,7 +317,7 @@ pub trait Store {
         &self,
         entity_id: I::Id,
         starting_sequence: SequenceId,
-    ) -> Vec<Event<I>>;
+    ) -> StoreResult<Vec<Event<I>>>;
 
     /// Returns a State of the given entity and the sequence id associated with the last event applied to it
     async fn get_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<(I::State, SequenceId)>;

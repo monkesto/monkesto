@@ -12,7 +12,7 @@ use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::store::universal::time_provider::TimeProvider;
 use crate::store::universal::{
     Entity, Event, EventId, GetPayloadUsage, Payload, PayloadUsage, SequenceId, Store, StoreResult,
-    payload_from_bytes,
+    TimeStamp, payload_from_bytes,
 };
 use crate::transaction::{
     EntryType, TransactionModifiedPayload, TransactionPayload, TransactionState,
@@ -23,7 +23,7 @@ use deadpool_diesel::sqlite::Object;
 use deadpool_diesel::{Manager, Pool};
 use diesel::result::DatabaseErrorKind;
 use diesel::upsert::excluded;
-use diesel::{Connection, QueryDsl, RunQueryDsl};
+use diesel::{Connection, QueryDsl, QueryableByName, RunQueryDsl};
 use diesel::{ExpressionMethods, OptionalExtension};
 use diesel::{Insertable, Queryable, Selectable, SqliteConnection};
 use serde_json::Value;
@@ -71,7 +71,7 @@ pub struct JournalMembersLookup {
 #[derive(Clone)]
 pub struct DieselSqliteStore {
     pool: Pool<Manager<SqliteConnection>>,
-    sender: mpsc::Sender<(EventId, SequenceId, Box<AnyPayload>, Ident)>,
+    event_tx: mpsc::Sender<(EventId, SequenceId, Box<AnyPayload>, Ident)>,
     processed_rx: watch::Receiver<EventId>,
     processed_rebuilds_rx: watch::Receiver<EventId>,
     rebuild_num: Arc<AtomicI64>,
@@ -115,7 +115,7 @@ impl DieselSqliteStore {
 
         let store = DieselSqliteStore {
             pool: pool.clone(),
-            sender: event_tx,
+            event_tx,
             processed_rx,
             processed_rebuilds_rx,
             rebuild_num: Arc::new(AtomicI64::new(-1)),
@@ -174,15 +174,11 @@ impl DieselSqliteStore {
                             }
                         }
                         TransactionPayload::Modified(modified_payload) => {
-                            let old_payload_bytes = events::dsl::events
+                            let old_payload = events::dsl::events
                                 .filter(events::entity_id.eq(entity_id))
                                 .order_by(events::sequence_id.asc())
                                 .select(events::payload)
-                                .first::<Vec<u8>>(tx)?;
-
-                            let old_payload =
-                                TransactionPayload::from_bytes(old_payload_bytes.as_slice())
-                                    .expect("failed to parse old payload");
+                                .first::<TransactionPayload>(tx)?;
 
                             let old_updates = match old_payload {
                                 TransactionPayload::Created { updates, .. } => updates,
@@ -564,6 +560,31 @@ impl ExpiredDeletion for DieselSqliteStore {
     }
 }
 
+#[derive(Insertable)]
+#[diesel(table_name = crate::schema::events)]
+pub struct NewEvent {
+    pub sequence_id: SequenceId,
+    pub timestamp: TimeStamp,
+    pub authority: Postcard<Authority>,
+    pub entity_id: Ident,
+    pub payload: Vec<u8>,
+    pub entity_type: EntityType,
+    pub applied_to_state: bool,
+}
+
+#[derive(Queryable)]
+#[diesel(table_name = crate::schema::events)]
+struct TypeErasedEvent {
+    pub event_id: EventId,
+    pub sequence_id: SequenceId,
+    pub timestamp: TimeStamp,
+    pub authority: Postcard<Authority>,
+    pub entity_id: Ident,
+    pub payload: Vec<u8>,
+    pub entity_type: EntityType,
+    pub applied_to_state: bool,
+}
+
 #[expect(unused)]
 impl Store for DieselSqliteStore {
     async fn record<I: Entity, T: TimeProvider>(
@@ -574,14 +595,64 @@ impl Store for DieselSqliteStore {
         payload: I::Payload,
         expected_sequence: SequenceId,
     ) -> StoreResult<EventId> {
-        todo!()
+        // TODO: query an entity table to ensure that the entity's type matches the generic
+
+        let new_event = NewEvent {
+            sequence_id: expected_sequence,
+            timestamp: time_provider.get_time(),
+            authority: Postcard(authority),
+            entity_id: *entity_id,
+            payload: postcard::to_allocvec(&payload)?,
+            entity_type: I::entity_type(),
+            applied_to_state: false,
+        };
+
+        let conn = self.pool.get().await?;
+
+        let event_id: EventId = conn
+            .interact(move |conn| {
+                Ok::<_, diesel::result::Error>(
+                    diesel::insert_into(events::dsl::events)
+                        .values(new_event)
+                        .returning(events::event_id)
+                        .get_result(conn)?,
+                )
+            })
+            .await??;
+
+        self.event_tx
+            .send((
+                event_id,
+                expected_sequence,
+                Box::new(payload.into()),
+                *entity_id,
+            ))
+            .await?;
+
+        Ok(event_id)
     }
 
     async fn replay_events<I: Entity>(
         &self,
         entity_id: I::Id,
         starting_sequence: SequenceId,
-    ) -> Vec<Event<I>> {
+    ) -> StoreResult<Vec<Event<I>>> {
+        let conn = self.pool.get().await?;
+
+        let type_erased_id = *entity_id;
+
+        let raw_events: Vec<TypeErasedEvent> = conn
+            .interact(move |conn| {
+                Ok::<_, diesel::result::Error>(
+                    events::dsl::events
+                        .filter(events::entity_id.eq(type_erased_id))
+                        .filter(events::sequence_id.ge(starting_sequence))
+                        .order_by(events::sequence_id.asc())
+                        .get_results::<TypeErasedEvent>(conn)?,
+                )
+            })
+            .await??;
+
         todo!()
     }
 

@@ -2,13 +2,15 @@ use crate::account::AccountPayload;
 use crate::auth::passkey::PasskeyPayload;
 use crate::auth::user::UserPayload;
 use crate::journal::JournalPayload;
+use crate::store::universal::SequenceId;
 use crate::store::universal::example_entity::ExamplePayload;
 use crate::transaction::TransactionPayload;
 use diesel::backend::Backend;
 use diesel::deserialize::FromSql;
 use diesel::query_builder::bind_collector::RawBytesBindCollector;
 use diesel::serialize::{Output, ToSql};
-use diesel::sql_types::SmallInt;
+use diesel::sql_types::{Integer, SmallInt};
+use diesel::sqlite::SqliteBindValue;
 use diesel::{AsExpression, FromSqlRow, deserialize, serialize};
 use serde::Deserialize;
 use thiserror::Error;
@@ -53,14 +55,17 @@ impl TryFrom<i16> for EntityType {
     }
 }
 
-impl<DB: Backend> ToSql<SmallInt, DB> for EntityType
-where
-    i16: ToSql<SmallInt, DB>,
-    for<'b> DB: Backend<BindCollector<'b> = RawBytesBindCollector<DB>>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> serialize::Result {
-        let val = *self as i16;
-        val.to_sql(&mut out.reborrow())
+impl ToSql<SmallInt, diesel::sqlite::Sqlite> for EntityType {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> serialize::Result {
+        // SqliteBindValue doesn't implement From<i16>
+        out.set_value(*self as i32);
+        Ok(serialize::IsNull::No)
+    }
+}
+
+impl ToSql<SmallInt, diesel::pg::Pg> for EntityType {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> serialize::Result {
+        <i16 as ToSql<SmallInt, diesel::pg::Pg>>::to_sql(&(*self as i16), &mut out.reborrow())
     }
 }
 

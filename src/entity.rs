@@ -7,7 +7,8 @@ macro_rules! payload {
             $($variants:tt)*
         }
     ) => {
-        #[derive(Payload, Clone, serde::Serialize, serde::Deserialize, Debug)]
+        #[derive(Payload, Clone, serde::Serialize, serde::Deserialize, Debug, diesel::AsExpression, diesel::FromSqlRow)]
+        #[diesel(sql_type = diesel::sql_types::Binary)]
         $(#[$meta])*
         $vis enum $enum_name {
             $($variants)*
@@ -16,6 +17,45 @@ macro_rules! payload {
         impl From<$enum_name> for $crate::store::universal::registry::AnyPayload {
             fn from(val: $enum_name) -> Self {
                 $any_payload_ctor(val)
+            }
+        }
+
+         #[allow(unused_imports)]
+        use std::io::Write as _;
+
+        impl diesel::serialize::ToSql<diesel::sql_types::Binary, diesel::sqlite::Sqlite>
+            for $enum_name
+        {
+            fn to_sql<'b>(
+                &'b self,
+                out: &mut diesel::serialize::Output<'b, '_, diesel::sqlite::Sqlite>,
+            ) -> diesel::serialize::Result {
+                out.set_value(postcard::to_allocvec(self)?);
+                Ok(diesel::serialize::IsNull::No)
+            }
+        }
+
+        impl diesel::serialize::ToSql<diesel::sql_types::Binary, diesel::pg::Pg> for $enum_name {
+            fn to_sql<'b>(
+                &'b self,
+                out: &mut diesel::serialize::Output<'b, '_, diesel::pg::Pg>,
+            ) -> diesel::serialize::Result {
+                out.write_all(&postcard::to_allocvec(self)?)?;
+                Ok(diesel::serialize::IsNull::No)
+            }
+        }
+
+        impl<DB: diesel::backend::Backend>
+            diesel::deserialize::FromSql<diesel::sql_types::Binary, DB> for $enum_name
+        where
+            Vec<u8>: diesel::deserialize::FromSql<diesel::sql_types::Binary, DB>,
+        {
+            fn from_sql(value: DB::RawValue<'_>) -> diesel::deserialize::Result<Self> {
+                let bytes = <Vec<u8> as diesel::deserialize::FromSql<
+                    diesel::sql_types::Binary,
+                    DB,
+                >>::from_sql(value)?;
+                Ok(postcard::from_bytes(&bytes)?)
             }
         }
     };

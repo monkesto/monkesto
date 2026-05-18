@@ -38,7 +38,7 @@ axum-extra = { version = "0.12.5", features = ["form"] }
 rust_decimal = { version = "1.40.0", features = ["macros"] }
 axum-test = "20.0.0"
 paste = "1.0.15"
-diesel = {version = "2.3.9", features = ["sqlite", "postgres"]}
+diesel = {version = "2.3.9", features = ["sqlite", "postgres", "returning_clauses_for_sqlite_3_35"]}
 deadpool-diesel = { version = "0.6.1", features = ["postgres", "sqlite"] }
 
 libsqlite3-sys = { version = "0.37.0", features = ["bundled"] }
