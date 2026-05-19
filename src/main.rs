@@ -21,17 +21,6 @@ mod theme;
 mod transaction;
 pub mod util;
 
-use axum::Router;
-use axum::extract::FromRef;
-use axum::http::StatusCode;
-use axum::http::header;
-use axum::response::IntoResponse;
-use axum::response::Redirect;
-use axum::routing::get;
-use axum_login::AuthManagerLayerBuilder;
-use dotenvy::dotenv;
-use std::env;
-
 use crate::account::AccountMemoryStore;
 use crate::account::AccountService;
 use crate::auth::MemoryUserStore;
@@ -40,10 +29,25 @@ use crate::journal::JournalMemoryStore;
 use crate::journal::JournalService;
 use crate::transaction::TransactionMemoryStore;
 use crate::transaction::TransactionService;
+use axum::Router;
+use axum::extract::FromRef;
+use axum::http::header;
+use axum::http::{Response, StatusCode};
+use axum::response::IntoResponse;
+use axum::response::Redirect;
+use axum::routing::get;
+use axum_login::tracing::{Level, Span};
+use axum_login::{AuthManagerLayerBuilder, tracing};
+use dotenvy::dotenv;
 use seed::seed_dev_data;
+use std::env;
+use std::time::Duration;
 use tower_http::services::ServeFile;
+use tower_http::trace::TraceLayer;
 use tower_sessions::SessionManagerLayer;
 use tower_sessions_file_store::FileSessionStorage;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[macro_use]
 extern crate monkesto_derive;
@@ -129,7 +133,13 @@ async fn main() {
             env::set_var("RUST_LOG", "INFO");
         }
     }
-    tracing_subscriber::fmt::init();
+
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::filter::LevelFilter::from_level(
+            Level::DEBUG,
+        ))
+        .init();
 
     let addr = env::var("SITE_ADDR").unwrap_or("0.0.0.0:3000".to_string());
 
@@ -167,7 +177,16 @@ async fn main() {
         .merge(webauthn_routes)
         .merge(journal_routes)
         .fallback(notfoundpage::not_found_page)
-        .layer(auth_layer);
+        .layer(auth_layer)
+        .layer(TraceLayer::new_for_http().on_response(
+            |response: &Response<_>, latency: Duration, _span: &Span| {
+                tracing::info!(
+                    status = %response.status(),
+                    latency_μs = latency.as_micros(),
+                    "response"
+                );
+            },
+        ));
 
     let app = app.with_state(state);
 
