@@ -44,8 +44,8 @@ pub enum StoreError {
 
     #[error("incorrect entity type: expected {expected:?}, found {found:?}")]
     EntityType {
-        expected: Option<EntityType>,
-        found: Option<EntityType>,
+        expected: EntityType,
+        found: EntityType,
     },
 
     #[error("attempted to apply an update to the transaction {0}, but it doesn't exist")]
@@ -260,7 +260,6 @@ pub struct Event<I: Entity> {
     pub authority: Postcard<Authority>,
     pub entity_id: I::Id,
     pub payload: I::Payload,
-    pub entity_type: EntityType,
     pub applied_to_state: bool,
 }
 

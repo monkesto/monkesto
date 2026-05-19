@@ -5,7 +5,6 @@ CREATE TABLE events (
     authority BLOB NOT NULL,
     entity_id BLOB NOT NULL,
     payload BLOB NOT NULL,
-    entity_type SMALLINT NOT NULL,
     applied_to_state BOOLEAN NOT NULL,
     UNIQUE (entity_id, sequence_id)
 )

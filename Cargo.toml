@@ -46,6 +46,7 @@ pq-sys = { version = "0.7.5", features = ["bundled"] }
 openssl-sys = { version = "0.9.115", features = ["vendored"] }
 tower-sessions-core = "0.15.0"
 async-trait = "0.1.89"
+diesel_migrations = {version = "2.3.2", features = ["sqlite", "postgres"]}
 
 [lints.clippy]
 unwrap_used = "deny"
