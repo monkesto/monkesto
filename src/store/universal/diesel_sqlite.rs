@@ -5,14 +5,14 @@ use crate::authority::{Authority, UserId};
 use crate::ident::Ident;
 use crate::journal::{JournalId, JournalModifiedPayload, JournalPayload, JournalState};
 use crate::postcard::Postcard;
+use crate::schema::entities;
 use crate::schema::sessions;
 use crate::schema::{accounts, events, journal_members_lookup};
-use crate::schema::{entities, examples};
 use crate::store::universal::example_entity::ExampleState;
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::store::universal::time_provider::TimeProvider;
 use crate::store::universal::{
-    Entity, Event, EventId, GetPayloadUsage, Payload, PayloadUsage, SequenceId, Store, StoreError,
+    Entity, Event, EventId, GetPayloadUsage, PayloadUsage, SequenceId, Store, StoreError,
     StoreResult, TimeStamp, payload_from_bytes,
 };
 use crate::transaction::{
