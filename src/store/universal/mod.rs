@@ -97,10 +97,13 @@ impl<T> From<SendError<T>> for StoreError {
 pub type StoreResult<T> = Result<T, StoreError>;
 
 pub trait EntityId:
-    Deref<Target = Ident>
+    Sync
+    + Send
+    + Deref<Target = Ident>
+    + From<Ident>
     + Serialize
     + Copy
-    + diesel::expression::AsExpression<diesel::sql_types::Binary>
+    + diesel::expression::AsExpression<Binary>
 {
     fn as_bytes(&self) -> &[u8];
 }

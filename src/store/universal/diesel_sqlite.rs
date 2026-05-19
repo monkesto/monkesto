@@ -5,9 +5,9 @@ use crate::authority::{Authority, UserId};
 use crate::ident::Ident;
 use crate::journal::{JournalId, JournalModifiedPayload, JournalPayload, JournalState};
 use crate::postcard::Postcard;
-use crate::schema::entities;
 use crate::schema::sessions;
 use crate::schema::{accounts, events, journal_members_lookup};
+use crate::schema::{entities, examples};
 use crate::store::universal::example_entity::ExampleState;
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::store::universal::time_provider::TimeProvider;
@@ -293,6 +293,27 @@ impl DieselSqliteStore {
 
             Ok(())
         })
+    }
+
+    async fn validate_entity_type<I: Entity>(entity_id: I::Id, conn: &Object) -> StoreResult<()> {
+        let id = *entity_id;
+
+        let entity: EntityLookup = conn
+            .interact(move |conn| {
+                entities::dsl::entities
+                    .filter(entities::id.eq(id))
+                    .first::<EntityLookup>(conn)
+            })
+            .await??;
+
+        if entity.entity_type != I::entity_type() {
+            Err(StoreError::EntityType {
+                expected: I::entity_type(),
+                found: entity.entity_type,
+            })
+        } else {
+            Ok(())
+        }
     }
 
     async fn handle_payloads(
@@ -639,23 +660,7 @@ impl Store for DieselSqliteStore {
         // if the payload creates an entity, it shouldn't be in the entity table
         // if it is in the table already, the sequence id should prevent the creation of multiple entities with the same id
 
-        let type_erased_id = *entity_id;
-        if !payload.creates_entity() {
-            let entity: EntityLookup = conn
-                .interact(move |conn| {
-                    entities::dsl::entities
-                        .filter(entities::id.eq(type_erased_id))
-                        .first::<EntityLookup>(conn)
-                })
-                .await??;
-
-            if entity.entity_type != I::entity_type() {
-                return Err(StoreError::EntityType {
-                    expected: I::entity_type(),
-                    found: entity.entity_type,
-                });
-            }
-        }
+        DieselSqliteStore::validate_entity_type::<I>(entity_id, &conn).await?;
 
         let new_event = NewEvent {
             sequence_id: expected_sequence,
@@ -695,9 +700,11 @@ impl Store for DieselSqliteStore {
     ) -> StoreResult<Vec<Event<I>>> {
         let conn = self.pool.get().await?;
 
+        DieselSqliteStore::validate_entity_type::<I>(entity_id, &conn).await?;
+
         let type_erased_id = *entity_id;
 
-        let raw_events: Vec<TypeErasedEvent> = conn
+        let events: StoreResult<Vec<Event<I>>> = conn
             .interact(move |conn| {
                 events::dsl::events
                     .filter(events::entity_id.eq(type_erased_id))
@@ -705,12 +712,29 @@ impl Store for DieselSqliteStore {
                     .order_by(events::sequence_id.asc())
                     .get_results::<TypeErasedEvent>(conn)
             })
-            .await??;
+            .await??
+            .into_iter()
+            .map(|ev: TypeErasedEvent| -> StoreResult<Event<I>> {
+                Ok(Event {
+                    event_id: ev.event_id,
+                    sequence_id: ev.sequence_id,
+                    timestamp: ev.timestamp,
+                    authority: ev.authority,
+                    entity_id: I::Id::from(ev.entity_id),
+                    payload: postcard::from_bytes(ev.payload.as_slice())?,
+                    applied_to_state: ev.applied_to_state,
+                })
+            })
+            .collect();
 
-        todo!()
+        events
     }
 
     async fn get_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<(I::State, SequenceId)> {
+        let conn = self.pool.get().await?;
+
+        DieselSqliteStore::validate_entity_type::<I>(entity_id, &conn).await?;
+
         todo!()
     }
 
