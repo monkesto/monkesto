@@ -16,14 +16,15 @@ use diesel::deserialize::FromSql;
 use diesel::serialize::{Output, ToSql};
 use diesel::sql_types::{BigInt, Binary, Integer};
 use diesel::{
-    AsExpression, FromSqlRow, Insertable, Queryable, QueryableByName, Selectable, deserialize,
-    serialize,
+    AsExpression, FromSqlRow, Insertable, Queryable, QueryableByName, Selectable, SqliteConnection,
+    deserialize, serialize,
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::ops::{Add, Deref};
 use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
+use tokio::sync::watch::error::RecvError;
 use tower_sessions::ExpiredDeletion;
 
 mod diesel_sqlite;
@@ -68,6 +69,9 @@ pub enum StoreError {
 
     #[error("failed to send a value through a tokio channel")]
     Send(String),
+
+    #[error("")]
+    Receive(String),
 }
 
 impl From<PoolError> for StoreError {
@@ -94,6 +98,12 @@ impl<T> From<SendError<T>> for StoreError {
     }
 }
 
+impl From<RecvError> for StoreError {
+    fn from(value: RecvError) -> Self {
+        Self::Receive(value.to_string())
+    }
+}
+
 pub type StoreResult<T> = Result<T, StoreError>;
 
 pub trait EntityId:
@@ -104,6 +114,7 @@ pub trait EntityId:
     + Serialize
     + Copy
     + diesel::expression::AsExpression<Binary>
+    + 'static
 {
     fn as_bytes(&self) -> &[u8];
 }
@@ -140,9 +151,13 @@ pub trait GetPayloadUsage<T: Entity> {
 pub trait Entity: Sized {
     type Id: EntityId;
     type Payload: Payload + GetPayloadUsage<Self>;
-    type State: State;
+    type State: State + FetchState<Self> + 'static;
 
     fn entity_type() -> EntityType;
+}
+
+pub trait FetchState<I: Entity>: Sized {
+    fn fetch(conn: &mut SqliteConnection, id: I::Id) -> StoreResult<Self>;
 }
 
 pub trait State: Send + Sync + Clone + Serialize + DeserializeOwned {
@@ -321,7 +336,7 @@ pub trait Store {
     ) -> StoreResult<Vec<Event<I>>>;
 
     /// Returns a State of the given entity and the sequence id associated with the last event applied to it
-    async fn get_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<(I::State, SequenceId)>;
+    async fn get_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<I::State>;
 
     /// Rebuilds the State of an entity from the stored events
     async fn rebuild_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<()>;

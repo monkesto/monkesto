@@ -64,15 +64,28 @@ macro_rules! payload {
 #[macro_export]
 macro_rules! state {
     (
+        #[diesel(table_name = $($table:tt)::*)]
         $(#[$meta:meta])*
         $vis:vis struct $struct_name:ident {
             $($fields:tt)*
         }
     ) => {
         #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, State, diesel::Queryable, diesel::QueryableByName, diesel::Selectable, diesel::Insertable, diesel::AsChangeset)]
+        #[diesel(table_name = $($table)::*)]
         $(#[$meta])*
         $vis struct $struct_name {
             $($fields)*
+        }
+
+        use diesel::QueryDsl as _;
+        use diesel::RunQueryDsl as _;
+        use diesel::ExpressionMethods as _;
+
+        impl<I: $crate::store::universal::Entity> $crate::store::universal::FetchState<I> for $struct_name {
+            fn fetch(conn: &mut diesel::SqliteConnection, id: I::Id) -> $crate::store::universal::StoreResult<Self> {
+                let type_erased_id = *id;
+                Ok($($table)::*::table.filter($($table)::*::id.eq(type_erased_id)).first::<$struct_name>(conn)?)
+            }
         }
     };
 }

@@ -5,15 +5,15 @@ use crate::authority::{Authority, UserId};
 use crate::ident::Ident;
 use crate::journal::{JournalId, JournalModifiedPayload, JournalPayload, JournalState};
 use crate::postcard::Postcard;
-use crate::schema::entities;
 use crate::schema::sessions;
 use crate::schema::{accounts, events, journal_members_lookup};
-use crate::store::universal::example_entity::ExampleState;
+use crate::schema::{entities, examples, journals, passkeys, transactions, users};
+use crate::store::universal::example_entity::{ExamplePayload, ExampleState};
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::store::universal::time_provider::TimeProvider;
 use crate::store::universal::{
-    Entity, Event, EventId, GetPayloadUsage, PayloadUsage, SequenceId, Store, StoreError,
-    StoreResult, TimeStamp, payload_from_bytes,
+    Entity, Event, EventId, FetchState, GetPayloadUsage, PayloadUsage, SequenceId, Store,
+    StoreError, StoreResult, TimeStamp, payload_from_bytes,
 };
 use crate::transaction::{
     EntryType, TransactionModifiedPayload, TransactionPayload, TransactionState,
@@ -35,7 +35,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
-use std::sync::atomic::AtomicI64;
+use std::sync::atomic::{AtomicI64, Ordering};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, watch};
 use tower_sessions::cookie::time::OffsetDateTime;
@@ -199,7 +199,7 @@ impl DieselSqliteStore {
                         TransactionPayload::Modified(modified_payload) => {
                             let old_payload = events::dsl::events
                                 .filter(events::entity_id.eq(entity_id))
-                                .order_by(events::sequence_id.asc())
+                                .order_by(events::sequence_id.desc())
                                 .select(events::payload)
                                 .first::<TransactionPayload>(tx)?;
 
@@ -448,14 +448,13 @@ impl DieselSqliteStore {
         }
     }
 
-    async fn wait_for_event_processing(&self, event_id: EventId) {
-        let mut processed_rx = self.processed_rx.clone();
-
-        // the broadcast channel closing is an unrecoverable error
-        processed_rx
+    async fn wait_for_event_processing(&self, event_id: EventId) -> StoreResult<()> {
+        self.processed_rx
+            .clone()
             .wait_for(|val| *val >= event_id)
-            .await
-            .expect("broadcast channel closed");
+            .await?;
+
+        Ok(())
     }
 }
 
@@ -645,7 +644,6 @@ pub struct EntityLookup {
     entity_type: EntityType,
 }
 
-#[expect(unused)]
 impl Store for DieselSqliteStore {
     async fn record<I: Entity, T: TimeProvider>(
         &self,
@@ -730,16 +728,128 @@ impl Store for DieselSqliteStore {
         events
     }
 
-    async fn get_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<(I::State, SequenceId)> {
+    async fn get_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<I::State> {
         let conn = self.pool.get().await?;
 
         DieselSqliteStore::validate_entity_type::<I>(entity_id, &conn).await?;
 
-        todo!()
+        conn.interact(move |conn| I::State::fetch(conn, entity_id))
+            .await?
     }
 
     async fn rebuild_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<()> {
-        todo!()
+        let conn = self.pool.get().await?;
+
+        DieselSqliteStore::validate_entity_type::<I>(entity_id, &conn).await?;
+
+        let type_erased_id = *entity_id;
+
+        conn.interact(move |conn| {
+            conn.transaction(|tx| {
+                diesel::update(events::dsl::events)
+                    .filter(events::entity_id.eq(type_erased_id))
+                    .set(events::applied_to_state.eq(false))
+                    .execute(tx)?;
+
+                match I::entity_type() {
+                    EntityType::Example => {
+                        diesel::delete(examples::dsl::examples)
+                            .filter(examples::id.eq(type_erased_id))
+                            .execute(tx)?;
+                    }
+                    EntityType::Journal => {
+                        diesel::delete(journals::dsl::journals)
+                            .filter(journals::id.eq(type_erased_id))
+                            .execute(tx)?;
+
+                        diesel::delete(journal_members_lookup::dsl::journal_members_lookup)
+                            .filter(journal_members_lookup::journal_id.eq(type_erased_id))
+                            .execute(tx)?;
+                    }
+                    EntityType::Account => {
+                        diesel::delete(accounts::dsl::accounts)
+                            .filter(accounts::id.eq(type_erased_id))
+                            .execute(tx)?;
+                    }
+                    EntityType::Transaction => {
+                        diesel::delete(transactions::dsl::transactions)
+                            .filter(transactions::id.eq(type_erased_id))
+                            .execute(tx)?;
+
+                        // we also have undo the balance updates associated with the transaction
+                        let old_payload: TransactionPayload = events::dsl::events
+                            .filter(events::entity_id.eq(type_erased_id))
+                            .order_by(events::sequence_id.desc())
+                            .select(events::payload)
+                            .first::<TransactionPayload>(tx)?;
+
+                        let old_updates = match old_payload {
+                            TransactionPayload::Created { updates, .. } => Some(updates),
+                            TransactionPayload::Modified(
+                                TransactionModifiedPayload::UpdatedBalancedUpdates {
+                                    new_balanceupdates,
+                                },
+                            ) => Some(new_balanceupdates),
+                            TransactionPayload::Modified(TransactionModifiedPayload::Deleted) => {
+                                None
+                            }
+                        };
+
+                        if let Some(old_updates) = old_updates {
+                            for old_update in old_updates {
+                                diesel::update(accounts::dsl::accounts)
+                                    .filter(accounts::id.eq(old_update.account_id))
+                                    .set(accounts::balance.eq(accounts::balance
+                                        + if old_update.entry_type != EntryType::Credit {
+                                            old_update.amount as i64
+                                        } else {
+                                            -(old_update.amount as i64)
+                                        }))
+                                    .execute(tx)?;
+                            }
+                        }
+                    }
+                    EntityType::Passkey => {
+                        diesel::delete(passkeys::dsl::passkeys)
+                            .filter(passkeys::id.eq(type_erased_id))
+                            .execute(tx)?;
+                    }
+                    EntityType::User => {
+                        diesel::delete(users::dsl::users)
+                            .filter(users::id.eq(type_erased_id))
+                            .execute(tx)?;
+                    }
+                    EntityType::Grant | EntityType::Role => {
+                        todo!("grant and role don't have associated tables")
+                    }
+                }
+
+                Ok::<_, diesel::result::Error>(())
+            })
+        })
+        .await??;
+
+        // send an impossible EventId to the handler to trigger a query
+        let rebuild_id = EventId(self.rebuild_num.fetch_sub(1, Ordering::SeqCst));
+
+        // the event values don't matter; the handler will discard them when it gets an unexpected id
+        self.event_tx
+            .send((
+                rebuild_id,
+                SequenceId(0),
+                Box::new(AnyPayload::Example(ExamplePayload::Created)),
+                Ident::new10(),
+                EntityType::Example,
+            ))
+            .await?;
+
+        // wait for the handler to process the rebuild
+        self.processed_rebuilds_rx
+            .clone()
+            .wait_for(|event_id| *event_id >= rebuild_id)
+            .await?;
+
+        Ok(())
     }
 
     async fn session_store(&self) -> &impl ExpiredDeletion {
