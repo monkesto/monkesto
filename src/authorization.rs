@@ -14,7 +14,6 @@ use crate::store::Observe;
 use crate::store::Store;
 use crate::store::When;
 use crate::store::memory::memory_store;
-use crate::store::stream;
 use chrono::Utc;
 use std::error::Error as StdError;
 use thiserror::Error;
@@ -32,34 +31,6 @@ memory_store! {
         GrantStream => Grant,
     }
 }
-
-stream! {
-    pub struct AuthorizationStream {
-        Role(RoleStream),
-        Grant(GrantStream),
-    }
-}
-
-// event! {
-//     pub enum AuthorizationEvent {
-//         type Stream = AuthorizationStream;
-//         type Authority = Authority;
-//     }
-// }
-//
-// memory_store! {
-//     pub struct AuthorizationMemoryStore {
-//         type Event = AuthorizationEvent;
-//     }
-// }
-//
-// memory_store! {
-//     type OtherAuthorizationMemoryStore = MemoryStore<Authority, RoleStream, GrantStream>
-//     where AuthorizationEvent {
-//         RoleStream => Role,
-//         GrantStream => Grant,
-//     }
-// }
 
 #[derive(Debug, Error)]
 pub enum AuthorizationError<E: StdError + Send + Sync + 'static> {
