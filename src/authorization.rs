@@ -32,6 +32,26 @@ memory_store! {
     }
 }
 
+// stream! {
+//     pub struct AuthorizationStream {
+//         Role(RoleStream),
+//         Grant(GrantStream),
+//     }
+// }
+//
+// event! {
+//     pub enum AuthorizationEvent {
+//         type Stream = AuthorizationStream;
+//         type Authority = Authority;
+//     }
+// }
+//
+// memory_store! {
+//     pub struct AuthorizationMemoryStore {
+//         type Event = AuthorizationEvent;
+//     }
+// }
+//
 // memory_store! {
 //     type OtherAuthorizationMemoryStore = MemoryStore<Authority, RoleStream, GrantStream>
 //     where AuthorizationEvent {

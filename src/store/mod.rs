@@ -10,6 +10,24 @@ pub trait Stream {
     type Payload: Send + Sync + Clone;
 }
 
+// pub trait StreamFamily: Send + Sync + Clone {}
+//
+// pub trait HasStream<S: Stream>: StreamFamily {}
+//
+// pub trait EventFamily: Send + Sync + Clone {
+//     type Stream: StreamFamily;
+//     type Authority: Send + Sync + Clone;
+// }
+//
+// pub trait EventFor<S: Stream>: EventFamily {
+// where
+//     Self::Stream: HasStream<S>,
+// {
+//     fn from_event(
+//         event: Event<Self::Authority, S::Id, S::Payload>,
+//     ) -> Self;
+// }
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct EventId(u64);
 
@@ -93,6 +111,42 @@ where
         limit: usize,
     ) -> Result<Page<Event<A, S::Id, S::Payload>>, Self::Error>;
 }
+
+// pub trait Store<E: EventFamily>: Send + Sync
+// where
+//     E::Stream: StreamFamily,
+// {
+//     type Error: Error + Send + Sync + 'static;
+//
+//     async fn record<S>(
+//         &self,
+//         by: E::Authority,
+//         at: DateTime<Utc>,
+//         id: S::Id,
+//         payload: S::Payload,
+//         when: When<EventId>,
+//     ) -> Result<Outcome<E::Authority, S::Id, S::Payload>, Self::Error>
+//     where
+//         S: Stream,
+//         E: EventFor<S>,
+//         E::Stream: HasStream<S>;
+//
+//     async fn review<S>(
+//         &self,
+//         id: S::Id,
+//         after: After<EventId>,
+//         limit: usize,
+//     ) -> Result<Page<Event<E::Authority, S::Id, S::Payload>>, Self::Error>
+//     where
+//         S: Stream,
+//         E::Stream: HasStream<S>;
+//
+//     async fn observe(
+//         &self,
+//         after: After<EventId>,
+//         limit: usize,
+//     ) -> Result<Page<E>, Self::Error>;
+// }
 
 pub trait Observe: Send + Sync {
     type Event: Send + Sync + Clone;
