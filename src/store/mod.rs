@@ -10,9 +10,31 @@ pub trait Stream {
     type Payload: Send + Sync + Clone;
 }
 
-// pub trait StreamFamily: Send + Sync + Clone {}
-//
-// pub trait HasStream<S: Stream>: StreamFamily {}
+pub trait StreamFamily: Send + Sync + Clone {}
+
+pub trait HasStream<S: Stream>: StreamFamily {}
+
+macro_rules! stream {
+    (
+        $(#[$attrs:meta])*
+        $vis:vis struct $name:ident {
+            $($variant:ident($stream:ident)),+ $(,)?
+        }
+    ) => {
+        $(#[$attrs])*
+        #[derive(Clone, Copy, Debug)]
+        $vis struct $name;
+
+        impl crate::store::StreamFamily for $name {}
+
+        $(
+            impl crate::store::HasStream<$stream> for $name {}
+        )+
+    };
+}
+
+pub(crate) use stream;
+
 //
 // pub trait EventFamily: Send + Sync + Clone {
 //     type Stream: StreamFamily;

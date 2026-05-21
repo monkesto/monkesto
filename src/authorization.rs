@@ -14,6 +14,7 @@ use crate::store::Observe;
 use crate::store::Store;
 use crate::store::When;
 use crate::store::memory::memory_store;
+use crate::store::stream;
 use chrono::Utc;
 use std::error::Error as StdError;
 use thiserror::Error;
@@ -32,13 +33,13 @@ memory_store! {
     }
 }
 
-// stream! {
-//     pub struct AuthorizationStream {
-//         Role(RoleStream),
-//         Grant(GrantStream),
-//     }
-// }
-//
+stream! {
+    pub struct AuthorizationStream {
+        Role(RoleStream),
+        Grant(GrantStream),
+    }
+}
+
 // event! {
 //     pub enum AuthorizationEvent {
 //         type Stream = AuthorizationStream;
