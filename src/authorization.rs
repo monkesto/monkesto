@@ -32,6 +32,14 @@ memory_store! {
     }
 }
 
+// memory_store! {
+//     type OtherAuthorizationMemoryStore = MemoryStore<Authority, RoleStream, GrantStream>
+//     where AuthorizationEvent {
+//         RoleStream => Role,
+//         GrantStream => Grant,
+//     }
+// }
+
 #[derive(Debug, Error)]
 pub enum AuthorizationError<E: StdError + Send + Sync + 'static> {
     #[error("grant not found: {0}")]
