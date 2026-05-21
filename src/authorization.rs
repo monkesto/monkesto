@@ -13,6 +13,7 @@ use crate::store::EventId;
 use crate::store::Observe;
 use crate::store::Store;
 use crate::store::When;
+use crate::store::memory::memory_store;
 use chrono::Utc;
 use std::error::Error as StdError;
 use thiserror::Error;
@@ -21,6 +22,14 @@ use thiserror::Error;
 pub enum AuthorizationEvent {
     Role(Event<Authority, RoleId, RolePayload>),
     Grant(Event<Authority, GrantId, GrantPayload>),
+}
+
+memory_store! {
+    type AuthorizationMemoryStore = MemoryStore<Authority, RoleStream, GrantStream>
+    where AuthorizationEvent {
+        RoleStream => Role,
+        GrantStream => Grant,
+    }
 }
 
 #[derive(Debug, Error)]
@@ -160,18 +169,9 @@ where
 mod tests {
     use super::*;
     use crate::authority::Actor;
-    use crate::store::memory::memory_store;
 
-    memory_store! {
-        type TestStore = MemoryStore<Authority, RoleStream, GrantStream>
-        where AuthorizationEvent {
-            RoleStream => Role,
-            GrantStream => Grant,
-        }
-    }
-
-    fn make_service() -> AuthorizationService<TestStore> {
-        AuthorizationService::new(TestStore::new())
+    fn make_service() -> AuthorizationService<AuthorizationMemoryStore> {
+        AuthorizationService::new(AuthorizationMemoryStore::new())
     }
 
     #[tokio::test]
