@@ -5,7 +5,10 @@ use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
 use std::error::Error;
+use std::hash::Hash;
 use std::ops::Deref;
+
+pub mod memory;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct EventId(u64);
@@ -54,12 +57,7 @@ pub trait Stream {
     type Payload: Send + Sync + Clone;
 }
 
-pub trait StreamFamily: Send + Sync + Clone {
-    type Id: Send + Sync + Copy + Clone;
-    type Record: Send + Sync + Clone;
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Event<A: Clone + Sized, S: Stream>
 where
     S::Id: Sized,
@@ -72,12 +70,37 @@ where
     pub payload: S::Payload,
 }
 
-pub trait EventFamily: Send + Sync + Clone {
-    type Stream: StreamFamily;
+impl<A, S> Clone for Event<A, S>
+where
+    A: Clone + Sized,
+    S: Stream,
+    S::Id: Sized,
+    S::Payload: Sized,
+{
+    fn clone(&self) -> Self {
+        Self {
+            event_id: self.event_id,
+            timestamp: self.timestamp,
+            authority: self.authority.clone(),
+            id: self.id,
+            payload: self.payload.clone(),
+        }
+    }
+}
+
+pub trait RecordFor<E: EventFamily>: Send + Sync + Clone {
+    fn id(&self) -> E::Id;
+    fn when(&self) -> When<EventId>;
+    fn into_event(self, event_id: EventId, authority: E::Authority, timestamp: DateTime<Utc>) -> E;
+}
+
+pub trait EventFamily: Send + Sync + Clone + Sized {
+    type Id: Send + Sync + Copy + Clone + Eq + Hash;
+    type Record: RecordFor<Self>;
     type Authority: Send + Sync + Clone;
 
     fn event_id(&self) -> EventId;
-    fn id(&self) -> <Self::Stream as StreamFamily>::Id;
+    fn id(&self) -> Self::Id;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -109,19 +132,19 @@ pub trait Store<E: EventFamily>: Send + Sync {
         &self,
         by: E::Authority,
         at: DateTime<Utc>,
-        record: <E::Stream as StreamFamily>::Record,
+        record: E::Record,
     ) -> Result<Outcome<E>, Self::Error>;
 
     async fn commit(
         &self,
         by: E::Authority,
         at: DateTime<Utc>,
-        records: Vec<<E::Stream as StreamFamily>::Record>,
+        records: Vec<E::Record>,
     ) -> Result<Outcome<E>, Self::Error>;
 
     async fn review(
         &self,
-        id: <E::Stream as StreamFamily>::Id,
+        id: E::Id,
         after: After<EventId>,
         limit: usize,
     ) -> Result<Page<E>, Self::Error>;
