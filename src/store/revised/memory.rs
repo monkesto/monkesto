@@ -17,7 +17,7 @@ where
 {
     latest: EventId,
     events: Vec<E>,
-    by_id: HashMap<E::Id, Vec<E>>,
+    streams: HashMap<E::Id, Vec<E>>,
 }
 
 pub struct MemoryStore<E>
@@ -36,7 +36,7 @@ where
             state: Arc::new(Mutex::new(MemoryState {
                 latest: EventId::from(0),
                 events: Vec::new(),
-                by_id: HashMap::new(),
+                streams: HashMap::new(),
             })),
         }
     }
@@ -76,7 +76,7 @@ where
         let mut state = self.state.lock().expect("poisoned");
         if records.iter().any(|record| {
             let latest = state
-                .by_id
+                .streams
                 .get(&record.id())
                 .and_then(|events| events.last())
                 .map(EventFamily::event_id);
@@ -95,7 +95,7 @@ where
             let event_id = state.latest;
             let event = record.into_event(event_id, by.clone(), at);
             state
-                .by_id
+                .streams
                 .entry(event.id())
                 .or_default()
                 .push(event.clone());
@@ -113,8 +113,25 @@ where
         limit: usize,
     ) -> Result<Page<E>, Self::Error> {
         let state = self.state.lock().expect("poisoned");
-        let events = state.by_id.get(&id).into_iter().flatten().cloned();
-        Ok(page_from_iter(events, after, limit, state.latest))
+        let filtered: Vec<E> = state
+            .streams
+            .get(&id)
+            .into_iter()
+            .flatten()
+            .filter(|event| match after {
+                After::Start => true,
+                After::Specific(event_id) => event.event_id() > event_id,
+            })
+            .take(limit + 1)
+            .cloned()
+            .collect();
+        let more = filtered.len() > limit;
+        let items: Vec<E> = filtered.into_iter().take(limit).collect();
+        let next = items
+            .last()
+            .map(EventFamily::event_id)
+            .unwrap_or(state.latest);
+        Ok(Page { items, more, next })
     }
 
     #[rustfmt::skip]
@@ -124,34 +141,19 @@ where
         limit: usize,
     ) -> Result<Page<E>, Self::Error> {
         let state = self.state.lock().expect("poisoned");
-        Ok(page_from_iter(
-            state.events.iter().cloned(),
-            after,
-            limit,
-            state.latest,
-        ))
+        let filtered: Vec<E> = state
+            .events
+            .iter()
+            .filter(|event| match after {
+                After::Start => true,
+                After::Specific(event_id) => event.event_id() > event_id,
+            })
+            .take(limit + 1)
+            .cloned()
+            .collect();
+        let more = filtered.len() > limit;
+        let items: Vec<E> = filtered.into_iter().take(limit).collect();
+        let next = items.last().map(EventFamily::event_id).unwrap_or(state.latest);
+        Ok(Page { items, more, next })
     }
-}
-
-pub fn page_from_iter<E>(
-    events: impl IntoIterator<Item = E>,
-    after: After<EventId>,
-    limit: usize,
-    latest: EventId,
-) -> Page<E>
-where
-    E: EventFamily,
-{
-    let filtered: Vec<E> = events
-        .into_iter()
-        .filter(|event| match after {
-            After::Start => true,
-            After::Specific(event_id) => event.event_id() > event_id,
-        })
-        .take(limit + 1)
-        .collect();
-    let more = filtered.len() > limit;
-    let items: Vec<E> = filtered.into_iter().take(limit).collect();
-    let next = items.last().map(EventFamily::event_id).unwrap_or(latest);
-    Page { items, more, next }
 }

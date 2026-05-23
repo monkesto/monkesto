@@ -1,5 +1,3 @@
-#![expect(dead_code)]
-
 use chrono::DateTime;
 use chrono::Utc;
 use serde::Deserialize;
@@ -42,6 +40,7 @@ pub enum When<T: Copy> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum After<T: Copy> {
     Start,
+    #[expect(dead_code)]
     Specific(T),
 }
 
@@ -52,40 +51,13 @@ pub struct Page<T> {
     pub next: EventId,
 }
 
-pub trait Stream {
-    type Id: Send + Sync + Copy + Clone;
-    type Payload: Send + Sync + Clone;
-}
-
-#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct Event<A: Clone + Sized, S: Stream>
-where
-    S::Id: Sized,
-    S::Payload: Sized,
-{
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Event<A, I, P> {
     pub event_id: EventId,
     pub timestamp: DateTime<Utc>,
     pub authority: A,
-    pub id: S::Id,
-    pub payload: S::Payload,
-}
-
-impl<A, S> Clone for Event<A, S>
-where
-    A: Clone + Sized,
-    S: Stream,
-    S::Id: Sized,
-    S::Payload: Sized,
-{
-    fn clone(&self) -> Self {
-        Self {
-            event_id: self.event_id,
-            timestamp: self.timestamp,
-            authority: self.authority.clone(),
-            id: self.id,
-            payload: self.payload.clone(),
-        }
-    }
+    pub id: I,
+    pub payload: P,
 }
 
 pub trait RecordFor<E: EventFamily>: Send + Sync + Clone {
@@ -109,20 +81,11 @@ pub enum Outcome<E> {
     Skipped,
 }
 
-pub struct Record<S: Stream> {
-    pub id: S::Id,
-    pub payload: S::Payload,
+#[derive(Clone)]
+pub struct Record<I, P> {
+    pub id: I,
+    pub payload: P,
     pub when: When<EventId>,
-}
-
-impl<S: Stream> Clone for Record<S> {
-    fn clone(&self) -> Self {
-        Self {
-            id: self.id,
-            payload: self.payload.clone(),
-            when: self.when,
-        }
-    }
 }
 
 pub trait Store<E: EventFamily>: Send + Sync {
@@ -150,6 +113,7 @@ pub trait Store<E: EventFamily>: Send + Sync {
     ) -> Result<Page<E>, Self::Error>;
 
     #[rustfmt::skip]
+    #[expect(dead_code)]
     async fn observe(
         &self,
         after: After<EventId>,
