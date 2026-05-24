@@ -1,11 +1,13 @@
 #![cfg_attr(not(test), expect(dead_code))]
 
+use super::role::RoleState;
 use super::store::AuthzEvent;
 use super::store::AuthzId;
 use super::store::AuthzRecord;
 use crate::authority::Authority;
 use crate::grant::GrantId;
 use crate::grant::GrantPayload;
+use crate::name::Name;
 use crate::role::RoleId;
 use crate::role::RolePayload;
 use crate::store::revised::After;
@@ -54,7 +56,11 @@ where
         Self { store }
     }
 
-    pub async fn create_role(&self, authority: Authority) -> Result<RoleId, AuthzError<S::Error>> {
+    pub async fn create_role(
+        &self,
+        authority: Authority,
+        name: Name,
+    ) -> Result<RoleId, AuthzError<S::Error>> {
         let role_id = RoleId::new();
         let outcome = self
             .store
@@ -63,7 +69,7 @@ where
                 Utc::now(),
                 AuthzRecord::Role(Record {
                     id: role_id,
-                    payload: RolePayload::Created,
+                    payload: RolePayload::Created(name),
                     when: When::Empty,
                 }),
             )
@@ -81,13 +87,7 @@ where
         authority: Authority,
         role_id: RoleId,
     ) -> Result<GrantId, AuthzError<S::Error>> {
-        let role_page = self
-            .store
-            .review(AuthzId::Role(role_id), After::Start, 1)
-            .await
-            .map_err(AuthzError::Store)?;
-
-        if role_page.items.is_empty() {
+        if matches!(self.role(role_id).await?, RoleState::Absent) {
             return Err(AuthzError::RoleNotFound(role_id));
         }
 
@@ -146,6 +146,34 @@ where
             Outcome::Skipped => Err(AuthzError::GrantSkipped(grant_id)),
         }
     }
+
+    pub async fn role(&self, role_id: RoleId) -> Result<RoleState, AuthzError<S::Error>> {
+        let mut after = After::Start;
+        let mut state = RoleState::Absent;
+
+        loop {
+            let page = self
+                .store
+                .review(AuthzId::Role(role_id), after, 128)
+                .await
+                .map_err(AuthzError::Store)?;
+
+            for event in page.items {
+                let AuthzEvent::Role(event) = event else {
+                    continue;
+                };
+                state.apply(event);
+            }
+
+            if !page.more {
+                break;
+            }
+
+            after = After::Specific(page.next);
+        }
+
+        Ok(state)
+    }
 }
 
 #[cfg(test)]
@@ -159,10 +187,18 @@ mod tests {
         let service = AuthzService::<AuthzMemoryStore>::new(AuthzMemoryStore::new());
         let authority = Authority::Direct(Actor::System);
 
-        service
-            .create_role(authority)
+        let role_id = service
+            .create_role(
+                authority,
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
+
+        assert!(matches!(
+            service.role(role_id).await.expect("role should load"),
+            RoleState::Present { .. }
+        ));
     }
 
     #[tokio::test]
@@ -171,7 +207,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service
-            .create_role(authority.clone())
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         service
@@ -195,7 +234,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service
-            .create_role(authority.clone())
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         let grant_id = service

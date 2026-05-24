@@ -4,6 +4,7 @@ use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::id;
 use crate::ident::Ident;
+use crate::name::Name;
 use crate::store::After;
 use crate::store::Event;
 use crate::store::EventId;
@@ -29,7 +30,7 @@ id!(RoleId, Ident::new16());
 
 #[derive(Clone, Debug)]
 pub enum RolePayload {
-    Created,
+    Created(Name),
     ActorAdded(Actor),
     ActorRemoved(Actor),
 }
@@ -39,6 +40,7 @@ pub enum RolePayload {
 enum RoleState {
     Absent,
     Present {
+        name: Name,
         actors: HashSet<Actor>,
         when: When<EventId>,
     },
@@ -55,17 +57,28 @@ impl RoleState {
     ) -> Result<(), RoleStateError> {
         let when = When::Within(event.event_id);
         *self = match (self.clone(), event.payload) {
-            (RoleState::Absent, RolePayload::Created) => RoleState::Present {
+            (RoleState::Absent, RolePayload::Created(name)) => RoleState::Present {
+                name,
                 actors: HashSet::new(),
                 when,
             },
-            (RoleState::Present { mut actors, .. }, RolePayload::ActorAdded(actor)) => {
+            (
+                RoleState::Present {
+                    name, mut actors, ..
+                },
+                RolePayload::ActorAdded(actor),
+            ) => {
                 actors.insert(actor);
-                RoleState::Present { actors, when }
+                RoleState::Present { name, actors, when }
             }
-            (RoleState::Present { mut actors, .. }, RolePayload::ActorRemoved(actor)) => {
+            (
+                RoleState::Present {
+                    name, mut actors, ..
+                },
+                RolePayload::ActorRemoved(actor),
+            ) => {
                 actors.remove(&actor);
-                RoleState::Present { actors, when }
+                RoleState::Present { name, actors, when }
             }
             _ => return Err(RoleStateError),
         };
@@ -204,7 +217,7 @@ impl MemoryRoleProjection {
     fn recorded(&self, event: &Event<Authority, RoleId, RolePayload>) {
         let mut state = self.state.lock().expect("poisoned");
         match &event.payload {
-            RolePayload::Created => {}
+            RolePayload::Created(_) => {}
             RolePayload::ActorAdded(actor) => {
                 state.entry(actor.clone()).or_default().insert(event.id);
             }
@@ -275,7 +288,11 @@ where
     const MAX_UPDATE_ATTEMPTS: usize = 8;
     const REVIEW_PAGE_SIZE: usize = 128;
 
-    pub async fn create(&self, authority: Authority) -> Result<RoleId, RoleCreateError<R::Error>> {
+    pub async fn create(
+        &self,
+        authority: Authority,
+        name: Name,
+    ) -> Result<RoleId, RoleCreateError<R::Error>> {
         for _ in 0..Self::MAX_CREATE_ATTEMPTS {
             let role_id = RoleId::new();
             let outcome = self
@@ -284,7 +301,7 @@ where
                     authority.clone(),
                     Utc::now(),
                     role_id,
-                    RolePayload::Created,
+                    RolePayload::Created(name.clone()),
                     When::Empty,
                 )
                 .await?;
@@ -439,6 +456,7 @@ where
             RoleState::Present {
                 actors,
                 when: When::Within(latest_event_id),
+                ..
             } => Some(LoadedRole {
                 actors,
                 latest_event_id,
@@ -465,7 +483,10 @@ mod tests {
         let actor = Actor::User(UserId::new());
 
         service
-            .create(authority.clone())
+            .create(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
 
@@ -482,7 +503,10 @@ mod tests {
         let service = RoleService::new(RoleMemoryStore::new());
         let authority = Authority::Direct(Actor::System);
         let role_id = service
-            .create(authority.clone())
+            .create(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         let first_user = Actor::User(UserId::new());
@@ -529,7 +553,10 @@ mod tests {
         let service = RoleService::new(RoleMemoryStore::new());
         let authority = Authority::Direct(Actor::System);
         let role_id = service
-            .create(authority.clone())
+            .create(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         let user = Actor::User(UserId::new());
@@ -557,7 +584,10 @@ mod tests {
         let service = RoleService::new(RoleMemoryStore::new());
         let authority = Authority::Direct(Actor::System);
         let role_id = service
-            .create(authority.clone())
+            .create(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         let user = Actor::User(UserId::new());
@@ -586,11 +616,17 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
         let actor = Actor::User(UserId::new());
         let first_role_id = service
-            .create(authority.clone())
+            .create(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("first create should succeed");
         let second_role_id = service
-            .create(authority.clone())
+            .create(
+                authority.clone(),
+                Name::try_new("Auditor".to_string()).expect("valid name"),
+            )
             .await
             .expect("second create should succeed");
 
@@ -635,7 +671,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
         let actor = Actor::User(UserId::new());
         let role_id = service
-            .create(authority.clone())
+            .create(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
 

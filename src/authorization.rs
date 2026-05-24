@@ -4,6 +4,7 @@ use crate::authority::Authority;
 use crate::grant::GrantId;
 use crate::grant::GrantPayload;
 use crate::grant::GrantStream;
+use crate::name::Name;
 use crate::role::RoleId;
 use crate::role::RolePayload;
 use crate::role::RoleStream;
@@ -66,6 +67,7 @@ where
     pub async fn create_role(
         &self,
         authority: Authority,
+        name: Name,
     ) -> Result<RoleId, AuthorizationError<<S as Store<Authority, RoleStream>>::Error>> {
         let role_id = RoleId::new();
         Store::<Authority, RoleStream>::record(
@@ -73,7 +75,7 @@ where
             authority,
             Utc::now(),
             role_id,
-            RolePayload::Created,
+            RolePayload::Created(name),
             When::Empty,
         )
         .await
@@ -180,7 +182,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
 
         service
-            .create_role(authority)
+            .create_role(
+                authority,
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
     }
@@ -191,7 +196,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service
-            .create_role(authority.clone())
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         service
@@ -215,7 +223,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service
-            .create_role(authority.clone())
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         let grant_id = service
@@ -251,7 +262,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service
-            .create_role(authority.clone())
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         service
@@ -272,7 +286,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service
-            .create_role(authority.clone())
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         let grant_id = service
