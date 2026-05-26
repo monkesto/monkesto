@@ -41,7 +41,7 @@ paste = "1.0.15"
 diesel = {version = "2.3.9", features = ["sqlite", "postgres", "returning_clauses_for_sqlite_3_35"]}
 deadpool-diesel = { version = "0.6.1", features = ["postgres", "sqlite"] }
 
-libsqlite3-sys = { version = "0.37.0", features = ["bundled"] }
+libsqlite3-sys = { version = "0.38.0", features = ["bundled"] }
 pq-sys = { version = "0.7.5", features = ["bundled"] }
 openssl-sys = { version = "0.9.115", features = ["vendored"] }
 tower-sessions-core = "0.15.0"
