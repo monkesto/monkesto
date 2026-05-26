@@ -359,5 +359,6 @@ macro_rules! multi_store_tests {
 }
 
 pub mod memory;
+pub mod revised;
 #[expect(dead_code)]
 pub mod universal;

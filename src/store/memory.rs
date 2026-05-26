@@ -26,30 +26,30 @@
 /// ```
 macro_rules! memory_store {
     // Single stream — generates Store<S> + Observe with bare Event type
-    (type $name:ident = MemoryStore<$authority:ty, $single:ident>) => {
-        memory_store!(@single_stream $name, $authority, $single);
+    ($(#[$attrs:meta])* type $name:ident = MemoryStore<$authority:ty, $single:ident>) => {
+        memory_store!(@single_stream [$(#[$attrs])*] $name, $authority, $single);
     };
     // Multiple streams with event mapping — generates Store<S> per stream + Observe
-    (type $name:ident = MemoryStore<$authority:ty, $($stream:ident),+ $(,)?>
+    ($(#[$attrs:meta])* type $name:ident = MemoryStore<$authority:ty, $($stream:ident),+ $(,)?>
      where $event:ident {
          $($estream:ident => $variant:ident),+ $(,)?
      }
     ) => {
-        memory_store!(@with_events $name,
+        memory_store!(@with_events [$(#[$attrs])*] $name,
             authority: $authority,
             streams: [$($stream),+],
             event: $event { $($estream => $variant),+ });
     };
     // Multiple streams without event mapping — generates Store<S> per stream, no Observe
-    (type $name:ident = MemoryStore<$authority:ty, $($stream:ident),+ $(,)?>) => {
-        memory_store!(@without_events $name, authority: $authority, streams: [$($stream),+]);
+    ($(#[$attrs:meta])* type $name:ident = MemoryStore<$authority:ty, $($stream:ident),+ $(,)?>) => {
+        memory_store!(@without_events [$(#[$attrs])*] $name, authority: $authority, streams: [$($stream),+]);
     };
     // Internal: multiple streams without events
-    (@without_events $name:ident, authority: $authority:ty, streams: [$($stream:ident),+]) => {
-        memory_store!(@detail);
+    (@without_events [$(#[$attrs:meta])*] $name:ident, authority: $authority:ty, streams: [$($stream:ident),+]) => {
+        memory_store!(@detail $name);
 
         paste::paste! {
-            memory_store!(@struct $name : $authority ; $($stream),+);
+            memory_store!(@struct [$(#[$attrs])*] $name : $authority ; $($stream),+);
 
             $(
                 memory_store!(@store_impl $name, $authority, $stream);
@@ -57,13 +57,13 @@ macro_rules! memory_store {
         }
     };
     // Internal: single stream — generates Store<S> + Observe with bare Event type
-    (@single_stream $name:ident, $authority:ty, $stream:ident) => {
-        memory_store!(@detail);
+    (@single_stream [$(#[$attrs:meta])*] $name:ident, $authority:ty, $stream:ident) => {
+        memory_store!(@detail $name);
 
         paste::paste! {
             struct [<$name State>] {
                 latest: crate::store::EventId,
-                [<$stream:snake>]: __memory_store_detail::StreamState<
+                [<$stream:snake>]: [<__ $name:snake _memory_store_detail>]::StreamState<
                     $authority,
                     <$stream as crate::store::Stream>::Id,
                     <$stream as crate::store::Stream>::Payload,
@@ -88,11 +88,12 @@ macro_rules! memory_store {
             }
 
             impl $name {
+                $(#[$attrs])*
                 pub fn new() -> Self {
                     Self {
                         state: std::sync::Arc::new(std::sync::Mutex::new([<$name State>] {
                             latest: crate::store::EventId::from(0),
-                            [<$stream:snake>]: __memory_store_detail::StreamState::default(),
+                            [<$stream:snake>]: [<__ $name:snake _memory_store_detail>]::StreamState::default(),
                             callbacks: Vec::new(),
                             global_events: Vec::new(),
                         })),
@@ -272,15 +273,15 @@ macro_rules! memory_store {
         }
     };
     // Internal: with events
-    (@with_events $name:ident,
+    (@with_events [$(#[$attrs:meta])*] $name:ident,
      authority: $authority:ty,
      streams: [$($stream:ident),+],
      event: $event:ident { $($estream:ident => $variant:ident),+ }
     ) => {
-        memory_store!(@detail);
+        memory_store!(@detail $name);
 
         paste::paste! {
-            memory_store!(@struct $name : $authority ; $($stream),+; event: $event);
+            memory_store!(@struct [$(#[$attrs])*] $name : $authority ; $($stream),+; event: $event);
 
             $(
                 memory_store!(@store_impl_with_event $name, $authority, $estream, $event, $variant);
@@ -358,44 +359,46 @@ macro_rules! memory_store {
         }
     };
     // Helper: StreamState detail module
-    (@detail) => {
-        mod __memory_store_detail {
-            use crate::store::Event;
-            use std::collections::HashMap;
-            use std::hash::Hash;
+    (@detail $name:ident) => {
+        paste::paste! {
+            mod [<__ $name:snake _memory_store_detail>] {
+                use crate::store::Event;
+                use std::collections::HashMap;
+                use std::hash::Hash;
 
-            pub struct StreamState<A, I, P>
-            where
-                A: Send + Sync + Clone,
-                I: Send + Sync + Copy + Clone + Eq + Hash + Sized,
-                P: Send + Sync + Clone,
-            {
-                pub events: Vec<Event<A, I, P>>,
-                pub select_events: HashMap<I, Vec<Event<A, I, P>>>,
-            }
+                pub struct StreamState<A, I, P>
+                where
+                    A: Send + Sync + Clone,
+                    I: Send + Sync + Copy + Clone + Eq + Hash + Sized,
+                    P: Send + Sync + Clone,
+                {
+                    pub events: Vec<Event<A, I, P>>,
+                    pub select_events: HashMap<I, Vec<Event<A, I, P>>>,
+                }
 
-            impl<A, I, P> Default for StreamState<A, I, P>
-            where
-                A: Send + Sync + Clone,
-                I: Send + Sync + Copy + Clone + Eq + Hash + Sized,
-                P: Send + Sync + Clone,
-            {
-                fn default() -> Self {
-                    Self {
-                        events: Vec::new(),
-                        select_events: HashMap::new(),
+                impl<A, I, P> Default for StreamState<A, I, P>
+                where
+                    A: Send + Sync + Clone,
+                    I: Send + Sync + Copy + Clone + Eq + Hash + Sized,
+                    P: Send + Sync + Clone,
+                {
+                    fn default() -> Self {
+                        Self {
+                            events: Vec::new(),
+                            select_events: HashMap::new(),
+                        }
                     }
                 }
             }
         }
     };
     // Helper: struct without global_events
-    (@struct $name:ident : $authority:ty ; $($stream:ident),+) => {
+    (@struct [$(#[$attrs:meta])*] $name:ident : $authority:ty ; $($stream:ident),+) => {
         paste::paste! {
             struct [<$name State>] {
                 latest: crate::store::EventId,
                 $(
-                    [<$stream:snake>]: __memory_store_detail::StreamState<
+                    [<$stream:snake>]: [<__ $name:snake _memory_store_detail>]::StreamState<
                         $authority,
                         <$stream as crate::store::Stream>::Id,
                         <$stream as crate::store::Stream>::Payload,
@@ -409,12 +412,13 @@ macro_rules! memory_store {
             }
 
             impl $name {
+                $(#[$attrs])*
                 pub fn new() -> Self {
                     Self {
                         state: std::sync::Arc::new(std::sync::Mutex::new([<$name State>] {
                             latest: crate::store::EventId::from(0),
                             $(
-                                [<$stream:snake>]: __memory_store_detail::StreamState::default(),
+                                [<$stream:snake>]: [<__ $name:snake _memory_store_detail>]::StreamState::default(),
                             )+
                         })),
                     }
@@ -423,12 +427,12 @@ macro_rules! memory_store {
         }
     };
     // Helper: struct with global_events
-    (@struct $name:ident : $authority:ty ; $($stream:ident),+; event: $event:ident) => {
+    (@struct [$(#[$attrs:meta])*] $name:ident : $authority:ty ; $($stream:ident),+; event: $event:ident) => {
         paste::paste! {
             struct [<$name State>] {
                 latest: crate::store::EventId,
                 $(
-                    [<$stream:snake>]: __memory_store_detail::StreamState<
+                    [<$stream:snake>]: [<__ $name:snake _memory_store_detail>]::StreamState<
                         $authority,
                         <$stream as crate::store::Stream>::Id,
                         <$stream as crate::store::Stream>::Payload,
@@ -444,12 +448,13 @@ macro_rules! memory_store {
             }
 
             impl $name {
+                $(#[$attrs])*
                 pub fn new() -> Self {
                     Self {
                         state: std::sync::Arc::new(std::sync::Mutex::new([<$name State>] {
                             latest: crate::store::EventId::from(0),
                             $(
-                                [<$stream:snake>]: __memory_store_detail::StreamState::default(),
+                                [<$stream:snake>]: [<__ $name:snake _memory_store_detail>]::StreamState::default(),
                             )+
                             callbacks: Vec::new(),
                             global_events: Vec::new(),

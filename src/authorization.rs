@@ -4,6 +4,7 @@ use crate::authority::Authority;
 use crate::grant::GrantId;
 use crate::grant::GrantPayload;
 use crate::grant::GrantStream;
+use crate::name::Name;
 use crate::role::RoleId;
 use crate::role::RolePayload;
 use crate::role::RoleStream;
@@ -13,6 +14,7 @@ use crate::store::EventId;
 use crate::store::Observe;
 use crate::store::Store;
 use crate::store::When;
+use crate::store::memory::memory_store;
 use chrono::Utc;
 use std::error::Error as StdError;
 use thiserror::Error;
@@ -21,6 +23,14 @@ use thiserror::Error;
 pub enum AuthorizationEvent {
     Role(Event<Authority, RoleId, RolePayload>),
     Grant(Event<Authority, GrantId, GrantPayload>),
+}
+
+memory_store! {
+    type AuthorizationMemoryStore = MemoryStore<Authority, RoleStream, GrantStream>
+    where AuthorizationEvent {
+        RoleStream => Role,
+        GrantStream => Grant,
+    }
 }
 
 #[derive(Debug, Error)]
@@ -57,6 +67,7 @@ where
     pub async fn create_role(
         &self,
         authority: Authority,
+        name: Name,
     ) -> Result<RoleId, AuthorizationError<<S as Store<Authority, RoleStream>>::Error>> {
         let role_id = RoleId::new();
         Store::<Authority, RoleStream>::record(
@@ -64,7 +75,7 @@ where
             authority,
             Utc::now(),
             role_id,
-            RolePayload::Created,
+            RolePayload::Created(name),
             When::Empty,
         )
         .await
@@ -160,18 +171,9 @@ where
 mod tests {
     use super::*;
     use crate::authority::Actor;
-    use crate::store::memory::memory_store;
 
-    memory_store! {
-        type TestStore = MemoryStore<Authority, RoleStream, GrantStream>
-        where AuthorizationEvent {
-            RoleStream => Role,
-            GrantStream => Grant,
-        }
-    }
-
-    fn make_service() -> AuthorizationService<TestStore> {
-        AuthorizationService::new(TestStore::new())
+    fn make_service() -> AuthorizationService<AuthorizationMemoryStore> {
+        AuthorizationService::new(AuthorizationMemoryStore::new())
     }
 
     #[tokio::test]
@@ -180,7 +182,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
 
         service
-            .create_role(authority)
+            .create_role(
+                authority,
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
     }
@@ -191,7 +196,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service
-            .create_role(authority.clone())
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         service
@@ -215,7 +223,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service
-            .create_role(authority.clone())
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         let grant_id = service
@@ -251,7 +262,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service
-            .create_role(authority.clone())
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         service
@@ -272,7 +286,10 @@ mod tests {
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service
-            .create_role(authority.clone())
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
             .await
             .expect("create should succeed");
         let grant_id = service
