@@ -40,6 +40,7 @@ pub enum When<T: Copy> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum After<T: Copy> {
     Start,
+    #[expect(dead_code)]
     Specific(T),
 }
 

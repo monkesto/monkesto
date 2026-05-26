@@ -1,9 +1,10 @@
 #![cfg_attr(not(test), expect(dead_code))]
 
+use super::projection::AuthzProjection;
 use super::role::RoleState;
-use super::store::AuthzEvent;
 use super::store::AuthzId;
 use super::store::AuthzRecord;
+use super::store::AuthzStore;
 use crate::authority::Authority;
 use crate::grant::GrantId;
 use crate::grant::GrantPayload;
@@ -14,14 +15,13 @@ use crate::store::revised::After;
 use crate::store::revised::EventFamily;
 use crate::store::revised::Outcome;
 use crate::store::revised::Record;
-use crate::store::revised::Store;
 use crate::store::revised::When;
 use chrono::Utc;
 use std::error::Error as StdError;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum AuthzError<E: StdError + Send + Sync + 'static> {
+pub enum AuthzError<S: StdError + Send + Sync + 'static, P: StdError + Send + Sync + 'static> {
     #[error("grant not found: {0}")]
     GrantNotFound(GrantId),
 
@@ -38,29 +38,35 @@ pub enum AuthzError<E: StdError + Send + Sync + 'static> {
     GrantCreationSkipped(GrantId),
 
     #[error(transparent)]
-    Store(E),
+    Store(S),
+
+    #[error(transparent)]
+    Projection(P),
 }
 
-pub struct AuthzService<S>
+pub struct AuthzService<S, P>
 where
-    S: Store<AuthzEvent>,
+    S: AuthzStore,
+    P: AuthzProjection,
 {
     store: S,
+    projection: P,
 }
 
-impl<S> AuthzService<S>
+impl<S, P> AuthzService<S, P>
 where
-    S: Store<AuthzEvent>,
+    S: AuthzStore,
+    P: AuthzProjection,
 {
-    pub fn new(store: S) -> Self {
-        Self { store }
+    pub fn new(store: S, projection: P) -> Self {
+        Self { store, projection }
     }
 
     pub async fn create_role(
         &self,
         authority: Authority,
         name: Name,
-    ) -> Result<RoleId, AuthzError<S::Error>> {
+    ) -> Result<RoleId, AuthzError<S::Error, P::Error>> {
         let role_id = RoleId::new();
         let outcome = self
             .store
@@ -86,7 +92,7 @@ where
         &self,
         authority: Authority,
         role_id: RoleId,
-    ) -> Result<GrantId, AuthzError<S::Error>> {
+    ) -> Result<GrantId, AuthzError<S::Error, P::Error>> {
         if matches!(self.role(role_id).await?, RoleState::Absent) {
             return Err(AuthzError::RoleNotFound(role_id));
         }
@@ -116,7 +122,7 @@ where
         &self,
         authority: Authority,
         grant_id: GrantId,
-    ) -> Result<(), AuthzError<S::Error>> {
+    ) -> Result<(), AuthzError<S::Error, P::Error>> {
         let page = self
             .store
             .review(AuthzId::Grant(grant_id), After::Start, 2)
@@ -147,44 +153,26 @@ where
         }
     }
 
-    pub async fn role(&self, role_id: RoleId) -> Result<RoleState, AuthzError<S::Error>> {
-        let mut after = After::Start;
-        let mut state = RoleState::Absent;
-
-        loop {
-            let page = self
-                .store
-                .review(AuthzId::Role(role_id), after, 128)
-                .await
-                .map_err(AuthzError::Store)?;
-
-            for event in page.items {
-                let AuthzEvent::Role(event) = event else {
-                    continue;
-                };
-                state.apply(event);
-            }
-
-            if !page.more {
-                break;
-            }
-
-            after = After::Specific(page.next);
-        }
-
-        Ok(state)
+    pub async fn role(&self, role_id: RoleId) -> Result<RoleState, AuthzError<S::Error, P::Error>> {
+        self.projection
+            .role(role_id)
+            .await
+            .map_err(AuthzError::Projection)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::memory::AuthzMemoryProjection;
+    use super::super::memory::AuthzMemoryStore;
     use super::*;
     use crate::authority::Actor;
-    use crate::authz::store::AuthzMemoryStore;
 
     #[tokio::test]
     async fn create_role_succeeds() {
-        let service = AuthzService::<AuthzMemoryStore>::new(AuthzMemoryStore::new());
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service
@@ -203,7 +191,9 @@ mod tests {
 
     #[tokio::test]
     async fn grant_role_succeeds() {
-        let service = AuthzService::<AuthzMemoryStore>::new(AuthzMemoryStore::new());
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service
@@ -221,7 +211,9 @@ mod tests {
 
     #[tokio::test]
     async fn grant_role_fails_for_missing_role() {
-        let service = AuthzService::<AuthzMemoryStore>::new(AuthzMemoryStore::new());
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
         let authority = Authority::Direct(Actor::System);
 
         let result = service.grant_role(authority, RoleId::new()).await;
@@ -230,7 +222,9 @@ mod tests {
 
     #[tokio::test]
     async fn revoke_grant_succeeds() {
-        let service = AuthzService::<AuthzMemoryStore>::new(AuthzMemoryStore::new());
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
         let authority = Authority::Direct(Actor::System);
 
         let role_id = service

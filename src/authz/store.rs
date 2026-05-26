@@ -1,5 +1,3 @@
-#![expect(dead_code)]
-
 use crate::authority::Authority;
 use crate::grant::GrantId;
 use crate::grant::GrantPayload;
@@ -10,8 +8,8 @@ use crate::store::revised::EventFamily;
 use crate::store::revised::EventId;
 use crate::store::revised::Record;
 use crate::store::revised::RecordFor;
+use crate::store::revised::Store;
 use crate::store::revised::When;
-use crate::store::revised::memory::MemoryStore;
 use chrono::DateTime;
 use chrono::Utc;
 
@@ -33,8 +31,9 @@ pub enum AuthzEvent {
     Grant(Event<Authority, GrantId, GrantPayload>),
 }
 
-pub type AuthzMemoryStore = MemoryStore<AuthzEvent>;
-pub type Authz2MemoryStore = MemoryStore<AuthzEvent>;
+pub trait AuthzStore: Store<AuthzEvent> {}
+
+impl<S> AuthzStore for S where S: Store<AuthzEvent> {}
 
 impl EventFamily for AuthzEvent {
     type Id = AuthzId;

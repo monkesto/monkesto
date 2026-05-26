@@ -8,55 +8,90 @@ use crate::store::revised::Store;
 use crate::store::revised::When;
 use std::collections::HashMap;
 use std::convert::Infallible;
+use std::error::Error;
 use std::sync::Arc;
 use std::sync::Mutex;
 
-struct MemoryState<E>
+pub trait SyncMemoryProjection<E: EventFamily>: Send + Sync {
+    type Error: Error + Send + Sync + 'static;
+
+    fn apply(&mut self, events: &[E]) -> Result<(), Self::Error>;
+}
+
+#[derive(Default)]
+pub struct NoProjection;
+
+impl<E> SyncMemoryProjection<E> for NoProjection
+where
+    E: EventFamily,
+{
+    type Error = Infallible;
+
+    fn apply(&mut self, _events: &[E]) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+struct MemoryState<E, P>
 where
     E: EventFamily,
 {
     latest: EventId,
     events: Vec<E>,
     streams: HashMap<E::Id, Vec<E>>,
+    projection: P,
 }
 
-pub struct MemoryStore<E>
+pub struct MemoryStore<E, P = NoProjection>
 where
     E: EventFamily,
 {
-    state: Arc<Mutex<MemoryState<E>>>,
+    state: Arc<Mutex<MemoryState<E, P>>>,
 }
 
-impl<E> MemoryStore<E>
+impl<E, P> MemoryStore<E, P>
 where
     E: EventFamily,
+    P: Default,
 {
     pub fn new() -> Self {
+        Self::with_projection(P::default())
+    }
+}
+
+impl<E, P> MemoryStore<E, P>
+where
+    E: EventFamily,
+{
+    pub fn with_projection(projection: P) -> Self {
         Self {
             state: Arc::new(Mutex::new(MemoryState {
                 latest: EventId::from(0),
                 events: Vec::new(),
                 streams: HashMap::new(),
+                projection,
             })),
         }
     }
 }
 
-impl<E> Default for MemoryStore<E>
+impl<E, P> Default for MemoryStore<E, P>
 where
     E: EventFamily,
+    P: Default,
 {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<E> Store<E> for MemoryStore<E>
+impl<E, P> Store<E> for MemoryStore<E, P>
 where
     E: EventFamily,
     E::Record: RecordFor<E>,
+    P: SyncMemoryProjection<E>,
 {
-    type Error = Infallible;
+    type Error = P::Error;
 
     async fn record(
         &self,
@@ -103,6 +138,7 @@ where
         }
 
         state.events.extend(events.iter().cloned());
+        state.projection.apply(&events)?;
         Ok(Outcome::Recorded(events))
     }
 
