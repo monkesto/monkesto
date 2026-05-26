@@ -14,7 +14,7 @@ use deadpool_diesel::{InteractError, PoolError};
 use diesel::backend::Backend;
 use diesel::deserialize::FromSql;
 use diesel::serialize::{Output, ToSql};
-use diesel::sql_types::{BigInt, Binary, Integer};
+use diesel::sql_types::{BigInt, Binary};
 use diesel::{
     AsExpression, FromSqlRow, Insertable, Queryable, QueryableByName, Selectable, SqliteConnection,
     deserialize, serialize,
@@ -37,11 +37,8 @@ pub enum StoreError {
     #[error("failed to deserialize an event payload")]
     Deserialize(#[from] postcard::Error),
 
-    #[error("sequence error: expected {expected:?}, found {found:?}")]
-    Sequence {
-        expected: SequenceId,
-        found: SequenceId,
-    },
+    #[error("sequence error: expected a maximum event id of {expected:?}, found {found:?}")]
+    EventIdViolation { expected: EventId, found: EventId },
 
     #[error("incorrect entity type: expected {expected:?}, found {found:?}")]
     EntityType {
@@ -144,8 +141,22 @@ pub enum PayloadUsage<T: Entity> {
     ModifiesState(Box<dyn FnOnce(&mut T::State)>),
 }
 
+pub enum After {
+    Start,
+    Id(EventId),
+}
+
+/// A condition for recording an event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum When {
+    /// Record only if the stream is empty.
+    Empty,
+    /// Record only if the stream has no events beyond `T`.
+    Within(EventId),
+}
+
 pub trait GetPayloadUsage<T: Entity> {
-    fn usage<U: Into<T::Id>>(self, entity_id: U, sequence_id: SequenceId) -> PayloadUsage<T>;
+    fn usage<U: Into<T::Id>>(self, entity_id: U, event_id: EventId) -> PayloadUsage<T>;
 }
 
 pub trait Entity: Sized {
@@ -171,10 +182,20 @@ pub trait State: Send + Sync + Clone + Serialize + DeserializeOwned {
 }
 
 #[derive(
-    Debug, Clone, PartialEq, Deserialize, Eq, PartialOrd, Ord, Copy, AsExpression, FromSqlRow,
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Eq,
+    PartialOrd,
+    Ord,
+    Copy,
+    AsExpression,
+    FromSqlRow,
 )]
 #[diesel(sql_type = diesel::sql_types::BigInt)]
-pub struct EventId(i64);
+pub struct EventId(pub i64);
 
 impl Add<i32> for EventId {
     type Output = EventId;
@@ -206,37 +227,6 @@ impl Deref for EventId {
     type Target = i64;
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Eq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = diesel::sql_types::Integer)]
-pub struct SequenceId(pub i32);
-impl Deref for SequenceId {
-    type Target = i32;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl ToSql<Integer, diesel::sqlite::Sqlite> for SequenceId {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> serialize::Result {
-        out.set_value(self.0);
-        Ok(serialize::IsNull::No)
-    }
-}
-
-impl ToSql<Integer, diesel::pg::Pg> for SequenceId {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> serialize::Result {
-        <i32 as ToSql<Integer, diesel::pg::Pg>>::to_sql(&self.0, &mut out.reborrow())
-    }
-}
-
-impl<DB: Backend> FromSql<Integer, DB> for SequenceId
-where
-    i32: FromSql<Integer, DB>,
-{
-    fn from_sql(value: DB::RawValue<'_>) -> deserialize::Result<Self> {
-        i32::from_sql(value).map(SequenceId)
     }
 }
 
@@ -273,7 +263,6 @@ where
 #[diesel(table_name = crate::schema::events)]
 pub struct Event<I: Entity> {
     pub event_id: EventId,
-    pub sequence_id: SequenceId,
     pub timestamp: TimeStamp,
     pub authority: Postcard<Authority>,
     pub entity_id: I::Id,
@@ -325,14 +314,14 @@ pub trait Store {
         time_provider: &T,
         entity_id: I::Id,
         payload: I::Payload,
-        expected_sequence: SequenceId,
+        when: When,
     ) -> StoreResult<EventId>;
 
     /// Returns a vector of all events that have occurred concerning an entity starting at `starting_sequence`
     async fn replay_events<I: Entity>(
         &self,
         entity_id: I::Id,
-        starting_sequence: SequenceId,
+        after: After,
     ) -> StoreResult<Vec<Event<I>>>;
 
     /// Returns a State of the given entity and the sequence id associated with the last event applied to it

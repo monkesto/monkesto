@@ -1,5 +1,5 @@
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{GetPayloadUsage, PayloadUsage, SequenceId};
+use crate::store::universal::{EventId, GetPayloadUsage, PayloadUsage};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -327,7 +327,7 @@ state! {
         pub user_id: UserId,
         pub passkey: Postcard<webauthn_rs::prelude::Passkey>,
         pub deleted: bool,
-        pub as_of: SequenceId
+        pub as_of: EventId
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -352,7 +352,7 @@ impl GetPayloadUsage<PasskeyEntity> for PasskeyPayload {
     fn usage<T: Into<PasskeyId>>(
         self,
         entity_id: T,
-        sequence_id: SequenceId,
+        event_id: EventId,
     ) -> PayloadUsage<PasskeyEntity> {
         match self {
             PasskeyPayload::Created { user_id, passkey } => {
@@ -361,7 +361,7 @@ impl GetPayloadUsage<PasskeyEntity> for PasskeyPayload {
                     user_id,
                     passkey: Postcard(passkey),
                     deleted: false,
-                    as_of: sequence_id,
+                    as_of: event_id,
                 })
             }
             PasskeyPayload::Modified(modified_payload) => {
@@ -369,7 +369,7 @@ impl GetPayloadUsage<PasskeyEntity> for PasskeyPayload {
                     match modified_payload {
                         PasskeyModifiedPayload::Deleted => state.deleted = true,
                     }
-                    state.as_of = sequence_id;
+                    state.as_of = event_id;
                 }))
             }
         }
@@ -463,7 +463,7 @@ impl EventStore for MemoryPasskeyStore {
 
         let mut data = self.data.lock().await;
 
-        match payload.usage(id, SequenceId(0)) {
+        match payload.usage(id, EventId(0)) {
             PayloadUsage::CreatesState(passkey_state) => {
                 data.passkeys.insert(id, passkey_state.clone());
                 data.user_to_passkeys

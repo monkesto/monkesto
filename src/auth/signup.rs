@@ -31,7 +31,7 @@ use super::user::UserStore;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::postcard::Postcard;
-use crate::store::universal::SequenceId;
+use crate::store::universal::EventId;
 use crate::theme::theme_with_head;
 
 /// Errors that occur during the signup flow.
@@ -460,7 +460,7 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 webauthn_uuid: Postcard(webauthn_uuid),
                 email: email_validated,
                 deleted: false,
-                as_of: SequenceId(0),
+                as_of: EventId(0),
             };
             auth_session
                 .login(&user)

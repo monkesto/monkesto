@@ -3,5 +3,5 @@ CREATE TABLE passkeys (
     user_id BLOB NOT NULL,
     passkey BLOB NOT NULL,
     deleted BOOLEAN NOT NULL,
-    as_of INTEGER NOT NULL
+    as_of BIGINT NOT NULL
 )

@@ -5,7 +5,7 @@ pub mod service;
 pub mod views;
 
 use crate::ident::Ident;
-use crate::store::universal::{GetPayloadUsage, PayloadUsage, SequenceId};
+use crate::store::universal::{EventId, GetPayloadUsage, PayloadUsage};
 pub use service::JournalService;
 
 use axum::Router;
@@ -212,7 +212,7 @@ impl EventStore for JournalMemoryStore {
             (event_id, event)
         };
 
-        match payload.clone().usage(id, SequenceId(0)) {
+        match payload.clone().usage(id, EventId(0)) {
             PayloadUsage::CreatesState(state) => {
                 self.local_events.insert(id, vec![event.clone()]);
 
@@ -402,7 +402,7 @@ state! {
         pub members: Postcard<HashMap<UserId, Permissions>>,
         pub deleted: bool,
         pub parent_journal_id: Option<JournalId>,
-        pub as_of: SequenceId
+        pub as_of: EventId
     }
 }
 
@@ -410,7 +410,7 @@ impl GetPayloadUsage<JournalEntity> for JournalPayload {
     fn usage<T: Into<JournalId>>(
         self,
         entity_id: T,
-        sequence_id: SequenceId,
+        event_id: EventId,
     ) -> PayloadUsage<JournalEntity> {
         match self {
             JournalPayload::Created {
@@ -424,7 +424,7 @@ impl GetPayloadUsage<JournalEntity> for JournalPayload {
                 members: Postcard(HashMap::new()),
                 deleted: false,
                 parent_journal_id,
-                as_of: sequence_id,
+                as_of: event_id,
             }),
             JournalPayload::Modified(modified_payload) => {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut JournalState| {
@@ -448,7 +448,7 @@ impl GetPayloadUsage<JournalEntity> for JournalPayload {
                         }
                         JournalModifiedPayload::Deleted => state.deleted = true,
                     }
-                    state.as_of = sequence_id;
+                    state.as_of = event_id;
                 }))
             }
         }

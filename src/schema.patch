@@ -1,11 +1,10 @@
 --- src/schema.rs	2026-05-14 21:22:32.757534018 -0500
 +++ src/schema_new.rs	2026-05-14 21:29:26.415553040 -0500
-@@ -13,7 +13,7 @@
+@@ -13,6 +13,6 @@
  
  diesel::table! {
      events (event_id) {
 -        event_id -> Integer,
 +        event_id -> BigInt,
-         sequence_id -> Integer,
          timestamp -> BigInt,
          authority -> Binary,

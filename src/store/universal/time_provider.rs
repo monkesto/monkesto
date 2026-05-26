@@ -43,3 +43,9 @@ impl TimeProvider for IncrementalTimeProvider {
         TimeStamp(old_value)
     }
 }
+
+impl TimeProvider for DateTime<Utc> {
+    fn get_time(&self) -> TimeStamp {
+        TimeStamp(*self)
+    }
+}

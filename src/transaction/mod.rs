@@ -5,7 +5,7 @@ pub mod views;
 pub use service::TransactionService;
 
 use crate::ident::Ident;
-use crate::store::universal::{GetPayloadUsage, PayloadUsage, SequenceId};
+use crate::store::universal::{EventId, GetPayloadUsage, PayloadUsage};
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -167,7 +167,7 @@ impl EventStore for TransactionMemoryStore {
             (event_id, event)
         };
 
-        match payload.usage(id, SequenceId(0)) {
+        match payload.usage(id, EventId(0)) {
             PayloadUsage::CreatesState(state) => {
                 let journal_id = state.journal_id;
                 self.local_events.insert(id, vec![event.clone()]);
@@ -321,7 +321,7 @@ state! {
         pub journal_id: JournalId,
         pub updates: Postcard<Vec<BalanceUpdate>>,
         pub deleted: bool,
-        pub as_of: SequenceId
+        pub as_of: EventId
     }
 }
 
@@ -329,7 +329,7 @@ impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
     fn usage<T: Into<TransactionId>>(
         self,
         entity_id: T,
-        sequence_id: SequenceId,
+        event_id: EventId,
     ) -> PayloadUsage<TransactionEntity> {
         match self {
             TransactionPayload::Created {
@@ -340,7 +340,7 @@ impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
                 journal_id,
                 updates: Postcard(updates),
                 deleted: false,
-                as_of: sequence_id,
+                as_of: event_id,
             }),
             TransactionPayload::Modified(modified_payload) => {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut TransactionState| {
@@ -350,7 +350,7 @@ impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
                         } => state.updates = Postcard(new_balanceupdates),
                         TransactionModifiedPayload::Deleted => state.deleted = true,
                     }
-                    state.as_of = sequence_id;
+                    state.as_of = event_id;
                 }))
             }
         }

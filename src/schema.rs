@@ -8,7 +8,7 @@ diesel::table! {
         balance -> BigInt,
         deleted -> Bool,
         parent_account_id -> Nullable<Binary>,
-        as_of -> Integer,
+        as_of -> BigInt,
     }
 }
 
@@ -22,7 +22,6 @@ diesel::table! {
 diesel::table! {
     events (event_id) {
         event_id -> BigInt,
-        sequence_id -> Integer,
         timestamp -> BigInt,
         authority -> Binary,
         entity_id -> Binary,
@@ -35,7 +34,7 @@ diesel::table! {
     examples (id) {
         id -> Binary,
         deleted -> Bool,
-        as_of -> Integer,
+        as_of -> BigInt,
     }
 }
 
@@ -55,7 +54,7 @@ diesel::table! {
         members -> Binary,
         deleted -> Bool,
         parent_journal_id -> Nullable<Binary>,
-        as_of -> Integer,
+        as_of -> BigInt,
     }
 }
 
@@ -65,7 +64,7 @@ diesel::table! {
         user_id -> Binary,
         passkey -> Binary,
         deleted -> Bool,
-        as_of -> Integer,
+        as_of -> BigInt,
     }
 }
 
@@ -83,7 +82,7 @@ diesel::table! {
         journal_id -> Binary,
         updates -> Binary,
         deleted -> Bool,
-        as_of -> Integer,
+        as_of -> BigInt,
     }
 }
 
@@ -93,7 +92,7 @@ diesel::table! {
         webauthn_uuid -> Binary,
         email -> Text,
         deleted -> Bool,
-        as_of -> Integer,
+        as_of -> BigInt,
     }
 }
 

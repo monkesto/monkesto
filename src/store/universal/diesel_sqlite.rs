@@ -12,8 +12,8 @@ use crate::store::universal::example_entity::{ExamplePayload, ExampleState};
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::store::universal::time_provider::TimeProvider;
 use crate::store::universal::{
-    Entity, Event, EventId, FetchState, GetPayloadUsage, PayloadUsage, SequenceId, Store,
-    StoreError, StoreResult, TimeStamp, payload_from_bytes,
+    After, Entity, Event, EventId, FetchState, GetPayloadUsage, PayloadUsage, Store, StoreError,
+    StoreResult, TimeStamp, When, payload_from_bytes,
 };
 use crate::transaction::{
     EntryType, TransactionModifiedPayload, TransactionPayload, TransactionState,
@@ -24,8 +24,9 @@ use deadpool_diesel::sqlite::Object;
 use deadpool_diesel::{Manager, Pool};
 use diesel::connection::SimpleConnection;
 use diesel::result::DatabaseErrorKind;
+use diesel::sql_types::{BigInt, Binary, Bool};
 use diesel::upsert::excluded;
-use diesel::{Connection, JoinOnDsl, QueryDsl, RunQueryDsl};
+use diesel::{Connection, JoinOnDsl, QueryDsl, QueryableByName, RunQueryDsl};
 use diesel::{ExpressionMethods, OptionalExtension};
 use diesel::{Insertable, Queryable, Selectable, SqliteConnection};
 use diesel_migrations::MigrationHarness;
@@ -44,15 +45,15 @@ use tower_sessions::session_store::Error::Backend;
 use tower_sessions::{ExpiredDeletion, SessionStore, session_store};
 
 macro_rules! create_or_update_state {
-    ($conn:ident, $event_id: ident, $sequence_id: ident, $entity_id:ident, $payload:ident, $entity_type:ident, $( $variant:path => $state_type:path as $table_name:ident),* $(,)?) => {
+    ($conn:ident, $event_id: ident, $entity_id:ident, $payload:ident, $entity_type:ident, $( $variant:path => $state_type:path as $table_name:ident),* $(,)?) => {
         match $payload.clone() {
             $(
                 $variant(variant_payload) => {
-                    match variant_payload.usage($entity_id, $sequence_id) {
+                    match variant_payload.usage($entity_id, $event_id) {
                         PayloadUsage::CreatesState(state) => {
-                            diesel::insert_into($crate::schema::$table_name::dsl::$table_name).values(&state).execute($conn)?;
+                            diesel::insert_into($crate::schema::$table_name::table).values(&state).execute($conn)?;
 
-                            diesel::insert_into($crate::schema::entities::dsl::entities).values(
+                            diesel::insert_into($crate::schema::entities::table).values(
                                 EntityLookup {
                                     id: $entity_id,
                                     entity_type: $entity_type
@@ -60,7 +61,7 @@ macro_rules! create_or_update_state {
                             ).execute($conn)?;
                         }
                         PayloadUsage::ModifiesState(mod_fn) => {
-                            let mut state = $crate::schema::$table_name::dsl::$table_name.filter($crate::schema::$table_name::id.eq(&$entity_id)).first::<$state_type>($conn)?;
+                            let mut state = $crate::schema::$table_name::table.filter($crate::schema::$table_name::id.eq(&$entity_id)).first::<$state_type>($conn)?;
                             mod_fn(&mut state);
 
                             diesel::update($crate::schema::$table_name::table.filter($crate::schema::$table_name::id.eq(&$entity_id))).set(&state).execute($conn)?;
@@ -82,7 +83,7 @@ pub struct JournalMembersLookup {
 #[derive(Clone)]
 pub struct DieselSqliteStore {
     pool: Pool<Manager<SqliteConnection>>,
-    event_tx: mpsc::Sender<(EventId, SequenceId, Box<AnyPayload>, Ident, EntityType)>,
+    event_tx: mpsc::Sender<(EventId, Box<AnyPayload>, Ident, EntityType)>,
     processed_rx: watch::Receiver<EventId>,
     processed_rebuilds_rx: watch::Receiver<EventId>,
     rebuild_num: Arc<AtomicI64>,
@@ -100,7 +101,7 @@ impl DieselSqliteStore {
             .expect("failed to initialize Diesel connection pool");
 
         let (event_tx, event_rx) =
-            mpsc::channel::<(EventId, SequenceId, Box<AnyPayload>, Ident, EntityType)>(64);
+            mpsc::channel::<(EventId, Box<AnyPayload>, Ident, EntityType)>(64);
 
         let conn: Object = pool
             .get()
@@ -118,7 +119,7 @@ impl DieselSqliteStore {
                 conn.batch_execute("PRAGMA busy_timeout = 250;")
                     .expect("failed to set busy timeout to 250 milliseconds");
 
-                events::dsl::events
+                events::table
                     .filter(events::applied_to_state.eq(true))
                     .order_by(events::event_id.desc())
                     .select(events::event_id)
@@ -156,7 +157,6 @@ impl DieselSqliteStore {
     fn apply_event(
         conn: &mut SqliteConnection,
         event_id: EventId,
-        sequence_id: SequenceId,
         entity_id: Ident,
         payload: AnyPayload,
         entity_type: EntityType,
@@ -165,7 +165,7 @@ impl DieselSqliteStore {
             let payload_clone = payload.clone();
 
             create_or_update_state!(
-                tx, event_id, sequence_id ,entity_id, payload, entity_type,
+                tx, event_id,entity_id, payload, entity_type,
                 AnyPayload::User => UserState as users,
                 AnyPayload::Passkey => PasskeyState as passkeys,
                 AnyPayload::Account => AccountState as accounts,
@@ -174,7 +174,7 @@ impl DieselSqliteStore {
                 AnyPayload::Example => ExampleState as examples
             );
 
-            diesel::update(events::dsl::events)
+            diesel::update(events::table)
                 .filter(events::event_id.eq(event_id))
                 .set(events::applied_to_state.eq(true))
                 .execute(tx)?;
@@ -185,7 +185,7 @@ impl DieselSqliteStore {
                     match transaction_payload {
                         TransactionPayload::Created { updates, .. } => {
                             for update in updates {
-                                diesel::update(accounts::dsl::accounts)
+                                diesel::update(accounts::table)
                                     .filter(accounts::id.eq(update.account_id))
                                     .set(accounts::balance.eq(accounts::balance
                                         + if update.entry_type == EntryType::Credit {
@@ -197,9 +197,9 @@ impl DieselSqliteStore {
                             }
                         }
                         TransactionPayload::Modified(modified_payload) => {
-                            let old_payload = events::dsl::events
+                            let old_payload = events::table
                                 .filter(events::entity_id.eq(entity_id))
-                                .order_by(events::sequence_id.desc())
+                                .order_by(events::event_id.desc())
                                 .select(events::payload)
                                 .first::<TransactionPayload>(tx)?;
 
@@ -223,7 +223,7 @@ impl DieselSqliteStore {
                                 } => {
                                     // undo old updates
                                     for old_update in old_updates {
-                                        diesel::update(accounts::dsl::accounts)
+                                        diesel::update(accounts::table)
                                             .filter(accounts::id.eq(old_update.account_id))
                                             .set(accounts::balance.eq(accounts::balance
                                                 + if old_update.entry_type != EntryType::Credit {
@@ -236,7 +236,7 @@ impl DieselSqliteStore {
 
                                     // apply new updates
                                     for update in new_balanceupdates {
-                                        diesel::update(accounts::dsl::accounts)
+                                        diesel::update(accounts::table)
                                             .filter(accounts::id.eq(update.account_id))
                                             .set(accounts::balance.eq(accounts::balance
                                                 + if update.entry_type == EntryType::Credit {
@@ -250,7 +250,7 @@ impl DieselSqliteStore {
                                 TransactionModifiedPayload::Deleted => {
                                     // undo old updates
                                     for old_update in old_updates {
-                                        diesel::update(accounts::dsl::accounts)
+                                        diesel::update(accounts::table)
                                             .filter(accounts::id.eq(old_update.account_id))
                                             .set(accounts::balance.eq(accounts::balance
                                                 + if old_update.entry_type != EntryType::Credit {
@@ -269,17 +269,15 @@ impl DieselSqliteStore {
                 AnyPayload::Journal(JournalPayload::Modified(journal_payload)) => {
                     match journal_payload {
                         JournalModifiedPayload::AddedTenant { id, .. } => {
-                            diesel::insert_into(
-                                journal_members_lookup::dsl::journal_members_lookup,
-                            )
-                            .values(JournalMembersLookup {
-                                user_id: id,
-                                journal_id: entity_id.into(),
-                            })
-                            .execute(tx)?;
+                            diesel::insert_into(journal_members_lookup::table)
+                                .values(JournalMembersLookup {
+                                    user_id: id,
+                                    journal_id: entity_id.into(),
+                                })
+                                .execute(tx)?;
                         }
                         JournalModifiedPayload::RemovedTenant { id, .. } => {
-                            diesel::delete(journal_members_lookup::dsl::journal_members_lookup)
+                            diesel::delete(journal_members_lookup::table)
                                 .filter(journal_members_lookup::user_id.eq(&id))
                                 .filter(journal_members_lookup::journal_id.eq(entity_id))
                                 .execute(tx)?;
@@ -300,7 +298,7 @@ impl DieselSqliteStore {
 
         let entity: EntityLookup = conn
             .interact(move |conn| {
-                entities::dsl::entities
+                entities::table
                     .filter(entities::id.eq(id))
                     .first::<EntityLookup>(conn)
             })
@@ -317,16 +315,15 @@ impl DieselSqliteStore {
     }
 
     async fn handle_payloads(
-        mut event_rx: mpsc::Receiver<(EventId, SequenceId, Box<AnyPayload>, Ident, EntityType)>,
+        mut event_rx: mpsc::Receiver<(EventId, Box<AnyPayload>, Ident, EntityType)>,
         processed_tx: watch::Sender<EventId>,
         processed_rebuilds_tx: watch::Sender<EventId>,
         pool: Pool<Manager<SqliteConnection>>,
     ) -> ! {
-        let mut leftover_event: Option<(EventId, SequenceId, Box<AnyPayload>, Ident, EntityType)> =
-            None;
+        let mut leftover_event: Option<(EventId, Box<AnyPayload>, Ident, EntityType)> = None;
 
         loop {
-            let (event_id, sequence_id, event_payload, entity_id, entity_type) =
+            let (event_id, event_payload, entity_id, entity_type) =
                 if let Some(ref leftover) = leftover_event {
                     leftover.clone()
                 } else {
@@ -343,7 +340,6 @@ impl DieselSqliteStore {
                     DieselSqliteStore::apply_event(
                         conn,
                         event_id,
-                        sequence_id,
                         entity_id,
                         *event_payload,
                         entity_type,
@@ -360,38 +356,32 @@ impl DieselSqliteStore {
 
                 let highest_processed_id = conn
                     .interact(move |conn| {
-                        let pending_events: Vec<_> = events::dsl::events
-                            .inner_join(
-                                entities::dsl::entities.on(entities::id.eq(events::entity_id)),
-                            )
+                        let pending_events: Vec<_> = events::table
+                            .inner_join(entities::table.on(entities::id.eq(events::entity_id)))
                             .filter(events::applied_to_state.eq(false))
                             .order_by(events::event_id.asc())
                             .select((
                                 events::event_id,
-                                events::sequence_id,
                                 events::entity_id,
                                 events::payload,
                                 entities::entity_type,
                             ))
-                            .load::<(EventId, SequenceId, Ident, Vec<u8>, EntityType)>(conn)
+                            .load::<(EventId, Ident, Vec<u8>, EntityType)>(conn)
                             .expect("failed to fetch raw events")
                             .iter()
-                            .map(
-                                |(event_id, sequence_id, entity_id, payload_bytes, entity_type)| {
-                                    let payload = payload_from_bytes(payload_bytes, *entity_type)
-                                        .expect("failed to deserialize payload");
-                                    (*event_id, *sequence_id, *entity_id, payload)
-                                },
-                            )
+                            .map(|(event_id, entity_id, payload_bytes, entity_type)| {
+                                let payload = payload_from_bytes(payload_bytes, *entity_type)
+                                    .expect("failed to deserialize payload");
+                                (*event_id, *entity_id, payload)
+                            })
                             .collect();
 
-                        let last_event_id = pending_events.last().map(|(e_id, _, _, _)| *e_id);
+                        let last_event_id = pending_events.last().map(|(e_id, _, _)| *e_id);
 
-                        for (event_id, sequence_id, entity_id, payload) in pending_events {
+                        for (event_id, entity_id, payload) in pending_events {
                             DieselSqliteStore::apply_event(
                                 conn,
                                 event_id,
-                                sequence_id,
                                 entity_id,
                                 payload,
                                 entity_type,
@@ -425,16 +415,11 @@ impl DieselSqliteStore {
                 loop {
                     match event_rx.try_recv() {
                         // future rebuild requests must be acknowledged explicitly, even if they were handled here
-                        Ok((event_id, sequence_id, event_payload, entity_id, entity_type))
+                        Ok((event_id, event_payload, entity_id, entity_type))
                             if event_id > max_id || event_id < EventId(0) =>
                         {
-                            leftover_event = Some((
-                                event_id,
-                                sequence_id,
-                                event_payload,
-                                entity_id,
-                                entity_type,
-                            ));
+                            leftover_event =
+                                Some((event_id, event_payload, entity_id, entity_type));
                             break;
                         }
                         Ok(_) => {}
@@ -514,7 +499,7 @@ impl SessionStore for DieselSqliteStore {
             .interact(move |conn| {
                 conn.transaction(move |conn| {
                     loop {
-                        match diesel::insert_into(sessions::dsl::sessions)
+                        match diesel::insert_into(sessions::table)
                             .values(&session)
                             .execute(conn)
                         {
@@ -545,7 +530,7 @@ impl SessionStore for DieselSqliteStore {
         let session = Session::from(session_record.clone());
 
         conn.interact(move |conn| {
-            diesel::insert_into(sessions::dsl::sessions)
+            diesel::insert_into(sessions::table)
                 .values(&session)
                 .on_conflict(sessions::id)
                 .do_update()
@@ -568,7 +553,7 @@ impl SessionStore for DieselSqliteStore {
 
         Ok(conn
             .interact(move |conn| {
-                sessions::dsl::sessions
+                sessions::table
                     .filter(sessions::id.eq(&session_id))
                     .first::<Session>(conn)
                     .optional()
@@ -584,7 +569,7 @@ impl SessionStore for DieselSqliteStore {
         let session_id = Postcard(*session_id);
 
         conn.interact(move |conn| {
-            diesel::delete(sessions::dsl::sessions.filter(sessions::id.eq(&session_id)))
+            diesel::delete(sessions::table.filter(sessions::id.eq(&session_id)))
                 .execute(conn)
                 .into_session_result()
         })
@@ -603,7 +588,7 @@ impl ExpiredDeletion for DieselSqliteStore {
         let now = OffsetDateTime::now_utc().unix_timestamp();
 
         conn.interact(move |conn| {
-            diesel::delete(sessions::dsl::sessions.filter(sessions::expiry_date.lt(now)))
+            diesel::delete(sessions::table.filter(sessions::expiry_date.lt(now)))
                 .execute(conn)
                 .into_session_result()
         })
@@ -617,7 +602,6 @@ impl ExpiredDeletion for DieselSqliteStore {
 #[derive(Insertable)]
 #[diesel(table_name = crate::schema::events)]
 pub struct NewEvent {
-    pub sequence_id: SequenceId,
     pub timestamp: TimeStamp,
     pub authority: Postcard<Authority>,
     pub entity_id: Ident,
@@ -627,9 +611,8 @@ pub struct NewEvent {
 
 #[derive(Queryable)]
 #[diesel(table_name = crate::schema::events)]
-struct TypeErasedEvent {
+struct GenericEvent {
     pub event_id: EventId,
-    pub sequence_id: SequenceId,
     pub timestamp: TimeStamp,
     pub authority: Postcard<Authority>,
     pub entity_id: Ident,
@@ -644,6 +627,12 @@ pub struct EntityLookup {
     entity_type: EntityType,
 }
 
+#[derive(QueryableByName)]
+struct EventIdRow {
+    #[diesel(sql_type = BigInt)]
+    event_id: EventId,
+}
+
 impl Store for DieselSqliteStore {
     async fn record<I: Entity, T: TimeProvider>(
         &self,
@@ -651,7 +640,7 @@ impl Store for DieselSqliteStore {
         time_provider: &T,
         entity_id: I::Id,
         payload: I::Payload,
-        expected_sequence: SequenceId,
+        when: When,
     ) -> StoreResult<EventId> {
         let conn = self.pool.get().await?;
 
@@ -660,28 +649,40 @@ impl Store for DieselSqliteStore {
 
         DieselSqliteStore::validate_entity_type::<I>(entity_id, &conn).await?;
 
-        let new_event = NewEvent {
-            sequence_id: expected_sequence,
-            timestamp: time_provider.get_time(),
-            authority: Postcard(authority),
-            entity_id: *entity_id,
-            payload: postcard::to_allocvec(&payload)?,
-            applied_to_state: false,
+        let timestamp = time_provider.get_time();
+        let serialized_payload = postcard::to_allocvec(&payload)?;
+        let expected_event_id = match when {
+            When::Empty => EventId(0),
+            When::Within(id) => id,
         };
 
         let event_id: EventId = conn
             .interact(move |conn| {
-                diesel::insert_into(events::dsl::events)
-                    .values(new_event)
-                    .returning(events::event_id)
-                    .get_result(conn)
+                diesel::sql_query(
+                    r#"
+                    INSERT INTO events (timestamp, authority, entity_id, payload, applied_to_state)
+                    SELECT ?, ?, ?, ?, ?
+                    WHERE (
+                        SELECT COALESCE(MAX(event_id), 0) FROM events WHERE entity_id = ?
+                    ) <= ?
+                    RETURNING event_id
+                    "#,
+                )
+                .bind::<BigInt, _>(timestamp)
+                .bind::<Binary, _>(Postcard(authority))
+                .bind::<Binary, _>(*entity_id)
+                .bind::<Binary, _>(serialized_payload)
+                .bind::<Bool, _>(false)
+                .bind::<Binary, _>(*entity_id)
+                .bind::<BigInt, _>(expected_event_id)
+                .get_result::<EventIdRow>(conn)
             })
-            .await??;
+            .await??
+            .event_id;
 
         self.event_tx
             .send((
                 event_id,
-                expected_sequence,
                 Box::new(payload.into()),
                 *entity_id,
                 I::entity_type(),
@@ -694,28 +695,32 @@ impl Store for DieselSqliteStore {
     async fn replay_events<I: Entity>(
         &self,
         entity_id: I::Id,
-        starting_sequence: SequenceId,
+        after: After,
     ) -> StoreResult<Vec<Event<I>>> {
         let conn = self.pool.get().await?;
 
         DieselSqliteStore::validate_entity_type::<I>(entity_id, &conn).await?;
 
+        let after_id = match after {
+            After::Start => EventId(0),
+            After::Id(id) => id,
+        };
+
         let type_erased_id = *entity_id;
 
         let events: StoreResult<Vec<Event<I>>> = conn
             .interact(move |conn| {
-                events::dsl::events
+                events::table
                     .filter(events::entity_id.eq(type_erased_id))
-                    .filter(events::sequence_id.ge(starting_sequence))
-                    .order_by(events::sequence_id.asc())
-                    .get_results::<TypeErasedEvent>(conn)
+                    .filter(events::event_id.gt(after_id))
+                    .order_by(events::event_id.asc())
+                    .get_results::<GenericEvent>(conn)
             })
             .await??
             .into_iter()
-            .map(|ev: TypeErasedEvent| -> StoreResult<Event<I>> {
+            .map(|ev: GenericEvent| -> StoreResult<Event<I>> {
                 Ok(Event {
                     event_id: ev.event_id,
-                    sequence_id: ev.sequence_id,
                     timestamp: ev.timestamp,
                     authority: ev.authority,
                     entity_id: I::Id::from(ev.entity_id),
@@ -746,40 +751,40 @@ impl Store for DieselSqliteStore {
 
         conn.interact(move |conn| {
             conn.transaction(|tx| {
-                diesel::update(events::dsl::events)
+                diesel::update(events::table)
                     .filter(events::entity_id.eq(type_erased_id))
                     .set(events::applied_to_state.eq(false))
                     .execute(tx)?;
 
                 match I::entity_type() {
                     EntityType::Example => {
-                        diesel::delete(examples::dsl::examples)
+                        diesel::delete(examples::table)
                             .filter(examples::id.eq(type_erased_id))
                             .execute(tx)?;
                     }
                     EntityType::Journal => {
-                        diesel::delete(journals::dsl::journals)
+                        diesel::delete(journals::table)
                             .filter(journals::id.eq(type_erased_id))
                             .execute(tx)?;
 
-                        diesel::delete(journal_members_lookup::dsl::journal_members_lookup)
+                        diesel::delete(journal_members_lookup::table)
                             .filter(journal_members_lookup::journal_id.eq(type_erased_id))
                             .execute(tx)?;
                     }
                     EntityType::Account => {
-                        diesel::delete(accounts::dsl::accounts)
+                        diesel::delete(accounts::table)
                             .filter(accounts::id.eq(type_erased_id))
                             .execute(tx)?;
                     }
                     EntityType::Transaction => {
-                        diesel::delete(transactions::dsl::transactions)
+                        diesel::delete(transactions::table)
                             .filter(transactions::id.eq(type_erased_id))
                             .execute(tx)?;
 
                         // we also have undo the balance updates associated with the transaction
-                        let old_payload: TransactionPayload = events::dsl::events
+                        let old_payload: TransactionPayload = events::table
                             .filter(events::entity_id.eq(type_erased_id))
-                            .order_by(events::sequence_id.desc())
+                            .order_by(events::event_id.desc())
                             .select(events::payload)
                             .first::<TransactionPayload>(tx)?;
 
@@ -797,7 +802,7 @@ impl Store for DieselSqliteStore {
 
                         if let Some(old_updates) = old_updates {
                             for old_update in old_updates {
-                                diesel::update(accounts::dsl::accounts)
+                                diesel::update(accounts::table)
                                     .filter(accounts::id.eq(old_update.account_id))
                                     .set(accounts::balance.eq(accounts::balance
                                         + if old_update.entry_type != EntryType::Credit {
@@ -810,12 +815,12 @@ impl Store for DieselSqliteStore {
                         }
                     }
                     EntityType::Passkey => {
-                        diesel::delete(passkeys::dsl::passkeys)
+                        diesel::delete(passkeys::table)
                             .filter(passkeys::id.eq(type_erased_id))
                             .execute(tx)?;
                     }
                     EntityType::User => {
-                        diesel::delete(users::dsl::users)
+                        diesel::delete(users::table)
                             .filter(users::id.eq(type_erased_id))
                             .execute(tx)?;
                     }
@@ -836,7 +841,6 @@ impl Store for DieselSqliteStore {
         self.event_tx
             .send((
                 rebuild_id,
-                SequenceId(0),
                 Box::new(AnyPayload::Example(ExamplePayload::Created)),
                 Ident::new10(),
                 EntityType::Example,

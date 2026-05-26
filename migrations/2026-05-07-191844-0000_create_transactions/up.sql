@@ -3,5 +3,5 @@ CREATE TABLE transactions (
     journal_id BLOB NOT NULL,
     updates BLOB NOT NULL,
     deleted BOOLEAN NOT NULL,
-    as_of INTEGER NOT NULL
+    as_of BIGINT NOT NULL
 )

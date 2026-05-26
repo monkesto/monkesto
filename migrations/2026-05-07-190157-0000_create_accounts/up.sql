@@ -5,5 +5,5 @@ CREATE TABLE accounts (
     balance BIGINT NOT NULL,
     deleted BOOLEAN NOT NULL,
     parent_account_id BLOB,
-    as_of INTEGER NOT NULL
+    as_of BIGINT NOT NULL
 )

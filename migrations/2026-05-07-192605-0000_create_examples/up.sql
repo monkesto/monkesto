@@ -1,5 +1,5 @@
 CREATE TABLE examples (
      id BLOB PRIMARY KEY NOT NULL,
      deleted BOOLEAN NOT NULL,
-     as_of INTEGER NOT NULL
+     as_of BIGINT NOT NULL
 )

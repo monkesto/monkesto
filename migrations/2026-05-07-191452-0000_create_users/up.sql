@@ -3,5 +3,5 @@ CREATE TABLE users (
     webauthn_uuid BLOB NOT NULL,
     email TEXT NOT NULL,
     deleted BOOLEAN NOT NULL,
-    as_of INTEGER NOT NULL
+    as_of BIGINT NOT NULL
 )
