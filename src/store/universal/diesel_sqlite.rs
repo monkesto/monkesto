@@ -8,12 +8,13 @@ use crate::postcard::Postcard;
 use crate::schema::sessions;
 use crate::schema::{accounts, events, journal_members_lookup};
 use crate::schema::{entities, examples, journals, passkeys, transactions, users};
+use crate::store::universal::error::StoreError;
 use crate::store::universal::example_entity::{ExamplePayload, ExampleState};
-use crate::store::universal::registry::{AnyPayload, EntityType};
+use crate::store::universal::registry::{AnyPayload, EntityType, payload_from_bytes};
 use crate::store::universal::time_provider::TimeProvider;
 use crate::store::universal::{
-    After, Entity, Event, EventId, FetchState, GetPayloadUsage, PayloadUsage, Store, StoreError,
-    StoreResult, TimeStamp, When, payload_from_bytes,
+    After, Entity, Event, EventId, FetchState, GetPayloadUsage, PayloadUsage, Store, StoreResult,
+    TimeStamp, When,
 };
 use crate::transaction::{
     EntryType, TransactionModifiedPayload, TransactionPayload, TransactionState,

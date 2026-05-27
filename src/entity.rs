@@ -82,7 +82,7 @@ macro_rules! state {
         use diesel::ExpressionMethods as _;
 
         impl<I: $crate::store::universal::Entity> $crate::store::universal::FetchState<I> for $struct_name {
-            fn fetch(conn: &mut diesel::SqliteConnection, id: I::Id) -> $crate::store::universal::StoreResult<Self> {
+            fn fetch(conn: &mut diesel::SqliteConnection, id: I::Id) -> $crate::store::universal::error::StoreResult<Self> {
                 let type_erased_id = *id;
                 Ok($($table)::*::table.filter($($table)::*::id.eq(type_erased_id)).first::<$struct_name>(conn)?)
             }
