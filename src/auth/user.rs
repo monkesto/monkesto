@@ -3,7 +3,7 @@ use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::Ident;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::{EventId, GetPayloadUsage, PayloadUsage};
+use crate::store::universal::{EventId, GetPayloadUsage, PayloadSideEffects, PayloadUsage};
 use crate::{entity, payload, state};
 use axum::response::Redirect;
 use serde::Deserialize;
@@ -97,6 +97,12 @@ state! {
         pub email: Email,
         pub deleted: bool,
         pub as_of: EventId
+    }
+}
+
+impl PayloadSideEffects for UserPayload {
+    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>> {
+        None
     }
 }
 

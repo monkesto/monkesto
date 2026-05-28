@@ -5,7 +5,7 @@ pub mod service;
 pub mod views;
 
 use crate::ident::Ident;
-use crate::store::universal::{EventId, GetPayloadUsage, PayloadUsage};
+use crate::store::universal::{EventId, GetPayloadUsage, PayloadSideEffects, PayloadUsage};
 pub use service::JournalService;
 
 use axum::Router;
@@ -403,6 +403,12 @@ state! {
         pub deleted: bool,
         pub parent_journal_id: Option<JournalId>,
         pub as_of: EventId
+    }
+}
+
+impl PayloadSideEffects for JournalPayload {
+    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>> {
+        None
     }
 }
 

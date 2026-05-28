@@ -53,7 +53,7 @@ use crate::journal::Permissions;
 use crate::journal::{JournalId, JournalStoreError};
 use crate::name::Name;
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{EventId, GetPayloadUsage, PayloadUsage};
+use crate::store::universal::{EventId, GetPayloadUsage, PayloadSideEffects, PayloadUsage};
 use crate::transaction::TransactionState;
 use crate::transaction::{EntryType, TransactionId};
 use crate::transaction::{TransactionModifiedPayload, TransactionPayload};
@@ -78,6 +78,7 @@ entity!(
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AccountModifiedPayload {
+    UpdatedBalance { difference: i64 },
     Renamed { new_name: Name },
     Deleted,
 }
@@ -90,7 +91,7 @@ payload! {
             name: Name,
             parent_account_id: Option<AccountId>,
         },
-        Modified(AccountModifiedPayload)
+        Modified(AccountModifiedPayload),
     }
 }
 
@@ -131,6 +132,9 @@ impl GetPayloadUsage<AccountEntity> for AccountPayload {
             AccountPayload::Modified(modified_payload) => {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut AccountState| {
                     match modified_payload {
+                        AccountModifiedPayload::UpdatedBalance { difference } => {
+                            state.balance += difference
+                        }
                         AccountModifiedPayload::Renamed { new_name } => state.name = new_name,
                         AccountModifiedPayload::Deleted => state.deleted = true,
                     }
@@ -138,6 +142,12 @@ impl GetPayloadUsage<AccountEntity> for AccountPayload {
                 }))
             }
         }
+    }
+}
+
+impl PayloadSideEffects for AccountPayload {
+    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>> {
+        None
     }
 }
 
@@ -305,7 +315,7 @@ impl AccountStore for AccountMemoryStore {
                 }
             }
             TransactionPayload::Modified(TransactionModifiedPayload::UpdatedBalancedUpdates {
-                new_balanceupdates,
+                difference: new_balanceupdates,
                 ..
             }) => {
                 if let Some(transaction) = old_transaction {
@@ -347,7 +357,7 @@ impl AccountStore for AccountMemoryStore {
                     return Err(TransactionWithoutPriorState(transaction_id));
                 }
             }
-            TransactionPayload::Modified(TransactionModifiedPayload::Deleted) => {
+            TransactionPayload::Modified(TransactionModifiedPayload::Deleted { .. }) => {
                 if let Some(transaction) = old_transaction {
                     for update in transaction.updates.iter() {
                         if let Some(mut account_state) =

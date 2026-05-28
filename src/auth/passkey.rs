@@ -1,5 +1,5 @@
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{EventId, GetPayloadUsage, PayloadUsage};
+use crate::store::universal::{EventId, GetPayloadUsage, PayloadSideEffects, PayloadUsage};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -345,6 +345,12 @@ payload! {
             passkey: webauthn_rs::prelude::Passkey,
         },
         Modified(PasskeyModifiedPayload)
+    }
+}
+
+impl PayloadSideEffects for PasskeyPayload {
+    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>> {
+        None
     }
 }
 

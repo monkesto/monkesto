@@ -3,9 +3,10 @@ pub mod service;
 pub mod views;
 
 pub use service::TransactionService;
+use std::collections::HashMap;
 
 use crate::ident::Ident;
-use crate::store::universal::{EventId, GetPayloadUsage, PayloadUsage};
+use crate::store::universal::{EventId, GetPayloadUsage, PayloadSideEffects, PayloadUsage};
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -25,13 +26,13 @@ pub fn router() -> Router<crate::StateType> {
 
 use std::fmt::Debug;
 use std::fmt::Display;
-use std::ops::Deref;
+use std::ops::{Add, Deref};
 use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::authority::Authority;
 
-use crate::account::{AccountId, AccountStoreError};
+use crate::account::{AccountId, AccountModifiedPayload, AccountPayload, AccountStoreError};
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::journal::Permissions;
@@ -287,7 +288,7 @@ entity!(
     Ident::new16()
 );
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq)]
 pub struct BalanceUpdate {
     pub journal_id: JournalId,
     pub account_id: AccountId,
@@ -295,12 +296,55 @@ pub struct BalanceUpdate {
     pub entry_type: EntryType,
 }
 
+impl Add for BalanceUpdate {
+    type Output = BalanceUpdate;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        assert_eq!(self.account_id, rhs.account_id);
+        assert_eq!(self.journal_id, rhs.journal_id);
+
+        let lhs = match self.entry_type {
+            EntryType::Credit => self.amount as i64,
+            EntryType::Debit => -(self.amount as i64),
+        };
+
+        let rhs = match rhs.entry_type {
+            EntryType::Credit => rhs.amount as i64,
+            EntryType::Debit => -(rhs.amount as i64),
+        };
+
+        let added = lhs + rhs;
+
+        let entry_type = if added < 0 {
+            EntryType::Debit
+        } else {
+            EntryType::Credit
+        };
+
+        Self {
+            journal_id: self.journal_id,
+            account_id: self.account_id,
+            amount: added.unsigned_abs(),
+            entry_type,
+        }
+    }
+}
+
+impl Add<i64> for BalanceUpdate {
+    type Output = i64;
+
+    fn add(self, rhs: i64) -> Self::Output {
+        match self.entry_type {
+            EntryType::Credit => rhs + self.amount as i64,
+            EntryType::Debit => rhs - self.amount as i64,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TransactionModifiedPayload {
-    UpdatedBalancedUpdates {
-        new_balanceupdates: Vec<BalanceUpdate>,
-    },
-    Deleted,
+    UpdatedBalancedUpdates { difference: Vec<BalanceUpdate> },
+    Deleted { difference: Vec<BalanceUpdate> },
 }
 
 payload! {
@@ -325,6 +369,34 @@ state! {
     }
 }
 
+impl PayloadSideEffects for TransactionPayload {
+    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>> {
+        Some(
+            match self {
+                TransactionPayload::Created { updates, .. } => updates,
+                TransactionPayload::Modified(payload) => match payload {
+                    TransactionModifiedPayload::UpdatedBalancedUpdates { difference } => difference,
+                    TransactionModifiedPayload::Deleted { difference } => difference,
+                },
+            }
+            .iter()
+            .map(|update| {
+                (
+                    *update.account_id,
+                    postcard::to_allocvec(&AccountPayload::Modified(
+                        AccountModifiedPayload::UpdatedBalance {
+                            difference: *update + 0,
+                        },
+                    ))
+                    .expect("failed to serialize an account payload"),
+                    EntityType::Account,
+                )
+            })
+            .collect(),
+        )
+    }
+}
+
 impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
     fn usage<T: Into<TransactionId>>(
         self,
@@ -344,12 +416,47 @@ impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
             }),
             TransactionPayload::Modified(modified_payload) => {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut TransactionState| {
-                    match modified_payload {
-                        TransactionModifiedPayload::UpdatedBalancedUpdates {
-                            new_balanceupdates,
-                        } => state.updates = Postcard(new_balanceupdates),
-                        TransactionModifiedPayload::Deleted => state.deleted = true,
+                    let mut final_updates = Vec::new();
+
+                    let old_updates = state
+                        .updates
+                        .0
+                        .iter()
+                        .map(|update| {
+                            (
+                                (update.journal_id, update.account_id),
+                                (update.amount, update.entry_type),
+                            )
+                        })
+                        .collect::<HashMap<(JournalId, AccountId), (u64, EntryType)>>();
+
+                    for new_update in match modified_payload {
+                        TransactionModifiedPayload::UpdatedBalancedUpdates { difference } => {
+                            difference
+                        }
+                        TransactionModifiedPayload::Deleted { difference } => {
+                            state.deleted = true;
+                            difference
+                        }
+                    } {
+                        if let Some((old_amount, old_entrytype)) =
+                            old_updates.get(&(new_update.journal_id, new_update.account_id))
+                        {
+                            final_updates.push(
+                                new_update
+                                    + BalanceUpdate {
+                                        journal_id: new_update.journal_id,
+                                        account_id: new_update.account_id,
+                                        amount: *old_amount,
+                                        entry_type: *old_entrytype,
+                                    },
+                            )
+                        } else {
+                            final_updates.push(new_update)
+                        }
                     }
+
+                    state.updates = Postcard(final_updates);
                     state.as_of = event_id;
                 }))
             }

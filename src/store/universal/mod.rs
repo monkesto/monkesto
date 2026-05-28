@@ -43,6 +43,7 @@ pub trait Payload:
     + DeserializeOwned
     + diesel::expression::AsExpression<Binary>
     + Into<AnyPayload>
+    + 'static
 {
     fn as_bytes(&self) -> Vec<u8> {
         postcard::to_allocvec(self).expect("Failed to serialize payload")
@@ -60,6 +61,14 @@ pub enum PayloadUsage<T: Entity> {
     ModifiesState(Box<dyn FnOnce(&mut T::State)>),
 }
 
+pub trait GetPayloadUsage<T: Entity>: Payload {
+    fn usage<U: Into<T::Id>>(self, entity_id: U, event_id: EventId) -> PayloadUsage<T>;
+}
+
+pub trait PayloadSideEffects: Payload {
+    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>>;
+}
+
 pub enum After {
     Start,
     Id(EventId),
@@ -74,13 +83,9 @@ pub enum When {
     Within(EventId),
 }
 
-pub trait GetPayloadUsage<T: Entity> {
-    fn usage<U: Into<T::Id>>(self, entity_id: U, event_id: EventId) -> PayloadUsage<T>;
-}
-
 pub trait Entity: Sized {
     type Id: EntityId;
-    type Payload: Payload + GetPayloadUsage<Self>;
+    type Payload: Payload + GetPayloadUsage<Self> + PayloadSideEffects;
     type State: State + FetchState<Self> + 'static;
 
     fn entity_type() -> EntityType;
@@ -138,9 +143,6 @@ pub trait Store {
 
     /// Returns a State of the given entity and the sequence id associated with the last event applied to it
     async fn get_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<I::State>;
-
-    /// Rebuilds the State of an entity from the stored events
-    async fn rebuild_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<()>;
 
     async fn session_store(&self) -> &impl ExpiredDeletion;
 }

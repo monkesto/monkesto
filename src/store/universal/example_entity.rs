@@ -1,6 +1,6 @@
 use crate::ident::Ident;
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{EventId, GetPayloadUsage, PayloadUsage};
+use crate::store::universal::{EventId, GetPayloadUsage, PayloadSideEffects, PayloadUsage};
 use crate::{entity, payload, state};
 use serde::{Deserialize, Serialize};
 use std::io::Write;
@@ -34,6 +34,12 @@ state! {
         id: ExampleId,
         deleted: bool,
         as_of: EventId
+    }
+}
+
+impl PayloadSideEffects for ExamplePayload {
+    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>> {
+        None
     }
 }
 
