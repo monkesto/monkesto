@@ -31,13 +31,14 @@ pub enum EmailError {
     RegexViolated,
 }
 
+static EMAIL_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[\w\-.]+@([\w-]+\.)+[\w-]{2,}$").expect("Regex parse failure"));
+
 impl Email {
     pub fn try_new<T: Into<String>>(value: T) -> Result<Self, EmailError> {
         let sanitized = value.into().trim().to_lowercase();
 
-        let re = Regex::new(r"^[\w\-.]+@([\w-]+\.)+[\w-]{2,}$").expect("Regex parse failure");
-
-        if re.is_match(&sanitized) {
+        if EMAIL_REGEX.is_match(&sanitized) {
             return Ok(Self(sanitized));
         }
 
@@ -394,7 +395,7 @@ use diesel::serialize::{Output, ToSql};
 use diesel::sql_types::Text;
 use diesel::{AsExpression, FromSqlRow, deserialize, serialize};
 use regex::Regex;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use thiserror::Error;
 use tokio::sync::Mutex;
 
