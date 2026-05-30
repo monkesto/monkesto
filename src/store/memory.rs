@@ -1,11 +1,11 @@
-use crate::store::revised::After;
-use crate::store::revised::EventFamily;
-use crate::store::revised::EventId;
-use crate::store::revised::Outcome;
-use crate::store::revised::Page;
-use crate::store::revised::RecordFor;
-use crate::store::revised::Store;
-use crate::store::revised::When;
+use super::After;
+use super::EventFamily;
+use super::EventId;
+use super::Outcome;
+use super::Page;
+use super::RecordFor;
+use super::Store;
+use super::When;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::error::Error;
@@ -197,17 +197,17 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::revised::Event;
-    use crate::store::revised::EventFamily;
-    use crate::store::revised::EventId;
-    use crate::store::revised::Outcome;
-    use crate::store::revised::Record;
-    use crate::store::revised::RecordFor;
-    use crate::store::revised::Stream;
-    use crate::store::revised::When;
+    use crate::store::Event;
+    use crate::store::EventFamily;
+    use crate::store::EventId;
+    use crate::store::Outcome;
+    use crate::store::Record;
+    use crate::store::RecordFor;
+    use crate::store::Stream;
+    use crate::store::When;
     use chrono::Utc;
 
-    revised_store_contract_tests!(MemoryStore::<TestEvent>::new());
+    store_contract_tests!(MemoryStore::<TestEvent>::new());
 
     #[derive(Clone, Copy, Debug)]
     struct AlphaStream;

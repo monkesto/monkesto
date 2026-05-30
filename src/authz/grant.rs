@@ -1,6 +1,6 @@
 use crate::id;
 use crate::ident::Ident;
-use crate::store::revised::Stream;
+use crate::store::Stream;
 use serde::Deserialize;
 use serde::Serialize;
 
