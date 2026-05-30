@@ -51,13 +51,40 @@ pub struct Page<T> {
     pub next: EventId,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-pub struct Event<A, I, P> {
+pub trait Stream {
+    type Id: Send + Sync + Copy + Clone;
+    type Payload: Send + Sync + Clone;
+}
+
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct Event<A: Clone + Sized, S: Stream>
+where
+    S::Id: Sized,
+    S::Payload: Sized,
+{
     pub event_id: EventId,
     pub timestamp: DateTime<Utc>,
     pub authority: A,
-    pub id: I,
-    pub payload: P,
+    pub id: S::Id,
+    pub payload: S::Payload,
+}
+
+impl<A, S> Clone for Event<A, S>
+where
+    A: Clone + Sized,
+    S: Stream,
+    S::Id: Sized,
+    S::Payload: Sized,
+{
+    fn clone(&self) -> Self {
+        Self {
+            event_id: self.event_id,
+            timestamp: self.timestamp,
+            authority: self.authority.clone(),
+            id: self.id,
+            payload: self.payload.clone(),
+        }
+    }
 }
 
 pub trait RecordFor<E: EventFamily>: Send + Sync + Clone {
@@ -81,11 +108,23 @@ pub enum Outcome<E> {
     Skipped,
 }
 
-#[derive(Clone)]
-pub struct Record<I, P> {
-    pub id: I,
-    pub payload: P,
+pub struct Record<S: Stream> {
+    pub id: S::Id,
+    pub payload: S::Payload,
     pub when: When<EventId>,
+}
+
+impl<S> Clone for Record<S>
+where
+    S: Stream,
+{
+    fn clone(&self) -> Self {
+        Self {
+            id: self.id,
+            payload: self.payload.clone(),
+            when: self.when,
+        }
+    }
 }
 
 pub trait Store<E: EventFamily>: Send + Sync {

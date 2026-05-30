@@ -1,8 +1,8 @@
+use super::grant::GrantStream;
+use super::role::RoleStream;
 use crate::authority::Authority;
 use crate::grant::GrantId;
-use crate::grant::GrantPayload;
 use crate::role::RoleId;
-use crate::role::RolePayload;
 use crate::store::revised::Event;
 use crate::store::revised::EventFamily;
 use crate::store::revised::EventId;
@@ -21,14 +21,14 @@ pub enum AuthzId {
 
 #[derive(Clone)]
 pub enum AuthzRecord {
-    Role(Record<RoleId, RolePayload>),
-    Grant(Record<GrantId, GrantPayload>),
+    Role(Record<RoleStream>),
+    Grant(Record<GrantStream>),
 }
 
 #[derive(Clone, Debug)]
 pub enum AuthzEvent {
-    Role(Event<Authority, RoleId, RolePayload>),
-    Grant(Event<Authority, GrantId, GrantPayload>),
+    Role(Event<Authority, RoleStream>),
+    Grant(Event<Authority, GrantStream>),
 }
 
 pub trait AuthzStore: Store<AuthzEvent> {}

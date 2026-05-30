@@ -5,8 +5,17 @@ use crate::role::RoleId;
 use crate::role::RolePayload;
 use crate::store::revised::Event;
 use crate::store::revised::EventId;
+use crate::store::revised::Stream;
 use crate::store::revised::When;
 use std::collections::HashSet;
+
+#[derive(Clone, Copy, Debug)]
+pub struct RoleStream;
+
+impl Stream for RoleStream {
+    type Id = RoleId;
+    type Payload = RolePayload;
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RoleState {
@@ -19,7 +28,7 @@ pub enum RoleState {
 }
 
 impl RoleState {
-    pub fn apply(&mut self, event: Event<Authority, RoleId, RolePayload>) {
+    pub fn apply(&mut self, event: Event<Authority, RoleStream>) {
         let when = When::Within(event.event_id);
         *self = match (self.clone(), event.payload) {
             (RoleState::Absent, RolePayload::Created(name)) => RoleState::Present {
