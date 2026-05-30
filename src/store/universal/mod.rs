@@ -15,6 +15,7 @@ mod diesel_sqlite;
 pub mod error;
 pub mod event_id;
 mod example_entity;
+mod interface;
 pub mod registry;
 pub mod time_provider;
 pub mod timestamp;
@@ -116,6 +117,11 @@ pub struct Event<I: Entity> {
     pub applied_to_state: bool,
 }
 
+pub struct Page<I: Entity> {
+    events: Vec<Event<I>>,
+    next: Option<EventId>,
+}
+
 pub trait Store {
     /// Records an event to the store and updates the State
     ///
@@ -135,11 +141,12 @@ pub trait Store {
     ) -> StoreResult<EventId>;
 
     /// Returns a vector of all events that have occurred concerning an entity starting at `starting_sequence`
-    async fn replay_events<I: Entity>(
+    async fn review<I: Entity>(
         &self,
         entity_id: I::Id,
         after: After,
-    ) -> StoreResult<Vec<Event<I>>>;
+        page_size: u64,
+    ) -> StoreResult<Page<I>>;
 
     /// Returns a State of the given entity and the sequence id associated with the last event applied to it
     async fn get_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<I::State>;

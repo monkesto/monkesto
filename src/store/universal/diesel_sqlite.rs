@@ -12,8 +12,8 @@ use crate::store::universal::example_entity::ExampleState;
 use crate::store::universal::registry::{AnyPayload, EntityType, payload_from_bytes};
 use crate::store::universal::time_provider::TimeProvider;
 use crate::store::universal::{
-    After, Entity, Event, EventId, FetchState, GetPayloadUsage, PayloadSideEffects, PayloadUsage,
-    Store, StoreResult, TimeStamp, When,
+    After, Entity, Event, EventId, FetchState, GetPayloadUsage, Page, PayloadSideEffects,
+    PayloadUsage, Store, StoreResult, TimeStamp, When,
 };
 use crate::transaction::TransactionState;
 use async_trait::async_trait;
@@ -637,11 +637,12 @@ impl Store for DieselSqliteStore {
         Ok(event_id)
     }
 
-    async fn replay_events<I: Entity>(
+    async fn review<I: Entity>(
         &self,
         entity_id: I::Id,
         after: After,
-    ) -> StoreResult<Vec<Event<I>>> {
+        page_size: u64,
+    ) -> StoreResult<Page<I>> {
         let conn = self.pool.get().await?;
 
         DieselSqliteStore::validate_entity_type(*entity_id, I::entity_type(), &conn).await?;
@@ -657,8 +658,9 @@ impl Store for DieselSqliteStore {
             .interact(move |conn| {
                 events::table
                     .filter(events::entity_id.eq(type_erased_id))
-                    .filter(events::event_id.gt(after_id))
+                    .filter(events::event_id.ge(after_id))
                     .order_by(events::event_id.asc())
+                    .limit(page_size as i64 + 1)
                     .get_results::<GenericEvent>(conn)
             })
             .await??
@@ -675,7 +677,20 @@ impl Store for DieselSqliteStore {
             })
             .collect();
 
-        events
+        let events = events?;
+
+        let last_id = events.last().map(|ev| ev.event_id);
+
+        if events.len() as u64 > page_size
+            && let Some(last_id) = last_id
+        {
+            return Ok(Page {
+                events,
+                next: Some(last_id + 1),
+            });
+        }
+
+        Ok(Page { events, next: None })
     }
 
     async fn get_state<I: Entity>(&self, entity_id: I::Id) -> StoreResult<I::State> {
