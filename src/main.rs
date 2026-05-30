@@ -1,7 +1,6 @@
 mod account;
 mod auth;
 mod authority;
-mod authorization;
 mod authz;
 mod entitlement;
 mod entity;

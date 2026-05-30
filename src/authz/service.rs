@@ -221,6 +221,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn role_returns_absent_for_missing_role() {
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
+
+        let result = service
+            .role(RoleId::new())
+            .await
+            .expect("role lookup should succeed");
+
+        assert!(matches!(result, RoleState::Absent));
+    }
+
+    #[tokio::test]
     async fn revoke_grant_succeeds() {
         let projection = AuthzMemoryProjection::default();
         let store = AuthzMemoryStore::with_projection(projection.clone());
@@ -242,5 +256,17 @@ mod tests {
             .revoke_grant(authority, grant_id)
             .await
             .expect("revoke should succeed");
+    }
+
+    #[tokio::test]
+    async fn revoke_grant_fails_for_missing_grant() {
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
+        let authority = Authority::Direct(Actor::System);
+
+        let result = service.revoke_grant(authority, GrantId::new()).await;
+
+        assert!(matches!(result, Err(AuthzError::GrantNotFound(_))));
     }
 }
