@@ -5,7 +5,6 @@ mod authz;
 mod entitlement;
 mod entity;
 mod event;
-mod grant;
 mod id;
 mod ident;
 mod journal;

@@ -1,5 +1,7 @@
 #![cfg_attr(not(test), expect(dead_code))]
 
+use super::GrantId;
+use super::GrantPayload;
 use super::projection::AuthzProjection;
 use super::role::RoleState;
 use super::store::AuthzEvent;
@@ -7,8 +9,6 @@ use super::store::AuthzId;
 use super::store::AuthzRecord;
 use super::store::AuthzStore;
 use crate::authority::Authority;
-use crate::grant::GrantId;
-use crate::grant::GrantPayload;
 use crate::name::Name;
 use crate::role::RoleId;
 use crate::role::RolePayload;

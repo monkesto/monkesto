@@ -1,5 +1,5 @@
 pub use crate::auth::user::UserId;
-pub use crate::grant::GrantId;
+pub use crate::authz::GrantId;
 use serde::Deserialize;
 use serde::Serialize;
 
