@@ -14,8 +14,6 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 pub type AuthzMemoryStore<P = AuthzMemoryProjection> = MemoryStore<AuthzEvent, P>;
-#[expect(dead_code)]
-pub type Authz2MemoryStore<P = AuthzMemoryProjection> = MemoryStore<AuthzEvent, P>;
 
 #[derive(Clone, Default)]
 pub struct AuthzMemoryProjection {
