@@ -2,6 +2,7 @@
 
 use super::projection::AuthzProjection;
 use super::role::RoleState;
+use super::store::AuthzEvent;
 use super::store::AuthzId;
 use super::store::AuthzRecord;
 use super::store::AuthzStore;
@@ -27,6 +28,9 @@ pub enum AuthzError<S: StdError + Send + Sync + 'static, P: StdError + Send + Sy
 
     #[error("grant update was skipped: {0}")]
     GrantSkipped(GrantId),
+
+    #[error("grant has unexpected history: {0}")]
+    GrantUnexpectedHistory(GrantId),
 
     #[error("role not found: {0}")]
     RoleNotFound(RoleId),
@@ -129,9 +133,20 @@ where
             .await
             .map_err(AuthzError::Store)?;
 
+        if page.more {
+            return Err(AuthzError::GrantUnexpectedHistory(grant_id));
+        }
+
         let Some(latest_event) = page.items.last() else {
             return Err(AuthzError::GrantNotFound(grant_id));
         };
+
+        match latest_event {
+            AuthzEvent::Grant(event) if event.payload == GrantPayload::Revoked => return Ok(()),
+            AuthzEvent::Grant(event) if event.payload == GrantPayload::Created => {}
+            AuthzEvent::Grant(_) => return Err(AuthzError::GrantUnexpectedHistory(grant_id)),
+            AuthzEvent::Role(_) => return Err(AuthzError::GrantUnexpectedHistory(grant_id)),
+        }
 
         let outcome = self
             .store
@@ -268,5 +283,34 @@ mod tests {
         let result = service.revoke_grant(authority, GrantId::new()).await;
 
         assert!(matches!(result, Err(AuthzError::GrantNotFound(_))));
+    }
+
+    #[tokio::test]
+    async fn revoke_grant_is_idempotent() {
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
+        let authority = Authority::Direct(Actor::System);
+
+        let role_id = service
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
+            .await
+            .expect("create should succeed");
+        let grant_id = service
+            .grant_role(authority.clone(), role_id)
+            .await
+            .expect("grant should succeed");
+
+        service
+            .revoke_grant(authority.clone(), grant_id)
+            .await
+            .expect("first revoke should succeed");
+        service
+            .revoke_grant(authority, grant_id)
+            .await
+            .expect("second revoke should be a no-op");
     }
 }
