@@ -1,13 +1,24 @@
 use crate::authority::Actor;
 use crate::authority::Authority;
+use crate::id;
+use crate::ident::Ident;
 use crate::name::Name;
-use crate::role::RoleId;
-use crate::role::RolePayload;
 use crate::store::revised::Event;
 use crate::store::revised::EventId;
 use crate::store::revised::Stream;
 use crate::store::revised::When;
+use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashSet;
+
+id!(RoleId, Ident::new16());
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum RolePayload {
+    Created(Name),
+    ActorAdded(Actor),
+    ActorRemoved(Actor),
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct RoleStream;

@@ -7,3 +7,5 @@ mod store;
 
 pub use grant::GrantId;
 pub use grant::GrantPayload;
+pub use role::RoleId;
+pub use role::RolePayload;

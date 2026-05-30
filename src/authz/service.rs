@@ -2,22 +2,24 @@
 
 use super::GrantId;
 use super::GrantPayload;
+use super::RoleId;
+use super::RolePayload;
 use super::projection::AuthzProjection;
 use super::role::RoleState;
 use super::store::AuthzEvent;
 use super::store::AuthzId;
 use super::store::AuthzRecord;
 use super::store::AuthzStore;
+use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::name::Name;
-use crate::role::RoleId;
-use crate::role::RolePayload;
 use crate::store::revised::After;
 use crate::store::revised::EventFamily;
 use crate::store::revised::Outcome;
 use crate::store::revised::Record;
 use crate::store::revised::When;
 use chrono::Utc;
+use std::collections::HashSet;
 use std::error::Error as StdError;
 use thiserror::Error;
 
@@ -37,6 +39,9 @@ pub enum AuthzError<S: StdError + Send + Sync + 'static, P: StdError + Send + Sy
 
     #[error("role creation was skipped: {0}")]
     RoleSkipped(RoleId),
+
+    #[error("role lookup requires system authority")]
+    RoleRequiresSystemAuthority,
 
     #[error("grant creation was skipped: {0}")]
     GrantCreationSkipped(GrantId),
@@ -174,6 +179,89 @@ where
             .await
             .map_err(AuthzError::Projection)
     }
+
+    pub async fn roles(
+        &self,
+        authority: Authority,
+        actor: &Actor,
+    ) -> Result<HashSet<RoleId>, AuthzError<S::Error, P::Error>> {
+        if !matches!(authority.actor(), Actor::System) {
+            return Err(AuthzError::RoleRequiresSystemAuthority);
+        }
+
+        self.projection
+            .roles(actor)
+            .await
+            .map_err(AuthzError::Projection)
+    }
+
+    pub async fn add_role_actor(
+        &self,
+        authority: Authority,
+        role_id: RoleId,
+        actor: Actor,
+    ) -> Result<(), AuthzError<S::Error, P::Error>> {
+        let RoleState::Present { actors, when, .. } = self.role(role_id).await? else {
+            return Err(AuthzError::RoleNotFound(role_id));
+        };
+
+        if actors.contains(&actor) {
+            return Ok(());
+        }
+
+        let outcome = self
+            .store
+            .record(
+                authority,
+                Utc::now(),
+                AuthzRecord::Role(Record {
+                    id: role_id,
+                    payload: RolePayload::ActorAdded(actor),
+                    when,
+                }),
+            )
+            .await
+            .map_err(AuthzError::Store)?;
+
+        match outcome {
+            Outcome::Recorded(_) => Ok(()),
+            Outcome::Skipped => Err(AuthzError::RoleSkipped(role_id)),
+        }
+    }
+
+    pub async fn remove_role_actor(
+        &self,
+        authority: Authority,
+        role_id: RoleId,
+        actor: Actor,
+    ) -> Result<(), AuthzError<S::Error, P::Error>> {
+        let RoleState::Present { actors, when, .. } = self.role(role_id).await? else {
+            return Err(AuthzError::RoleNotFound(role_id));
+        };
+
+        if !actors.contains(&actor) {
+            return Ok(());
+        }
+
+        let outcome = self
+            .store
+            .record(
+                authority,
+                Utc::now(),
+                AuthzRecord::Role(Record {
+                    id: role_id,
+                    payload: RolePayload::ActorRemoved(actor),
+                    when,
+                }),
+            )
+            .await
+            .map_err(AuthzError::Store)?;
+
+        match outcome {
+            Outcome::Recorded(_) => Ok(()),
+            Outcome::Skipped => Err(AuthzError::RoleSkipped(role_id)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -181,7 +269,7 @@ mod tests {
     use super::super::memory::AuthzMemoryProjection;
     use super::super::memory::AuthzMemoryStore;
     use super::*;
-    use crate::authority::Actor;
+    use crate::auth::user::UserId;
 
     #[tokio::test]
     async fn create_role_succeeds() {
@@ -247,6 +335,197 @@ mod tests {
             .expect("role lookup should succeed");
 
         assert!(matches!(result, RoleState::Absent));
+    }
+
+    #[tokio::test]
+    async fn roles_returns_empty_for_actor_without_membership() {
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
+        let authority = Authority::Direct(Actor::System);
+        let actor = Actor::User(UserId::new());
+
+        service
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
+            .await
+            .expect("create should succeed");
+
+        let roles = service
+            .roles(authority, &actor)
+            .await
+            .expect("lookup should succeed");
+
+        assert!(roles.is_empty());
+    }
+
+    #[tokio::test]
+    async fn roles_requires_system_authority() {
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
+        let actor = Actor::User(UserId::new());
+        let authority = Authority::Direct(Actor::User(UserId::new()));
+
+        let result = service.roles(authority, &actor).await;
+
+        assert!(matches!(
+            result,
+            Err(AuthzError::RoleRequiresSystemAuthority)
+        ));
+    }
+
+    #[tokio::test]
+    async fn add_role_actor_adds_many_actors() {
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
+        let authority = Authority::Direct(Actor::System);
+        let role_id = service
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
+            .await
+            .expect("create should succeed");
+        let first_user = Actor::User(UserId::new());
+        let second_user = Actor::User(UserId::new());
+
+        service
+            .add_role_actor(authority.clone(), role_id, first_user.clone())
+            .await
+            .expect("first add should succeed");
+        service
+            .add_role_actor(authority.clone(), role_id, second_user.clone())
+            .await
+            .expect("second add should succeed");
+        service
+            .add_role_actor(authority.clone(), role_id, Actor::System)
+            .await
+            .expect("system add should succeed");
+
+        let first_user_roles = service
+            .roles(authority.clone(), &first_user)
+            .await
+            .expect("lookup should succeed");
+        assert_eq!(first_user_roles, HashSet::from([role_id]));
+
+        let second_user_roles = service
+            .roles(authority.clone(), &second_user)
+            .await
+            .expect("lookup should succeed");
+        assert_eq!(second_user_roles, HashSet::from([role_id]));
+
+        let system_roles = service
+            .roles(authority, &Actor::System)
+            .await
+            .expect("lookup should succeed");
+        assert_eq!(system_roles, HashSet::from([role_id]));
+    }
+
+    #[tokio::test]
+    async fn add_role_actor_is_idempotent() {
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
+        let authority = Authority::Direct(Actor::System);
+        let role_id = service
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
+            .await
+            .expect("create should succeed");
+        let user = Actor::User(UserId::new());
+
+        service
+            .add_role_actor(authority.clone(), role_id, user.clone())
+            .await
+            .expect("first add should succeed");
+        service
+            .add_role_actor(authority.clone(), role_id, user.clone())
+            .await
+            .expect("duplicate add should be a no-op");
+
+        let roles = service
+            .roles(authority, &user)
+            .await
+            .expect("lookup should succeed");
+
+        assert_eq!(roles, HashSet::from([role_id]));
+    }
+
+    #[tokio::test]
+    async fn remove_role_actor_removes_actor() {
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
+        let authority = Authority::Direct(Actor::System);
+        let role_id = service
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
+            .await
+            .expect("create should succeed");
+        let user = Actor::User(UserId::new());
+
+        service
+            .add_role_actor(authority.clone(), role_id, user.clone())
+            .await
+            .expect("add should succeed");
+        service
+            .remove_role_actor(authority.clone(), role_id, user.clone())
+            .await
+            .expect("remove should succeed");
+
+        let roles = service
+            .roles(authority, &user)
+            .await
+            .expect("lookup should succeed");
+
+        assert!(roles.is_empty());
+    }
+
+    #[tokio::test]
+    async fn roles_returns_all_roles_for_actor() {
+        let projection = AuthzMemoryProjection::default();
+        let store = AuthzMemoryStore::with_projection(projection.clone());
+        let service = AuthzService::new(store, projection);
+        let authority = Authority::Direct(Actor::System);
+        let actor = Actor::User(UserId::new());
+        let first_role_id = service
+            .create_role(
+                authority.clone(),
+                Name::try_new("Administrator".to_string()).expect("valid name"),
+            )
+            .await
+            .expect("first create should succeed");
+        let second_role_id = service
+            .create_role(
+                authority.clone(),
+                Name::try_new("Auditor".to_string()).expect("valid name"),
+            )
+            .await
+            .expect("second create should succeed");
+
+        service
+            .add_role_actor(authority.clone(), first_role_id, actor.clone())
+            .await
+            .expect("first add should succeed");
+        service
+            .add_role_actor(authority.clone(), second_role_id, actor.clone())
+            .await
+            .expect("second add should succeed");
+
+        let roles = service
+            .roles(authority, &actor)
+            .await
+            .expect("lookup should succeed");
+
+        assert_eq!(roles, HashSet::from([first_role_id, second_role_id]));
     }
 
     #[tokio::test]

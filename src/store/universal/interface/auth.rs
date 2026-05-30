@@ -1,7 +1,7 @@
 use crate::auth::user::UserId;
 use crate::auth::user::{Email, UserState};
 use crate::authority::Authority;
-use crate::store::EventId;
+use crate::store::universal::EventId;
 use crate::store::universal::error::StoreResult;
 use axum_login::AuthnBackend;
 use std::collections::HashSet;

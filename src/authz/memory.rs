@@ -1,12 +1,14 @@
 #![cfg_attr(not(test), expect(dead_code))]
 
+use super::RoleId;
 use super::projection::AuthzProjection;
 use super::role::RoleState;
 use super::store::AuthzEvent;
-use crate::role::RoleId;
+use crate::authority::Actor;
 use crate::store::revised::memory::MemoryStore;
 use crate::store::revised::memory::SyncMemoryProjection;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -35,6 +37,18 @@ impl AuthzProjection for AuthzMemoryProjection {
             .get(&role_id)
             .cloned()
             .unwrap_or(RoleState::Absent))
+    }
+
+    async fn roles(&self, actor: &Actor) -> Result<HashSet<RoleId>, Self::Error> {
+        let state = self.state.lock().expect("poisoned");
+        Ok(state
+            .roles
+            .iter()
+            .filter_map(|(role_id, role)| match role {
+                RoleState::Present { actors, .. } if actors.contains(actor) => Some(*role_id),
+                _ => None,
+            })
+            .collect())
     }
 }
 

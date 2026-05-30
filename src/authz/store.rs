@@ -1,8 +1,8 @@
 use super::GrantId;
+use super::RoleId;
 use super::grant::GrantStream;
 use super::role::RoleStream;
 use crate::authority::Authority;
-use crate::role::RoleId;
 use crate::store::revised::Event;
 use crate::store::revised::EventFamily;
 use crate::store::revised::EventId;
