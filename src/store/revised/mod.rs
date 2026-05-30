@@ -40,7 +40,7 @@ pub enum When<T: Copy> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum After<T: Copy> {
     Start,
-    #[expect(dead_code)]
+    #[cfg_attr(not(test), expect(dead_code))]
     Specific(T),
 }
 
@@ -152,7 +152,7 @@ pub trait Store<E: EventFamily>: Send + Sync {
     ) -> Result<Page<E>, Self::Error>;
 
     #[rustfmt::skip]
-    #[expect(dead_code)]
+    #[cfg_attr(not(test), expect(dead_code))]
     async fn observe(
         &self,
         after: After<EventId>,
