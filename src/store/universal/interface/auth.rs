@@ -1,6 +1,7 @@
 use crate::auth::user::UserId;
-use crate::auth::user::{Email, UserState};
+use crate::auth::user::UserState;
 use crate::authority::Authority;
+use crate::email::Email;
 use crate::store::universal::EventId;
 use crate::store::universal::error::StoreResult;
 use axum_login::AuthnBackend;

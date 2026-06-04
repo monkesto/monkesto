@@ -228,7 +228,7 @@ pub async fn transaction_list_page(
     let journal_id_res = JournalId::from_str(&id);
 
     let content = html! {
-        @if let Ok(journal_id) = journal_id_res && let Ok(Some(j_name)) = state.journal_service.get_name(journal_id).await {
+        @if let Ok(journal_id) = journal_id_res && let Ok(j_name) = state.journal_service.get_name(journal_id).await {
             (render_transactions(journal_id, &j_name.to_string(), &authority, &state).await)
         } @else {
             p {

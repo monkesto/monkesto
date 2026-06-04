@@ -1,5 +1,6 @@
-use crate::auth::user::{Email, UserId};
+use crate::auth::user::UserId;
 use crate::authority::{Actor, Authority};
+use crate::email::Email;
 use crate::journal::{JournalId, JournalState, Permissions};
 use crate::name::Name;
 use crate::store::universal::error::StoreResult;

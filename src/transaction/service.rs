@@ -55,15 +55,11 @@ where
         updates: Vec<BalanceUpdate>,
     ) -> TransactionStoreResult<()> {
         // Check permission on the top-level journal (inherited by subjournals)
-        let journal = self
+        let _journal = self
             .journal_service
             .get_journal(journal_id, authority)
             .await?
             .ok_or(InvalidJournal(journal_id))?;
-
-        if journal.deleted {
-            return Err(InvalidJournal(journal_id));
-        }
 
         let perms = self
             .journal_service
@@ -123,15 +119,12 @@ where
         journal_id: JournalId,
         authority: &Authority,
     ) -> TransactionStoreResult<Vec<(TransactionId, TransactionState)>> {
-        let journal_state = self
+        if !self
             .journal_service
-            .get_journal(journal_id, authority)
-            .await?;
-
-        if !journal_state.as_ref().is_some_and(|s| {
-            s.get_actor_permissions(authority)
-                .contains(Permissions::READ)
-        }) {
+            .effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
             return Err(PermissionError(Permissions::READ));
         }
 

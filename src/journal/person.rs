@@ -112,11 +112,12 @@ pub async fn person_detail_page(
         }
     };
 
-    if !journal_state
-        .get_actor_permissions(&authority)
-        .contains(Permissions::READ)
+    match state
+        .journal_service
+        .effective_permissions(journal_id, &authority)
+        .await
     {
-        return Ok(layout(
+        Ok(permissions) if !permissions.contains(Permissions::READ) => Ok(layout(
             Some(&journal_state.name.to_string()),
             true,
             Some(&id),
@@ -129,100 +130,125 @@ pub async fn person_detail_page(
                     }
                 }
             },
-        ));
-    }
-
-    let member_permissions = journal_state.members.get(&target_user_id);
-    let is_owner = journal_state.owner == target_user_id;
-
-    let target_email = match state.user_service.user_get_email(target_user_id).await {
-        Ok(Some(email)) => email,
-        Ok(None) => "Unknown User".to_string(),
-        Err(e) => format!("Error fetching email: {}", e),
-    };
-
-    let content = html! {
-        div class="max-w-2xl mx-auto py-8 px-4" {
-            div class="flex justify-between items-center mb-8" {
-                h2 class="text-2xl font-bold text-gray-900 dark:text-white" { (target_email) }
-                @if is_owner {
-                    span class="inline-flex items-center rounded-md bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 ring-1 ring-inset ring-indigo-700/10 dark:ring-indigo-400/30" { "Owner" }
-                }
-            }
-
-            @if let Some(permissions) = member_permissions {
-                div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700" {
-                    div class="px-4 py-5 sm:p-6" {
-                        h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4" { "Permissions" }
-
-                        form method="post" action=(format!("/journal/{}/person/{}/update", id, person_id)) class="space-y-4" {
-                            div class="space-y-4" {
-                                (permission_checkbox("read", "Read Access", permissions.contains(Permissions::READ)))
-                                (permission_checkbox("addaccount", "Add Accounts", permissions.contains(Permissions::ADDACCOUNT)))
-                                (permission_checkbox("appendtransaction", "Append Transactions", permissions.contains(Permissions::APPENDTRANSACTION)))
-                                (permission_checkbox("invite", "Invite Users", permissions.contains(Permissions::INVITE)))
-                                (permission_checkbox("delete", "Delete Journal", permissions.contains(Permissions::DELETE)))
+        )),
+        Ok(_) => {
+            let permissions = match state
+                .journal_service
+                .effective_permissions(journal_id, &Authority::Direct(Actor::User(target_user_id)))
+                .await
+            {
+                Ok(perms) => perms,
+                Err(_e) => {
+                    return Ok(layout(
+                        Some(&journal_state.name.to_string()),
+                        true,
+                        Some(&id),
+                        html! {
+                            div class="max-w-2xl mx-auto py-8 px-4" {
+                                div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
+                                    p class="text-sm text-red-700 dark:text-red-200" {
+                                        "Failed to get user permissions."
+                                    }
+                                }
                             }
+                        },
+                    ));
+                }
+            };
 
-                            div class="mt-6 flex items-center justify-end gap-x-6" {
-                                button
-                                type="submit"
-                                class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:hover:bg-indigo-400" {
-                                    "Update Permissions"
+            let target_email = match state.user_service.user_get_email(target_user_id).await {
+                Ok(Some(email)) => email,
+                Ok(None) => "Unknown User".to_string(),
+                Err(e) => format!("Error fetching email: {}", e),
+            };
+
+            let content = html! {
+                div class="max-w-2xl mx-auto py-8 px-4" {
+                    div class="flex justify-between items-center mb-8" {
+                        h2 class="text-2xl font-bold text-gray-900 dark:text-white" { (target_email) }
+                        @if journal_state.owner == target_user_id {
+                            span class="inline-flex items-center rounded-md bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 ring-1 ring-inset ring-indigo-700/10 dark:ring-indigo-400/30" { "Owner" }
+                        }
+                    }
+
+
+                    div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700" {
+                        div class="px-4 py-5 sm:p-6" {
+                            h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4" { "Permissions" }
+
+                            form method="post" action=(format!("/journal/{}/person/{}/update", id, person_id)) class="space-y-4" {
+                                div class="space-y-4" {
+                                    (permission_checkbox("read", "Read Access", permissions.contains(Permissions::READ)))
+                                    (permission_checkbox("addaccount", "Add Accounts", permissions.contains(Permissions::ADDACCOUNT)))
+                                    (permission_checkbox("appendtransaction", "Append Transactions", permissions.contains(Permissions::APPENDTRANSACTION)))
+                                    (permission_checkbox("invite", "Invite Users", permissions.contains(Permissions::INVITE)))
+                                    (permission_checkbox("delete", "Delete Journal", permissions.contains(Permissions::DELETE)))
+                                }
+
+                                div class="mt-6 flex items-center justify-end gap-x-6" {
+                                    button
+                                    type="submit"
+                                    class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:hover:bg-indigo-400" {
+                                        "Update Permissions"
+                                    }
+                                }
+                            }
+                        }
+
+
+                        div class="mt-8 bg-white dark:bg-gray-800 shadow sm:rounded-lg overflow-hidden border border-red-200 dark:border-red-900/30" {
+                            div class="px-4 py-5 sm:p-6" {
+                                h3 class="text-base font-semibold text-red-600 dark:text-red-400 mb-4" { "Danger Zone" }
+                                p class="text-sm text-gray-500 dark:text-gray-400 mb-4" { "Removing this user will immediately revoke their access to this journal." }
+                                form method="post" action=(format!("/journal/{}/person/{}/remove", id, person_id)) {
+                                    button
+                                    type="submit"
+                                    class="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-red-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 dark:bg-red-500 dark:hover:bg-red-400" {
+                                        "Remove User from Journal"
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                div class="mt-8 bg-white dark:bg-gray-800 shadow sm:rounded-lg overflow-hidden border border-red-200 dark:border-red-900/30" {
-                    div class="px-4 py-5 sm:p-6" {
-                        h3 class="text-base font-semibold text-red-600 dark:text-red-400 mb-4" { "Danger Zone" }
-                        p class="text-sm text-gray-500 dark:text-gray-400 mb-4" { "Removing this user will immediately revoke their access to this journal." }
-                        form method="post" action=(format!("/journal/{}/person/{}/remove", id, person_id)) {
-                            button
-                            type="submit"
-                            class="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-red-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 dark:bg-red-500 dark:hover:bg-red-400" {
-                                "Remove User from Journal"
+                    @if let Some(e) = err.err {
+                        div class="mt-6 bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
+                            p class="text-sm text-red-700 dark:text-red-200" {
+                                (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
                             }
                         }
                     }
                 }
-            }
-            @else if !is_owner {
-                 div class="bg-yellow-50 dark:bg-yellow-900/30 border-l-4 border-yellow-400 p-4" {
-                    div class="flex" {
-                        div class="ml-3" {
-                            p class="text-sm text-yellow-700 dark:text-yellow-200" {
-                                "This user is no longer a tenant of this journal."
-                            }
+            };
+
+            let wrapped_content = html! {
+                div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
+                    (content)
+                }
+            };
+
+            Ok(layout(
+                Some(&journal_state.name.to_string()),
+                true,
+                Some(&id),
+                wrapped_content,
+            ))
+        }
+        Err(_e) => Ok(layout(
+            Some(&journal_state.name.to_string()),
+            true,
+            Some(&id),
+            html! {
+                div class="max-w-2xl mx-auto py-8 px-4" {
+                    div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
+                        p class="text-sm text-red-700 dark:text-red-200" {
+                            "Failed to fetch permissions."
                         }
                     }
                 }
-            }
-
-            @if let Some(e) = err.err {
-                div class="mt-6 bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
-                    p class="text-sm text-red-700 dark:text-red-200" {
-                        (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
-                    }
-                }
-            }
-        }
-    };
-
-    let wrapped_content = html! {
-        div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
-            (content)
-        }
-    };
-
-    Ok(layout(
-        Some(&journal_state.name.to_string()),
-        true,
-        Some(&id),
-        wrapped_content,
-    ))
+            },
+        )),
+    }
 }
 
 fn permission_checkbox(name: &'static str, label: &'static str, checked: bool) -> Markup {
@@ -256,7 +282,7 @@ pub async fn people_list_page(
 
     let content = html! {
         @if let Ok(journal_id) = journal_id_res {
-            @match state.journal_service.get_journal_members(journal_id, Authority::Direct(Actor::User(user.id))).await {
+            @match state.journal_service.get_journal_members(journal_id, &Authority::Direct(Actor::User(user.id))).await {
                 Ok(users) => {
                     @for user_id in users {
                         a

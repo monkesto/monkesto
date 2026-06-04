@@ -1,10 +1,10 @@
 use crate::BackendType;
 use crate::StateType;
-use crate::auth::user::Email;
 use crate::auth::user::{self};
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
+use crate::email::Email;
 use crate::journal::{JournalId, Permissions};
 use crate::monkesto_error::OrRedirect;
 use crate::name::Name;

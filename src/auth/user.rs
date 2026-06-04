@@ -1,14 +1,14 @@
 use crate::authority::Authority;
+use crate::email::Email;
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::Ident;
 use crate::monkesto_error::OrRedirect;
-use crate::store::universal::{EventId, GetPayloadUsage, PayloadSideEffects, PayloadUsage};
+use crate::store::universal::{DieselExecute, EventId, GetPayloadUsage, PayloadUsage};
 use crate::{entity, payload, state};
 use axum::response::Redirect;
 use serde::Deserialize;
 use serde::Serialize;
-use std::fmt::Display;
 use std::ops::Deref;
 
 // Define UserId here in the user module
@@ -20,61 +20,6 @@ entity!(
     UserState,
     Ident::new16()
 );
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Text)]
-pub struct Email(String);
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Error)]
-pub enum EmailError {
-    #[error("invalid email address")]
-    RegexViolated,
-}
-
-static EMAIL_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^[\w\-.]+@([\w-]+\.)+[\w-]{2,}$").expect("Regex parse failure"));
-
-impl Email {
-    pub fn try_new<T: Into<String>>(value: T) -> Result<Self, EmailError> {
-        let sanitized = value.into().trim().to_lowercase();
-
-        if EMAIL_REGEX.is_match(&sanitized) {
-            return Ok(Self(sanitized));
-        }
-
-        Err(EmailError::RegexViolated)
-    }
-}
-
-impl Display for Email {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl AsRef<str> for Email {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl<DB: Backend> ToSql<Text, DB> for Email
-where
-    String: ToSql<Text, DB>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> serialize::Result {
-        self.0.to_sql(out)
-    }
-}
-
-impl<DB: Backend> FromSql<Text, DB> for Email
-where
-    String: FromSql<Text, DB>,
-{
-    fn from_sql(value: DB::RawValue<'_>) -> deserialize::Result<Self> {
-        Ok(Email::try_new(String::from_sql(value)?)?)
-    }
-}
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum UserModifiedPayload {
@@ -96,14 +41,38 @@ state! {
         pub id: UserId,
         pub webauthn_uuid: Postcard<Uuid>,
         pub email: Email,
-        pub deleted: bool,
         pub as_of: EventId
     }
 }
 
-impl PayloadSideEffects for UserPayload {
-    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>> {
-        None
+impl DieselExecute for UserPayload {
+    fn execute_sql(
+        &self,
+        entity_id: Ident,
+        event_id: EventId,
+        conn: &mut SqliteConnection,
+    ) -> QueryResult<()> {
+        match self {
+            UserPayload::Created {
+                email,
+                webauthn_uuid,
+            } => insert_into(users::table)
+                .values(UserState {
+                    id: entity_id.into(),
+                    webauthn_uuid: Postcard(*webauthn_uuid),
+                    email: email.clone(),
+                    as_of: event_id,
+                })
+                .execute(conn)
+                .map(drop),
+            UserPayload::Modified(modified_payload) => match modified_payload {
+                UserModifiedPayload::Deleted => {
+                    delete(users::table.filter(users::id.eq(entity_id)))
+                        .execute(conn)
+                        .map(drop)
+                }
+            },
+        }
     }
 }
 
@@ -117,13 +86,12 @@ impl GetPayloadUsage<UserEntity> for UserPayload {
                 id: entity_id.into(),
                 webauthn_uuid: Postcard(webauthn_uuid),
                 email,
-                deleted: false,
                 as_of: event_id,
             }),
             UserPayload::Modified(modified_payload) => {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut UserState| {
                     match modified_payload {
-                        UserModifiedPayload::Deleted => state.deleted = true,
+                        UserModifiedPayload::Deleted => {}
                     }
                     state.as_of = event_id;
                 }))
@@ -160,6 +128,7 @@ mod tests {
     use super::*;
     use crate::authority::Actor;
     use crate::authority::Authority;
+    use crate::email::EmailError;
     use std::sync::Arc;
 
     #[test]
@@ -385,18 +354,14 @@ pub trait UserStore:
 }
 
 use crate::postcard::Postcard;
+use crate::schema::users;
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use axum_login::AuthSession;
 use axum_login::AuthnBackend;
 use dashmap::DashMap;
-use diesel::backend::Backend;
-use diesel::deserialize::FromSql;
-use diesel::serialize::{Output, ToSql};
-use diesel::sql_types::Text;
-use diesel::{AsExpression, FromSqlRow, deserialize, serialize};
-use regex::Regex;
-use std::sync::{Arc, LazyLock};
-use thiserror::Error;
+use diesel::dsl::insert_into;
+use diesel::{QueryResult, SqliteConnection, delete};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// In-memory storage implementation for users using HashMap
@@ -522,7 +487,6 @@ impl UserStore for MemoryUserStore {
                 id: user_id,
                 webauthn_uuid: Postcard(*webauthn_uuid),
                 email: email.clone(),
-                deleted: false,
                 as_of: EventId(0),
             }))
         } else {

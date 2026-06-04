@@ -107,12 +107,9 @@ pub async fn account_list_page(
                 Ok(ancestors) => {
                     @for ancestor in ancestors {
                         @match state.journal_service.get_name(ancestor).await {
-                            Ok(Some(name)) => h2 {
+                            Ok(name) => h2 {
                                 (name.to_string())
                             },
-                            Ok(None) => {
-                                "Unknown journal"
-                            }
                             Err(e) => p {
                                 "failed to get name for " (journal_id) ": " (e)
                             }

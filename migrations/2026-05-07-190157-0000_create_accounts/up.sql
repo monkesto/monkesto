@@ -3,7 +3,6 @@ CREATE TABLE accounts (
     name TEXT NOT NULL,
     journal_id BLOB NOT NULL,
     balance BIGINT NOT NULL,
-    deleted BOOLEAN NOT NULL,
     parent_account_id BLOB,
     as_of BIGINT NOT NULL
 )

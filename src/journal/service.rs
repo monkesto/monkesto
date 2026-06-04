@@ -1,11 +1,10 @@
-use crate::auth::user::Email;
 use crate::auth::user::UserStore;
-use crate::authority::Authority;
 use crate::authority::UserId;
+use crate::authority::{Actor, Authority};
+use crate::email::Email;
 use crate::journal::JournalStore;
 use crate::journal::JournalStoreError;
 use crate::journal::JournalStoreError::InvalidJournal;
-use crate::journal::JournalStoreError::InvalidUser;
 use crate::journal::JournalStoreError::PermissionError;
 use crate::journal::JournalStoreError::UserAlreadyHasAccess;
 use crate::journal::JournalStoreError::UserDoesntHaveAccess;
@@ -72,12 +71,10 @@ where
             .await?
             .ok_or(InvalidJournal(parent_journal_id))?;
 
-        if parent_state.deleted {
-            return Err(InvalidJournal(parent_journal_id));
-        }
-
-        if !parent_state
-            .get_actor_permissions(authority)
+        if !self
+            .journal_store
+            .get_permissions(parent_journal_id, authority)
+            .await?
             .contains(Permissions::ADDACCOUNT)
         {
             return Err(PermissionError(Permissions::ADDACCOUNT));
@@ -137,7 +134,10 @@ where
                 .await?
                 .ok_or(InvalidJournal(journal_id))?;
 
-            let perms = state.get_actor_permissions(authority);
+            let perms = self
+                .journal_store
+                .get_permissions(journal_id, authority)
+                .await?;
             if !perms.is_empty() {
                 return Ok(perms);
             }
@@ -194,30 +194,24 @@ where
     pub async fn get_journal_members(
         &self,
         journal_id: JournalId,
-        authority: Authority,
+        authority: &Authority,
     ) -> JournalStoreResult<Vec<UserId>> {
-        let journal_state = self
+        if !self
             .journal_store
-            .get_journal(journal_id)
+            .get_permissions(journal_id, authority)
             .await?
-            .ok_or(InvalidJournal(journal_id))?;
-
-        if !journal_state
-            .get_actor_permissions(&authority)
             .contains(Permissions::READ)
         {
             return Err(PermissionError(Permissions::READ));
         }
 
-        let mut users = Vec::new();
-
-        for (user_id, _) in journal_state.members.iter() {
-            users.push(*user_id);
-        }
-
-        users.push(journal_state.owner);
-
-        Ok(users)
+        Ok(self
+            .journal_store
+            .get_members(journal_id)
+            .await?
+            .keys()
+            .copied()
+            .collect())
     }
 
     /// Returns only the direct children of `journal_id` (depth 1).
@@ -269,7 +263,7 @@ where
         Ok(result)
     }
 
-    pub async fn get_name(&self, journal_id: JournalId) -> JournalStoreResult<Option<Name>> {
+    pub async fn get_name(&self, journal_id: JournalId) -> JournalStoreResult<Name> {
         self.journal_store.get_name(journal_id).await
     }
 
@@ -309,7 +303,7 @@ where
     pub async fn get_name_from_res<E>(
         &self,
         journal_id_res: Result<JournalId, E>,
-    ) -> JournalStoreResult<Option<Name>>
+    ) -> JournalStoreResult<Name>
     where
         JournalStoreError: From<E>,
     {
@@ -323,28 +317,25 @@ where
         invitee: Email,
         permissions: Permissions,
     ) -> JournalStoreResult<u64> {
-        let journal_state = self
-            .journal_store
-            .get_journal(journal_id)
-            .await?
-            .ok_or(InvalidJournal(journal_id))?;
-
-        if journal_state.deleted {
-            return Err(InvalidJournal(journal_id));
-        }
-
         let invitee_id = self
             .user_store
             .lookup_user_id(invitee.as_ref())
             .await?
             .ok_or(UserLookupFailed(invitee.clone()))?;
 
-        if journal_state.members.contains_key(&invitee_id) {
+        if !self
+            .journal_store
+            .get_permissions(journal_id, &Authority::Direct(Actor::User(invitee_id)))
+            .await?
+            .is_empty()
+        {
             return Err(UserAlreadyHasAccess(invitee));
         }
 
-        if !journal_state
-            .get_actor_permissions(authority)
+        if !self
+            .journal_store
+            .get_permissions(journal_id, authority)
+            .await?
             .contains(Permissions::INVITE)
         {
             return Err(PermissionError(Permissions::INVITE));
@@ -369,22 +360,19 @@ where
         permissions: Permissions,
         authority: Authority,
     ) -> JournalStoreResult<u64> {
-        let journal_state = self
+        if self
             .journal_store
-            .get_journal(journal_id)
+            .get_permissions(journal_id, &Authority::Direct(Actor::User(target_user)))
             .await?
-            .ok_or(InvalidJournal(journal_id))?;
-
-        if journal_state.deleted {
-            return Err(InvalidJournal(journal_id));
-        }
-
-        if !journal_state.members.contains_key(&target_user) {
+            .is_empty()
+        {
             return Err(UserDoesntHaveAccess);
         }
 
-        if !journal_state
-            .get_actor_permissions(&authority)
+        if !self
+            .journal_store
+            .get_permissions(journal_id, &authority)
+            .await?
             .contains(Permissions::OWNER)
         {
             return Err(PermissionError(Permissions::OWNER));
@@ -408,22 +396,19 @@ where
         target_user: UserId,
         authority: Authority,
     ) -> JournalStoreResult<u64> {
-        let journal_state = self
+        if self
             .journal_store
-            .get_journal(journal_id)
+            .get_permissions(journal_id, &Authority::Direct(Actor::User(target_user)))
             .await?
-            .ok_or(InvalidJournal(journal_id))?;
-
-        if journal_state.deleted {
-            return Err(InvalidJournal(journal_id));
+            .is_empty()
+        {
+            return Err(UserDoesntHaveAccess);
         }
 
-        if !journal_state.members.contains_key(&target_user) {
-            return Err(InvalidUser(target_user));
-        }
-
-        if !journal_state
-            .get_actor_permissions(&authority)
+        if !self
+            .journal_store
+            .get_permissions(journal_id, &authority)
+            .await?
             .contains(Permissions::OWNER)
         {
             return Err(PermissionError(Permissions::OWNER));
@@ -445,10 +430,7 @@ where
         self.journal_store.get_creation_timestamp(journal_id).await
     }
 
-    pub async fn get_creator(
-        &self,
-        journal_id: JournalId,
-    ) -> JournalStoreResult<Option<Authority>> {
+    pub async fn get_creator(&self, journal_id: JournalId) -> JournalStoreResult<Authority> {
         self.journal_store.get_creator(journal_id).await
     }
 }

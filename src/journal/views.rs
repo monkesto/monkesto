@@ -48,7 +48,7 @@ pub async fn journal_list(
                                 "Created by "
 
                                 @match state.journal_service.get_creator(journal_id).await {
-                                    Ok(Some(authority)) => {
+                                    Ok(authority) => {
                                         @match authority.actor() {
                                             Actor::System => {"System"},
                                             Actor::Anonymous => {"Anonymous"},
@@ -63,8 +63,6 @@ pub async fn journal_list(
                                             }
                                         }
                                     },
-
-                                    Ok(None) => {"unknown user"},
 
                                     Err(e) => (format!("failed to fetch creator id: {:?}", e)),
                                 }
@@ -192,7 +190,7 @@ pub async fn journal_detail(
                                     "Created by "
 
                                     @match state.journal_service.get_creator(journal_id).await {
-                                        Ok(Some(authority)) => {
+                                        Ok(authority) => {
                                             @match authority.actor() {
                                                 Actor::System => {"System"},
                                                 Actor::Anonymous => {"Anonymous"},
@@ -207,8 +205,6 @@ pub async fn journal_detail(
                                                 }
                                             }
                                         },
-
-                                        Ok(None) => {"unknown user"},
 
                                         Err(e) => (format!("failed to fetch creator id: {:?}", e)),
                                     }

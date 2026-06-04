@@ -52,13 +52,15 @@ use crate::ident::Ident;
 use crate::journal::Permissions;
 use crate::journal::{JournalId, JournalStoreError};
 use crate::name::Name;
+use crate::schema::accounts;
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{EventId, GetPayloadUsage, PayloadSideEffects, PayloadUsage};
+use crate::store::universal::{DieselExecute, EventId, GetPayloadUsage, PayloadUsage};
 use crate::transaction::TransactionState;
 use crate::transaction::{EntryType, TransactionId};
 use crate::transaction::{TransactionModifiedPayload, TransactionPayload};
 use crate::{entity, payload, state};
 use dashmap::DashMap;
+use diesel::{QueryResult, SqliteConnection, insert_into};
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -78,7 +80,6 @@ entity!(
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AccountModifiedPayload {
-    UpdatedBalance { difference: i64 },
     Renamed { new_name: Name },
     Deleted,
 }
@@ -103,9 +104,48 @@ state! {
         pub name: Name,
         pub journal_id: JournalId,
         pub balance: i64,
-        pub deleted: bool,
         pub parent_account_id: Option<AccountId>,
         pub as_of: EventId
+    }
+}
+
+impl DieselExecute for AccountPayload {
+    fn execute_sql(
+        &self,
+        entity_id: Ident,
+        event_id: EventId,
+        conn: &mut SqliteConnection,
+    ) -> QueryResult<()> {
+        match self {
+            AccountPayload::Created {
+                journal_id,
+                name,
+                parent_account_id,
+            } => insert_into(accounts::table)
+                .values(AccountState {
+                    id: entity_id.into(),
+                    name: name.clone(),
+                    journal_id: *journal_id,
+                    balance: 0,
+                    parent_account_id: *parent_account_id,
+                    as_of: event_id,
+                })
+                .execute(conn)
+                .map(drop),
+            AccountPayload::Modified(modified_payload) => match modified_payload {
+                AccountModifiedPayload::Renamed { new_name } => {
+                    diesel::update(accounts::table.filter(accounts::id.eq(entity_id)))
+                        .set(accounts::name.eq(new_name))
+                        .execute(conn)
+                        .map(drop)
+                }
+                AccountModifiedPayload::Deleted => {
+                    diesel::delete(accounts::table.filter(accounts::id.eq(entity_id)))
+                        .execute(conn)
+                        .map(drop)
+                }
+            },
+        }
     }
 }
 
@@ -125,29 +165,19 @@ impl GetPayloadUsage<AccountEntity> for AccountPayload {
                 name,
                 journal_id,
                 balance: 0,
-                deleted: false,
                 parent_account_id,
                 as_of: event_id,
             }),
             AccountPayload::Modified(modified_payload) => {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut AccountState| {
                     match modified_payload {
-                        AccountModifiedPayload::UpdatedBalance { difference } => {
-                            state.balance += difference
-                        }
                         AccountModifiedPayload::Renamed { new_name } => state.name = new_name,
-                        AccountModifiedPayload::Deleted => state.deleted = true,
+                        AccountModifiedPayload::Deleted => {}
                     }
                     state.as_of = event_id;
                 }))
             }
         }
-    }
-}
-
-impl PayloadSideEffects for AccountPayload {
-    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>> {
-        None
     }
 }
 

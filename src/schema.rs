@@ -6,7 +6,6 @@ diesel::table! {
         name -> Text,
         journal_id -> Binary,
         balance -> BigInt,
-        deleted -> Bool,
         parent_account_id -> Nullable<Binary>,
         as_of -> BigInt,
     }
@@ -33,16 +32,17 @@ diesel::table! {
 diesel::table! {
     examples (id) {
         id -> Binary,
-        deleted -> Bool,
+        counter -> BigInt,
         as_of -> BigInt,
     }
 }
 
 diesel::table! {
-    journal_members_lookup (rowid) {
+    journal_members (rowid) {
         rowid -> Integer,
         user_id -> Binary,
         journal_id -> Binary,
+        permissions -> Integer,
     }
 }
 
@@ -51,8 +51,6 @@ diesel::table! {
         id -> Binary,
         name -> Text,
         owner -> Binary,
-        members -> Binary,
-        deleted -> Bool,
         parent_journal_id -> Nullable<Binary>,
         as_of -> BigInt,
     }
@@ -63,7 +61,6 @@ diesel::table! {
         id -> Binary,
         user_id -> Binary,
         passkey -> Binary,
-        deleted -> Bool,
         as_of -> BigInt,
     }
 }
@@ -81,7 +78,6 @@ diesel::table! {
         id -> Binary,
         journal_id -> Binary,
         updates -> Binary,
-        deleted -> Bool,
         as_of -> BigInt,
     }
 }
@@ -91,7 +87,6 @@ diesel::table! {
         id -> Binary,
         webauthn_uuid -> Binary,
         email -> Text,
-        deleted -> Bool,
         as_of -> BigInt,
     }
 }
@@ -101,7 +96,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     entities,
     events,
     examples,
-    journal_members_lookup,
+    journal_members,
     journals,
     passkeys,
     sessions,

@@ -1,21 +1,15 @@
-use crate::account::AccountState;
-use crate::auth::passkey::PasskeyState;
-use crate::auth::user::UserState;
-use crate::authority::{Authority, UserId};
+use crate::authority::Authority;
 use crate::ident::Ident;
-use crate::journal::{JournalId, JournalModifiedPayload, JournalPayload, JournalState};
 use crate::postcard::Postcard;
 use crate::schema::sessions;
-use crate::schema::{entities, events, journal_members_lookup};
+use crate::schema::{entities, events};
 use crate::store::universal::error::StoreError;
-use crate::store::universal::example_entity::ExampleState;
 use crate::store::universal::registry::{AnyPayload, EntityType, payload_from_bytes};
 use crate::store::universal::time_provider::TimeProvider;
 use crate::store::universal::{
-    After, Entity, Event, EventId, FetchState, GetPayloadUsage, Page, PayloadSideEffects,
-    PayloadUsage, Store, StoreResult, TimeStamp, When,
+    After, DieselExecute, DieselFetchState, Entity, Event, EventId, Page, Store, StoreResult,
+    TimeStamp, When,
 };
-use crate::transaction::TransactionState;
 use async_trait::async_trait;
 use deadpool_diesel::Runtime;
 use deadpool_diesel::sqlite::Object;
@@ -42,46 +36,10 @@ use tower_sessions::session::{Id, Record};
 use tower_sessions::session_store::Error::Backend;
 use tower_sessions::{ExpiredDeletion, SessionStore, session_store};
 
-macro_rules! create_or_update_state {
-    ($conn:ident, $event_id: ident, $entity_id:ident, $payload:ident, $entity_type:ident, $( $variant:path => $state_type:path as $table_name:ident),* $(,)?) => {
-        match $payload.clone() {
-            $(
-                $variant(variant_payload) => {
-                    match variant_payload.usage($entity_id, $event_id) {
-                        PayloadUsage::CreatesState(state) => {
-                            diesel::insert_into($crate::schema::$table_name::table).values(&state).execute($conn)?;
-
-                            diesel::insert_into($crate::schema::entities::table).values(
-                                EntityLookup {
-                                    id: $entity_id,
-                                    entity_type: $entity_type
-                                }
-                            ).execute($conn)?;
-                        }
-                        PayloadUsage::ModifiesState(mod_fn) => {
-                            let mut state = $crate::schema::$table_name::table.filter($crate::schema::$table_name::id.eq(&$entity_id)).first::<$state_type>($conn)?;
-                            mod_fn(&mut state);
-
-                            diesel::update($crate::schema::$table_name::table.filter($crate::schema::$table_name::id.eq(&$entity_id))).set(&state).execute($conn)?;
-                        }
-                    }
-                },
-            )*
-        }
-    };
-}
-
-#[derive(Debug, Queryable, Selectable, Insertable)]
-#[diesel(table_name = crate::schema::journal_members_lookup)]
-pub struct JournalMembersLookup {
-    user_id: UserId,
-    journal_id: JournalId,
-}
-
 #[derive(Clone)]
 pub struct DieselSqliteStore {
     pool: Pool<Manager<SqliteConnection>>,
-    event_tx: mpsc::Sender<(EventId, Box<AnyPayload>, Ident, EntityType)>,
+    event_tx: mpsc::Sender<(EventId, Box<AnyPayload>, Ident)>,
     processed_rx: watch::Receiver<EventId>,
     processed_rebuilds_rx: watch::Receiver<EventId>,
     rebuild_num: Arc<AtomicI64>,
@@ -98,8 +56,7 @@ impl DieselSqliteStore {
             .build()
             .expect("failed to initialize Diesel connection pool");
 
-        let (event_tx, event_rx) =
-            mpsc::channel::<(EventId, Box<AnyPayload>, Ident, EntityType)>(64);
+        let (event_tx, event_rx) = mpsc::channel::<(EventId, Box<AnyPayload>, Ident)>(64);
 
         let conn: Object = pool
             .get()
@@ -114,6 +71,8 @@ impl DieselSqliteStore {
                     .expect("failed to enable WAL mode");
                 conn.batch_execute("PRAGMA synchronous = NORMAL;")
                     .expect("failed to set synchronous mode");
+                conn.batch_execute("PRAGMA foreign_keys = ON;")
+                    .expect("failed to enable foreign keys");
                 conn.batch_execute("PRAGMA busy_timeout = 250;")
                     .expect("failed to set busy timeout to 250 milliseconds");
 
@@ -152,56 +111,6 @@ impl DieselSqliteStore {
         store
     }
 
-    fn apply_event(
-        conn: &mut SqliteConnection,
-        event_id: EventId,
-        entity_id: Ident,
-        payload: AnyPayload,
-        entity_type: EntityType,
-    ) -> diesel::QueryResult<()> {
-        conn.transaction(|tx| {
-            let payload_clone = payload.clone();
-
-            create_or_update_state!(
-                tx, event_id,entity_id, payload, entity_type,
-                AnyPayload::User => UserState as users,
-                AnyPayload::Passkey => PasskeyState as passkeys,
-                AnyPayload::Account => AccountState as accounts,
-                AnyPayload::Journal => JournalState as journals,
-                AnyPayload::Transaction => TransactionState as transactions,
-                AnyPayload::Example => ExampleState as examples
-            );
-
-            diesel::update(events::table)
-                .filter(events::event_id.eq(event_id))
-                .set(events::applied_to_state.eq(true))
-                .execute(tx)?;
-
-            // handle special cases
-            if let AnyPayload::Journal(JournalPayload::Modified(journal_payload)) = payload_clone {
-                match journal_payload {
-                    JournalModifiedPayload::AddedTenant { id, .. } => {
-                        diesel::insert_into(journal_members_lookup::table)
-                            .values(JournalMembersLookup {
-                                user_id: id,
-                                journal_id: entity_id.into(),
-                            })
-                            .execute(tx)?;
-                    }
-                    JournalModifiedPayload::RemovedTenant { id, .. } => {
-                        diesel::delete(journal_members_lookup::table)
-                            .filter(journal_members_lookup::user_id.eq(&id))
-                            .filter(journal_members_lookup::journal_id.eq(entity_id))
-                            .execute(tx)?;
-                    }
-                    _ => {}
-                }
-            }
-
-            Ok(())
-        })
-    }
-
     async fn validate_entity_type(
         entity_id: Ident,
         entity_type: EntityType,
@@ -226,20 +135,19 @@ impl DieselSqliteStore {
     }
 
     async fn handle_payloads(
-        mut event_rx: mpsc::Receiver<(EventId, Box<AnyPayload>, Ident, EntityType)>,
+        mut event_rx: mpsc::Receiver<(EventId, Box<AnyPayload>, Ident)>,
         processed_tx: watch::Sender<EventId>,
         processed_rebuilds_tx: watch::Sender<EventId>,
         pool: Pool<Manager<SqliteConnection>>,
     ) -> ! {
-        let mut leftover_event: Option<(EventId, Box<AnyPayload>, Ident, EntityType)> = None;
+        let mut leftover_event: Option<(EventId, Box<AnyPayload>, Ident)> = None;
 
         loop {
-            let (event_id, event_payload, entity_id, entity_type) =
-                if let Some(ref leftover) = leftover_event {
-                    leftover.clone()
-                } else {
-                    event_rx.recv().await.expect("event channel closed")
-                };
+            let (event_id, event_payload, entity_id) = if let Some(ref leftover) = leftover_event {
+                leftover.clone()
+            } else {
+                event_rx.recv().await.expect("event channel closed")
+            };
 
             let conn = pool
                 .get()
@@ -248,16 +156,12 @@ impl DieselSqliteStore {
 
             if event_id == *processed_tx.borrow() + 1 {
                 conn.interact(move |conn| {
-                    DieselSqliteStore::apply_event(
-                        conn,
-                        event_id,
-                        entity_id,
-                        *event_payload,
-                        entity_type,
-                    )
-                    .expect("failed to apply event");
+                    conn.transaction(move |tx| {
+                        event_payload.execute_sql(entity_id, event_id, tx).map(drop)
+                    })
                 })
                 .await
+                .expect("transaction failed")
                 .expect("interaction failed");
                 processed_tx.send(event_id).expect("all receivers dropped");
             } else {
@@ -267,42 +171,38 @@ impl DieselSqliteStore {
 
                 let highest_processed_id = conn
                     .interact(move |conn| {
-                        let pending_events: Vec<_> = events::table
-                            .inner_join(entities::table.on(entities::id.eq(events::entity_id)))
-                            .filter(events::applied_to_state.eq(false))
-                            .order_by(events::event_id.asc())
-                            .select((
-                                events::event_id,
-                                events::entity_id,
-                                events::payload,
-                                entities::entity_type,
-                            ))
-                            .load::<(EventId, Ident, Vec<u8>, EntityType)>(conn)
-                            .expect("failed to fetch raw events")
-                            .iter()
-                            .map(|(event_id, entity_id, payload_bytes, entity_type)| {
-                                let payload = payload_from_bytes(payload_bytes, *entity_type)
-                                    .expect("failed to deserialize payload");
-                                (*event_id, *entity_id, payload)
-                            })
-                            .collect();
+                        conn.transaction(move |tx| {
+                            let pending_events: Vec<_> = events::table
+                                .inner_join(entities::table.on(entities::id.eq(events::entity_id)))
+                                .filter(events::applied_to_state.eq(false))
+                                .order_by(events::event_id.asc())
+                                .select((
+                                    events::event_id,
+                                    events::entity_id,
+                                    events::payload,
+                                    entities::entity_type,
+                                ))
+                                .load::<(EventId, Ident, Vec<u8>, EntityType)>(tx)
+                                .expect("failed to fetch raw events")
+                                .iter()
+                                .map(|(event_id, entity_id, payload_bytes, entity_type)| {
+                                    let payload = payload_from_bytes(payload_bytes, *entity_type)
+                                        .expect("failed to deserialize payload");
+                                    (*event_id, *entity_id, payload)
+                                })
+                                .collect();
 
-                        let last_event_id = pending_events.last().map(|(e_id, _, _)| *e_id);
+                            let last_event_id = pending_events.last().map(|(e_id, _, _)| *e_id);
 
-                        for (event_id, entity_id, payload) in pending_events {
-                            DieselSqliteStore::apply_event(
-                                conn,
-                                event_id,
-                                entity_id,
-                                payload,
-                                entity_type,
-                            )
-                            .expect("failed to apply event");
-                        }
+                            for (event_id, entity_id, payload) in pending_events {
+                                payload.execute_sql(entity_id, event_id, tx).map(drop)?;
+                            }
 
-                        last_event_id
+                            Ok::<_, diesel::result::Error>(last_event_id)
+                        })
                     })
                     .await
+                    .expect("transaction failed")
                     .expect("interaction failed");
 
                 if let Some(highest_processed_id) = highest_processed_id
@@ -326,11 +226,10 @@ impl DieselSqliteStore {
                 loop {
                     match event_rx.try_recv() {
                         // future rebuild requests must be acknowledged explicitly, even if they were handled here
-                        Ok((event_id, event_payload, entity_id, entity_type))
+                        Ok((event_id, event_payload, entity_id))
                             if event_id > max_id || event_id < EventId(0) =>
                         {
-                            leftover_event =
-                                Some((event_id, event_payload, entity_id, entity_type));
+                            leftover_event = Some((event_id, event_payload, entity_id));
                             break;
                         }
                         Ok(_) => {}
@@ -538,7 +437,7 @@ pub struct EntityLookup {
     entity_type: EntityType,
 }
 
-#[derive(QueryableByName)]
+#[derive(Queryable, QueryableByName)]
 struct EventIdRow {
     #[diesel(sql_type = BigInt)]
     event_id: EventId,
@@ -567,23 +466,12 @@ impl Store for DieselSqliteStore {
             When::Within(id) => id,
         };
 
-        let side_effects = payload.side_effects();
-
-        if let Some(side_effects) = &side_effects {
-            for (id, _, entity_type) in side_effects {
-                DieselSqliteStore::validate_entity_type(*id, *entity_type, &conn).await?;
-            }
-        };
-
         let cloned_payload = payload.clone();
 
         let event_id = conn
             .interact(move |conn| {
-                conn.transaction(move |tx| {
-                    if let Some(side_effects) = side_effects {
-                        for (id, serialized_payload, _) in side_effects {
-                            diesel::sql_query(
-                                r#"
+                diesel::sql_query(
+                    r#"
                     INSERT INTO events (timestamp, authority, entity_id, payload, applied_to_state)
                     SELECT ?, ?, ?, ?, ?
                     WHERE (
@@ -591,48 +479,22 @@ impl Store for DieselSqliteStore {
                     ) <= ?
                     RETURNING event_id
                     "#,
-                            )
-                            .bind::<BigInt, _>(timestamp.clone())
-                            .bind::<Binary, _>(Postcard(authority.clone()))
-                            .bind::<Binary, _>(id)
-                            .bind::<Binary, _>(serialized_payload)
-                            .bind::<Bool, _>(false)
-                            .bind::<Binary, _>(id)
-                            .bind::<BigInt, _>(expected_event_id)
-                            .execute(tx)?;
-                        }
-                    };
-                    diesel::sql_query(
-                        r#"
-                    INSERT INTO events (timestamp, authority, entity_id, payload, applied_to_state)
-                    SELECT ?, ?, ?, ?, ?
-                    WHERE (
-                        SELECT COALESCE(MAX(event_id), 0) FROM events WHERE entity_id = ?
-                    ) <= ?
-                    RETURNING event_id
-                    "#,
-                    )
-                    .bind::<BigInt, _>(timestamp)
-                    .bind::<Binary, _>(Postcard(authority))
-                    .bind::<Binary, _>(*entity_id)
-                    .bind::<Binary, _>(serialized_payload)
-                    .bind::<Bool, _>(false)
-                    .bind::<Binary, _>(*entity_id)
-                    .bind::<BigInt, _>(expected_event_id)
-                    .get_result::<EventIdRow>(tx)
-                })
+                )
+                .bind::<BigInt, _>(timestamp)
+                .bind::<Binary, _>(Postcard(authority))
+                .bind::<Binary, _>(*entity_id)
+                .bind::<Binary, _>(serialized_payload)
+                .bind::<Bool, _>(false)
+                .bind::<Binary, _>(*entity_id)
+                .bind::<BigInt, _>(expected_event_id)
+                .get_result::<EventIdRow>(conn)
             })
             .await??
             .event_id;
 
         // the handler will query for side effect events if they exist
         self.event_tx
-            .send((
-                event_id,
-                Box::new(cloned_payload.into()),
-                *entity_id,
-                I::entity_type(),
-            ))
+            .send((event_id, Box::new(cloned_payload.into()), *entity_id))
             .await?;
         Ok(event_id)
     }

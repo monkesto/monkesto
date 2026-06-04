@@ -5,7 +5,7 @@ use crate::store::universal::error::StoreResult;
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::store::universal::time_provider::TimeProvider;
 use diesel::sql_types::Binary;
-use diesel::{Insertable, Queryable, QueryableByName, Selectable, SqliteConnection};
+use diesel::{Insertable, QueryResult, Queryable, QueryableByName, Selectable, SqliteConnection};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use std::ops::Deref;
@@ -66,8 +66,13 @@ pub trait GetPayloadUsage<T: Entity>: Payload {
     fn usage<U: Into<T::Id>>(self, entity_id: U, event_id: EventId) -> PayloadUsage<T>;
 }
 
-pub trait PayloadSideEffects: Payload {
-    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>>;
+pub trait DieselExecute {
+    fn execute_sql(
+        &self,
+        entity_id: Ident,
+        event_id: EventId,
+        conn: &mut SqliteConnection,
+    ) -> QueryResult<()>;
 }
 
 pub enum After {
@@ -86,13 +91,13 @@ pub enum When {
 
 pub trait Entity: Sized {
     type Id: EntityId;
-    type Payload: Payload + GetPayloadUsage<Self> + PayloadSideEffects;
-    type State: State + FetchState<Self> + 'static;
+    type Payload: Payload + GetPayloadUsage<Self> + DieselExecute;
+    type State: State + DieselFetchState<Self> + 'static;
 
     fn entity_type() -> EntityType;
 }
 
-pub trait FetchState<I: Entity>: Sized {
+pub trait DieselFetchState<I: Entity>: Sized {
     fn fetch(conn: &mut SqliteConnection, id: I::Id) -> StoreResult<Self>;
 }
 

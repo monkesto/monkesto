@@ -2,7 +2,6 @@ use crate::account::AccountState;
 use crate::account::AccountStore;
 use crate::account::AccountStoreError::AccountExists;
 use crate::account::AccountStoreError::InvalidAccount;
-use crate::account::AccountStoreError::InvalidJournal;
 use crate::account::AccountStoreError::PermissionError;
 use crate::account::AccountStoreResult;
 use crate::account::{AccountId, AccountPayload};
@@ -45,18 +44,10 @@ where
         account_name: Name,
         parent_account_id: Option<AccountId>,
     ) -> AccountStoreResult<()> {
-        let journal_state = self
+        if !self
             .journal_service
-            .get_journal(journal_id, authority)
+            .effective_permissions(journal_id, authority)
             .await?
-            .ok_or(InvalidJournal(journal_id))?;
-
-        if journal_state.deleted {
-            return Err(InvalidJournal(journal_id));
-        }
-
-        if !journal_state
-            .get_actor_permissions(authority)
             .contains(Permissions::ADDACCOUNT)
         {
             return Err(PermissionError(Permissions::ADDACCOUNT));
@@ -86,15 +77,12 @@ where
         journal_id: JournalId,
         authority: &Authority,
     ) -> AccountStoreResult<Vec<(AccountId, AccountState)>> {
-        let journal_state = self
+        if !self
             .journal_service
-            .get_journal(journal_id, authority)
-            .await?;
-
-        if !journal_state.as_ref().is_some_and(|s| {
-            s.get_actor_permissions(authority)
-                .contains(Permissions::READ)
-        }) {
+            .effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
             return Err(PermissionError(Permissions::READ));
         }
 

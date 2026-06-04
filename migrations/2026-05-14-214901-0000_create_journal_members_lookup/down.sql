@@ -1,1 +1,1 @@
-DROP TABLE journal_members_lookup
+DROP TABLE journal_members

@@ -24,12 +24,12 @@ use super::AuthSession;
 use super::passkey::PasskeyId;
 use super::passkey::PasskeyPayload;
 use super::passkey::PasskeyStore;
-use super::user::Email;
 use super::user::UserId;
 use super::user::UserPayload;
 use super::user::UserStore;
 use crate::authority::Actor;
 use crate::authority::Authority;
+use crate::email::Email;
 use crate::postcard::Postcard;
 use crate::store::universal::EventId;
 use crate::theme::theme_with_head;
@@ -459,7 +459,6 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
                 id: user_id,
                 webauthn_uuid: Postcard(webauthn_uuid),
                 email: email_validated,
-                deleted: false,
                 as_of: EventId(0),
             };
             auth_session

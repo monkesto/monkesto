@@ -5,8 +5,9 @@ pub mod service;
 pub mod views;
 
 use crate::ident::Ident;
-use crate::store::universal::{EventId, GetPayloadUsage, PayloadSideEffects, PayloadUsage};
+use crate::store::universal::{DieselExecute, EventId, GetPayloadUsage, PayloadUsage};
 pub use service::JournalService;
+use std::collections::HashMap;
 
 use axum::Router;
 use axum::routing::get;
@@ -77,26 +78,35 @@ pub fn router() -> Router<crate::StateType> {
         .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
 }
 
-use crate::auth::user::Email;
 use crate::auth::user::UserStoreError;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
+use crate::email::Email;
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::ident::IdentError;
 use crate::journal::JournalStoreError::InvalidJournal;
 use crate::name::Name;
-use crate::postcard::Postcard;
+use crate::schema::journal_members;
+use crate::schema::journals;
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::{entity, payload, state};
 use bitflags::bitflags;
 use chrono::DateTime;
 use chrono::Utc;
 use dashmap::DashMap;
+use diesel::backend::Backend;
+use diesel::deserialize::FromSql;
+use diesel::serialize::{Output, ToSql};
+use diesel::sql_types::Integer;
+use diesel::{
+    AsExpression, BoolExpressionMethods, FromSqlRow, Insertable, Queryable, Selectable,
+    SqliteConnection, deserialize, insert_into, serialize,
+};
+use diesel::{QueryResult, delete, update};
 use serde::Deserialize;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::ops::Deref;
@@ -104,7 +114,6 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
 
-#[expect(dead_code)]
 pub trait JournalStore:
     Clone
     + Send
@@ -124,35 +133,21 @@ pub trait JournalStore:
     async fn get_permissions(
         &self,
         journal_id: JournalId,
-        authority: Authority,
-    ) -> JournalStoreResult<Option<Permissions>> {
-        if let Some(state) = self.get_journal(journal_id).await? {
-            return match authority {
-                Authority::Direct(actor) => match actor {
-                    Actor::User(user_id) => {
-                        if state.owner == user_id {
-                            return Ok(Some(Permissions::all()));
-                        }
-                        Ok(Some(
-                            *state.members.get(&user_id).unwrap_or(&Permissions::empty()),
-                        ))
-                    }
-                    Actor::System => Ok(Some(Permissions::all())),
-                    Actor::Anonymous => Ok(None),
-                },
-                // TODO: handle delegated permissions
-                _ => Ok(Some(Permissions::empty())),
-            };
-        }
-        Ok(None)
+        authority: &Authority,
+    ) -> JournalStoreResult<Permissions>;
+
+    async fn get_name(&self, journal_id: JournalId) -> JournalStoreResult<Name> {
+        self.get_journal(journal_id)
+            .await?
+            .ok_or(InvalidJournal(journal_id))
+            .map(|s| s.name)
     }
 
-    async fn get_name(&self, journal_id: JournalId) -> JournalStoreResult<Option<Name>> {
-        Ok(self.get_journal(journal_id).await?.map(|s| s.name))
-    }
-
-    async fn get_owner(&self, journal_id: JournalId) -> JournalStoreResult<Option<UserId>> {
-        Ok(self.get_journal(journal_id).await?.map(|s| s.owner))
+    async fn get_owner(&self, journal_id: JournalId) -> JournalStoreResult<UserId> {
+        self.get_journal(journal_id)
+            .await?
+            .ok_or(InvalidJournal(journal_id))
+            .map(|s| s.owner)
     }
 
     async fn get_creation_timestamp(
@@ -160,11 +155,12 @@ pub trait JournalStore:
         journal_id: JournalId,
     ) -> JournalStoreResult<Option<DateTime<Utc>>>;
 
-    async fn get_creator(&self, journal_id: JournalId) -> JournalStoreResult<Option<Authority>>;
+    async fn get_creator(&self, journal_id: JournalId) -> JournalStoreResult<Authority>;
 
-    async fn get_deleted(&self, journal_id: JournalId) -> JournalStoreResult<Option<bool>> {
-        Ok(self.get_journal(journal_id).await?.map(|s| s.deleted))
-    }
+    async fn get_members(
+        &self,
+        journal_id: JournalId,
+    ) -> JournalStoreResult<HashMap<UserId, Permissions>>;
 }
 
 #[derive(Clone)]
@@ -174,6 +170,7 @@ pub struct JournalMemoryStore {
     local_events: Arc<DashMap<JournalId, Vec<Arc<Event<JournalPayload, JournalId>>>>>,
 
     journal_table: Arc<DashMap<JournalId, JournalState>>,
+    journal_members: Arc<DashMap<(JournalId, UserId), Permissions>>,
     /// Index of user_id -> set of journal_ids they belong to
     user_journals: Arc<DashMap<UserId, std::collections::HashSet<JournalId>>>,
     /// Index of parent_journal_id -> set of child journal_ids
@@ -186,6 +183,7 @@ impl JournalMemoryStore {
             global_events: Arc::new(RwLock::new(Vec::new())),
             local_events: Arc::new(DashMap::new()),
             journal_table: Arc::new(DashMap::new()),
+            journal_members: Arc::new(DashMap::new()),
             user_journals: Arc::new(DashMap::new()),
             subjournals: Arc::new(DashMap::new()),
         }
@@ -236,11 +234,17 @@ impl EventStore for JournalMemoryStore {
                     match payload {
                         JournalPayload::Modified(JournalModifiedPayload::AddedTenant {
                             id: user_id,
-                            ..
-                        }) => _ = self.user_journals.entry(user_id).or_default().insert(id),
+                            permissions,
+                        }) => {
+                            self.user_journals.entry(user_id).or_default().insert(id);
+                            self.journal_members.insert((id, user_id), permissions);
+                        }
                         JournalPayload::Modified(JournalModifiedPayload::RemovedTenant {
                             id: user_id,
-                        }) => _ = self.user_journals.entry(user_id).or_default().remove(&id),
+                        }) => {
+                            self.user_journals.entry(user_id).or_default().remove(&id);
+                            self.journal_members.remove(&(id, user_id));
+                        }
                         _ => {}
                     }
 
@@ -315,17 +319,56 @@ impl JournalStore for JournalMemoryStore {
             .and_then(|j| j.first().map(|e| e.timestamp)))
     }
 
-    async fn get_creator(&self, journal_id: JournalId) -> JournalStoreResult<Option<Authority>> {
-        Ok(self
-            .local_events
+    async fn get_creator(&self, journal_id: JournalId) -> JournalStoreResult<Authority> {
+        self.local_events
             .get(&journal_id)
-            .and_then(|j| j.first().map(|e| e.authority.clone())))
+            .and_then(|j| j.first().map(|e| e.authority.clone()))
+            .ok_or(InvalidJournal(journal_id))
+    }
+    async fn get_permissions(
+        &self,
+        journal_id: JournalId,
+        authority: &Authority,
+    ) -> JournalStoreResult<Permissions> {
+        match authority {
+            Authority::Direct(actor) => match actor {
+                Actor::User(user_id) => {
+                    if self.get_owner(journal_id).await? == *user_id {
+                        return Ok(Permissions::all());
+                    }
+
+                    if let Some(perms) = self.journal_members.get(&(journal_id, *user_id)) {
+                        Ok(*perms)
+                    } else {
+                        Ok(Permissions::empty())
+                    }
+                }
+                Actor::System => Ok(Permissions::all()),
+                Actor::Anonymous => Ok(Permissions::empty()),
+            },
+            Authority::Delegated { .. } => {
+                todo!("handle delegated permissions")
+            }
+        }
+    }
+
+    async fn get_members(
+        &self,
+        journal_id: JournalId,
+    ) -> JournalStoreResult<HashMap<UserId, Permissions>> {
+        Ok(self
+            .journal_members
+            .iter()
+            .filter(|ref_multi| ref_multi.key().0 == journal_id)
+            .map(|ref_multi| (ref_multi.key().1, *ref_multi.value()))
+            .collect())
     }
 }
 
 bitflags! {
-    #[derive(Hash, Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-    pub struct Permissions: i16 {
+    #[derive(Hash, Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, AsExpression, FromSqlRow)]
+    #[diesel(sql_type = diesel::sql_types::Integer)]
+    pub struct Permissions: i32 {
         const READ = 1 << 0;
         const ADDACCOUNT = 1 << 1;
         const APPENDTRANSACTION = 1 << 2;
@@ -335,9 +378,39 @@ bitflags! {
     }
 }
 
-#[expect(dead_code)]
+#[derive(Debug, Queryable, Selectable, Insertable)]
+#[diesel(table_name = crate::schema::journal_members)]
+pub struct JournalMember {
+    user_id: UserId,
+    journal_id: JournalId,
+    permissions: Permissions,
+}
+
+impl ToSql<Integer, diesel::sqlite::Sqlite> for Permissions {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> serialize::Result {
+        out.set_value(self.bits());
+        Ok(serialize::IsNull::No)
+    }
+}
+
+impl ToSql<Integer, diesel::pg::Pg> for Permissions {
+    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> serialize::Result {
+        <i32 as ToSql<Integer, diesel::pg::Pg>>::to_sql(&(self.bits()), &mut out.reborrow())
+    }
+}
+
+impl<DB: Backend> FromSql<Integer, DB> for Permissions
+where
+    i32: FromSql<Integer, DB>,
+{
+    fn from_sql(value: DB::RawValue<'_>) -> deserialize::Result<Self> {
+        let val = i32::from_sql(value)?;
+        Ok(Permissions::from_bits(val).ok_or(PermissionDecodeError(val))?)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Error)]
-struct PermissionDecodeError(i16);
+struct PermissionDecodeError(i32);
 
 impl Display for PermissionDecodeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -399,16 +472,83 @@ state! {
         pub id: JournalId,
         pub name: Name,
         pub owner: UserId,
-        pub members: Postcard<HashMap<UserId, Permissions>>,
-        pub deleted: bool,
+        // implementations must find a way to store this separately
+        // pub members: Postcard<HashMap<UserId, Permissions>>,
         pub parent_journal_id: Option<JournalId>,
         pub as_of: EventId
     }
 }
 
-impl PayloadSideEffects for JournalPayload {
-    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>> {
-        None
+impl DieselExecute for JournalPayload {
+    fn execute_sql(
+        &self,
+        entity_id: Ident,
+        event_id: EventId,
+        conn: &mut SqliteConnection,
+    ) -> QueryResult<()> {
+        match self {
+            JournalPayload::Created {
+                name,
+                owner,
+                parent_journal_id,
+            } => insert_into(journals::table)
+                .values(JournalState {
+                    id: entity_id.into(),
+                    name: name.clone(),
+                    owner: *owner,
+                    parent_journal_id: *parent_journal_id,
+                    as_of: event_id,
+                })
+                .execute(conn)
+                .map(drop),
+            JournalPayload::Modified(modified_payload) => match modified_payload {
+                JournalModifiedPayload::Renamed { name } => update(journals::table)
+                    .set(journals::name.eq(name))
+                    .execute(conn)
+                    .map(drop),
+                JournalModifiedPayload::TransferredOwnership { new_owner } => {
+                    update(journals::table)
+                        .set(journals::owner.eq(new_owner))
+                        .execute(conn)
+                        .map(drop)
+                }
+                JournalModifiedPayload::Deleted => {
+                    delete(journals::table.filter(journals::id.eq(entity_id))).execute(conn)?;
+                    delete(journal_members::table.filter(journal_members::journal_id.eq(entity_id)))
+                        .execute(conn)
+                        .map(drop)
+                }
+                JournalModifiedPayload::AddedTenant { id, permissions } => {
+                    insert_into(journal_members::table)
+                        .values(JournalMember {
+                            user_id: *id,
+                            journal_id: entity_id.into(),
+                            permissions: *permissions,
+                        })
+                        .execute(conn)
+                        .map(drop)
+                }
+                JournalModifiedPayload::UpdatedTenantPermissions { id, permissions } => update(
+                    journal_members::table.filter(
+                        journal_members::journal_id
+                            .eq(entity_id)
+                            .and(journal_members::user_id.eq(id)),
+                    ),
+                )
+                .set(journal_members::permissions.eq(permissions))
+                .execute(conn)
+                .map(drop),
+                JournalModifiedPayload::RemovedTenant { id } => delete(
+                    journal_members::table.filter(
+                        journal_members::user_id
+                            .eq(id)
+                            .and(journal_members::journal_id.eq(entity_id)),
+                    ),
+                )
+                .execute(conn)
+                .map(drop),
+            },
+        }
     }
 }
 
@@ -427,8 +567,6 @@ impl GetPayloadUsage<JournalEntity> for JournalPayload {
                 id: entity_id.into(),
                 name,
                 owner,
-                members: Postcard(HashMap::new()),
-                deleted: false,
                 parent_journal_id,
                 as_of: event_id,
             }),
@@ -436,23 +574,19 @@ impl GetPayloadUsage<JournalEntity> for JournalPayload {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut JournalState| {
                     match modified_payload {
                         JournalModifiedPayload::Renamed { name } => state.name = name,
-                        JournalModifiedPayload::AddedTenant { id, permissions } => {
-                            _ = state.members.insert(id, permissions)
-                        }
+                        JournalModifiedPayload::AddedTenant {
+                            id: _,
+                            permissions: _,
+                        } => {}
                         JournalModifiedPayload::TransferredOwnership { new_owner } => {
                             state.owner = new_owner
                         }
-                        JournalModifiedPayload::RemovedTenant { id } => {
-                            _ = state.members.remove(&id)
-                        }
-                        JournalModifiedPayload::UpdatedTenantPermissions { id, permissions } => {
-                            if let std::collections::hash_map::Entry::Occupied(mut e) =
-                                state.members.entry(id)
-                            {
-                                _ = Some(e.insert(permissions))
-                            }
-                        }
-                        JournalModifiedPayload::Deleted => state.deleted = true,
+                        JournalModifiedPayload::RemovedTenant { id: _ } => {}
+                        JournalModifiedPayload::UpdatedTenantPermissions {
+                            id: _,
+                            permissions: _,
+                        } => {}
+                        JournalModifiedPayload::Deleted => {}
                     }
                     state.as_of = event_id;
                 }))
@@ -465,14 +599,13 @@ pub trait JournalNameOrUnknown {
     fn or_unknown(&self) -> String;
 }
 
-impl<E> JournalNameOrUnknown for Result<Option<JournalState>, E>
+impl<E> JournalNameOrUnknown for Result<JournalState, E>
 where
     E: std::error::Error,
 {
     fn or_unknown(&self) -> String {
         match self {
-            Ok(Some(journal)) => journal.name.to_string(),
-            Ok(None) => "Unknown Journal".into(),
+            Ok(journal) => journal.name.to_string(),
             Err(e) => format!("Error loading journal: {}", e),
         }
     }
@@ -491,24 +624,14 @@ where
     }
 }
 
-impl JournalState {
-    pub fn get_actor_permissions(&self, authority: &Authority) -> Permissions {
-        match authority {
-            Authority::Direct(actor) => match actor {
-                Actor::User(id) => {
-                    if self.owner == *id {
-                        Permissions::all()
-                    } else if let Some(member_permissions) = self.members.get(id) {
-                        *member_permissions
-                    } else {
-                        Permissions::empty()
-                    }
-                }
-                Actor::System => Permissions::all(),
-                Actor::Anonymous => Permissions::empty(),
-            },
-            // TODO: handle delegated permissions
-            _ => Permissions::empty(),
+impl<E> JournalNameOrUnknown for Result<Name, E>
+where
+    E: std::error::Error,
+{
+    fn or_unknown(&self) -> String {
+        match self {
+            Ok(journal) => journal.to_string(),
+            Err(e) => format!("Error loading journal: {}", e),
         }
     }
 }

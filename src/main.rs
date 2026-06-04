@@ -2,6 +2,7 @@ mod account;
 mod auth;
 mod authority;
 mod authz;
+mod email;
 mod entitlement;
 mod entity;
 mod event;

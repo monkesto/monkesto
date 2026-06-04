@@ -1,5 +1,5 @@
 use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{EventId, GetPayloadUsage, PayloadSideEffects, PayloadUsage};
+use crate::store::universal::{DieselExecute, EventId, GetPayloadUsage, PayloadUsage};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -68,6 +68,8 @@ impl IntoResponse for PasskeyError {
 }
 
 use dashmap::DashMap;
+use diesel::dsl::insert_into;
+use diesel::{QueryResult, SqliteConnection, delete};
 use serde::{Deserialize, Serialize};
 use std::ops::Deref;
 
@@ -326,7 +328,6 @@ state! {
         pub id: PasskeyId,
         pub user_id: UserId,
         pub passkey: Postcard<webauthn_rs::prelude::Passkey>,
-        pub deleted: bool,
         pub as_of: EventId
     }
 }
@@ -348,9 +349,31 @@ payload! {
     }
 }
 
-impl PayloadSideEffects for PasskeyPayload {
-    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>> {
-        None
+impl DieselExecute for PasskeyPayload {
+    fn execute_sql(
+        &self,
+        entity_id: Ident,
+        event_id: EventId,
+        conn: &mut SqliteConnection,
+    ) -> QueryResult<()> {
+        match self {
+            PasskeyPayload::Created { user_id, passkey } => insert_into(passkeys::table)
+                .values(PasskeyState {
+                    id: entity_id.into(),
+                    user_id: *user_id,
+                    passkey: Postcard(passkey.clone()),
+                    as_of: event_id,
+                })
+                .execute(conn)
+                .map(drop),
+            PasskeyPayload::Modified(modified_payload) => match modified_payload {
+                PasskeyModifiedPayload::Deleted => {
+                    delete(passkeys::table.filter(passkeys::id.eq(entity_id)))
+                        .execute(conn)
+                        .map(drop)
+                }
+            },
+        }
     }
 }
 
@@ -366,14 +389,13 @@ impl GetPayloadUsage<PasskeyEntity> for PasskeyPayload {
                     id: entity_id.into(),
                     user_id,
                     passkey: Postcard(passkey),
-                    deleted: false,
                     as_of: event_id,
                 })
             }
             PasskeyPayload::Modified(modified_payload) => {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut PasskeyState| {
                     match modified_payload {
-                        PasskeyModifiedPayload::Deleted => state.deleted = true,
+                        PasskeyModifiedPayload::Deleted => {}
                     }
                     state.as_of = event_id;
                 }))
@@ -407,6 +429,7 @@ pub trait PasskeyStore:
 }
 
 use crate::postcard::Postcard;
+use crate::schema::passkeys;
 use tokio::sync::Mutex;
 
 struct PasskeyData {

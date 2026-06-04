@@ -6,7 +6,7 @@ pub use service::TransactionService;
 use std::collections::HashMap;
 
 use crate::ident::Ident;
-use crate::store::universal::{EventId, GetPayloadUsage, PayloadSideEffects, PayloadUsage};
+use crate::store::universal::{DieselExecute, EventId, GetPayloadUsage, PayloadUsage};
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
@@ -32,17 +32,19 @@ use std::sync::Arc;
 
 use crate::authority::Authority;
 
-use crate::account::{AccountId, AccountModifiedPayload, AccountPayload, AccountStoreError};
+use crate::account::{AccountId, AccountStoreError};
 use crate::event::Event;
 use crate::event::EventStore;
 use crate::journal::Permissions;
 use crate::journal::{JournalId, JournalStoreError};
 use crate::postcard::Postcard;
+use crate::schema::{accounts, transactions};
 use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::transaction::TransactionStoreError::InvalidEntryType;
 use crate::{entity, payload, state};
 use TransactionStoreError::InvalidTransaction;
 use dashmap::DashMap;
+use diesel::{QueryResult, SqliteConnection, delete, insert_into, update};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde::Serialize;
@@ -364,36 +366,100 @@ state! {
         pub id: TransactionId,
         pub journal_id: JournalId,
         pub updates: Postcard<Vec<BalanceUpdate>>,
-        pub deleted: bool,
         pub as_of: EventId
     }
 }
 
-impl PayloadSideEffects for TransactionPayload {
-    fn side_effects(&self) -> Option<Vec<(Ident, Vec<u8>, EntityType)>> {
-        Some(
-            match self {
-                TransactionPayload::Created { updates, .. } => updates,
-                TransactionPayload::Modified(payload) => match payload {
-                    TransactionModifiedPayload::UpdatedBalancedUpdates { difference } => difference,
-                    TransactionModifiedPayload::Deleted { difference } => difference,
-                },
-            }
-            .iter()
-            .map(|update| {
-                (
-                    *update.account_id,
-                    postcard::to_allocvec(&AccountPayload::Modified(
-                        AccountModifiedPayload::UpdatedBalance {
-                            difference: *update + 0,
-                        },
-                    ))
-                    .expect("failed to serialize an account payload"),
-                    EntityType::Account,
-                )
-            })
-            .collect(),
-        )
+impl DieselExecute for TransactionPayload {
+    fn execute_sql(
+        &self,
+        entity_id: Ident,
+        event_id: EventId,
+        conn: &mut SqliteConnection,
+    ) -> QueryResult<()> {
+        match self {
+            TransactionPayload::Created {
+                journal_id,
+                updates,
+            } => insert_into(transactions::table)
+                .values(TransactionState {
+                    id: entity_id.into(),
+                    journal_id: *journal_id,
+                    updates: Postcard(updates.clone()),
+                    as_of: event_id,
+                })
+                .execute(conn)
+                .map(drop),
+            TransactionPayload::Modified(modified_payload) => match modified_payload {
+                TransactionModifiedPayload::UpdatedBalancedUpdates { difference } => {
+                    let mut final_updates = Postcard(Vec::new());
+
+                    let old_updates = transactions::table
+                        .filter(transactions::id.eq(entity_id))
+                        .select(transactions::updates)
+                        .first::<Postcard<Vec<BalanceUpdate>>>(conn)?
+                        .iter()
+                        .map(|update| {
+                            (
+                                (update.journal_id, update.account_id),
+                                (update.amount, update.entry_type),
+                            )
+                        })
+                        .collect::<HashMap<(JournalId, AccountId), (u64, EntryType)>>();
+
+                    for new_update in difference {
+                        if let Some((old_amount, old_entrytype)) =
+                            old_updates.get(&(new_update.journal_id, new_update.account_id))
+                        {
+                            final_updates.push(
+                                *new_update
+                                    + BalanceUpdate {
+                                        journal_id: new_update.journal_id,
+                                        account_id: new_update.account_id,
+                                        amount: *old_amount,
+                                        entry_type: *old_entrytype,
+                                    },
+                            )
+                        } else {
+                            final_updates.push(*new_update)
+                        }
+                    }
+
+                    update(transactions::table.filter(transactions::id.eq(entity_id)))
+                        .set(transactions::updates.eq(final_updates))
+                        .execute(conn)?;
+
+                    for update in difference {
+                        let amt = match update.entry_type {
+                            EntryType::Credit => update.amount as i64,
+                            EntryType::Debit => -(update.amount as i64),
+                        };
+
+                        diesel::update(accounts::table.filter(accounts::id.eq(update.account_id)))
+                            .set(accounts::balance.eq(accounts::balance + amt))
+                            .execute(conn)?;
+                    }
+                    Ok(())
+                }
+                TransactionModifiedPayload::Deleted { difference } => {
+                    delete(transactions::table.filter(transactions::id.eq(entity_id)))
+                        .execute(conn)?;
+
+                    for update in difference {
+                        let amt = match update.entry_type {
+                            EntryType::Credit => update.amount as i64,
+                            EntryType::Debit => -(update.amount as i64),
+                        };
+
+                        diesel::update(accounts::table.filter(accounts::id.eq(update.account_id)))
+                            .set(accounts::balance.eq(accounts::balance + amt))
+                            .execute(conn)?;
+                    }
+
+                    Ok(())
+                }
+            },
+        }
     }
 }
 
@@ -411,7 +477,6 @@ impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
                 id: entity_id.into(),
                 journal_id,
                 updates: Postcard(updates),
-                deleted: false,
                 as_of: event_id,
             }),
             TransactionPayload::Modified(modified_payload) => {
@@ -431,13 +496,8 @@ impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
                         .collect::<HashMap<(JournalId, AccountId), (u64, EntryType)>>();
 
                     for new_update in match modified_payload {
-                        TransactionModifiedPayload::UpdatedBalancedUpdates { difference } => {
-                            difference
-                        }
-                        TransactionModifiedPayload::Deleted { difference } => {
-                            state.deleted = true;
-                            difference
-                        }
+                        TransactionModifiedPayload::UpdatedBalancedUpdates { difference }
+                        | TransactionModifiedPayload::Deleted { difference } => difference,
                     } {
                         if let Some((old_amount, old_entrytype)) =
                             old_updates.get(&(new_update.journal_id, new_update.account_id))

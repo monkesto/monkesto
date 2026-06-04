@@ -1,11 +1,11 @@
 use crate::AppState;
 use crate::account::AccountId;
-use crate::auth::user::Email;
 use crate::auth::user::UserStore;
 use crate::auth::user::UserStoreError;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
+use crate::email::Email;
 use crate::journal::{JournalId, Permissions};
 use crate::monkesto_error::MonkestoResult;
 use crate::name::Name;

@@ -1,9 +1,11 @@
-use crate::store::universal::registry::EntityType;
+use crate::ident::Ident;
+use crate::store::universal::registry::{AnyPayload, EntityType};
+use crate::store::universal::{DieselExecute, EventId};
 use diesel::backend::Backend;
 use diesel::deserialize::FromSql;
 use diesel::serialize::{Output, ToSql};
 use diesel::sql_types::SmallInt;
-use diesel::{deserialize, serialize};
+use diesel::{QueryResult, SqliteConnection, deserialize, serialize};
 
 impl ToSql<SmallInt, diesel::sqlite::Sqlite> for EntityType {
     fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> serialize::Result {
@@ -40,4 +42,32 @@ macro_rules! payload_from_bytes_match {
                 EntityType::Grant | EntityType::Role => todo!("grant and role entities do not have suitable payload types yet")
             }
     };
+}
+
+impl DieselExecute for AnyPayload {
+    fn execute_sql(
+        &self,
+        entity_id: Ident,
+        event_id: EventId,
+        conn: &mut SqliteConnection,
+    ) -> QueryResult<()> {
+        match self {
+            AnyPayload::User(user_payload) => user_payload.execute_sql(entity_id, event_id, conn),
+            AnyPayload::Transaction(transaction_payload) => {
+                transaction_payload.execute_sql(entity_id, event_id, conn)
+            }
+            AnyPayload::Account(account_payload) => {
+                account_payload.execute_sql(entity_id, event_id, conn)
+            }
+            AnyPayload::Journal(journal_payload) => {
+                journal_payload.execute_sql(entity_id, event_id, conn)
+            }
+            AnyPayload::Passkey(passkey_payload) => {
+                passkey_payload.execute_sql(entity_id, event_id, conn)
+            }
+            AnyPayload::Example(example_payload) => {
+                example_payload.execute_sql(entity_id, event_id, conn)
+            }
+        }
+    }
 }
