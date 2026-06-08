@@ -38,10 +38,9 @@ use tower_sessions::{ExpiredDeletion, SessionStore, session_store};
 
 #[derive(Clone)]
 pub struct DieselSqliteStore {
-    pool: Pool<Manager<SqliteConnection>>,
+    pub pool: Pool<Manager<SqliteConnection>>,
     event_tx: mpsc::Sender<(EventId, Box<AnyPayload>, Ident)>,
     processed_rx: watch::Receiver<EventId>,
-    processed_rebuilds_rx: watch::Receiver<EventId>,
     rebuild_num: Arc<AtomicI64>,
 }
 
@@ -91,20 +90,16 @@ impl DieselSqliteStore {
         let (processed_tx, processed_rx) =
             watch::channel::<EventId>(EventId(latest_applied_event.unwrap_or(0)));
 
-        let (processed_rebuilds_tx, processed_rebuilds_rx) = watch::channel::<EventId>(EventId(-1));
-
         let store = DieselSqliteStore {
             pool: pool.clone(),
             event_tx,
             processed_rx,
-            processed_rebuilds_rx,
             rebuild_num: Arc::new(AtomicI64::new(-1)),
         };
 
         tokio::spawn(DieselSqliteStore::handle_payloads(
             event_rx,
             processed_tx,
-            processed_rebuilds_tx,
             pool,
         ));
 
@@ -137,7 +132,6 @@ impl DieselSqliteStore {
     async fn handle_payloads(
         mut event_rx: mpsc::Receiver<(EventId, Box<AnyPayload>, Ident)>,
         processed_tx: watch::Sender<EventId>,
-        processed_rebuilds_tx: watch::Sender<EventId>,
         pool: Pool<Manager<SqliteConnection>>,
     ) -> ! {
         let mut leftover_event: Option<(EventId, Box<AnyPayload>, Ident)> = None;
@@ -210,13 +204,6 @@ impl DieselSqliteStore {
                 {
                     processed_tx
                         .send(highest_processed_id)
-                        .expect("all receivers dropped");
-                }
-
-                // signal to the rebuild requester that we are done
-                if event_id < EventId(0) {
-                    processed_rebuilds_tx
-                        .send(event_id)
                         .expect("all receivers dropped");
                 }
 
@@ -446,7 +433,7 @@ struct EventIdRow {
 impl Store for DieselSqliteStore {
     async fn record<I: Entity, T: TimeProvider>(
         &self,
-        authority: Authority,
+        authority: &Authority,
         time_provider: &T,
         entity_id: I::Id,
         payload: I::Payload,
@@ -454,19 +441,34 @@ impl Store for DieselSqliteStore {
     ) -> StoreResult<EventId> {
         let conn = self.pool.get().await?;
 
-        // if the payload creates an entity, it shouldn't be in the entity table
-        // if it is in the table already, the sequence id should prevent the creation of multiple entities with the same id
-
-        DieselSqliteStore::validate_entity_type(*entity_id, I::entity_type(), &conn).await?;
+        let expected_event_id = match when {
+            When::Empty => {
+                // insert an entity into the table
+                // a collision should cause an error
+                conn.interact(move |conn| {
+                    diesel::insert_into(entities::table)
+                        .values(EntityLookup {
+                            id: *entity_id,
+                            entity_type: I::entity_type(),
+                        })
+                        .execute(conn)
+                })
+                .await??;
+                EventId(0)
+            }
+            When::Within(id) => {
+                // the entity should already exist in the table
+                DieselSqliteStore::validate_entity_type(*entity_id, I::entity_type(), &conn)
+                    .await?;
+                id
+            }
+        };
 
         let timestamp = time_provider.get_time();
         let serialized_payload = postcard::to_allocvec(&payload)?;
-        let expected_event_id = match when {
-            When::Empty => EventId(0),
-            When::Within(id) => id,
-        };
 
         let cloned_payload = payload.clone();
+        let cloned_authority = authority.clone();
 
         let event_id = conn
             .interact(move |conn| {
@@ -481,7 +483,7 @@ impl Store for DieselSqliteStore {
                     "#,
                 )
                 .bind::<BigInt, _>(timestamp)
-                .bind::<Binary, _>(Postcard(authority))
+                .bind::<Binary, _>(Postcard(cloned_authority))
                 .bind::<Binary, _>(*entity_id)
                 .bind::<Binary, _>(serialized_payload)
                 .bind::<Bool, _>(false)

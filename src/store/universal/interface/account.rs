@@ -11,6 +11,15 @@ pub trait AccountInterface: Sync + Send + Clone + 'static {
         name: Name,
         authority: &Authority,
     ) -> StoreResult<AccountId>;
+
+    async fn create_subaccount(
+        &self,
+        parent_account_id: AccountId,
+        journal_id: JournalId,
+        name: Name,
+        authority: &Authority,
+    ) -> StoreResult<AccountId>;
+
     async fn get_account(&self, account_id: AccountId) -> StoreResult<AccountState>;
     async fn get_accounts_in_journal(&self, journal_id: JournalId) -> StoreResult<Vec<AccountId>>;
 }

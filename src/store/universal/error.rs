@@ -1,4 +1,7 @@
+use crate::auth::user::UserId;
+use crate::email::Email;
 use crate::ident::Ident;
+use crate::journal::Permissions;
 use crate::store::universal::EventId;
 use crate::store::universal::registry::EntityType;
 use axum_test::expect_json::__private::serde_trampoline::Deserialize;
@@ -42,8 +45,20 @@ pub enum StoreError {
     #[error("failed to send a value through a tokio channel")]
     Send(String),
 
-    #[error("")]
+    #[error("failed to recieve a value through a tokio channel")]
     Receive(String),
+
+    #[error("the actor does not have the permissions required to access this resource: {0:?}")]
+    Permission(Permissions),
+
+    #[error("the queried entity does not exist or is not accessible")]
+    EntityDoesntExist,
+
+    #[error("the invited user already has access to the journal")]
+    JournalInviteUserHasAccess(Email),
+
+    #[error("the target user does not have journal access")]
+    JournalModifyNoAccess(UserId),
 }
 
 impl From<PoolError> for StoreError {
@@ -54,7 +69,11 @@ impl From<PoolError> for StoreError {
 
 impl From<diesel::result::Error> for StoreError {
     fn from(value: diesel::result::Error) -> Self {
-        Self::Query(value.to_string())
+        if matches!(value, diesel::result::Error::NotFound) {
+            Self::EntityDoesntExist
+        } else {
+            Self::Query(value.to_string())
+        }
     }
 }
 

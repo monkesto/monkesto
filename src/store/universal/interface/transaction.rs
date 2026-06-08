@@ -15,7 +15,11 @@ pub trait TransactionInterface: Send + Sync + Clone + 'static {
         &self,
         journal_id: JournalId,
         authority: &Authority,
-    ) -> StoreResult<TransactionState>;
+    ) -> StoreResult<Vec<TransactionState>>;
 
-    async fn get_creator(&self, transaction_id: TransactionId) -> StoreResult<Authority>;
+    async fn get_creator(
+        &self,
+        transaction_id: TransactionId,
+        authority: &Authority,
+    ) -> StoreResult<Authority>;
 }

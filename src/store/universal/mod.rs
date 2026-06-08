@@ -12,6 +12,7 @@ use std::ops::Deref;
 use tower_sessions::ExpiredDeletion;
 
 mod diesel_sqlite;
+mod diesel_sqlite_interface;
 pub mod error;
 pub mod event_id;
 mod example_entity;
@@ -138,7 +139,7 @@ pub trait Store {
     /// recorded by the store (prior to this event) does not match `expected_sequence`
     async fn record<I: Entity, T: TimeProvider>(
         &self,
-        authority: Authority,
+        authority: &Authority,
         time_provider: &T,
         entity_id: I::Id,
         payload: I::Payload,
