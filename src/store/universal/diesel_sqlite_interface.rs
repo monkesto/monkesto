@@ -30,8 +30,9 @@ use webauthn_rs::prelude::Uuid;
 
 #[derive(Clone)]
 pub struct DieselSqliteAccountInterface {
-    store: DieselSqliteStore,
-    time_provider: Arc<DefaultTimeProvider>,
+    pub store: DieselSqliteStore,
+    pub journal_interface: DieselSqliteJournalInterface,
+    pub time_provider: Arc<DefaultTimeProvider>,
 }
 
 impl AccountInterface for DieselSqliteAccountInterface {
@@ -42,6 +43,10 @@ impl AccountInterface for DieselSqliteAccountInterface {
         authority: &Authority,
     ) -> StoreResult<AccountId> {
         let account_id = AccountId::new();
+
+        self.journal_interface
+            .validate_permissions(journal_id, authority, Permissions::ADDACCOUNT)
+            .await?;
 
         self.store
             .record::<AccountEntity, _>(
@@ -106,8 +111,8 @@ impl AccountInterface for DieselSqliteAccountInterface {
 
 #[derive(Clone)]
 pub struct DieselSqliteAuthInterface {
-    store: DieselSqliteStore,
-    time_provider: Arc<DefaultTimeProvider>,
+    pub store: DieselSqliteStore,
+    pub time_provider: Arc<DefaultTimeProvider>,
 }
 
 impl AuthnBackend for DieselSqliteAuthInterface {
@@ -188,8 +193,8 @@ impl AuthInterface for DieselSqliteAuthInterface {
 
 #[derive(Clone)]
 pub struct DieselSqliteJournalInterface {
-    store: DieselSqliteStore,
-    time_provider: Arc<DefaultTimeProvider>,
+    pub store: DieselSqliteStore,
+    pub time_provider: Arc<DefaultTimeProvider>,
 }
 
 #[derive(QueryableByName)]
@@ -293,12 +298,37 @@ impl JournalInterface for DieselSqliteJournalInterface {
         journal_id: JournalId,
         authority: &Authority,
     ) -> StoreResult<Permissions> {
+        let conn = self.store.pool.get().await?;
+
         Ok(match authority {
             Authority::Direct(actor) => match actor {
-                Actor::Anonymous => Permissions::empty(),
-                Actor::System => Permissions::all(),
+                // even if the Permissions are already known, we still need to verify that the journal
+                // exists because callers may expect an EntityDoesntExist error if it doesn't
+                Actor::Anonymous => {
+                    conn.interact(move |conn| {
+                        journals::table
+                            .filter(journals::id.eq(journal_id))
+                            .select(journals::as_of)
+                            .first::<EventId>(conn)
+                            .optional()
+                            .map(|opt_p| opt_p.ok_or(StoreError::EntityDoesntExist))?
+                    })
+                    .await??;
+                    Permissions::empty()
+                }
+                Actor::System => {
+                    conn.interact(move |conn| {
+                        journals::table
+                            .filter(journals::id.eq(journal_id))
+                            .select(journals::as_of)
+                            .first::<EventId>(conn)
+                            .optional()
+                            .map(|opt_p| opt_p.ok_or(StoreError::EntityDoesntExist))?
+                    })
+                    .await??;
+                    Permissions::all()
+                }
                 Actor::User(user_id) => {
-                    let conn = self.store.pool.get().await?;
                     let user_id = *user_id;
 
                     conn.interact(move |conn| {
@@ -482,10 +512,11 @@ impl JournalInterface for DieselSqliteJournalInterface {
         authority: &Authority,
     ) -> StoreResult<()> {
         // TODO: give the user the option to decline invites and integrate the additional queries
-        let conn = self.store.pool.get().await?;
 
         self.validate_permissions(journal_id, authority, Permissions::OWNER)
             .await?;
+
+        let conn = self.store.pool.get().await?;
 
         let cloned_invitee = invitee.clone();
 
@@ -511,6 +542,8 @@ impl JournalInterface for DieselSqliteJournalInterface {
                     .first::<(EventId, Option<i32>)>(conn)
             })
             .await??;
+
+        drop(conn);
 
         if member_rowid.is_none() {
             self.store
@@ -538,10 +571,10 @@ impl JournalInterface for DieselSqliteJournalInterface {
         permissions: Permissions,
         authority: &Authority,
     ) -> StoreResult<()> {
-        let conn = self.store.pool.get().await?;
-
         self.validate_permissions(journal_id, authority, Permissions::OWNER)
             .await?;
+
+        let conn = self.store.pool.get().await?;
 
         let (as_of, member_rowid) = conn
             .interact(move |conn| {
@@ -556,6 +589,8 @@ impl JournalInterface for DieselSqliteJournalInterface {
                     .first::<(EventId, Option<i32>)>(conn)
             })
             .await??;
+
+        drop(conn);
 
         if member_rowid.is_some() {
             self.store
@@ -582,10 +617,10 @@ impl JournalInterface for DieselSqliteJournalInterface {
         target_user: UserId,
         authority: &Authority,
     ) -> StoreResult<()> {
-        let conn = self.store.pool.get().await?;
-
         self.validate_permissions(journal_id, authority, Permissions::OWNER)
             .await?;
+
+        let conn = self.store.pool.get().await?;
 
         let (as_of, member_rowid) = conn
             .interact(move |conn| {
@@ -600,6 +635,8 @@ impl JournalInterface for DieselSqliteJournalInterface {
                     .first::<(EventId, Option<i32>)>(conn)
             })
             .await??;
+
+        drop(conn);
 
         if member_rowid.is_some() {
             self.store
@@ -640,9 +677,9 @@ impl JournalInterface for DieselSqliteJournalInterface {
 
 #[derive(Clone)]
 pub struct DieselSqliteTransactionInterface {
-    store: DieselSqliteStore,
-    journal_interface: DieselSqliteJournalInterface,
-    time_provider: Arc<DefaultTimeProvider>,
+    pub store: DieselSqliteStore,
+    pub journal_interface: DieselSqliteJournalInterface,
+    pub time_provider: Arc<DefaultTimeProvider>,
 }
 
 impl TransactionInterface for DieselSqliteTransactionInterface {

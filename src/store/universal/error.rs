@@ -10,7 +10,7 @@ use thiserror::Error;
 use tokio::sync::mpsc::error::SendError;
 use tokio::sync::watch::error::RecvError;
 
-#[derive(Debug, Error, Clone, Deserialize)]
+#[derive(Debug, Error, Clone, Deserialize, PartialEq)]
 pub enum StoreError {
     #[error("failed to deserialize an event payload")]
     Deserialize(#[from] postcard::Error),

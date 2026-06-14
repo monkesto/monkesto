@@ -491,16 +491,25 @@ impl DieselExecute for JournalPayload {
                 name,
                 owner,
                 parent_journal_id,
-            } => insert_into(journals::table)
-                .values(JournalState {
-                    id: entity_id.into(),
-                    name: name.clone(),
-                    owner: *owner,
-                    parent_journal_id: *parent_journal_id,
-                    as_of: event_id,
-                })
-                .execute(conn)
-                .map(drop),
+            } => {
+                insert_into(journals::table)
+                    .values(JournalState {
+                        id: entity_id.into(),
+                        name: name.clone(),
+                        owner: *owner,
+                        parent_journal_id: *parent_journal_id,
+                        as_of: event_id,
+                    })
+                    .execute(conn)?;
+                insert_into(journal_members::table)
+                    .values(JournalMember {
+                        user_id: *owner,
+                        journal_id: entity_id.into(),
+                        permissions: Permissions::OWNER,
+                    })
+                    .execute(conn)
+                    .map(drop)
+            }
             JournalPayload::Modified(modified_payload) => match modified_payload {
                 JournalModifiedPayload::Renamed { name } => update(journals::table)
                     .set(journals::name.eq(name))

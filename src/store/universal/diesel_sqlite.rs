@@ -3,9 +3,13 @@ use crate::ident::Ident;
 use crate::postcard::Postcard;
 use crate::schema::sessions;
 use crate::schema::{entities, events};
+use crate::store::universal::diesel_sqlite_interface::{
+    DieselSqliteAccountInterface, DieselSqliteAuthInterface, DieselSqliteJournalInterface,
+    DieselSqliteTransactionInterface,
+};
 use crate::store::universal::error::StoreError;
 use crate::store::universal::registry::{AnyPayload, EntityType, payload_from_bytes};
-use crate::store::universal::time_provider::TimeProvider;
+use crate::store::universal::time_provider::{DefaultTimeProvider, TimeProvider};
 use crate::store::universal::{
     After, DieselExecute, DieselFetchState, Entity, Event, EventId, Page, Store, StoreResult,
     TimeStamp, When,
@@ -28,7 +32,6 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
-use std::sync::atomic::AtomicI64;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, watch};
 use tower_sessions::cookie::time::OffsetDateTime;
@@ -39,30 +42,29 @@ use tower_sessions::{ExpiredDeletion, SessionStore, session_store};
 #[derive(Clone)]
 pub struct DieselSqliteStore {
     pub pool: Pool<Manager<SqliteConnection>>,
-    event_tx: mpsc::Sender<(EventId, Box<AnyPayload>, Ident)>,
-    processed_rx: watch::Receiver<EventId>,
-    rebuild_num: Arc<AtomicI64>,
+    //event_tx: mpsc::Sender<(EventId, Box<AnyPayload>, Ident)>,
+    // processed_rx: watch::Receiver<EventId>,
 }
 
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations/");
 
 impl DieselSqliteStore {
-    pub async fn new(url: &str) -> DieselSqliteStore {
+    pub async fn new(url: &str, max_size: usize) -> DieselSqliteStore {
         let manager = Manager::new(url, Runtime::Tokio1);
 
         let pool = Pool::builder(manager)
-            .max_size(16)
+            .max_size(max_size)
             .build()
             .expect("failed to initialize Diesel connection pool");
 
-        let (event_tx, event_rx) = mpsc::channel::<(EventId, Box<AnyPayload>, Ident)>(64);
+        // let (event_tx, event_rx) = mpsc::channel::<(EventId, Box<AnyPayload>, Ident)>(64);
 
         let conn: Object = pool
             .get()
             .await
             .expect("couldn't get a connection from pool");
 
-        let latest_applied_event = conn
+        let _latest_applied_event = conn
             .interact(|conn| {
                 conn.run_pending_migrations(MIGRATIONS)
                     .expect("failed to run migrations");
@@ -87,23 +89,62 @@ impl DieselSqliteStore {
             .expect("failed to fetch the id of the latest applied event");
 
         // event ids start at 1
-        let (processed_tx, processed_rx) =
-            watch::channel::<EventId>(EventId(latest_applied_event.unwrap_or(0)));
+        // let (processed_tx, processed_rx) =
+        //     watch::channel::<EventId>(EventId(latest_applied_event.unwrap_or(0)));
 
         let store = DieselSqliteStore {
             pool: pool.clone(),
-            event_tx,
-            processed_rx,
-            rebuild_num: Arc::new(AtomicI64::new(-1)),
+            //event_tx,
+            // processed_rx,
         };
 
-        tokio::spawn(DieselSqliteStore::handle_payloads(
-            event_rx,
-            processed_tx,
-            pool,
-        ));
+        // tokio::spawn(DieselSqliteStore::handle_payloads(
+        //     event_rx,
+        //     processed_tx,
+        //     pool,
+        // ));
 
         store
+    }
+
+    pub async fn interfaces(
+        &self,
+    ) -> (
+        DieselSqliteAccountInterface,
+        DieselSqliteAuthInterface,
+        DieselSqliteJournalInterface,
+        DieselSqliteTransactionInterface,
+    ) {
+        let time_provider = Arc::new(DefaultTimeProvider);
+
+        let auth_interface = DieselSqliteAuthInterface {
+            store: self.clone(),
+            time_provider: time_provider.clone(),
+        };
+
+        let journal_interface = DieselSqliteJournalInterface {
+            store: self.clone(),
+            time_provider: time_provider.clone(),
+        };
+
+        let account_interface = DieselSqliteAccountInterface {
+            store: self.clone(),
+            journal_interface: journal_interface.clone(),
+            time_provider: time_provider.clone(),
+        };
+
+        let transaction_interface = DieselSqliteTransactionInterface {
+            store: self.clone(),
+            journal_interface: journal_interface.clone(),
+            time_provider: time_provider.clone(),
+        };
+
+        (
+            account_interface,
+            auth_interface,
+            journal_interface,
+            transaction_interface,
+        )
     }
 
     async fn validate_entity_type(
@@ -230,14 +271,14 @@ impl DieselSqliteStore {
         }
     }
 
-    async fn wait_for_event_processing(&self, event_id: EventId) -> StoreResult<()> {
-        self.processed_rx
-            .clone()
-            .wait_for(|val| *val >= event_id)
-            .await?;
-
-        Ok(())
-    }
+    // async fn wait_for_event_processing(&self, event_id: EventId) -> StoreResult<()> {
+    //     self.processed_rx
+    //         .clone()
+    //         .wait_for(|val| *val >= event_id)
+    //         .await?;
+    //
+    //     Ok(())
+    // }
 }
 
 impl Debug for DieselSqliteStore {
@@ -467,7 +508,7 @@ impl Store for DieselSqliteStore {
         let timestamp = time_provider.get_time();
         let serialized_payload = postcard::to_allocvec(&payload)?;
 
-        let cloned_payload = payload.clone();
+        // let cloned_payload = payload.clone();
         let cloned_authority = authority.clone();
 
         let event_id = conn
@@ -495,9 +536,15 @@ impl Store for DieselSqliteStore {
             .event_id;
 
         // the handler will query for side effect events if they exist
-        self.event_tx
-            .send((event_id, Box::new(cloned_payload.into()), *entity_id))
-            .await?;
+        // self.event_tx
+        //     .send((event_id, Box::new(cloned_payload.into()), *entity_id))
+        //     .await?;
+
+        conn.interact(move |conn| {
+            conn.transaction(move |tx| payload.execute_sql(*entity_id, event_id, tx))
+        })
+        .await??;
+
         Ok(event_id)
     }
 
