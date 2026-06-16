@@ -29,7 +29,6 @@ mod tests {
     use crate::authority::{Actor, Authority};
     use crate::email::Email;
     use crate::journal::{JournalId, Permissions};
-    use crate::name::Name;
     use crate::store::universal::diesel_sqlite::DieselSqliteStore;
     use crate::store::universal::diesel_sqlite_interface::{
         DieselSqliteAccountInterface, DieselSqliteAuthInterface, DieselSqliteJournalInterface,
@@ -38,7 +37,7 @@ mod tests {
     use crate::store::universal::interface::account::AccountInterface;
     use crate::store::universal::interface::auth::AuthInterface;
     use crate::store::universal::interface::journal::JournalInterface;
-    use std::sync::LazyLock;
+    use crate::store::universal::interface::{TEST_ACCT_NAME, TEST_AUTHORITY, TEST_JOURNAL_NAME};
 
     async fn interfaces() -> (
         DieselSqliteAuthInterface,
@@ -51,14 +50,6 @@ mod tests {
 
         (auth_interface, account_interface, journal_interface)
     }
-
-    static TEST_ACCT_NAME: LazyLock<Name> =
-        LazyLock::new(|| Name::try_new("test account".to_string()).unwrap());
-
-    static TEST_JOURNAL_NAME: LazyLock<Name> =
-        LazyLock::new(|| Name::try_new("test account".to_string()).unwrap());
-
-    const TEST_AUTHORITY: Authority = Authority::Direct(Actor::System);
 
     #[tokio::test]
     async fn account_creation() {

@@ -31,7 +31,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, watch};
 use tower_sessions::cookie::time::OffsetDateTime;
@@ -115,29 +114,25 @@ impl DieselSqliteStore {
         DieselSqliteJournalInterface,
         DieselSqliteTransactionInterface,
     ) {
-        let time_provider = Arc::new(DefaultTimeProvider);
+        // we know that the time provider will need to be 'static,
+        // so there isn't any point in keeping a reference count
+        let time_provider: &DefaultTimeProvider = Box::leak(Box::new(DefaultTimeProvider));
 
-        let auth_interface = DieselSqliteAuthInterface {
-            store: self.clone(),
-            time_provider: time_provider.clone(),
-        };
+        let auth_interface = DieselSqliteAuthInterface::new(self.clone(), time_provider).await;
 
-        let journal_interface = DieselSqliteJournalInterface {
-            store: self.clone(),
-            time_provider: time_provider.clone(),
-        };
+        let journal_interface = DieselSqliteJournalInterface::new(self.clone(), time_provider);
 
-        let account_interface = DieselSqliteAccountInterface {
-            store: self.clone(),
-            journal_interface: journal_interface.clone(),
-            time_provider: time_provider.clone(),
-        };
+        let account_interface = DieselSqliteAccountInterface::new(
+            self.clone(),
+            journal_interface.clone(),
+            time_provider,
+        );
 
-        let transaction_interface = DieselSqliteTransactionInterface {
-            store: self.clone(),
-            journal_interface: journal_interface.clone(),
-            time_provider: time_provider.clone(),
-        };
+        let transaction_interface = DieselSqliteTransactionInterface::new(
+            self.clone(),
+            journal_interface.clone(),
+            time_provider,
+        );
 
         (
             account_interface,

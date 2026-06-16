@@ -25,14 +25,27 @@ use diesel::sql_types::Binary;
 use diesel::{BoolExpressionMethods, NullableExpressionMethods, QueryableByName, sql_query};
 use diesel::{ExpressionMethods, JoinOnDsl};
 use diesel::{OptionalExtension, QueryDsl, RunQueryDsl};
-use std::sync::Arc;
 use webauthn_rs::prelude::Uuid;
 
 #[derive(Clone)]
 pub struct DieselSqliteAccountInterface {
     pub store: DieselSqliteStore,
     pub journal_interface: DieselSqliteJournalInterface,
-    pub time_provider: Arc<DefaultTimeProvider>,
+    pub time_provider: &'static DefaultTimeProvider,
+}
+
+impl DieselSqliteAccountInterface {
+    pub fn new(
+        store: DieselSqliteStore,
+        journal_interface: DieselSqliteJournalInterface,
+        time_provider: &'static DefaultTimeProvider,
+    ) -> Self {
+        Self {
+            store,
+            journal_interface,
+            time_provider,
+        }
+    }
 }
 
 impl AccountInterface for DieselSqliteAccountInterface {
@@ -51,7 +64,7 @@ impl AccountInterface for DieselSqliteAccountInterface {
         self.store
             .record::<AccountEntity, _>(
                 authority,
-                self.time_provider.as_ref(),
+                self.time_provider,
                 account_id,
                 AccountPayload::Created {
                     journal_id,
@@ -77,7 +90,7 @@ impl AccountInterface for DieselSqliteAccountInterface {
         self.store
             .record::<AccountEntity, _>(
                 authority,
-                self.time_provider.as_ref(),
+                self.time_provider,
                 account_id,
                 AccountPayload::Created {
                     journal_id,
@@ -112,7 +125,40 @@ impl AccountInterface for DieselSqliteAccountInterface {
 #[derive(Clone)]
 pub struct DieselSqliteAuthInterface {
     pub store: DieselSqliteStore,
-    pub time_provider: Arc<DefaultTimeProvider>,
+    pub time_provider: &'static DefaultTimeProvider,
+}
+
+impl DieselSqliteAuthInterface {
+    pub async fn new(
+        store: DieselSqliteStore,
+        time_provider: &'static DefaultTimeProvider,
+    ) -> Self {
+        let interface = Self {
+            store,
+            time_provider,
+        };
+
+        for (email, (user_id, webauthn_uuid)) in DEV_USERS.clone() {
+            if interface
+                .get_id_from_email(email.clone())
+                .await
+                .expect("failed to check email existence")
+                .is_none()
+            {
+                interface
+                    .create_user_with_id(
+                        user_id,
+                        email,
+                        webauthn_uuid,
+                        &Authority::Direct(Actor::System),
+                    )
+                    .await
+                    .expect("failed to create dev user");
+            }
+        }
+
+        interface
+    }
 }
 
 impl AuthnBackend for DieselSqliteAuthInterface {
@@ -130,23 +176,22 @@ impl AuthnBackend for DieselSqliteAuthInterface {
     }
 
     async fn get_user(&self, user_id: &UserId) -> Result<Option<Self::User>, Self::Error> {
-        Ok(Some(AuthInterface::get_user(self, *user_id).await?))
+        Ok(Some(AuthInterface::get_state(self, *user_id).await?))
     }
 }
 
 impl AuthInterface for DieselSqliteAuthInterface {
-    async fn create_user(
+    async fn create_user_with_id(
         &self,
+        user_id: UserId,
         email: Email,
         webauthn_uuid: Uuid,
         authority: &Authority,
-    ) -> StoreResult<UserId> {
-        let user_id = UserId::new();
-
+    ) -> StoreResult<()> {
         self.store
             .record::<UserEntity, _>(
                 authority,
-                self.time_provider.as_ref(),
+                self.time_provider,
                 user_id,
                 UserPayload::Created {
                     email,
@@ -154,16 +199,15 @@ impl AuthInterface for DieselSqliteAuthInterface {
                 },
                 When::Empty,
             )
-            .await?;
-
-        Ok(user_id)
+            .await
+            .map(drop)
     }
 
-    async fn get_user(&self, user_id: UserId) -> StoreResult<UserState> {
+    async fn get_state(&self, user_id: UserId) -> StoreResult<UserState> {
         self.store.get_state::<UserEntity>(user_id).await
     }
 
-    async fn email_exists(&self, email: Email) -> StoreResult<bool> {
+    async fn get_id_from_email(&self, email: Email) -> StoreResult<Option<UserId>> {
         let conn = self.store.pool.get().await?;
 
         Ok(conn
@@ -174,8 +218,7 @@ impl AuthInterface for DieselSqliteAuthInterface {
                     .first::<UserId>(conn)
                     .optional()
             })
-            .await??
-            .is_some())
+            .await??)
     }
 
     async fn get_dev_users(&self) -> StoreResult<Vec<UserState>> {
@@ -184,7 +227,9 @@ impl AuthInterface for DieselSqliteAuthInterface {
         Ok(conn
             .interact(move |conn| {
                 users::table
-                    .filter(users::email.eq_any(DEV_USERS.clone()))
+                    .filter(
+                        users::email.eq_any(DEV_USERS.clone().iter().map(|(email, (_, _))| email)),
+                    )
                     .load::<UserState>(conn)
             })
             .await??)
@@ -194,7 +239,16 @@ impl AuthInterface for DieselSqliteAuthInterface {
 #[derive(Clone)]
 pub struct DieselSqliteJournalInterface {
     pub store: DieselSqliteStore,
-    pub time_provider: Arc<DefaultTimeProvider>,
+    pub time_provider: &'static DefaultTimeProvider,
+}
+
+impl DieselSqliteJournalInterface {
+    pub fn new(store: DieselSqliteStore, time_provider: &'static DefaultTimeProvider) -> Self {
+        Self {
+            store,
+            time_provider,
+        }
+    }
 }
 
 #[derive(QueryableByName)]
@@ -215,7 +269,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
         self.store
             .record::<JournalEntity, _>(
                 authority,
-                self.time_provider.as_ref(),
+                self.time_provider,
                 journal_id,
                 JournalPayload::Created {
                     name,
@@ -249,7 +303,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
         self.store
             .record::<JournalEntity, _>(
                 authority,
-                self.time_provider.as_ref(),
+                self.time_provider,
                 journal_id,
                 JournalPayload::Created {
                     name,
@@ -549,7 +603,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
             self.store
                 .record::<JournalEntity, _>(
                     authority,
-                    self.time_provider.as_ref(),
+                    self.time_provider,
                     journal_id,
                     JournalPayload::Modified(JournalModifiedPayload::AddedTenant {
                         id: invitee_id,
@@ -596,7 +650,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
             self.store
                 .record::<JournalEntity, _>(
                     authority,
-                    self.time_provider.as_ref(),
+                    self.time_provider,
                     journal_id,
                     JournalPayload::Modified(JournalModifiedPayload::UpdatedTenantPermissions {
                         id: target_user,
@@ -642,7 +696,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
             self.store
                 .record::<JournalEntity, _>(
                     authority,
-                    self.time_provider.as_ref(),
+                    self.time_provider,
                     journal_id,
                     JournalPayload::Modified(JournalModifiedPayload::RemovedTenant {
                         id: target_user,
@@ -679,7 +733,21 @@ impl JournalInterface for DieselSqliteJournalInterface {
 pub struct DieselSqliteTransactionInterface {
     pub store: DieselSqliteStore,
     pub journal_interface: DieselSqliteJournalInterface,
-    pub time_provider: Arc<DefaultTimeProvider>,
+    pub time_provider: &'static DefaultTimeProvider,
+}
+
+impl DieselSqliteTransactionInterface {
+    pub fn new(
+        store: DieselSqliteStore,
+        journal_interface: DieselSqliteJournalInterface,
+        time_provider: &'static DefaultTimeProvider,
+    ) -> Self {
+        Self {
+            store,
+            journal_interface,
+            time_provider,
+        }
+    }
 }
 
 impl TransactionInterface for DieselSqliteTransactionInterface {
@@ -693,7 +761,7 @@ impl TransactionInterface for DieselSqliteTransactionInterface {
         self.store
             .record::<TransactionEntity, _>(
                 authority,
-                self.time_provider.as_ref(),
+                self.time_provider,
                 transaction_id,
                 TransactionPayload::Created {
                     journal_id,
