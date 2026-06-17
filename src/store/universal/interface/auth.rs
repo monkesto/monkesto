@@ -58,8 +58,10 @@ pub trait AuthInterface: Send + Sync + Clone + AuthnBackend + 'static {
 
 #[cfg(test)]
 mod tests {
+    use crate::authority::UserId;
     use crate::store::universal::diesel_sqlite::DieselSqliteStore;
     use crate::store::universal::diesel_sqlite_interface::DieselSqliteAuthInterface;
+    use crate::store::universal::error::StoreError;
     use crate::store::universal::interface::auth::{AuthInterface, DEV_USERS};
     use crate::store::universal::interface::{TEST_AUTHORITY, TEST_EMAIL};
     use uuid::Uuid;
@@ -111,5 +113,26 @@ mod tests {
         assert_eq!(state.id, user_id);
         assert_eq!(state.email, TEST_EMAIL.clone());
         assert_eq!(state.webauthn_uuid.0, webauthn_uuid);
+    }
+
+    #[tokio::test]
+    async fn user_not_found() {
+        let auth_interface = interface().await;
+        assert_eq!(
+            auth_interface.get_state(UserId::new()).await,
+            Err(StoreError::EntityDoesntExist)
+        )
+    }
+
+    #[tokio::test]
+    async fn email_not_found() {
+        let auth_interface = interface().await;
+        assert!(
+            auth_interface
+                .get_id_from_email(TEST_EMAIL.clone())
+                .await
+                .unwrap()
+                .is_none()
+        )
     }
 }

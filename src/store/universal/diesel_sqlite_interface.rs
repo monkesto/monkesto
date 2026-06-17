@@ -25,6 +25,7 @@ use diesel::sql_types::Binary;
 use diesel::{BoolExpressionMethods, NullableExpressionMethods, QueryableByName, sql_query};
 use diesel::{ExpressionMethods, JoinOnDsl};
 use diesel::{OptionalExtension, QueryDsl, RunQueryDsl};
+use std::collections::HashSet;
 use webauthn_rs::prelude::Uuid;
 
 #[derive(Clone)]
@@ -733,6 +734,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
 pub struct DieselSqliteTransactionInterface {
     pub store: DieselSqliteStore,
     pub journal_interface: DieselSqliteJournalInterface,
+    pub account_interface: DieselSqliteAccountInterface,
     pub time_provider: &'static DefaultTimeProvider,
 }
 
@@ -740,11 +742,13 @@ impl DieselSqliteTransactionInterface {
     pub fn new(
         store: DieselSqliteStore,
         journal_interface: DieselSqliteJournalInterface,
+        account_interface: DieselSqliteAccountInterface,
         time_provider: &'static DefaultTimeProvider,
     ) -> Self {
         Self {
             store,
             journal_interface,
+            account_interface,
             time_provider,
         }
     }
@@ -758,6 +762,24 @@ impl TransactionInterface for DieselSqliteTransactionInterface {
         authority: &Authority,
     ) -> StoreResult<TransactionId> {
         let transaction_id = TransactionId::new();
+
+        self.journal_interface
+            .validate_permissions(journal_id, authority, Permissions::APPENDTRANSACTION)
+            .await?;
+
+        let journal_accounts = self
+            .account_interface
+            .get_accounts_in_journal(journal_id)
+            .await?
+            .into_iter()
+            .collect::<HashSet<AccountId>>();
+
+        for update in updates.iter() {
+            if !journal_accounts.contains(&update.account_id) {
+                return Err(StoreError::EntityDoesntExist);
+            }
+        }
+
         self.store
             .record::<TransactionEntity, _>(
                 authority,

@@ -131,6 +131,7 @@ impl DieselSqliteStore {
         let transaction_interface = DieselSqliteTransactionInterface::new(
             self.clone(),
             journal_interface.clone(),
+            account_interface.clone(),
             time_provider,
         );
 
@@ -142,7 +143,7 @@ impl DieselSqliteStore {
         )
     }
 
-    async fn validate_entity_type(
+    pub async fn validate_entity_type(
         entity_id: Ident,
         entity_type: EntityType,
         conn: &Object,

@@ -73,7 +73,8 @@ macro_rules! state {
         #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, State, diesel::Queryable, diesel::QueryableByName, diesel::Selectable, diesel::Insertable, diesel::AsChangeset)]
         #[diesel(table_name = $($table)::*)]
         $(#[$meta])*
-        $vis struct $struct_name {
+        #[derive(PartialEq)]
+$vis struct $struct_name {
             $($fields)*
         }
 

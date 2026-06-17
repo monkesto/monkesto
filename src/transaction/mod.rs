@@ -381,15 +381,28 @@ impl DieselExecute for TransactionPayload {
             TransactionPayload::Created {
                 journal_id,
                 updates,
-            } => insert_into(transactions::table)
-                .values(TransactionState {
-                    id: entity_id.into(),
-                    journal_id: *journal_id,
-                    updates: Postcard(updates.clone()),
-                    as_of: event_id,
-                })
-                .execute(conn)
-                .map(drop),
+            } => {
+                insert_into(transactions::table)
+                    .values(TransactionState {
+                        id: entity_id.into(),
+                        journal_id: *journal_id,
+                        updates: Postcard(updates.clone()),
+                        as_of: event_id,
+                    })
+                    .execute(conn)?;
+
+                for update in updates {
+                    let amt = match update.entry_type {
+                        EntryType::Credit => update.amount as i64,
+                        EntryType::Debit => -(update.amount as i64),
+                    };
+
+                    diesel::update(accounts::table.filter(accounts::id.eq(update.account_id)))
+                        .set(accounts::balance.eq(accounts::balance + amt))
+                        .execute(conn)?;
+                }
+                Ok(())
+            }
             TransactionPayload::Modified(modified_payload) => match modified_payload {
                 TransactionModifiedPayload::UpdatedBalancedUpdates { difference } => {
                     let mut final_updates = Postcard(Vec::new());

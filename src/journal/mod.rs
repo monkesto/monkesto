@@ -505,7 +505,7 @@ impl DieselExecute for JournalPayload {
                     .values(JournalMember {
                         user_id: *owner,
                         journal_id: entity_id.into(),
-                        permissions: Permissions::OWNER,
+                        permissions: Permissions::all(),
                     })
                     .execute(conn)
                     .map(drop)
