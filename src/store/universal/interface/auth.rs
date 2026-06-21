@@ -120,7 +120,7 @@ mod tests {
         let auth_interface = interface().await;
         assert_eq!(
             auth_interface.get_state(UserId::new()).await,
-            Err(StoreError::EntityDoesntExist)
+            Err(StoreError::EntityNotFound)
         )
     }
 

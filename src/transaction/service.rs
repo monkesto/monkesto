@@ -66,8 +66,8 @@ where
             .effective_permissions(journal_id, authority)
             .await?;
 
-        if !perms.contains(Permissions::APPENDTRANSACTION) {
-            return Err(PermissionError(Permissions::APPENDTRANSACTION));
+        if !perms.contains(Permissions::APPEND_TRANSACTION) {
+            return Err(PermissionError(Permissions::APPEND_TRANSACTION));
         }
 
         // For each update, the account must belong to the entry's journal or any of its

@@ -370,10 +370,10 @@ bitflags! {
     #[diesel(sql_type = diesel::sql_types::Integer)]
     pub struct Permissions: i32 {
         const READ = 1 << 0;
-        const ADDACCOUNT = 1 << 1;
-        const APPENDTRANSACTION = 1 << 2;
+        const ADD_ACCOUNT = 1 << 1;
+        const APPEND_TRANSACTION = 1 << 2;
         const INVITE = 1 << 3;
-        const DELETE = 1 << 4;
+        const CREATE_SUBJOURNAL = 1 << 4;
         const OWNER = 1 << 5;
     }
 }
@@ -512,12 +512,12 @@ impl DieselExecute for JournalPayload {
             }
             JournalPayload::Modified(modified_payload) => match modified_payload {
                 JournalModifiedPayload::Renamed { name } => update(journals::table)
-                    .set(journals::name.eq(name))
+                    .set((journals::name.eq(name), journals::as_of.eq(event_id)))
                     .execute(conn)
                     .map(drop),
                 JournalModifiedPayload::TransferredOwnership { new_owner } => {
                     update(journals::table)
-                        .set(journals::owner.eq(new_owner))
+                        .set((journals::owner.eq(new_owner), journals::as_of.eq(event_id)))
                         .execute(conn)
                         .map(drop)
                 }
@@ -534,28 +534,42 @@ impl DieselExecute for JournalPayload {
                             journal_id: entity_id.into(),
                             permissions: *permissions,
                         })
+                        .execute(conn)?;
+                    update(journals::table)
+                        .set(journals::as_of.eq(event_id))
                         .execute(conn)
                         .map(drop)
                 }
-                JournalModifiedPayload::UpdatedTenantPermissions { id, permissions } => update(
-                    journal_members::table.filter(
-                        journal_members::journal_id
-                            .eq(entity_id)
-                            .and(journal_members::user_id.eq(id)),
-                    ),
-                )
-                .set(journal_members::permissions.eq(permissions))
-                .execute(conn)
-                .map(drop),
-                JournalModifiedPayload::RemovedTenant { id } => delete(
-                    journal_members::table.filter(
-                        journal_members::user_id
-                            .eq(id)
-                            .and(journal_members::journal_id.eq(entity_id)),
-                    ),
-                )
-                .execute(conn)
-                .map(drop),
+                JournalModifiedPayload::UpdatedTenantPermissions { id, permissions } => {
+                    update(
+                        journal_members::table.filter(
+                            journal_members::journal_id
+                                .eq(entity_id)
+                                .and(journal_members::user_id.eq(id)),
+                        ),
+                    )
+                    .set(journal_members::permissions.eq(permissions))
+                    .execute(conn)?;
+
+                    update(journals::table)
+                        .set(journals::as_of.eq(event_id))
+                        .execute(conn)
+                        .map(drop)
+                }
+                JournalModifiedPayload::RemovedTenant { id } => {
+                    delete(
+                        journal_members::table.filter(
+                            journal_members::user_id
+                                .eq(id)
+                                .and(journal_members::journal_id.eq(entity_id)),
+                        ),
+                    )
+                    .execute(conn)?;
+                    update(journals::table)
+                        .set(journals::as_of.eq(event_id))
+                        .execute(conn)
+                        .map(drop)
+                }
             },
         }
     }

@@ -48,9 +48,9 @@ where
             .journal_service
             .effective_permissions(journal_id, authority)
             .await?
-            .contains(Permissions::ADDACCOUNT)
+            .contains(Permissions::ADD_ACCOUNT)
         {
-            return Err(PermissionError(Permissions::ADDACCOUNT));
+            return Err(PermissionError(Permissions::ADD_ACCOUNT));
         }
 
         if self.account_store.get_account(&account_id).await?.is_some() {

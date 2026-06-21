@@ -107,7 +107,7 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
                 maple_ridge_academy_id,
                 &pacioli_authority,
                 wedgwood_email,
-                Permissions::READ | Permissions::APPENDTRANSACTION,
+                Permissions::READ | Permissions::APPEND_TRANSACTION,
             )
             .await?;
     }

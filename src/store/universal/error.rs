@@ -1,7 +1,8 @@
+use crate::account::AccountId;
 use crate::auth::user::UserId;
 use crate::email::Email;
 use crate::ident::Ident;
-use crate::journal::Permissions;
+use crate::journal::{JournalId, Permissions};
 use crate::store::universal::EventId;
 use crate::store::universal::registry::EntityType;
 use axum_test::expect_json::__private::serde_trampoline::Deserialize;
@@ -52,7 +53,13 @@ pub enum StoreError {
     Permission(Permissions),
 
     #[error("the queried entity does not exist or is not accessible")]
-    EntityDoesntExist,
+    EntityNotFound,
+
+    #[error("account {account_id} is not accessible in journal {journal_id}")]
+    AccountNotInJournal {
+        journal_id: JournalId,
+        account_id: AccountId,
+    },
 
     #[error("the invited user already has access to the journal")]
     JournalInviteUserHasAccess(Email),
@@ -70,7 +77,7 @@ impl From<PoolError> for StoreError {
 impl From<diesel::result::Error> for StoreError {
     fn from(value: diesel::result::Error) -> Self {
         if matches!(value, diesel::result::Error::NotFound) {
-            Self::EntityDoesntExist
+            Self::EntityNotFound
         } else {
             Self::Query(value.to_string())
         }

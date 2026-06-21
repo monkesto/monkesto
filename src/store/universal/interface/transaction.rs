@@ -144,6 +144,98 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn transaction_creation_incorrect_journal() {
+        let (acct_interface, auth_interface, journal_interface, transaction_interface) =
+            interfaces().await;
+        let user_id = auth_interface
+            .create_user(PRIMARY_TEST_EMAIL.clone(), Uuid::new_v4(), &TEST_AUTHORITY)
+            .await
+            .unwrap();
+        let user_authority = &Authority::Direct(Actor::User(user_id));
+
+        // bind the accounts to a valid journal
+        let correct_journal_id = journal_interface
+            .create_journal(TEST_JOURNAL_NAME.clone(), user_id, user_authority)
+            .await
+            .unwrap();
+        let account_one_id = acct_interface
+            .create_account(
+                correct_journal_id,
+                TEST_ACCOUNT_NAME_ONE.clone(),
+                user_authority,
+            )
+            .await
+            .unwrap();
+        let account_two_id = acct_interface
+            .create_account(
+                correct_journal_id,
+                TEST_ACCOUNT_NAME_TWO.clone(),
+                user_authority,
+            )
+            .await
+            .unwrap();
+
+        let updates = vec![
+            BalanceUpdate {
+                journal_id: correct_journal_id,
+                account_id: account_one_id,
+                amount: 100,
+                entry_type: EntryType::Credit,
+            },
+            BalanceUpdate {
+                journal_id: correct_journal_id,
+                account_id: account_two_id,
+                amount: 100,
+                entry_type: EntryType::Debit,
+            },
+        ];
+
+        let incorrect_journal_id = journal_interface
+            .create_journal(TEST_JOURNAL_NAME.clone(), user_id, user_authority)
+            .await
+            .unwrap();
+
+        let err = transaction_interface
+            .create_transaction(incorrect_journal_id, updates.clone(), user_authority)
+            .await
+            .expect_err("account not found in journal");
+
+        match err {
+            StoreError::AccountNotInJournal {
+                journal_id,
+                account_id,
+            } => {
+                assert_eq!(journal_id, incorrect_journal_id);
+                // a valid implementation can return either account id since both are in the wrong journal
+                assert!(account_id == account_id || account_id == account_two_id);
+            }
+            _ => panic!("expected an AccountNotInJournal error"),
+        }
+
+        assert!(
+            transaction_interface
+                .get_all_in_journal(incorrect_journal_id, user_authority)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let account_one_balance = acct_interface
+            .get_account(account_one_id)
+            .await
+            .unwrap()
+            .balance;
+        assert_eq!(account_one_balance, 0);
+
+        let account_two_balance = acct_interface
+            .get_account(account_two_id)
+            .await
+            .unwrap()
+            .balance;
+        assert_eq!(account_two_balance, 0);
+    }
+
+    #[tokio::test]
     async fn transaction_creation_sufficient_permissions() {
         let (acct_interface, auth_interface, journal_interface, transaction_interface) =
             interfaces().await;
@@ -171,7 +263,7 @@ mod tests {
             .invite_member(
                 journal_id,
                 SECONDARY_TEST_EMAIL.clone(),
-                Permissions::READ | Permissions::APPENDTRANSACTION,
+                Permissions::READ | Permissions::APPEND_TRANSACTION,
                 owner_authority,
             )
             .await
@@ -303,7 +395,7 @@ mod tests {
             transaction_interface
                 .create_transaction(journal_id, updates.clone(), insufficient_perms_authority)
                 .await,
-            Err(StoreError::Permission(Permissions::APPENDTRANSACTION))
+            Err(StoreError::Permission(Permissions::APPEND_TRANSACTION))
         );
 
         assert!(
@@ -375,7 +467,7 @@ mod tests {
                     &Authority::Direct(Actor::User(UserId::new()))
                 )
                 .await,
-            Err(StoreError::EntityDoesntExist)
+            Err(StoreError::EntityNotFound)
         );
 
         assert!(

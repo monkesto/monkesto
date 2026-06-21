@@ -75,9 +75,9 @@ where
             .journal_store
             .get_permissions(parent_journal_id, authority)
             .await?
-            .contains(Permissions::ADDACCOUNT)
+            .contains(Permissions::ADD_ACCOUNT)
         {
-            return Err(PermissionError(Permissions::ADDACCOUNT));
+            return Err(PermissionError(Permissions::ADD_ACCOUNT));
         }
 
         let subjournal_id = JournalId::new();

@@ -90,7 +90,7 @@ mod tests {
             acct_interface
                 .create_account(JournalId::new(), TEST_ACCT_NAME.clone(), &TEST_AUTHORITY)
                 .await,
-            Err(StoreError::EntityDoesntExist)
+            Err(StoreError::EntityNotFound)
         );
     }
 
@@ -127,7 +127,7 @@ mod tests {
             .invite_member(
                 journal_id,
                 sufficient_perms_email,
-                Permissions::ADDACCOUNT,
+                Permissions::ADD_ACCOUNT,
                 &TEST_AUTHORITY,
             )
             .await
@@ -192,7 +192,7 @@ mod tests {
                     &Authority::Direct(Actor::User(insufficient_perms_id))
                 )
                 .await,
-            Err(StoreError::Permission(Permissions::ADDACCOUNT))
+            Err(StoreError::Permission(Permissions::ADD_ACCOUNT))
         );
     }
 
@@ -234,7 +234,7 @@ mod tests {
                     &Authority::Direct(Actor::User(no_perms_id))
                 )
                 .await,
-            Err(StoreError::EntityDoesntExist)
+            Err(StoreError::EntityNotFound)
         );
     }
 }

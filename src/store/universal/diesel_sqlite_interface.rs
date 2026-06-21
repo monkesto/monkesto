@@ -8,6 +8,7 @@ use crate::journal::{
 use crate::name::Name;
 use crate::schema::{accounts, journal_members, journals, transactions, users};
 use crate::store::universal::diesel_sqlite::DieselSqliteStore;
+use crate::store::universal::error::StoreError::AccountNotInJournal;
 use crate::store::universal::error::{StoreError, StoreResult};
 use crate::store::universal::interface::account::AccountInterface;
 use crate::store::universal::interface::auth::AuthInterface;
@@ -59,7 +60,7 @@ impl AccountInterface for DieselSqliteAccountInterface {
         let account_id = AccountId::new();
 
         self.journal_interface
-            .validate_permissions(journal_id, authority, Permissions::ADDACCOUNT)
+            .validate_permissions(journal_id, authority, Permissions::ADD_ACCOUNT)
             .await?;
 
         self.store
@@ -298,7 +299,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
             .await?
             .owner;
 
-        self.validate_permissions(parent_journal_id, authority, Permissions::OWNER)
+        self.validate_permissions(parent_journal_id, authority, Permissions::CREATE_SUBJOURNAL)
             .await?;
 
         self.store
@@ -366,7 +367,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
                             .select(journals::as_of)
                             .first::<EventId>(conn)
                             .optional()
-                            .map(|opt_p| opt_p.ok_or(StoreError::EntityDoesntExist))?
+                            .map(|opt_p| opt_p.ok_or(StoreError::EntityNotFound))?
                     })
                     .await??;
                     Permissions::empty()
@@ -378,7 +379,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
                             .select(journals::as_of)
                             .first::<EventId>(conn)
                             .optional()
-                            .map(|opt_p| opt_p.ok_or(StoreError::EntityDoesntExist))?
+                            .map(|opt_p| opt_p.ok_or(StoreError::EntityNotFound))?
                     })
                     .await??;
                     Permissions::all()
@@ -397,7 +398,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
                             .first::<Permissions>(conn)
                             .optional()
                             // the user should not know the entity exists if it isn't accessible to them
-                            .map(|opt_p| opt_p.ok_or(StoreError::EntityDoesntExist))?
+                            .map(|opt_p| opt_p.ok_or(StoreError::EntityNotFound))?
                     })
                     .await??
                 }
@@ -568,7 +569,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
     ) -> StoreResult<()> {
         // TODO: give the user the option to decline invites and integrate the additional queries
 
-        self.validate_permissions(journal_id, authority, Permissions::OWNER)
+        self.validate_permissions(journal_id, authority, Permissions::CREATE_SUBJOURNAL)
             .await?;
 
         let conn = self.store.pool.get().await?;
@@ -726,7 +727,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
             .into_iter()
             .next()
             .map(|e| e.authority.0)
-            .ok_or(StoreError::EntityDoesntExist)
+            .ok_or(StoreError::EntityNotFound)
     }
 }
 
@@ -764,7 +765,7 @@ impl TransactionInterface for DieselSqliteTransactionInterface {
         let transaction_id = TransactionId::new();
 
         self.journal_interface
-            .validate_permissions(journal_id, authority, Permissions::APPENDTRANSACTION)
+            .validate_permissions(journal_id, authority, Permissions::APPEND_TRANSACTION)
             .await?;
 
         let journal_accounts = self
@@ -776,7 +777,10 @@ impl TransactionInterface for DieselSqliteTransactionInterface {
 
         for update in updates.iter() {
             if !journal_accounts.contains(&update.account_id) {
-                return Err(StoreError::EntityDoesntExist);
+                return Err(AccountNotInJournal {
+                    journal_id,
+                    account_id: update.account_id,
+                });
             }
         }
 
@@ -826,7 +830,7 @@ impl TransactionInterface for DieselSqliteTransactionInterface {
             .events
             .into_iter()
             .next()
-            .ok_or(StoreError::EntityDoesntExist)?;
+            .ok_or(StoreError::EntityNotFound)?;
 
         match creation_event.payload {
             TransactionPayload::Created { journal_id, .. } => {

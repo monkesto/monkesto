@@ -49,10 +49,10 @@ pub async fn create_journal(
 pub struct InviteUserForm {
     email: String,
     pub read: Option<String>,
-    pub addaccount: Option<String>,
-    pub appendtransaction: Option<String>,
+    pub add_account: Option<String>,
+    pub append_transaction: Option<String>,
     pub invite: Option<String>,
-    pub delete: Option<String>,
+    pub create_subjournal: Option<String>,
 }
 
 pub async fn invite_member(
@@ -73,17 +73,17 @@ pub async fn invite_member(
     if form.read.is_some() {
         invitee_permissions.insert(Permissions::READ);
     }
-    if form.addaccount.is_some() {
-        invitee_permissions.insert(Permissions::ADDACCOUNT);
+    if form.add_account.is_some() {
+        invitee_permissions.insert(Permissions::ADD_ACCOUNT);
     }
-    if form.appendtransaction.is_some() {
-        invitee_permissions.insert(Permissions::APPENDTRANSACTION);
+    if form.append_transaction.is_some() {
+        invitee_permissions.insert(Permissions::APPEND_TRANSACTION);
     }
     if form.invite.is_some() {
         invitee_permissions.insert(Permissions::INVITE);
     }
-    if form.delete.is_some() {
-        invitee_permissions.insert(Permissions::DELETE);
+    if form.create_subjournal.is_some() {
+        invitee_permissions.insert(Permissions::CREATE_SUBJOURNAL);
     }
 
     state
@@ -103,10 +103,10 @@ pub async fn invite_member(
 #[derive(Deserialize)]
 pub struct UpdatePermissionsForm {
     pub read: Option<String>,
-    pub addaccount: Option<String>,
-    pub appendtransaction: Option<String>,
+    pub add_account: Option<String>,
+    pub append_transaction: Option<String>,
     pub invite: Option<String>,
-    pub delete: Option<String>,
+    pub create_subjournal: Option<String>,
 }
 
 pub async fn update_permissions(
@@ -125,17 +125,17 @@ pub async fn update_permissions(
     if form.read.is_some() {
         new_permissions.insert(Permissions::READ);
     }
-    if form.addaccount.is_some() {
-        new_permissions.insert(Permissions::ADDACCOUNT);
+    if form.add_account.is_some() {
+        new_permissions.insert(Permissions::ADD_ACCOUNT);
     }
-    if form.appendtransaction.is_some() {
-        new_permissions.insert(Permissions::APPENDTRANSACTION);
+    if form.append_transaction.is_some() {
+        new_permissions.insert(Permissions::APPEND_TRANSACTION);
     }
     if form.invite.is_some() {
         new_permissions.insert(Permissions::INVITE);
     }
-    if form.delete.is_some() {
-        new_permissions.insert(Permissions::DELETE);
+    if form.create_subjournal.is_some() {
+        new_permissions.insert(Permissions::CREATE_SUBJOURNAL);
     }
 
     state

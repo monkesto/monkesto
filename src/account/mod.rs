@@ -135,7 +135,7 @@ impl DieselExecute for AccountPayload {
             AccountPayload::Modified(modified_payload) => match modified_payload {
                 AccountModifiedPayload::Renamed { new_name } => {
                     diesel::update(accounts::table.filter(accounts::id.eq(entity_id)))
-                        .set(accounts::name.eq(new_name))
+                        .set((accounts::name.eq(new_name), accounts::as_of.eq(event_id)))
                         .execute(conn)
                         .map(drop)
                 }

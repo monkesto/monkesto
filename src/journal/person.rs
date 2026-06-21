@@ -179,10 +179,10 @@ pub async fn person_detail_page(
                             form method="post" action=(format!("/journal/{}/person/{}/update", id, person_id)) class="space-y-4" {
                                 div class="space-y-4" {
                                     (permission_checkbox("read", "Read Access", permissions.contains(Permissions::READ)))
-                                    (permission_checkbox("addaccount", "Add Accounts", permissions.contains(Permissions::ADDACCOUNT)))
-                                    (permission_checkbox("appendtransaction", "Append Transactions", permissions.contains(Permissions::APPENDTRANSACTION)))
+                                    (permission_checkbox("add_account", "Add Accounts", permissions.contains(Permissions::ADD_ACCOUNT)))
+                                    (permission_checkbox("append_transaction", "Append Transactions", permissions.contains(Permissions::APPEND_TRANSACTION)))
                                     (permission_checkbox("invite", "Invite Users", permissions.contains(Permissions::INVITE)))
-                                    (permission_checkbox("delete", "Delete Journal", permissions.contains(Permissions::DELETE)))
+                                    (permission_checkbox("create_subjournal", "Create Subjournals", permissions.contains(Permissions::CREATE_SUBJOURNAL)))
                                 }
 
                                 div class="mt-6 flex items-center justify-end gap-x-6" {
