@@ -526,12 +526,11 @@ impl JournalInterface for DieselSqliteJournalInterface {
         journal_id: JournalId,
         authority: &Authority,
     ) -> StoreResult<Vec<JournalState>> {
-        let conn = self.store.pool.get().await?;
-
         // TODO: integrate the authority check into the main query
-
         self.validate_permissions(journal_id, authority, Permissions::READ)
             .await?;
+
+        let conn = self.store.pool.get().await?;
 
         Ok(conn
             .interact(move |conn| {
@@ -555,7 +554,7 @@ impl JournalInterface for DieselSqliteJournalInterface {
             "#,
                 )
                 .bind::<Binary, _>(*journal_id)
-                .load::<JournalState>(conn)
+                .get_results::<JournalState>(conn)
             })
             .await??)
     }

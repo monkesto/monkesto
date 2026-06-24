@@ -20,6 +20,8 @@ pub trait JournalInterface: Send + Sync + Clone + 'static {
         authority: &Authority,
     ) -> StoreResult<JournalId>;
 
+    /// Returns `journal_id` and all its ancestors up to (and including) the root, in
+    /// child-first order (i.e. the given journal comes first, root comes last).
     async fn get_ancestor_ids(&self, journal_id: JournalId) -> StoreResult<Vec<JournalId>>;
 
     async fn get_effective_permissions(
@@ -106,7 +108,7 @@ pub trait JournalInterface: Send + Sync + Clone + 'static {
 mod tests {
     use crate::authority::{Actor, Authority};
     use crate::email::Email;
-    use crate::journal::Permissions;
+    use crate::journal::{JournalId, Permissions};
     use crate::store::universal::diesel_sqlite::DieselSqliteStore;
     use crate::store::universal::diesel_sqlite_interface::{
         DieselSqliteAuthInterface, DieselSqliteJournalInterface,
@@ -115,6 +117,7 @@ mod tests {
     use crate::store::universal::interface::auth::AuthInterface;
     use crate::store::universal::interface::journal::JournalInterface;
     use crate::store::universal::interface::{TEST_AUTHORITY, TEST_EMAIL, TEST_JOURNAL_NAME};
+    use std::collections::HashSet;
     use uuid::Uuid;
 
     async fn interfaces() -> (DieselSqliteAuthInterface, DieselSqliteJournalInterface) {
@@ -211,6 +214,133 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(&creator, subjournal_owner_authority);
+    }
+
+    #[tokio::test]
+    async fn direct_subjournal_query() {
+        let (auth_interface, journal_interface) = interfaces().await;
+
+        let owner_id = auth_interface
+            .create_user(TEST_EMAIL.clone(), Uuid::new_v4(), &TEST_AUTHORITY.clone())
+            .await
+            .unwrap();
+        let owner_authority = &Authority::Direct(Actor::User(owner_id));
+
+        let top_level_id = journal_interface
+            .create_journal(TEST_JOURNAL_NAME.clone(), owner_id, owner_authority)
+            .await
+            .unwrap();
+
+        let depth_one_id = journal_interface
+            .create_subjournal(top_level_id, TEST_JOURNAL_NAME.clone(), owner_authority)
+            .await
+            .unwrap();
+
+        let secondary_depth_one_id = journal_interface
+            .create_subjournal(top_level_id, TEST_JOURNAL_NAME.clone(), owner_authority)
+            .await
+            .unwrap();
+
+        let depth_two_id = journal_interface
+            .create_subjournal(depth_one_id, TEST_JOURNAL_NAME.clone(), owner_authority)
+            .await
+            .unwrap();
+
+        let direct_subjournals = journal_interface
+            .get_direct_subjournals(top_level_id, owner_authority)
+            .await
+            .unwrap()
+            .into_iter()
+            .collect::<HashSet<JournalId>>();
+
+        assert!(direct_subjournals.contains(&depth_one_id));
+        assert!(direct_subjournals.contains(&secondary_depth_one_id));
+
+        assert!(!direct_subjournals.contains(&depth_two_id));
+    }
+
+    #[tokio::test]
+    async fn all_subjournals_query() {
+        let (auth_interface, journal_interface) = interfaces().await;
+
+        let owner_id = auth_interface
+            .create_user(TEST_EMAIL.clone(), Uuid::new_v4(), &TEST_AUTHORITY.clone())
+            .await
+            .unwrap();
+
+        let owner_authority = &Authority::Direct(Actor::User(owner_id));
+
+        let top_level_id = journal_interface
+            .create_journal(TEST_JOURNAL_NAME.clone(), owner_id, owner_authority)
+            .await
+            .unwrap();
+
+        let depth_one_id = journal_interface
+            .create_subjournal(top_level_id, TEST_JOURNAL_NAME.clone(), owner_authority)
+            .await
+            .unwrap();
+
+        let secondary_depth_one_id = journal_interface
+            .create_subjournal(top_level_id, TEST_JOURNAL_NAME.clone(), owner_authority)
+            .await
+            .unwrap();
+
+        let depth_two_id = journal_interface
+            .create_subjournal(depth_one_id, TEST_JOURNAL_NAME.clone(), owner_authority)
+            .await
+            .unwrap();
+
+        let subjournals = journal_interface
+            .get_descendants(top_level_id, owner_authority)
+            .await
+            .unwrap();
+
+        // the depth-one ids can be in either order
+        assert!(subjournals[0].id == depth_one_id || subjournals[0].id == secondary_depth_one_id);
+        assert!(subjournals[1].id == depth_one_id || subjournals[1].id == secondary_depth_one_id);
+
+        assert_eq!(subjournals[2].id, depth_two_id);
+    }
+
+    #[tokio::test]
+    async fn ancestor_trace() {
+        let (auth_interface, journal_interface) = interfaces().await;
+
+        let owner_id = auth_interface
+            .create_user(TEST_EMAIL.clone(), Uuid::new_v4(), &TEST_AUTHORITY.clone())
+            .await
+            .unwrap();
+        let owner_authority = &Authority::Direct(Actor::User(owner_id));
+
+        let top_level_id = journal_interface
+            .create_journal(TEST_JOURNAL_NAME.clone(), owner_id, owner_authority)
+            .await
+            .unwrap();
+
+        let depth_one_id = journal_interface
+            .create_subjournal(top_level_id, TEST_JOURNAL_NAME.clone(), owner_authority)
+            .await
+            .unwrap();
+
+        let depth_two_id = journal_interface
+            .create_subjournal(depth_one_id, TEST_JOURNAL_NAME.clone(), owner_authority)
+            .await
+            .unwrap();
+
+        let depth_three_id = journal_interface
+            .create_subjournal(depth_two_id, TEST_JOURNAL_NAME.clone(), owner_authority)
+            .await
+            .unwrap();
+
+        let trace = journal_interface
+            .get_ancestor_ids(depth_three_id)
+            .await
+            .unwrap();
+
+        assert_eq!(trace[0], depth_three_id);
+        assert_eq!(trace[1], depth_two_id);
+        assert_eq!(trace[2], depth_one_id);
+        assert_eq!(trace[3], top_level_id);
     }
 
     #[tokio::test]
