@@ -36,7 +36,7 @@ webauthn-rs-proto = "0.5.4"
 tower-sessions-file-store = "0.2.0"
 axum-extra = { version = "0.12.5", features = ["form"] }
 rust_decimal = { version = "1.40.0", features = ["macros"] }
-axum-test = "20.0.0"
+axum-test = "21.0.0"
 paste = "1.0.15"
 diesel = {version = "2.3.9", features = ["sqlite", "postgres", "returning_clauses_for_sqlite_3_35"]}
 deadpool-diesel = { version = "0.6.1", features = ["postgres", "sqlite"] }
