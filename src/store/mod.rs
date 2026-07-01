@@ -625,5 +625,6 @@ macro_rules! store_contract_tests {
 }
 
 pub mod memory;
+pub mod sqlite;
 #[expect(dead_code)]
 pub mod universal;

@@ -10,6 +10,7 @@ use crate::store::Record;
 use crate::store::RecordFor;
 use crate::store::Store;
 use crate::store::When;
+use crate::store::sqlite::SqliteStreamId;
 use chrono::DateTime;
 use chrono::Utc;
 
@@ -51,6 +52,22 @@ impl EventFamily for AuthzEvent {
         match self {
             AuthzEvent::Role(event) => AuthzId::Role(event.id),
             AuthzEvent::Grant(event) => AuthzId::Grant(event.id),
+        }
+    }
+}
+
+impl SqliteStreamId for AuthzId {
+    fn stream_type(&self) -> i64 {
+        match self {
+            AuthzId::Role(_) => 1,
+            AuthzId::Grant(_) => 2,
+        }
+    }
+
+    fn stream_id(&self) -> &[u8] {
+        match self {
+            AuthzId::Role(id) => id.as_bytes(),
+            AuthzId::Grant(id) => id.as_bytes(),
         }
     }
 }
