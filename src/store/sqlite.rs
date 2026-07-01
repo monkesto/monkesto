@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS events (
     stream_type INTEGER NOT NULL,
     stream_id BLOB NOT NULL,
     event_type INTEGER NOT NULL,
-    timestamp BIGINT NOT NULL,
+    timestamp INTEGER NOT NULL,
     authority BLOB NOT NULL,
     payload BLOB NOT NULL
 );
