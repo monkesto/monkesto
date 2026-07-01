@@ -10,25 +10,18 @@ use super::Store;
 use std::convert::Infallible;
 use std::marker::PhantomData;
 
-/// Initial event table shape for a SQLite-backed `Store<E>`.
-///
-/// The table is scoped to one event family for now. `stream_type` and
-/// `stream_id` form the stream key used by `When` checks and `review`.
-/// `event_type` makes the decoder key explicit; `payload` is decoded by the
-/// event family's SQLite codec.
 pub const EVENT_SCHEMA: &str = r#"
-CREATE TABLE IF NOT EXISTS events (
-    event_id INTEGER NOT NULL PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS event (
+    id INTEGER NOT NULL PRIMARY KEY,
     stream_type INTEGER NOT NULL,
     stream_id BLOB NOT NULL,
-    event_type INTEGER NOT NULL,
     timestamp INTEGER NOT NULL,
     authority BLOB NOT NULL,
     payload BLOB NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS events_stream_idx
-ON events (stream_type, stream_id, event_id);
+CREATE INDEX IF NOT EXISTS event_stream_idx
+ON event (stream_type, stream_id, id);
 "#;
 
 pub trait SqliteStreamId {
