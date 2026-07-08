@@ -1,4 +1,5 @@
-use crate::store::universal::TimeStamp;
+pub type TimeStamp = DateTime<Utc>;
+
 use chrono::{DateTime, Duration, Utc};
 use std::cell::Cell;
 
@@ -8,6 +9,7 @@ pub trait TimeProvider {
 
 pub struct DefaultTimeProvider;
 
+#[expect(unused)]
 impl DefaultTimeProvider {
     fn new() -> Self {
         Self
@@ -16,7 +18,7 @@ impl DefaultTimeProvider {
 
 impl TimeProvider for DefaultTimeProvider {
     fn get_time(&self) -> TimeStamp {
-        TimeStamp(Utc::now())
+        Utc::now()
     }
 }
 
@@ -25,7 +27,7 @@ pub struct IncrementalTimeProvider {
 }
 
 impl IncrementalTimeProvider {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             current_value: Cell::new(DateTime::UNIX_EPOCH),
         }
@@ -40,12 +42,12 @@ impl TimeProvider for IncrementalTimeProvider {
         self.current_value
             .update(|t| t + Duration::milliseconds(1000));
 
-        TimeStamp(old_value)
+        old_value
     }
 }
 
 impl TimeProvider for DateTime<Utc> {
     fn get_time(&self) -> TimeStamp {
-        TimeStamp(*self)
+        *self
     }
 }

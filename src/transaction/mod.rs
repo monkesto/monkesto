@@ -5,11 +5,12 @@ pub mod views;
 pub use service::TransactionService;
 use std::collections::HashMap;
 
-use crate::ident::Ident;
-use crate::store::universal::{DieselExecute, EventId, GetPayloadUsage, PayloadUsage};
+use crate::id::Ident;
 use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
+
+id!(TransactionId, Ident::new16());
 
 pub fn router() -> Router<crate::StateType> {
     Router::new()
@@ -35,23 +36,19 @@ use crate::authority::Authority;
 use crate::account::{AccountId, AccountStoreError};
 use crate::event::Event;
 use crate::event::EventStore;
+use crate::id;
 use crate::journal::Permissions;
 use crate::journal::{JournalId, JournalStoreError};
-use crate::postcard::Postcard;
-use crate::schema::{accounts, transactions};
-use crate::store::universal::registry::{AnyPayload, EntityType};
 use crate::transaction::TransactionStoreError::InvalidEntryType;
-use crate::{entity, payload, state};
 use TransactionStoreError::InvalidTransaction;
 use dashmap::DashMap;
-use diesel::{QueryResult, SqliteConnection, delete, insert_into, update};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-#[derive(Debug, Error, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Error, Serialize, Deserialize, PartialEq)]
 pub enum TransactionStoreError {
     #[error("Invalid transaction: {0}")]
     InvalidTransaction(TransactionId),
@@ -170,7 +167,7 @@ impl EventStore for TransactionMemoryStore {
             (event_id, event)
         };
 
-        match payload.usage(id, EventId(0)) {
+        match payload.usage(id) {
             PayloadUsage::CreatesState(state) => {
                 let journal_id = state.journal_id;
                 self.local_events.insert(id, vec![event.clone()]);
@@ -281,15 +278,6 @@ impl FromStr for EntryType {
     }
 }
 
-entity!(
-    TransactionEntity,
-    EntityType::Transaction,
-    TransactionId,
-    TransactionPayload,
-    TransactionState,
-    Ident::new16()
-);
-
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq)]
 pub struct BalanceUpdate {
     pub journal_id: JournalId,
@@ -349,139 +337,31 @@ pub enum TransactionModifiedPayload {
     Deleted { difference: Vec<BalanceUpdate> },
 }
 
-payload! {
-    AnyPayload::Transaction,
-
-    pub enum TransactionPayload {
-        Created {
-            journal_id: JournalId,
-            updates: Vec<BalanceUpdate>,
-        },
-        Modified(TransactionModifiedPayload)
-    }
-}
-state! {
-    #[diesel(table_name = crate::schema::transactions)]
-    pub struct TransactionState {
-        pub id: TransactionId,
-        pub journal_id: JournalId,
-        pub updates: Postcard<Vec<BalanceUpdate>>,
-        pub as_of: EventId
-    }
+#[derive(Clone)]
+pub enum TransactionPayload {
+    Created {
+        journal_id: JournalId,
+        updates: Vec<BalanceUpdate>,
+    },
+    #[expect(unused)]
+    Modified(TransactionModifiedPayload),
 }
 
-impl DieselExecute for TransactionPayload {
-    fn execute_sql(
-        &self,
-        entity_id: Ident,
-        event_id: EventId,
-        conn: &mut SqliteConnection,
-    ) -> QueryResult<()> {
-        match self {
-            TransactionPayload::Created {
-                journal_id,
-                updates,
-            } => {
-                insert_into(transactions::table)
-                    .values(TransactionState {
-                        id: entity_id.into(),
-                        journal_id: *journal_id,
-                        updates: Postcard(updates.clone()),
-                        as_of: event_id,
-                    })
-                    .execute(conn)?;
-
-                for update in updates {
-                    let amt = match update.entry_type {
-                        EntryType::Credit => update.amount as i64,
-                        EntryType::Debit => -(update.amount as i64),
-                    };
-
-                    diesel::update(accounts::table.filter(accounts::id.eq(update.account_id)))
-                        .set(accounts::balance.eq(accounts::balance + amt))
-                        .execute(conn)?;
-                }
-                Ok(())
-            }
-            TransactionPayload::Modified(modified_payload) => match modified_payload {
-                TransactionModifiedPayload::UpdatedBalancedUpdates { difference } => {
-                    let mut final_updates = Postcard(Vec::new());
-
-                    let old_updates = transactions::table
-                        .filter(transactions::id.eq(entity_id))
-                        .select(transactions::updates)
-                        .first::<Postcard<Vec<BalanceUpdate>>>(conn)?
-                        .iter()
-                        .map(|update| {
-                            (
-                                (update.journal_id, update.account_id),
-                                (update.amount, update.entry_type),
-                            )
-                        })
-                        .collect::<HashMap<(JournalId, AccountId), (u64, EntryType)>>();
-
-                    for new_update in difference {
-                        if let Some((old_amount, old_entrytype)) =
-                            old_updates.get(&(new_update.journal_id, new_update.account_id))
-                        {
-                            final_updates.push(
-                                *new_update
-                                    + BalanceUpdate {
-                                        journal_id: new_update.journal_id,
-                                        account_id: new_update.account_id,
-                                        amount: *old_amount,
-                                        entry_type: *old_entrytype,
-                                    },
-                            )
-                        } else {
-                            final_updates.push(*new_update)
-                        }
-                    }
-
-                    update(transactions::table.filter(transactions::id.eq(entity_id)))
-                        .set(transactions::updates.eq(final_updates))
-                        .execute(conn)?;
-
-                    for update in difference {
-                        let amt = match update.entry_type {
-                            EntryType::Credit => update.amount as i64,
-                            EntryType::Debit => -(update.amount as i64),
-                        };
-
-                        diesel::update(accounts::table.filter(accounts::id.eq(update.account_id)))
-                            .set(accounts::balance.eq(accounts::balance + amt))
-                            .execute(conn)?;
-                    }
-                    Ok(())
-                }
-                TransactionModifiedPayload::Deleted { difference } => {
-                    delete(transactions::table.filter(transactions::id.eq(entity_id)))
-                        .execute(conn)?;
-
-                    for update in difference {
-                        let amt = match update.entry_type {
-                            EntryType::Credit => update.amount as i64,
-                            EntryType::Debit => -(update.amount as i64),
-                        };
-
-                        diesel::update(accounts::table.filter(accounts::id.eq(update.account_id)))
-                            .set(accounts::balance.eq(accounts::balance + amt))
-                            .execute(conn)?;
-                    }
-
-                    Ok(())
-                }
-            },
-        }
-    }
+#[derive(Clone)]
+pub struct TransactionState {
+    #[expect(unused)]
+    pub id: TransactionId,
+    pub journal_id: JournalId,
+    pub updates: Vec<BalanceUpdate>,
 }
 
-impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
-    fn usage<T: Into<TransactionId>>(
-        self,
-        entity_id: T,
-        event_id: EventId,
-    ) -> PayloadUsage<TransactionEntity> {
+pub enum PayloadUsage {
+    CreatesState(TransactionState),
+    ModifiesState(Box<dyn FnOnce(&mut TransactionState)>),
+}
+
+impl TransactionPayload {
+    fn usage<T: Into<TransactionId>>(self, entity_id: T) -> PayloadUsage {
         match self {
             TransactionPayload::Created {
                 journal_id,
@@ -489,8 +369,7 @@ impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
             } => PayloadUsage::CreatesState(TransactionState {
                 id: entity_id.into(),
                 journal_id,
-                updates: Postcard(updates),
-                as_of: event_id,
+                updates,
             }),
             TransactionPayload::Modified(modified_payload) => {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut TransactionState| {
@@ -498,7 +377,6 @@ impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
 
                     let old_updates = state
                         .updates
-                        .0
                         .iter()
                         .map(|update| {
                             (
@@ -529,8 +407,7 @@ impl GetPayloadUsage<TransactionEntity> for TransactionPayload {
                         }
                     }
 
-                    state.updates = Postcard(final_updates);
-                    state.as_of = event_id;
+                    state.updates = final_updates;
                 }))
             }
         }

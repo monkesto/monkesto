@@ -1,5 +1,11 @@
-use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{DieselExecute, EventId, GetPayloadUsage, PayloadUsage};
+use super::PasskeyEvent;
+use super::UserId;
+use super::layout::layout;
+use super::user::User;
+pub(crate) use super::{AuthEvent, AuthInterface, AuthSession, PasskeyId};
+use crate::authority::Actor;
+use crate::authority::Authority;
+use crate::time_provider::{DefaultTimeProvider, TimeProvider, TimeStamp};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Path;
@@ -8,27 +14,15 @@ use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
-use std::io::Write;
-use thiserror::Error;
-
+use maud::PreEscaped;
+use maud::html;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::Arc;
+use thiserror::Error;
 use webauthn_rs::prelude::PasskeyRegistration;
 use webauthn_rs::prelude::RegisterPublicKeyCredential;
 use webauthn_rs::prelude::Webauthn;
-
-use super::AuthSession;
-use super::layout::layout;
-use super::user::UserId;
-use super::user::UserStore;
-use crate::authority::Actor;
-use crate::authority::Authority;
-use crate::event::Event;
-use crate::event::EventStore;
-use crate::ident::Ident;
-use crate::{entity, payload, state};
-use maud::PreEscaped;
-use maud::html;
 
 /// Errors that occur during passkey management operations.
 #[derive(Error, Debug)]
@@ -39,10 +33,184 @@ pub enum PasskeyError {
     InvalidInput,
     #[error("Session error: {0}")]
     SessionError(#[from] tower_sessions::session::Error),
-    #[error("Serialization error: {0}")]
-    SerializationError(#[from] serde_json::Error),
-    #[error("Store operation failed: {0}")]
-    StoreError(String),
+    #[error("a passkey with the id {0} already exists")]
+    IdConflict(PasskeyId),
+    #[error("no passkey exists with the provided id: {0}")]
+    PasskeyDoesntExist(PasskeyId),
+    #[error("no user exists with the provided id: {0}")]
+    UserDoesntExist(UserId),
+    #[error("failed to serialize a value with serde_json")]
+    Json(#[from] serde_json::Error),
+    #[error("received an error from sqlx: {0}")]
+    Sqlx(#[from] sqlx::Error),
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct CorePasskey(pub webauthn_rs::prelude::Passkey);
+
+// todo: figure out why this wasn't implemented in the original type
+impl Eq for CorePasskey {}
+
+impl Deref for CorePasskey {
+    type Target = webauthn_rs::prelude::Passkey;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct PasskeyState {
+    pub id: PasskeyId,
+    pub user_id: UserId,
+    pub passkey: Postcard<CorePasskey>,
+}
+
+#[derive(Debug, StateQuery, Clone, Serialize, Deserialize)]
+#[state_query(PasskeyEvent)]
+pub struct Passkey {
+    #[id]
+    passkey_id: PasskeyId,
+    user_id: UserId,
+    // passkey being Some(_) is the `found` descriminator for this type
+    passkey: Option<CorePasskey>,
+    deleted: bool,
+}
+
+impl Passkey {
+    fn new(passkey_id: PasskeyId, user_id: UserId) -> Self {
+        Self {
+            passkey_id,
+            user_id,
+            passkey: None,
+            deleted: false,
+        }
+    }
+}
+
+impl StateMutate for Passkey {
+    fn mutate(&mut self, event: Self::Event) {
+        match event {
+            PasskeyEvent::PasskeyCreated {
+                user_id, passkey, ..
+            } => {
+                self.user_id = user_id;
+                self.passkey = Some(*passkey);
+            }
+            PasskeyEvent::PasskeyDeleted { .. } => {
+                self.deleted = true;
+            }
+        }
+    }
+}
+
+pub struct CreatePasskey {
+    passkey_id: PasskeyId,
+    user_id: UserId,
+    passkey: CorePasskey,
+    authority: Authority,
+    timestamp: TimeStamp,
+}
+
+impl CreatePasskey {
+    pub(crate) fn new(
+        passkey_id: PasskeyId,
+        user_id: UserId,
+        passkey: CorePasskey,
+        authority: Authority,
+        timestamp: TimeStamp,
+    ) -> Self {
+        Self {
+            passkey_id,
+            user_id,
+            passkey,
+            authority,
+            timestamp,
+        }
+    }
+}
+
+impl Decision for CreatePasskey {
+    type Event = AuthEvent;
+    type StateQuery = (User, Passkey);
+    type Error = PasskeyError;
+
+    fn state_query(&self) -> Self::StateQuery {
+        (
+            User::new(self.user_id),
+            Passkey::new(self.passkey_id, self.user_id),
+        )
+    }
+
+    fn process(&self, (user, passkey): &Self::StateQuery) -> Result<Vec<Self::Event>, Self::Error> {
+        if !user.found || user.deleted {
+            return Err(PasskeyError::UserDoesntExist(user.user_id));
+        }
+
+        if passkey.passkey.is_some() {
+            return Err(PasskeyError::IdConflict(passkey.passkey_id));
+        }
+
+        Ok(vec![AuthEvent::PasskeyCreated {
+            passkey_id: self.passkey_id,
+            user_id: self.user_id,
+            passkey: Box::new(self.passkey.clone()),
+            authority: self.authority.clone(),
+            timestamp: self.timestamp,
+        }])
+    }
+}
+
+pub struct DeletePasskey {
+    passkey_id: PasskeyId,
+    user_id: UserId,
+    authority: Authority,
+    timestamp: TimeStamp,
+}
+
+impl DeletePasskey {
+    fn new(
+        passkey_id: PasskeyId,
+        user_id: UserId,
+        authority: Authority,
+        timestamp: TimeStamp,
+    ) -> Self {
+        Self {
+            passkey_id,
+            user_id,
+            authority,
+            timestamp,
+        }
+    }
+}
+
+impl Decision for DeletePasskey {
+    type Event = AuthEvent;
+    type StateQuery = (User, Passkey);
+    type Error = PasskeyError;
+
+    fn state_query(&self) -> Self::StateQuery {
+        (
+            User::new(self.user_id),
+            Passkey::new(self.passkey_id, self.user_id),
+        )
+    }
+
+    fn process(&self, (user, passkey): &Self::StateQuery) -> Result<Vec<Self::Event>, Self::Error> {
+        if !user.found || user.deleted {
+            return Err(PasskeyError::UserDoesntExist(user.user_id));
+        }
+
+        if passkey.passkey.is_none() || passkey.deleted {
+            return Err(PasskeyError::PasskeyDoesntExist(passkey.passkey_id));
+        }
+
+        Ok(vec![AuthEvent::PasskeyDeleted {
+            passkey_id: self.passkey_id,
+            authority: self.authority.clone(),
+            timestamp: self.timestamp,
+        }])
+    }
 }
 
 impl IntoResponse for PasskeyError {
@@ -57,24 +225,36 @@ impl IntoResponse for PasskeyError {
             PasskeyError::SessionError(_) => {
                 (StatusCode::INTERNAL_SERVER_ERROR, "Session error").into_response()
             }
-            PasskeyError::SerializationError(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Serialization error").into_response()
+            PasskeyError::IdConflict(_) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, "Id conflict").into_response()
             }
-            PasskeyError::StoreError(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Store operation failed").into_response()
+            PasskeyError::PasskeyDoesntExist(_) => {
+                (StatusCode::BAD_REQUEST, "Passkey doesnt exist").into_response()
             }
+            PasskeyError::UserDoesntExist(_) => {
+                (StatusCode::BAD_REQUEST, "User doesnt exist").into_response()
+            }
+            PasskeyError::Json(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to encode/parse json",
+            )
+                .into_response(),
+            PasskeyError::Sqlx(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to interact with the database",
+            )
+                .into_response(),
         }
     }
 }
 
-use dashmap::DashMap;
-use diesel::dsl::insert_into;
-use diesel::{QueryResult, SqliteConnection, delete};
+use crate::postcard::Postcard;
+use disintegrate::{Decision, StateMutate, StateQuery};
 use serde::{Deserialize, Serialize};
-use std::ops::Deref;
+use sqlx::FromRow;
 
-pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
-    Extension(passkey_store): Extension<Arc<P>>,
+pub async fn delete_passkey_post(
+    Extension(interface): Extension<AuthInterface>,
     auth_session: AuthSession,
     Path(passkey_id_str): Path<String>,
 ) -> Result<impl IntoResponse, PasskeyError> {
@@ -91,23 +271,27 @@ pub async fn delete_passkey_post<P: PasskeyStore + 'static>(
         .map_err(|_| PasskeyError::InvalidInput)?;
 
     // Remove the passkey from the user's passkeys
-    passkey_store
-        .record(
+    if interface
+        .decision_maker
+        .make(DeletePasskey::new(
             passkey_id,
+            user_id,
             Authority::Direct(Actor::User(user_id)),
-            PasskeyPayload::Modified(PasskeyModifiedPayload::Deleted),
-        )
+            DefaultTimeProvider.get_time(),
+        ))
         .await
-        .map_err(|e| PasskeyError::StoreError(e.to_string()))?;
+        .is_err()
+    {
+        return Ok(Redirect::to("/me?error=passkeydeletionfailure").into_response());
+    }
 
     // Redirect back to passkey page
     Ok(Redirect::to("/me").into_response())
 }
 
-pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
+pub async fn create_passkey_post(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(user_store): Extension<Arc<U>>,
-    Extension(passkey_store): Extension<Arc<P>>,
+    Extension(auth_interface): Extension<AuthInterface>,
     auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, PasskeyError> {
@@ -142,16 +326,19 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
                 let passkey_id = PasskeyId::new();
 
                 // Add the new passkey to the user's existing passkeys
-                if passkey_store
-                    .record(
+                if auth_interface
+                    .decision_maker
+                    .make(CreatePasskey::new(
                         passkey_id,
+                        user_id,
+                        CorePasskey(passkey),
                         Authority::Direct(Actor::User(user_id)),
-                        PasskeyPayload::Created { user_id, passkey },
-                    )
+                        DefaultTimeProvider.get_time(),
+                    ))
                     .await
                     .is_err()
                 {
-                    return Ok(Redirect::to("/me?error=storage_error").into_response());
+                    return Ok(Redirect::to("/signup?error=passkeycreationfailure").into_response());
                 }
 
                 // Redirect back to passkey management page
@@ -166,23 +353,15 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
     } else {
         // This is initial request - start registration
         // Get user's existing passkeys
-        let existing_passkeys = passkey_store
-            .get_user_passkeys(&user_id)
+        let existing_passkeys = auth_interface
+            .get_user_passkeys(user_id)
             .await
             .unwrap_or_default();
 
-        // Get user's email
-        let email = user_store
-            .get_user_email(user_id)
+        let user = auth_interface
+            .query_user(user_id)
             .await
-            .unwrap_or_else(|_| Some("unknown@example.com".to_string()))
-            .unwrap_or_else(|| "unknown@example.com".to_string());
-
-        // Get the webauthn UUID for this user
-        let webauthn_uuid = user_store
-            .get_webauthn_uuid(user_id)
-            .await
-            .map_err(|e| PasskeyError::StoreError(e.to_string()))?;
+            .map_err(|_| PasskeyError::UserDoesntExist(user_id))?;
 
         let exclude_credentials: Vec<_> = existing_passkeys
             .iter()
@@ -194,9 +373,9 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
 
         // Start passkey registration
         match webauthn.start_passkey_registration(
-            webauthn_uuid,
-            &email,
-            &email,
+            user.webauthn_uuid,
+            user.email.as_ref(),
+            user.email.as_ref(),
             Some(exclude_credentials),
         ) {
             Ok((ccr, reg_state)) => {
@@ -207,7 +386,7 @@ pub async fn create_passkey_post<U: UserStore + 'static, P: PasskeyStore + 'stat
                 let challenge_json = serde_json::to_string(&ccr)?;
 
                 // Return challenge page
-                let markup = add_passkey_challenge_page(&email, &challenge_json);
+                let markup = add_passkey_challenge_page(user.email.as_ref(), &challenge_json);
                 Ok((
                     StatusCode::OK,
                     [(header::CONTENT_TYPE, "text/html")],
@@ -311,337 +490,4 @@ fn add_passkey_challenge_page(email: &str, challenge_data: &str) -> maud::Markup
     };
 
     layout(None, content)
-}
-
-entity!(
-    PasskeyEntity,
-    EntityType::Passkey,
-    PasskeyId,
-    PasskeyPayload,
-    PasskeyState,
-    Ident::new16()
-);
-
-state! {
-    #[diesel(table_name = crate::schema::passkeys)]
-    pub struct PasskeyState {
-        pub id: PasskeyId,
-        pub user_id: UserId,
-        pub passkey: Postcard<webauthn_rs::prelude::Passkey>,
-        pub as_of: EventId
-    }
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum PasskeyModifiedPayload {
-    Deleted,
-}
-
-payload! {
-    AnyPayload::Passkey,
-
-    #[allow(clippy::large_enum_variant)]
-    pub enum PasskeyPayload {
-        Created {
-            user_id: UserId,
-            passkey: webauthn_rs::prelude::Passkey,
-        },
-        Modified(PasskeyModifiedPayload)
-    }
-}
-
-impl DieselExecute for PasskeyPayload {
-    fn execute_sql(
-        &self,
-        entity_id: Ident,
-        event_id: EventId,
-        conn: &mut SqliteConnection,
-    ) -> QueryResult<()> {
-        match self {
-            PasskeyPayload::Created { user_id, passkey } => insert_into(passkeys::table)
-                .values(PasskeyState {
-                    id: entity_id.into(),
-                    user_id: *user_id,
-                    passkey: Postcard(passkey.clone()),
-                    as_of: event_id,
-                })
-                .execute(conn)
-                .map(drop),
-            PasskeyPayload::Modified(modified_payload) => match modified_payload {
-                PasskeyModifiedPayload::Deleted => {
-                    delete(passkeys::table.filter(passkeys::id.eq(entity_id)))
-                        .execute(conn)
-                        .map(drop)
-                }
-            },
-        }
-    }
-}
-
-impl GetPayloadUsage<PasskeyEntity> for PasskeyPayload {
-    fn usage<T: Into<PasskeyId>>(
-        self,
-        entity_id: T,
-        event_id: EventId,
-    ) -> PayloadUsage<PasskeyEntity> {
-        match self {
-            PasskeyPayload::Created { user_id, passkey } => {
-                PayloadUsage::CreatesState(PasskeyState {
-                    id: entity_id.into(),
-                    user_id,
-                    passkey: Postcard(passkey),
-                    as_of: event_id,
-                })
-            }
-            PasskeyPayload::Modified(modified_payload) => {
-                PayloadUsage::ModifiesState(Box::new(move |state: &mut PasskeyState| {
-                    match modified_payload {
-                        PasskeyModifiedPayload::Deleted => {}
-                    }
-                    state.as_of = event_id;
-                }))
-            }
-        }
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum PasskeyStoreError {
-    #[error("Storage operation failed: {0}")]
-    #[expect(dead_code)]
-    OperationFailed(String),
-
-    #[error("Invalid PasskeyId: {0}")]
-    #[allow(dead_code)]
-    InvalidPasskey(PasskeyId),
-}
-
-pub trait PasskeyStore:
-    EventStore<Id = PasskeyId, Payload = PasskeyPayload, Error = PasskeyStoreError>
-{
-    async fn get_user_passkeys(&self, user_id: &UserId) -> Result<Vec<PasskeyState>, Self::Error>;
-
-    async fn get_all_credentials(&self) -> Result<Vec<webauthn_rs::prelude::Passkey>, Self::Error>;
-
-    async fn find_user_by_credential(
-        &self,
-        credential_id: &[u8],
-    ) -> Result<Option<(UserId, PasskeyId)>, Self::Error>;
-}
-
-use crate::postcard::Postcard;
-use crate::schema::passkeys;
-use tokio::sync::Mutex;
-
-struct PasskeyData {
-    user_to_passkeys: HashMap<UserId, Vec<PasskeyId>>,
-    passkeys: HashMap<PasskeyId, PasskeyState>,
-}
-
-impl PasskeyData {
-    fn new() -> Self {
-        Self {
-            user_to_passkeys: HashMap::new(),
-            passkeys: HashMap::new(),
-        }
-    }
-}
-
-/// In-memory storage implementation for passkeys using HashMap
-#[allow(clippy::type_complexity)]
-pub struct MemoryPasskeyStore {
-    data: Arc<Mutex<PasskeyData>>,
-    global_events: Arc<Mutex<Vec<Arc<Event<PasskeyPayload, PasskeyId>>>>>,
-    local_events: Arc<DashMap<PasskeyId, Vec<Arc<Event<PasskeyPayload, PasskeyId>>>>>,
-}
-
-impl MemoryPasskeyStore {
-    pub fn new() -> Self {
-        Self {
-            data: Arc::new(Mutex::new(PasskeyData::new())),
-            local_events: Arc::new(DashMap::new()),
-            global_events: Arc::new(Mutex::new(Vec::new())),
-        }
-    }
-}
-
-impl Default for MemoryPasskeyStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl EventStore for MemoryPasskeyStore {
-    type Id = PasskeyId;
-    type EventId = u64;
-    type Payload = PasskeyPayload;
-    type Error = PasskeyStoreError;
-
-    async fn record(
-        &self,
-        id: PasskeyId,
-        authority: Authority,
-        payload: PasskeyPayload,
-    ) -> Result<u64, PasskeyStoreError> {
-        let (event_id, event) = {
-            let mut global_events = self.global_events.lock().await;
-            let event_id = global_events.len() as u64;
-            let event = Arc::new(Event::new(payload.clone(), id, event_id, authority));
-            global_events.push(event.clone());
-            (event_id, event)
-        };
-
-        let mut data = self.data.lock().await;
-
-        match payload.usage(id, EventId(0)) {
-            PayloadUsage::CreatesState(passkey_state) => {
-                data.passkeys.insert(id, passkey_state.clone());
-                data.user_to_passkeys
-                    .entry(passkey_state.user_id)
-                    .or_default()
-                    .push(id);
-                self.local_events.entry(id).or_default().push(event);
-            }
-            PayloadUsage::ModifiesState(mod_fn) => {
-                if let Some(mut local_events) = self.local_events.get_mut(&id) {
-                    local_events.push(event);
-                }
-
-                let user_id = if let Some(passkey) = data.passkeys.get_mut(&id) {
-                    mod_fn(passkey);
-                    Some(passkey.user_id)
-                } else {
-                    None
-                };
-
-                if let Some(user_id) = user_id
-                    && let Some(passkeys) = data.user_to_passkeys.get_mut(&user_id)
-                {
-                    passkeys.retain(|stored| *stored != id);
-                }
-            }
-        }
-
-        Ok(event_id)
-    }
-
-    async fn get_events(
-        &self,
-        id: PasskeyId,
-        after: u64,
-        limit: u64,
-    ) -> Result<Vec<Event<Self::Payload, Self::Id>>, Self::Error> {
-        let events = self
-            .local_events
-            .get(&id)
-            .ok_or(PasskeyStoreError::InvalidPasskey(id))?;
-
-        // avoid a panic if start > len
-        if after >= events.len() as u64 {
-            return Ok(Vec::new());
-        }
-
-        // clamp the end value to the vector length
-        let end = std::cmp::min(after + limit + 1, events.len() as u64);
-
-        Ok(events[(after + 1) as usize..end as usize]
-            .iter()
-            .map(|p| p.deref().clone())
-            .collect())
-    }
-}
-
-impl PasskeyStore for MemoryPasskeyStore {
-    async fn get_user_passkeys(
-        &self,
-        user_id: &UserId,
-    ) -> Result<Vec<PasskeyState>, PasskeyStoreError> {
-        let data = self.data.lock().await;
-        let passkey_ids = data.user_to_passkeys.get(user_id);
-
-        let mut passkeys = Vec::new();
-
-        if let Some(passkey_ids) = passkey_ids {
-            for passkey_id in passkey_ids {
-                if let Some(passkey) = data.passkeys.get(passkey_id) {
-                    passkeys.push(passkey.clone())
-                }
-            }
-        }
-
-        Ok(passkeys)
-    }
-
-    async fn get_all_credentials(
-        &self,
-    ) -> Result<Vec<webauthn_rs::prelude::Passkey>, PasskeyStoreError> {
-        let data = self.data.lock().await;
-        Ok(data
-            .passkeys
-            .values()
-            .map(|state| state.passkey.0.clone())
-            .collect())
-    }
-
-    async fn find_user_by_credential(
-        &self,
-        credential_id: &[u8],
-    ) -> Result<Option<(UserId, PasskeyId)>, PasskeyStoreError> {
-        let data = self.data.lock().await;
-
-        Ok(data
-            .passkeys
-            .iter()
-            .find(|(_, state)| state.passkey.cred_id().as_slice() == credential_id)
-            .map(|(_, state)| (state.user_id, state.id)))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Arc;
-
-    #[tokio::test]
-    async fn test_passkey_store_operations() {
-        let passkey_store = Arc::new(MemoryPasskeyStore::new());
-        let user_id = UserId::new();
-
-        // Initially user should have no passkeys
-        assert!(
-            passkey_store
-                .get_user_passkeys(&user_id)
-                .await
-                .expect("Should get user passkeys")
-                .is_empty()
-        );
-
-        // Deleting non-existent passkey should succeed silently
-        let passkey_id = PasskeyId::new();
-        passkey_store
-            .record(
-                passkey_id,
-                Authority::Direct(Actor::User(user_id)),
-                PasskeyPayload::Modified(PasskeyModifiedPayload::Deleted),
-            )
-            .await
-            .expect("Should succeed even for non-existent passkey");
-
-        // Test that get_all_credentials works when empty
-        assert!(
-            passkey_store
-                .get_all_credentials()
-                .await
-                .expect("Should get all credentials")
-                .is_empty()
-        );
-
-        // Test that find_user_by_credential returns None when empty
-        assert!(
-            passkey_store
-                .find_user_by_credential(&[1, 2, 3, 4])
-                .await
-                .expect("Should find user by credential")
-                .is_none()
-        );
-    }
 }

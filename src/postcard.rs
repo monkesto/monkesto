@@ -1,16 +1,12 @@
-use diesel::backend::Backend;
-use diesel::deserialize::FromSql;
-use diesel::serialize::{Output, ToSql};
-use diesel::sql_types::Binary;
-use diesel::{AsExpression, FromSqlRow, deserialize, serialize};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::fmt::Debug;
-use std::io::Write;
 use std::ops::{Deref, DerefMut};
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Binary)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Postcard<T>(pub T);
 
 impl<T> Deref for Postcard<T> {
@@ -25,28 +21,25 @@ impl<T> DerefMut for Postcard<T> {
     }
 }
 
-impl<T: Serialize + Debug> ToSql<Binary, diesel::sqlite::Sqlite> for Postcard<T> {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::sqlite::Sqlite>) -> serialize::Result {
-        let bytes = postcard::to_allocvec(&self.0)?;
-        out.set_value(bytes);
-        Ok(serialize::IsNull::No)
+impl<T> Type<Postgres> for Postcard<T> {
+    fn type_info() -> <Postgres as Database>::TypeInfo {
+        <&[u8] as Type<Postgres>>::type_info()
     }
 }
 
-impl<T: Serialize + Debug> ToSql<Binary, diesel::pg::Pg> for Postcard<T> {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, diesel::pg::Pg>) -> serialize::Result {
-        let bytes = postcard::to_allocvec(&self.0)?;
-        out.write_all(&bytes)?;
-        Ok(serialize::IsNull::No)
+impl<'q, T: Serialize> Encode<'q, Postgres> for Postcard<T> {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        let bytes = postcard::to_allocvec(self)?;
+        <Vec<u8> as Encode<Postgres>>::encode(bytes, buf)
     }
 }
 
-impl<T: DeserializeOwned, DB: Backend> FromSql<Binary, DB> for Postcard<T>
-where
-    Vec<u8>: FromSql<Binary, DB>,
-{
-    fn from_sql(value: DB::RawValue<'_>) -> deserialize::Result<Self> {
-        let bytes = <Vec<u8> as FromSql<Binary, DB>>::from_sql(value)?;
-        Ok(postcard::from_bytes(&bytes)?)
+impl<'r, T: DeserializeOwned> Decode<'r, Postgres> for Postcard<T> {
+    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
+        let bytes = <&[u8] as Decode<Postgres>>::decode(value)?;
+        Ok(postcard::from_bytes(bytes)?)
     }
 }

@@ -38,7 +38,6 @@ pub enum When<T: Copy> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum After<T: Copy> {
     Start,
-    #[cfg_attr(not(test), expect(dead_code))]
     Specific(T),
 }
 
@@ -125,7 +124,7 @@ where
     }
 }
 
-pub trait Store<E: EventFamily>: Send + Sync {
+pub(crate) trait Store<E: EventFamily>: Send + Sync {
     type Error: Error + Send + Sync + 'static;
 
     async fn record(
@@ -150,7 +149,7 @@ pub trait Store<E: EventFamily>: Send + Sync {
     ) -> Result<Page<E>, Self::Error>;
 
     #[rustfmt::skip]
-    #[cfg_attr(not(test), expect(dead_code))]
+    #[cfg_attr(not(test), expect(unused))]
     async fn observe(
         &self,
         after: After<EventId>,
@@ -626,5 +625,3 @@ macro_rules! store_contract_tests {
 
 pub mod memory;
 pub mod sqlite;
-#[expect(dead_code)]
-pub mod universal;

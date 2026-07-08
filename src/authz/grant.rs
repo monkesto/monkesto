@@ -1,5 +1,5 @@
 use crate::id;
-use crate::ident::Ident;
+use crate::id::Ident;
 use crate::store::Stream;
 use serde::Deserialize;
 use serde::Serialize;

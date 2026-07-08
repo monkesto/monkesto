@@ -1,9 +1,9 @@
 use crate::BackendType;
 use crate::StateType;
-use crate::auth::user::{self};
+use crate::auth::get_user;
 use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::ident::Ident;
+use crate::id::Ident;
 use crate::journal::layout::layout;
 use crate::journal::{JournalId, JournalNameOrUnknown};
 use crate::monkesto_error::MonkestoError;
@@ -30,7 +30,7 @@ pub async fn journal_list(
     session: AuthSession<BackendType>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
 
     let content = html! {
         div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" {
@@ -53,10 +53,8 @@ pub async fn journal_list(
                                             Actor::System => {"System"},
                                             Actor::Anonymous => {"Anonymous"},
                                             Actor::User(creator_id) => {
-                                                 @match state.user_service.user_get_email(*creator_id).await {
-                                                    Ok(Some(email)) => (email),
-
-                                                    Ok(None) => {"unknown user"},
+                                                 @match state.auth_interface.query_user(*creator_id).await {
+                                                    Ok(user) => (user.email.to_string()),
 
                                                     Err(e) => (format!("failed to fetch creator email: {:?}", e)),
                                                 }
@@ -129,7 +127,7 @@ pub async fn journal_detail(
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
 ) -> Result<Markup, Redirect> {
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
 
     let journal_state_res = match JournalId::from_str(&id) {
         Ok(s) => {
@@ -195,10 +193,8 @@ pub async fn journal_detail(
                                                 Actor::System => {"System"},
                                                 Actor::Anonymous => {"Anonymous"},
                                                 Actor::User(creator_id) => {
-                                                     @match state.user_service.user_get_email(*creator_id).await {
-                                                        Ok(Some(email)) => (email),
-
-                                                        Ok(None) => {"unknown user"},
+                                                     @match state.auth_interface.query_user(*creator_id).await {
+                                                        Ok(user) => (user.email.to_string()),
 
                                                         Err(e) => (format!("failed to fetch creator email: {:?}", e)),
                                                     }
@@ -265,7 +261,7 @@ pub async fn sub_journal_list_page(
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
 ) -> Result<Markup, Redirect> {
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
 
     let authority = Authority::Direct(Actor::User(user.id));
 

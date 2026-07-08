@@ -1,11 +1,8 @@
 use crate::AppState;
 use crate::account::AccountId;
-use crate::auth::user::UserStore;
-use crate::auth::user::UserStoreError;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
-use crate::email::Email;
 use crate::journal::{JournalId, Permissions};
 use crate::monkesto_error::MonkestoResult;
 use crate::name::Name;
@@ -16,7 +13,7 @@ use std::str::FromStr;
 pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
     // TODO: Unify user seeding
 
-    service.user_service.store().seed_dev_users().await?;
+    service.auth_interface.seed_dev_users().await?;
 
     let pacioli_id = UserId::from_str("zk8m3p5q7r2n4v6x")?;
     let wedgwood_id = UserId::from_str("yj7l2o4p6q8s0u1w")?;
@@ -24,13 +21,7 @@ pub(crate) async fn seed_dev_data(service: &AppState) -> MonkestoResult<()> {
     let pacioli_authority = Authority::Direct(Actor::User(pacioli_id));
     let wedgwood_authority = Authority::Direct(Actor::User(wedgwood_id));
 
-    let wedgwood_email = Email::try_new(
-        service
-            .user_service
-            .user_get_email(wedgwood_id)
-            .await?
-            .ok_or(UserStoreError::UserNotFound)?,
-    )?;
+    let wedgwood_email = service.auth_interface.query_user(wedgwood_id).await?.email;
 
     let maple_ridge_academy_id = JournalId::from_str("ab1cd2ef3g")?;
     let smith_and_sons_id = JournalId::from_str("hi4jk5lm6n")?;

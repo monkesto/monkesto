@@ -4,13 +4,10 @@ use axum::http::header;
 use axum::response::IntoResponse;
 use maud::Markup;
 use maud::html;
-use std::sync::Arc;
 
-use super::AuthSession;
 use super::layout::layout;
 use super::passkey::PasskeyState;
-use super::passkey::PasskeyStore;
-use super::user::UserStore;
+use super::{AuthInterface, AuthSession};
 use crate::theme::theme_with_head;
 
 fn me_page(email: &str, passkeys: &[PasskeyState]) -> Markup {
@@ -118,9 +115,8 @@ fn not_logged_in_page() -> Markup {
     )
 }
 
-pub async fn me_get<U: UserStore + 'static, P: PasskeyStore + 'static>(
-    Extension(user_store): Extension<Arc<U>>,
-    Extension(passkey_store): Extension<Arc<P>>,
+pub async fn me_get(
+    Extension(auth_interface): Extension<AuthInterface>,
     auth_session: AuthSession,
 ) -> impl IntoResponse {
     // Check if user is logged in
@@ -137,17 +133,17 @@ pub async fn me_get<U: UserStore + 'static, P: PasskeyStore + 'static>(
     };
 
     // Get user passkeys
-    let passkeys = passkey_store
-        .get_user_passkeys(&user_id)
+    let passkeys = auth_interface
+        .get_user_passkeys(user_id)
         .await
         .unwrap_or_default();
 
     // Get the email for this user
-    let email = user_store
-        .get_user_email(user_id)
+    let email = auth_interface
+        .query_user(user_id)
         .await
-        .unwrap_or_else(|_| Some("unknown@example.com".to_string()))
-        .unwrap_or_else(|| "unknown@example.com".to_string());
+        .map(|usr| usr.email.to_string())
+        .unwrap_or_else(|_| "unknown@example.com".to_string());
 
     let markup = me_page(&email, &passkeys);
     (

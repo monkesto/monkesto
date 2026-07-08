@@ -1,5 +1,5 @@
-use crate::auth::user::UserStore;
-use crate::authority::UserId;
+use crate::auth::AuthInterface;
+use crate::auth::user::UserId;
 use crate::authority::{Actor, Authority};
 use crate::email::Email;
 use crate::journal::JournalStore;
@@ -8,7 +8,6 @@ use crate::journal::JournalStoreError::InvalidJournal;
 use crate::journal::JournalStoreError::PermissionError;
 use crate::journal::JournalStoreError::UserAlreadyHasAccess;
 use crate::journal::JournalStoreError::UserDoesntHaveAccess;
-use crate::journal::JournalStoreError::UserLookupFailed;
 use crate::journal::JournalStoreResult;
 use crate::journal::Permissions;
 use crate::journal::{JournalId, JournalPayload};
@@ -18,24 +17,22 @@ use chrono::DateTime;
 use chrono::Utc;
 
 #[derive(Clone)]
-pub struct JournalService<J, U>
+pub struct JournalService<J>
 where
     J: JournalStore<EventId = u64>,
-    U: UserStore<EventId = u64>,
 {
     journal_store: J,
-    user_store: U,
+    auth_interface: AuthInterface,
 }
 
-impl<J, U> JournalService<J, U>
+impl<J> JournalService<J>
 where
     J: JournalStore<EventId = u64>,
-    U: UserStore<EventId = u64>,
 {
-    pub fn new(journal_store: J, user_store: U) -> Self {
+    pub fn new(journal_store: J, auth_interface: AuthInterface) -> Self {
         Self {
             journal_store,
-            user_store,
+            auth_interface,
         }
     }
 
@@ -317,11 +314,7 @@ where
         invitee: Email,
         permissions: Permissions,
     ) -> JournalStoreResult<u64> {
-        let invitee_id = self
-            .user_store
-            .lookup_user_id(invitee.as_ref())
-            .await?
-            .ok_or(UserLookupFailed(invitee.clone()))?;
+        let invitee_id = self.auth_interface.lookup_user_id(&invitee).await?;
 
         if !self
             .journal_store

@@ -1,9 +1,9 @@
 use crate::BackendType;
 use crate::StateType;
-use crate::auth::user::{self};
+use crate::auth::get_user;
+use crate::auth::user::UserId;
 use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::authority::UserId;
 use crate::email::Email;
 use crate::journal::{JournalId, Permissions};
 use crate::monkesto_error::OrRedirect;
@@ -27,7 +27,7 @@ pub async fn create_journal(
 ) -> Result<Redirect, Redirect> {
     const CALLBACK_URL: &str = "/journal";
 
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
 
     let name = Name::try_new(form.journal_name).or_redirect(CALLBACK_URL)?;
 
@@ -65,7 +65,7 @@ pub async fn invite_member(
 
     let email = Email::try_new(form.email).or_redirect(callback_url)?;
 
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
 
     let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
 
@@ -117,7 +117,7 @@ pub async fn update_permissions(
 ) -> Result<Redirect, Redirect> {
     let callback_url = &format!("/journal/{}/person/{}", id, person_id);
 
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
     let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
     let target_user_id = UserId::from_str(&person_id).or_redirect(callback_url)?;
 
@@ -165,7 +165,7 @@ pub async fn create_sub_journal(
 ) -> Result<Redirect, Redirect> {
     let callback_url = format!("/journal/{}/subjournals", id);
 
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
     let authority = Authority::Direct(Actor::User(user.id));
 
     let name = Name::try_new(form.subjournal_name).or_redirect(&callback_url)?;
@@ -189,7 +189,7 @@ pub async fn remove_member(
     let callback_url = &format!("/journal/{}/person", id);
     let person_detail_url = &format!("/journal/{}/person/{}", id, person_id);
 
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
     let journal_id = JournalId::from_str(&id).or_redirect(person_detail_url)?;
     let target_user_id = UserId::from_str(&person_id).or_redirect(person_detail_url)?;
 

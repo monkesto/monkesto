@@ -4,26 +4,24 @@ mod authority;
 mod authz;
 mod email;
 mod entitlement;
-mod entity;
 mod event;
 mod id;
-mod ident;
 mod journal;
 mod monkesto_error;
 pub mod name;
 mod notfoundpage;
 mod postcard;
-mod schema;
 mod seed;
-mod store;
 mod theme;
+mod time_provider;
 mod transaction;
 pub mod util;
 
+pub mod store;
+
 use crate::account::AccountMemoryStore;
 use crate::account::AccountService;
-use crate::auth::MemoryUserStore;
-use crate::auth::UserService;
+use crate::auth::{AuthEvent, AuthInterface};
 use crate::journal::JournalMemoryStore;
 use crate::journal::JournalService;
 use crate::transaction::TransactionMemoryStore;
@@ -37,47 +35,40 @@ use axum::response::Redirect;
 use axum::routing::get;
 use axum_login::tracing::{Level, Span};
 use axum_login::{AuthManagerLayerBuilder, tracing};
+use disintegrate::serde::json::Json;
+use disintegrate_postgres::{PgEventStore, PgSnapshotter, WithPgSnapshot, decision_maker};
 use dotenvy::dotenv;
 use seed::seed_dev_data;
+use sqlx::PgPool;
 use std::env;
 use std::time::Duration;
+use tokio::signal;
 use tower_http::services::ServeFile;
 use tower_http::trace::TraceLayer;
 use tower_sessions::SessionManagerLayer;
-use tower_sessions_file_store::FileSessionStorage;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-#[macro_use]
-extern crate monkesto_derive;
-
-type MemoryJournalService = JournalService<JournalMemoryStore, MemoryUserStore>;
-type MemoryUserService = UserService<MemoryUserStore>;
-type MemoryAccountService = AccountService<AccountMemoryStore, JournalMemoryStore, MemoryUserStore>;
-type MemoryTransactionService = TransactionService<
-    TransactionMemoryStore,
-    AccountMemoryStore,
-    JournalMemoryStore,
-    MemoryUserStore,
->;
+type MemoryJournalService = JournalService<JournalMemoryStore>;
+type MemoryAccountService = AccountService<AccountMemoryStore, JournalMemoryStore>;
+type MemoryTransactionService =
+    TransactionService<TransactionMemoryStore, AccountMemoryStore, JournalMemoryStore>;
 
 #[derive(Clone)]
 struct AppState {
-    user_service: MemoryUserService,
+    auth_interface: AuthInterface,
     journal_service: MemoryJournalService,
     account_service: MemoryAccountService,
     transaction_service: MemoryTransactionService,
 }
 
 impl AppState {
-    fn new() -> Self {
-        let user_store = MemoryUserStore::new();
+    fn new(auth_interface: AuthInterface) -> Self {
         let journal_store = JournalMemoryStore::new();
         let account_store = AccountMemoryStore::new();
         let transaction_store = TransactionMemoryStore::new();
 
-        let user_service = UserService::new(user_store.clone());
-        let journal_service = JournalService::new(journal_store, user_store);
+        let journal_service = JournalService::new(journal_store, auth_interface.clone());
         let account_service = AccountService::new(account_store, journal_service.clone());
         let transaction_service = TransactionService::new(
             transaction_store,
@@ -86,17 +77,11 @@ impl AppState {
         );
 
         Self {
-            user_service,
+            auth_interface,
             journal_service,
             account_service,
             transaction_service,
         }
-    }
-}
-
-impl FromRef<AppState> for MemoryUserService {
-    fn from_ref(state: &AppState) -> Self {
-        state.user_service.clone()
     }
 }
 
@@ -119,7 +104,7 @@ impl FromRef<AppState> for MemoryTransactionService {
 }
 
 type StateType = AppState;
-type BackendType = MemoryUserStore;
+type BackendType = AuthInterface;
 
 #[tokio::main]
 async fn main() {
@@ -142,21 +127,47 @@ async fn main() {
 
     let addr = env::var("SITE_ADDR").unwrap_or("0.0.0.0:3000".to_string());
 
-    let state = AppState::new();
+    // other stores will have to namespace themselves or use a separate database to avoid event table conflicts
+    let auth_pool = PgPool::connect(
+        env::var("DATABASE_URL")
+            .expect("failed to fetch database url")
+            .as_str(),
+    )
+    .await
+    .expect("failed to create pgpool");
+
+    let session_store = tower_sessions_sqlx_store::PostgresStore::new(auth_pool.clone());
+    let session_layer = SessionManagerLayer::new(session_store);
+
+    let serde = Json::<AuthEvent>::default();
+    let auth_event_store = PgEventStore::try_new(auth_pool.clone(), serde)
+        .await
+        .expect("failed to create an auth event store");
+    let snapshotter = PgSnapshotter::try_new(auth_pool.clone(), 10)
+        .await
+        .expect("failed to create an auth snapshotter");
+    let decision_maker = decision_maker(auth_event_store.clone(), WithPgSnapshot::new(snapshotter));
+
+    let auth_interface = AuthInterface::try_new(auth_pool.clone(), decision_maker)
+        .await
+        .expect("failed to create a projection pool");
+
+    tokio::spawn(auth::event_listener(
+        auth_event_store.clone(),
+        auth_interface.clone(),
+    ));
+
+    let state = AppState::new(auth_interface.clone());
 
     seed_dev_data(&state)
         .await
         .expect("Failed to seed dev data");
 
-    let session_store = FileSessionStorage::new();
-    let session_layer = SessionManagerLayer::new(session_store);
-
     // use the service's user_store so that the data syncs
-    let auth_layer =
-        AuthManagerLayerBuilder::new(state.user_service.store().clone(), session_layer).build();
+    let auth_layer = AuthManagerLayerBuilder::new(auth_interface.clone(), session_layer).build();
 
-    let webauthn_routes = auth::router(state.user_service.store().clone())
-        .expect("Failed to initialize WebAuthn routes");
+    let webauthn_routes =
+        auth::router(auth_interface.clone()).expect("Failed to initialize WebAuthn routes");
 
     let journal_routes = journal::router()
         .merge(account::router())
@@ -194,7 +205,9 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .expect("failed to bind the tcp address");
+
     axum::serve(listener, app.into_make_service())
+        .with_graceful_shutdown(shutdown())
         .await
         .expect("failed to serve on the address");
 }
@@ -215,4 +228,10 @@ async fn serve_logo() -> impl IntoResponse {
         [(header::CONTENT_TYPE, "image/svg+xml")],
         LOGO_SVG,
     )
+}
+
+async fn shutdown() {
+    signal::ctrl_c()
+        .await
+        .expect("failed to listen for an interrupt signal")
 }

@@ -1,7 +1,7 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::account::views::render_account_options;
-use crate::auth::user;
+use crate::auth::get_user;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::journal::JournalState;
@@ -47,7 +47,7 @@ async fn build_transaction_node(
     state: &StateType,
 ) -> Value {
     let mut entries_html = String::new();
-    for entry in &transaction_state.updates.0 {
+    for entry in &transaction_state.updates {
         let amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
         let account = match state
             .account_service
@@ -77,12 +77,11 @@ async fn build_transaction_node(
     {
         Ok(auth) => match auth.actor() {
             Actor::User(id) => state
-                .user_service
-                .user_get_email(*id)
+                .auth_interface
+                .query_user(*id)
                 .await
-                .ok()
-                .flatten()
-                .unwrap_or_else(|| "unknown user".to_string()),
+                .map(|u| u.email.to_string())
+                .unwrap_or_else(|_| "unknown user".to_string()),
             Actor::System => "system".to_string(),
             Actor::Anonymous => "anonymous".to_string(),
         },
@@ -222,7 +221,7 @@ pub async fn transaction_list_page(
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
     let authority = Authority::Direct(Actor::User(user.id));
 
     let journal_id_res = JournalId::from_str(&id);

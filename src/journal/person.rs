@@ -1,9 +1,9 @@
 use crate::BackendType;
 use crate::StateType;
-use crate::auth::user::{self};
+use crate::auth::get_user;
+use crate::auth::user::UserId;
 use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::authority::UserId;
 use crate::journal::Permissions;
 use crate::journal::layout::layout;
 use crate::journal::{JournalId, JournalNameOrUnknown};
@@ -25,7 +25,7 @@ pub async fn person_detail_page(
     Path((id, person_id)): Path<(String, String)>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
     let authority = Authority::Direct(Actor::User(user.id));
 
     let journal_id_res = JournalId::from_str(&id);
@@ -156,9 +156,8 @@ pub async fn person_detail_page(
                 }
             };
 
-            let target_email = match state.user_service.user_get_email(target_user_id).await {
-                Ok(Some(email)) => email,
-                Ok(None) => "Unknown User".to_string(),
+            let target_email = match state.auth_interface.query_user(target_user_id).await {
+                Ok(user) => user.email.to_string(),
                 Err(e) => format!("Error fetching email: {}", e),
             };
 
@@ -276,7 +275,7 @@ pub async fn people_list_page(
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
 
     let journal_id_res = JournalId::from_str(&id);
 
@@ -289,9 +288,8 @@ pub async fn people_list_page(
                         href=(format!("/journal/{}/person/{}", id, user_id))
                         class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
                             h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                @match state.user_service.user_get_email(user_id).await {
-                                    Ok(Some(email)) => (email),
-                                    Ok(None) => {"unknown user"},
+                                @match state.auth_interface.query_user(user_id).await {
+                                    Ok(user) => (user.email),
                                     Err(e) => (format!("failed to fetch email: {:?}", e)),
                                 }
                             }

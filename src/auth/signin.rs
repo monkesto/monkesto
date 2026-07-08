@@ -1,3 +1,9 @@
+use super::user::DEV_USERS;
+use super::user::UserId;
+use super::user::UserState;
+use super::{AuthInterface, AuthSession};
+use crate::monkesto_error::OrRedirect;
+use crate::theme::theme_with_head;
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Query;
@@ -6,12 +12,12 @@ use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
+use axum_login::AuthnBackend;
 use maud::Markup;
 use maud::PreEscaped;
 use maud::html;
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::sync::Arc;
 use thiserror::Error;
 use webauthn_rs::prelude::AuthenticationResult;
@@ -19,14 +25,6 @@ use webauthn_rs::prelude::PasskeyAuthentication;
 use webauthn_rs::prelude::PublicKeyCredential;
 use webauthn_rs::prelude::RequestChallengeResponse;
 use webauthn_rs::prelude::Webauthn;
-
-use super::AuthSession;
-use super::passkey::PasskeyStore;
-use super::user::DEV_USERS;
-use super::user::UserId;
-use super::user::UserState;
-use super::user::UserStore;
-use crate::theme::theme_with_head;
 
 /// Errors that occur during the signin flow.
 #[derive(Error, Debug)]
@@ -73,16 +71,16 @@ impl IntoResponse for SigninError {
 
 /// Handles WebAuthn authentication flow (signin).
 /// This struct encapsulates the start and finish phases of authentication.
-pub struct SigninAuthenticator<'a, P: PasskeyStore> {
+pub struct SigninAuthenticator<'a> {
     webauthn: &'a Webauthn,
-    passkey_store: &'a P,
+    auth_interface: &'a AuthInterface,
 }
 
-impl<'a, P: PasskeyStore> SigninAuthenticator<'a, P> {
-    pub fn new(webauthn: &'a Webauthn, passkey_store: &'a P) -> Self {
+impl<'a> SigninAuthenticator<'a> {
+    pub fn new(webauthn: &'a Webauthn, auth_interface: &'a AuthInterface) -> Self {
         Self {
             webauthn,
-            passkey_store,
+            auth_interface,
         }
     }
 
@@ -93,11 +91,14 @@ impl<'a, P: PasskeyStore> SigninAuthenticator<'a, P> {
     ///
     /// Returns the challenge request and auth state, or None if it fails.
     pub async fn start(&self) -> Option<(RequestChallengeResponse, PasskeyAuthentication)> {
-        let all_credentials = self
-            .passkey_store
+        let all_credentials: Vec<webauthn_rs::prelude::Passkey> = self
+            .auth_interface
             .get_all_credentials()
             .await
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.0)
+            .collect();
 
         match self.webauthn.start_passkey_authentication(&all_credentials) {
             Ok((mut rcr, auth_state)) => {
@@ -123,7 +124,7 @@ impl<'a, P: PasskeyStore> SigninAuthenticator<'a, P> {
             .map_err(|_| SigninError::AuthenticationFailed)?;
 
         let (user_id, _passkey_id) = self
-            .passkey_store
+            .auth_interface
             .find_user_by_credential(auth_result.cred_id().as_slice())
             .await
             .map_err(|e| SigninError::StoreError(e.to_string()))?
@@ -289,10 +290,9 @@ fn auth_page(
     )
 }
 
-async fn handle_signin_page<P: PasskeyStore>(
+async fn handle_signin_page(
     webauthn: Arc<Webauthn>,
-    passkey_store: Arc<P>,
-    user_store: Arc<super::MemoryUserStore>,
+    auth_interface: AuthInterface,
     auth_session: AuthSession,
     webauthn_url: String,
     query: Query<SigninQuery>,
@@ -304,7 +304,7 @@ async fn handle_signin_page<P: PasskeyStore>(
     _ = session.remove_value("usernameless_auth_state").await;
 
     // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
-    let authenticator = SigninAuthenticator::new(&webauthn, passkey_store.as_ref());
+    let authenticator = SigninAuthenticator::new(&webauthn, &auth_interface);
     let challenge_data = match authenticator.start().await {
         Some((rcr, auth_state)) => {
             // Store auth state in session
@@ -331,7 +331,7 @@ async fn handle_signin_page<P: PasskeyStore>(
     });
 
     // Get dev users for the dev login form
-    let dev_users = user_store.get_dev_users().await;
+    let dev_users = auth_interface.get_dev_users().await;
 
     let markup = auth_page(
         &webauthn_url,
@@ -347,10 +347,9 @@ async fn handle_signin_page<P: PasskeyStore>(
     )
 }
 
-async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
+async fn handle_signin_completion(
     webauthn: Arc<Webauthn>,
-    user_store: Arc<U>,
-    passkey_store: Arc<P>,
+    auth_interface: AuthInterface,
     mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
@@ -377,7 +376,7 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
         .ok_or(SigninError::SessionExpired)?;
 
     // Verify the authentication using SigninAuthenticator
-    let authenticator = SigninAuthenticator::new(&webauthn, passkey_store.as_ref());
+    let authenticator = SigninAuthenticator::new(&webauthn, &auth_interface);
     match authenticator.finish(&credential, &auth_state).await {
         Ok((user_id, _auth_result)) => {
             // Clear the auth state
@@ -385,7 +384,8 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
             _ = session.remove_value("auth_state").await;
 
             // Get the user and log them in via axum_login
-            let user = UserStore::get_user(user_store.deref(), user_id)
+            let user = auth_interface
+                .get_user(&user_id)
                 .await
                 .map_err(|e| SigninError::StoreError(e.to_string()))?
                 .ok_or(SigninError::UserNotFound)?;
@@ -410,10 +410,9 @@ async fn handle_signin_completion<U: UserStore, P: PasskeyStore>(
     }
 }
 
-pub async fn signin_get<P: PasskeyStore + 'static>(
+pub async fn signin_get(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(passkey_store): Extension<Arc<P>>,
-    Extension(user_store): Extension<Arc<super::MemoryUserStore>>,
+    Extension(auth_interface): Extension<AuthInterface>,
     Extension(webauthn_url): Extension<String>,
     auth_session: AuthSession,
     query: Query<SigninQuery>,
@@ -421,8 +420,7 @@ pub async fn signin_get<P: PasskeyStore + 'static>(
     let next = query.next.clone();
     handle_signin_page(
         webauthn,
-        passkey_store,
-        user_store,
+        auth_interface,
         auth_session,
         webauthn_url,
         query,
@@ -431,67 +429,55 @@ pub async fn signin_get<P: PasskeyStore + 'static>(
     .await
 }
 
-pub async fn signin_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
+pub async fn signin_post(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(user_store): Extension<Arc<U>>,
-    Extension(passkey_store): Extension<Arc<P>>,
+    Extension(auth_interface): Extension<AuthInterface>,
     auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, impl IntoResponse> {
     let next = form.get("next").cloned();
 
     // Check for dev login first
     if let Some(dev_user_id) = form.get("dev_user_id") {
-        return handle_dev_login(user_store, auth_session, dev_user_id, next).await;
+        return Ok(
+            handle_dev_login(auth_interface, auth_session, dev_user_id, next)
+                .await
+                .into_response(),
+        );
     }
 
-    match handle_signin_completion(
-        webauthn,
-        user_store,
-        passkey_store,
-        auth_session,
-        form,
-        next,
-    )
-    .await
-    {
-        Ok(response) => response.into_response(),
-        Err(error) => error.into_response(),
-    }
+    handle_signin_completion(webauthn, auth_interface, auth_session, form, next).await
 }
 
-async fn handle_dev_login<U: UserStore>(
-    user_store: Arc<U>,
+async fn handle_dev_login(
+    auth_interface: AuthInterface,
     mut auth_session: AuthSession,
     dev_user_id: &str,
     next: Option<String>,
-) -> Response {
+) -> Result<impl IntoResponse, Redirect> {
     use super::user::UserId;
     use std::str::FromStr;
 
     // Parse the user ID
-    let user_id = match UserId::from_str(dev_user_id) {
-        Ok(id) => id,
-        Err(_) => return Redirect::to("/signin?error=auth_failed").into_response(),
-    };
+    let user_id = UserId::from_str(dev_user_id).or_redirect("/signin?error=invalid_userid")?;
 
     // Look up the user
-    let user = match UserStore::get_user(user_store.deref(), user_id).await {
-        Ok(Some(user)) => user,
-        _ => return Redirect::to("/signin?error=auth_failed").into_response(),
-    };
+    let user = auth_interface
+        .query_user(user_id)
+        .await
+        .or_redirect("/signin?error=auth_failed")?;
 
     // Verify this is a dev user
-    if !DEV_USERS.contains(&user.email.as_ref()) {
-        return Redirect::to("/signin?error=auth_failed").into_response();
+    if !DEV_USERS.clone().contains_key(&user.email) {
+        return Ok(Redirect::to("/signin?error=auth_failed").into_response());
     }
 
     // Log them in
     if auth_session.login(&user).await.is_err() {
-        return Redirect::to("/signin?error=auth_failed").into_response();
+        return Ok(Redirect::to("/signin?error=auth_failed").into_response());
     }
 
     // Redirect to next or default
     let redirect_to = next.as_deref().unwrap_or("/journal");
-    Redirect::to(redirect_to).into_response()
+    Ok(Redirect::to(redirect_to).into_response())
 }

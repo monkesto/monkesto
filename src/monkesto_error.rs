@@ -1,7 +1,7 @@
 use crate::account::AccountStoreError;
-use crate::auth::user::UserStoreError;
+use crate::auth::user::UserError;
 use crate::email::EmailError;
-use crate::ident::IdentError;
+use crate::id::IdentError;
 use crate::journal::JournalStoreError;
 use crate::name::NameError;
 use crate::transaction::TransactionStoreError;
@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use thiserror::Error;
 
-#[derive(Debug, Error, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Error, Serialize, Deserialize, PartialEq)]
 pub enum MonkestoError {
     #[error("failed to decode an error")]
     Decode,
@@ -31,7 +31,7 @@ pub enum MonkestoError {
     JournalStore(#[from] JournalStoreError),
 
     #[error("an error was returned from the user store: {0}")]
-    UserStore(#[from] UserStoreError),
+    UserStore(#[from] UserError),
 
     #[error("an error was returned from the account store: {0}")]
     AccountStore(#[from] AccountStoreError),

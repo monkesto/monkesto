@@ -5,7 +5,6 @@ use crate::account::AccountStoreError::InvalidAccount;
 use crate::account::AccountStoreError::PermissionError;
 use crate::account::AccountStoreResult;
 use crate::account::{AccountId, AccountPayload};
-use crate::auth::user::UserStore;
 use crate::authority::Authority;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
@@ -13,23 +12,21 @@ use crate::journal::{JournalId, JournalService};
 use crate::name::Name;
 
 #[derive(Clone)]
-pub struct AccountService<A, J, U>
+pub struct AccountService<A, J>
 where
     A: AccountStore<EventId = u64>,
     J: JournalStore<EventId = u64>,
-    U: UserStore<EventId = u64>,
 {
     account_store: A,
-    journal_service: JournalService<J, U>,
+    journal_service: JournalService<J>,
 }
 
-impl<A, J, U> AccountService<A, J, U>
+impl<A, J> AccountService<A, J>
 where
     A: AccountStore<EventId = u64>,
     J: JournalStore<EventId = u64>,
-    U: UserStore<EventId = u64>,
 {
-    pub fn new(account_store: A, journal_service: JournalService<J, U>) -> Self {
+    pub fn new(account_store: A, journal_service: JournalService<J>) -> Self {
         Self {
             account_store,
             journal_service,
@@ -76,7 +73,7 @@ where
         &self,
         journal_id: JournalId,
         authority: &Authority,
-    ) -> AccountStoreResult<Vec<(AccountId, AccountState)>> {
+    ) -> AccountStoreResult<Vec<AccountState>> {
         if !self
             .journal_service
             .effective_permissions(journal_id, authority)
@@ -91,13 +88,12 @@ where
         let mut accounts = Vec::new();
 
         for id in ids {
-            accounts.push((
-                id,
+            accounts.push(
                 self.account_store
                     .get_account(&id)
                     .await?
                     .ok_or(InvalidAccount(id))?,
-            ));
+            );
         }
 
         Ok(accounts)

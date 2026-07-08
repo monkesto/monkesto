@@ -8,7 +8,7 @@ use axum::Router;
 use axum::routing::get;
 use axum_login::login_required;
 
-#[derive(Error, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Error, Debug, Serialize, Deserialize, PartialEq)]
 pub enum AccountStoreError {
     #[error("An account with the id {0} doesn't exist")]
     InvalidAccount(AccountId),
@@ -48,19 +48,14 @@ use crate::account::AccountStoreError::TransactionWithoutPriorState;
 use crate::authority::Authority;
 use crate::event::Event;
 use crate::event::EventStore;
-use crate::ident::Ident;
+use crate::id;
+use crate::id::Ident;
 use crate::journal::Permissions;
 use crate::journal::{JournalId, JournalStoreError};
 use crate::name::Name;
-use crate::schema::accounts;
-use crate::store::universal::registry::{AnyPayload, EntityType};
-use crate::store::universal::{DieselExecute, EventId, GetPayloadUsage, PayloadUsage};
-use crate::transaction::TransactionState;
-use crate::transaction::{EntryType, TransactionId};
-use crate::transaction::{TransactionModifiedPayload, TransactionPayload};
-use crate::{entity, payload, state};
+use crate::transaction::TransactionModifiedPayload;
+use crate::transaction::{EntryType, TransactionId, TransactionPayload, TransactionState};
 use dashmap::DashMap;
-use diesel::{QueryResult, SqliteConnection, insert_into};
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashSet;
@@ -69,14 +64,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
 
-entity!(
-    AccountEntity,
-    EntityType::Account,
-    AccountId,
-    AccountPayload,
-    AccountState,
-    Ident::new10()
-);
+id!(AccountId, Ident::new16());
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AccountModifiedPayload {
@@ -84,77 +72,32 @@ pub enum AccountModifiedPayload {
     Deleted,
 }
 
-payload! {
-    AnyPayload::Account,
-    pub enum AccountPayload {
-        Created {
-            journal_id: JournalId,
-            name: Name,
-            parent_account_id: Option<AccountId>,
-        },
-        Modified(AccountModifiedPayload),
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AccountPayload {
+    Created {
+        journal_id: JournalId,
+        name: Name,
+        parent_account_id: Option<AccountId>,
+    },
+    Modified(AccountModifiedPayload),
 }
 
-state! {
-    #[diesel(table_name = crate::schema::accounts)]
-    #[diesel(treat_none_as_null = true)]
-    pub struct AccountState {
-        pub id: AccountId,
-        pub name: Name,
-        pub journal_id: JournalId,
-        pub balance: i64,
-        pub parent_account_id: Option<AccountId>,
-        pub as_of: EventId
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AccountState {
+    pub id: AccountId,
+    pub name: Name,
+    pub journal_id: JournalId,
+    pub balance: i64,
+    pub parent_account_id: Option<AccountId>,
 }
 
-impl DieselExecute for AccountPayload {
-    fn execute_sql(
-        &self,
-        entity_id: Ident,
-        event_id: EventId,
-        conn: &mut SqliteConnection,
-    ) -> QueryResult<()> {
-        match self {
-            AccountPayload::Created {
-                journal_id,
-                name,
-                parent_account_id,
-            } => insert_into(accounts::table)
-                .values(AccountState {
-                    id: entity_id.into(),
-                    name: name.clone(),
-                    journal_id: *journal_id,
-                    balance: 0,
-                    parent_account_id: *parent_account_id,
-                    as_of: event_id,
-                })
-                .execute(conn)
-                .map(drop),
-            AccountPayload::Modified(modified_payload) => match modified_payload {
-                AccountModifiedPayload::Renamed { new_name } => {
-                    diesel::update(accounts::table.filter(accounts::id.eq(entity_id)))
-                        .set((accounts::name.eq(new_name), accounts::as_of.eq(event_id)))
-                        .execute(conn)
-                        .map(drop)
-                }
-                AccountModifiedPayload::Deleted => {
-                    diesel::delete(accounts::table.filter(accounts::id.eq(entity_id)))
-                        .execute(conn)
-                        .map(drop)
-                }
-            },
-        }
-    }
+enum PayloadUsage {
+    CreatesState(AccountState),
+    ModifiesState(Box<dyn FnOnce(&mut AccountState)>),
 }
 
-impl GetPayloadUsage<AccountEntity> for AccountPayload {
-    fn usage<T: Into<AccountId>>(
-        self,
-        entity_id: T,
-        event_id: EventId,
-    ) -> PayloadUsage<AccountEntity> {
+impl AccountPayload {
+    fn usage<T: Into<AccountId>>(self, entity_id: T) -> PayloadUsage {
         match self {
             AccountPayload::Created {
                 journal_id,
@@ -166,7 +109,6 @@ impl GetPayloadUsage<AccountEntity> for AccountPayload {
                 journal_id,
                 balance: 0,
                 parent_account_id,
-                as_of: event_id,
             }),
             AccountPayload::Modified(modified_payload) => {
                 PayloadUsage::ModifiesState(Box::new(move |state: &mut AccountState| {
@@ -174,7 +116,6 @@ impl GetPayloadUsage<AccountEntity> for AccountPayload {
                         AccountModifiedPayload::Renamed { new_name } => state.name = new_name,
                         AccountModifiedPayload::Deleted => {}
                     }
-                    state.as_of = event_id;
                 }))
             }
         }
@@ -245,7 +186,7 @@ impl EventStore for AccountMemoryStore {
             (event_id, event)
         };
 
-        match payload.usage(id, EventId(0)) {
+        match payload.usage(id) {
             PayloadUsage::CreatesState(state) => {
                 let journal_id = state.journal_id;
 

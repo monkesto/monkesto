@@ -1,7 +1,7 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::account::AccountId;
-use crate::auth::user::{self};
+use crate::auth::get_user;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::journal::JournalId;
@@ -45,7 +45,7 @@ pub async fn transact(
 
     let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
 
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
 
     let mut total_change = 0;
     let mut updates = Vec::new();

@@ -1,16 +1,14 @@
 use axum_test::expect_json::__private::serde_trampoline::{Deserialize, Serialize};
-use diesel::backend::Backend;
-use diesel::deserialize::FromSql;
-use diesel::serialize::{Output, ToSql};
-use diesel::sql_types::Text;
-use diesel::{AsExpression, FromSqlRow, deserialize, serialize};
+use disintegrate::{IdentifierType, IdentifierValue, IntoIdentifierValue};
 use regex::Regex;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::fmt::Display;
 use std::sync::LazyLock;
 use thiserror::Error;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Text)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Email(String);
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Error)]
@@ -45,20 +43,32 @@ impl AsRef<str> for Email {
     }
 }
 
-impl<DB: Backend> ToSql<Text, DB> for Email
-where
-    String: ToSql<Text, DB>,
-{
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, DB>) -> serialize::Result {
-        self.0.to_sql(out)
+impl Type<Postgres> for Email {
+    fn type_info() -> <Postgres as Database>::TypeInfo {
+        <&str as Type<Postgres>>::type_info()
     }
 }
 
-impl<DB: Backend> FromSql<Text, DB> for Email
-where
-    String: FromSql<Text, DB>,
-{
-    fn from_sql(value: DB::RawValue<'_>) -> deserialize::Result<Self> {
-        Ok(Email::try_new(String::from_sql(value)?)?)
+impl<'q> Encode<'q, Postgres> for Email {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        <&str as Encode<Postgres>>::encode(self.as_ref(), buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for Email {
+    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
+        let str = <String as Decode<Postgres>>::decode(value)?;
+        Ok(Email::try_new(str)?)
+    }
+}
+
+impl IntoIdentifierValue for Email {
+    const TYPE: IdentifierType = IdentifierType::String;
+
+    fn into_identifier_value(self) -> IdentifierValue {
+        String::into_identifier_value(self.0)
     }
 }

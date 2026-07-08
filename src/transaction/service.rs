@@ -1,6 +1,5 @@
 use crate::account::AccountService;
 use crate::account::AccountStore;
-use crate::auth::user::UserStore;
 use crate::authority::Authority;
 use crate::journal::JournalStore;
 use crate::journal::Permissions;
@@ -16,29 +15,27 @@ use crate::transaction::TransactionStoreResult;
 use crate::transaction::{BalanceUpdate, TransactionId};
 
 #[derive(Clone)]
-pub struct TransactionService<T, A, J, U>
+pub struct TransactionService<T, A, J>
 where
     T: TransactionStore<EventId = u64>,
     A: AccountStore<EventId = u64>,
     J: JournalStore<EventId = u64>,
-    U: UserStore<EventId = u64>,
 {
     transaction_store: T,
-    account_service: AccountService<A, J, U>,
-    journal_service: JournalService<J, U>,
+    account_service: AccountService<A, J>,
+    journal_service: JournalService<J>,
 }
 
-impl<T, A, J, U> TransactionService<T, A, J, U>
+impl<T, A, J> TransactionService<T, A, J>
 where
     T: TransactionStore<EventId = u64>,
     A: AccountStore<EventId = u64>,
     J: JournalStore<EventId = u64>,
-    U: UserStore<EventId = u64>,
 {
     pub fn new(
         transaction_store: T,
-        account_service: AccountService<A, J, U>,
-        journal_service: JournalService<J, U>,
+        account_service: AccountService<A, J>,
+        journal_service: JournalService<J>,
     ) -> Self {
         Self {
             transaction_store,

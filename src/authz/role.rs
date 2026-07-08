@@ -1,7 +1,7 @@
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::id;
-use crate::ident::Ident;
+use crate::id::Ident;
 use crate::name::Name;
 use crate::store::Event;
 use crate::store::EventId;

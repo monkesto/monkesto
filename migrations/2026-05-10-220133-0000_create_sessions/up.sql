@@ -1,5 +1,0 @@
-CREATE TABLE sessions (
-id BLOB PRIMARY KEY NOT NULL,
-data BLOB NOT NULL,
-expiry_date BIGINT NOT NULL
-)

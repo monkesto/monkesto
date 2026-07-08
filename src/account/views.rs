@@ -1,10 +1,10 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::account::{AccountId, AccountState};
-use crate::auth::user;
+use crate::auth::get_user;
 use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::ident::Ident;
+use crate::id::Ident;
 use crate::journal::layout::layout;
 use crate::journal::{JournalId, JournalNameOrUnknown};
 use crate::monkesto_error::MonkestoError;
@@ -26,7 +26,7 @@ struct AccountItem {
 }
 
 fn render_account_tree(
-    accounts: &[(AccountId, AccountState)],
+    accounts: &[AccountState],
     parent_id: Option<AccountId>,
     depth: usize,
     journal_id: &str,
@@ -38,10 +38,10 @@ fn render_account_tree(
         _ => "ml-16",
     };
     html! {
-        @for (acc_id, acc) in accounts.iter().filter(|(_, a)| a.parent_account_id == parent_id) {
+        @for acc in accounts.iter().filter(|a| a.parent_account_id == parent_id) {
             @if depth == 0 {
                 a
-                href=(format!("/journal/{}/account/{}", journal_id, acc_id))
+                href=(format!("/journal/{}/account/{}", journal_id, acc.id))
                 class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
                     div class="flex justify-between items-center" {
                         h3 class="text-lg font-semibold text-gray-900 dark:text-white" { (acc.name) }
@@ -56,7 +56,7 @@ fn render_account_tree(
             } @else {
                 div class=(indent_class) {
                     a
-                    href=(format!("/journal/{}/account/{}", journal_id, acc_id))
+                    href=(format!("/journal/{}/account/{}", journal_id, acc.id))
                     class="flex items-center gap-2 p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
                         span class="text-gray-400 dark:text-gray-500 select-none" { "↳" }
                         div class="flex justify-between items-center flex-1" {
@@ -71,21 +71,21 @@ fn render_account_tree(
                     }
                 }
             }
-            (render_account_tree(accounts, Some(*acc_id), depth + 1, journal_id))
+            (render_account_tree(accounts, Some(acc.id), depth + 1, journal_id))
         }
     }
 }
 
 pub(crate) fn render_account_options(
-    accounts: &[(AccountId, AccountState)],
+    accounts: &[AccountState],
     parent_id: Option<AccountId>,
     depth: usize,
 ) -> Markup {
     let prefix = "↳ ".repeat(depth);
     html! {
-        @for (acc_id, acc) in accounts.iter().filter(|(_, a)| a.parent_account_id == parent_id) {
-            option value=(acc_id) { (format!("{}{}", prefix, acc.name)) }
-            (render_account_options(accounts, Some(*acc_id), depth + 1))
+        @for acc in accounts.iter().filter(|a| a.parent_account_id == parent_id) {
+            option value=(acc.id) { (format!("{}{}", prefix, acc.name)) }
+            (render_account_options(accounts, Some(acc.id), depth + 1))
         }
     }
 }
@@ -96,7 +96,7 @@ pub async fn account_list_page(
     Path(id): Path<String>,
     Query(err): Query<UrlError>,
 ) -> Result<Markup, Redirect> {
-    let user = user::get_user(session)?;
+    let user = get_user(session)?;
     let authority = Authority::Direct(Actor::User(user.id));
     let journal_id_res = JournalId::from_str(&id);
 

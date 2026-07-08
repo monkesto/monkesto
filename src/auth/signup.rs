@@ -20,19 +20,15 @@ use webauthn_rs::prelude::Webauthn;
 use webauthn_rs_proto::AuthenticatorSelectionCriteria;
 use webauthn_rs_proto::ResidentKeyRequirement;
 
-use super::AuthSession;
-use super::passkey::PasskeyId;
-use super::passkey::PasskeyPayload;
-use super::passkey::PasskeyStore;
-use super::user::UserId;
-use super::user::UserPayload;
-use super::user::UserStore;
+use super::passkey::{CorePasskey, CreatePasskey, PasskeyId};
+use super::user::{CreateUser, UserId};
+use super::{AuthInterface, AuthSession};
+
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::email::Email;
-use crate::postcard::Postcard;
-use crate::store::universal::EventId;
 use crate::theme::theme_with_head;
+use crate::time_provider::{DefaultTimeProvider, TimeProvider};
 
 /// Errors that occur during the signup flow.
 #[derive(Error, Debug)]
@@ -281,58 +277,16 @@ async fn handle_signup_get(
     )
 }
 
-async fn handle_signup_post<U: UserStore, P: PasskeyStore>(
+async fn handle_email_submission(
     webauthn: Arc<Webauthn>,
-    user_store: Arc<U>,
-    passkey_store: Arc<P>,
+    auth_interface: AuthInterface,
     auth_session: AuthSession,
     webauthn_url: String,
-    form_data: Form<HashMap<String, String>>,
+    email: Email,
     next: Option<String>,
 ) -> Result<Response, SignupError> {
-    // Check if this is an email submission or credential submission
-    if let Some(_credential_json) = form_data.get("credential") {
-        // This is step 2: credential submission
-        handle_credential_submission(
-            webauthn,
-            user_store,
-            passkey_store,
-            auth_session,
-            form_data,
-            next,
-        )
-        .await
-    } else if let Some(email) = form_data.get("email") {
-        // This is step 1: email submission
-        handle_email_submission(
-            webauthn,
-            user_store,
-            auth_session,
-            webauthn_url,
-            email.clone(),
-            next,
-        )
-        .await
-    } else {
-        Err(SignupError::InvalidInput)
-    }
-}
-
-async fn handle_email_submission<U: UserStore>(
-    webauthn: Arc<Webauthn>,
-    user_store: Arc<U>,
-    auth_session: AuthSession,
-    webauthn_url: String,
-    email: String,
-    next: Option<String>,
-) -> Result<Response, SignupError> {
-    // Validate email format (basic validation)
-    if email.is_empty() || email.len() > 254 || !email.contains('@') || !email.contains('.') {
-        return Ok(Redirect::to("/signup?error=invalid_email").into_response());
-    }
-
     // Check if email is already taken
-    if user_store.email_exists(&email).await.unwrap_or(false) {
+    if auth_interface.email_exists(&email).await.unwrap_or(false) {
         return Ok(Redirect::to("/signup?error=email_taken").into_response());
     }
 
@@ -350,7 +304,12 @@ async fn handle_email_submission<U: UserStore>(
     _ = session.remove_value("reg_state").await;
 
     // Start passkey registration
-    match webauthn.start_passkey_registration(webauthn_uuid, &email, &email, exclude_credentials) {
+    match webauthn.start_passkey_registration(
+        webauthn_uuid,
+        email.as_ref(),
+        email.as_ref(),
+        exclude_credentials,
+    ) {
         Ok((mut ccr, reg_state)) => {
             ccr.public_key.authenticator_selection = Some(AuthenticatorSelectionCriteria {
                 authenticator_attachment: None,
@@ -377,7 +336,12 @@ async fn handle_email_submission<U: UserStore>(
             let challenge_json = serde_json::to_string(&ccr)?;
 
             // Return challenge page
-            let markup = challenge_page(&webauthn_url, &email, &challenge_json, next.as_deref());
+            let markup = challenge_page(
+                &webauthn_url,
+                email.as_ref(),
+                &challenge_json,
+                next.as_deref(),
+            );
             Ok((
                 StatusCode::OK,
                 [(header::CONTENT_TYPE, "text/html")],
@@ -389,10 +353,9 @@ async fn handle_email_submission<U: UserStore>(
     }
 }
 
-async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
+async fn handle_credential_submission(
     webauthn: Arc<Webauthn>,
-    user_store: Arc<U>,
-    passkey_store: Arc<P>,
+    auth_interface: AuthInterface,
     mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
@@ -427,39 +390,35 @@ async fn handle_credential_submission<U: UserStore, P: PasskeyStore>(
             // Store the new user and their passkey
             let email_validated = Email::try_new(&email).map_err(|_| SignupError::InvalidInput)?;
 
-            if user_store
-                .record(
+            auth_interface
+                .decision_maker
+                .make(CreateUser::new(
                     user_id,
+                    email_validated.clone(),
+                    webauthn_uuid,
                     Authority::Direct(Actor::Anonymous),
-                    UserPayload::Created {
-                        email: email_validated.clone(),
-                        webauthn_uuid,
-                    },
-                )
+                    DefaultTimeProvider.get_time(),
+                ))
                 .await
-                .is_err()
-            {
-                return Ok(Redirect::to("/signup?error=storage_error").into_response());
-            }
+                .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
 
-            if passkey_store
-                .record(
+            auth_interface
+                .decision_maker
+                .make(CreatePasskey::new(
                     passkey_id,
+                    user_id,
+                    CorePasskey(passkey),
                     Authority::Direct(Actor::User(user_id)),
-                    PasskeyPayload::Created { user_id, passkey },
-                )
+                    DefaultTimeProvider.get_time(),
+                ))
                 .await
-                .is_err()
-            {
-                return Ok(Redirect::to("/signup?error=storage_error").into_response());
-            }
+                .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
 
             // Log in the newly registered user via axum_login
             let user = super::user::UserState {
                 id: user_id,
-                webauthn_uuid: Postcard(webauthn_uuid),
+                webauthn_uuid,
                 email: email_validated,
-                as_of: EventId(0),
             };
             auth_session
                 .login(&user)
@@ -487,27 +446,32 @@ pub async fn signup_get(
     handle_signup_get(webauthn_url, query, next).await
 }
 
-pub async fn signup_post<U: UserStore + 'static, P: PasskeyStore + 'static>(
+pub async fn signup_post(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(user_store): Extension<Arc<U>>,
-    Extension(passkey_store): Extension<Arc<P>>,
+    Extension(auth_interface): Extension<AuthInterface>,
     Extension(webauthn_url): Extension<String>,
     auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let next = form.get("next").cloned();
-    match handle_signup_post(
-        webauthn,
-        user_store,
-        passkey_store,
-        auth_session,
-        webauthn_url,
-        form,
-        next,
-    )
-    .await
-    {
-        Ok(response) => response,
-        Err(error) => error.into_response(),
+    if let Some(_credential_json) = form.get("credential") {
+        handle_credential_submission(webauthn, auth_interface, auth_session, form, next).await
+    } else if let Some(email_str) = form.get("email") {
+        let email = match Email::try_new(email_str) {
+            Ok(em) => em,
+            Err(_) => return Err(SignupError::InvalidInput),
+        };
+
+        handle_email_submission(
+            webauthn,
+            auth_interface,
+            auth_session,
+            webauthn_url,
+            email,
+            next,
+        )
+        .await
+    } else {
+        Err(SignupError::InvalidInput)
     }
 }
