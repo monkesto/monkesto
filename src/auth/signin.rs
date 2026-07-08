@@ -123,12 +123,13 @@ impl<'a> SigninAuthenticator<'a> {
             .finish_passkey_authentication(credential, auth_state)
             .map_err(|_| SigninError::AuthenticationFailed)?;
 
-        let (user_id, _passkey_id) = self
-            .auth_interface
-            .find_user_by_credential(auth_result.cred_id().as_slice())
-            .await
-            .map_err(|e| SigninError::StoreError(e.to_string()))?
-            .ok_or(SigninError::UserNotFound)?;
+        let (user_id, _passkey_id) = dbg!(
+            self.auth_interface
+                .find_user_by_credential(auth_result.cred_id())
+                .await
+        )
+        .map_err(|e| SigninError::StoreError(e.to_string()))?
+        .ok_or(SigninError::UserNotFound)?;
 
         Ok((user_id, auth_result))
     }

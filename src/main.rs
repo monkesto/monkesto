@@ -36,7 +36,7 @@ use axum::response::Redirect;
 use axum::routing::get;
 use axum_login::tracing::{Level, Span};
 use axum_login::{AuthManagerLayerBuilder, tracing};
-use disintegrate::serde::json::Json;
+use disintegrate::serde::messagepack::MessagePack;
 use disintegrate_postgres::{PgEventStore, PgSnapshotter, WithPgSnapshot, decision_maker};
 use dotenvy::dotenv;
 use seed::seed_dev_data;
@@ -180,7 +180,7 @@ async fn main() {
         .expect("failed to migrate session store");
     let session_layer = SessionManagerLayer::new(session_store);
 
-    let serde = Json::<AuthEvent>::default();
+    let serde = MessagePack::<AuthEvent>::default();
     let auth_event_store = PgEventStore::try_new(auth_pool.clone(), serde)
         .await
         .expect("failed to create an auth event store");

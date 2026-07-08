@@ -63,7 +63,7 @@ impl Deref for CorePasskey {
 pub struct PasskeyState {
     pub id: PasskeyId,
     pub user_id: UserId,
-    pub passkey: Postcard<CorePasskey>,
+    pub passkey: MsgPack<CorePasskey>,
 }
 
 #[derive(Debug, StateQuery, Clone, Serialize, Deserialize)]
@@ -72,7 +72,7 @@ pub struct Passkey {
     #[id]
     passkey_id: PasskeyId,
     user_id: UserId,
-    // passkey being Some(_) is the `found` descriminator for this type
+    // passkey being Some(_) is the `found` discriminator for this type
     passkey: Option<CorePasskey>,
     deleted: bool,
 }
@@ -248,7 +248,7 @@ impl IntoResponse for PasskeyError {
     }
 }
 
-use crate::postcard::Postcard;
+use crate::postcard::MsgPack;
 use disintegrate::{Decision, StateMutate, StateQuery};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;

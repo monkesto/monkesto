@@ -13,7 +13,7 @@ use crate::auth::user::{CreateUser, DEV_USERS, UserError, UserResult, UserState}
 use crate::authority::Authority;
 use crate::email::Email;
 use crate::monkesto_error::OrRedirect;
-use crate::postcard::Postcard;
+use crate::postcard::MsgPack;
 use crate::time_provider::TimeStamp;
 use crate::time_provider::{IncrementalTimeProvider, TimeProvider};
 use crate::{id, shutdown};
@@ -25,7 +25,7 @@ use axum::routing::get;
 use axum::routing::post;
 use axum_login::{AuthnBackend, login_required, tracing};
 use chrono::{DateTime, Utc};
-use disintegrate::serde::json::Json;
+use disintegrate::serde::messagepack::MessagePack;
 use disintegrate::{Event, EventListener, PersistedEvent, StreamQuery, query};
 use disintegrate_postgres::{
     PgDecisionMaker, PgEventId, PgEventListener, PgEventListenerConfig, PgEventListenerError,
@@ -61,9 +61,9 @@ pub enum AuthConfigError {
 id!(UserId, Ident::new16());
 id!(PasskeyId, Ident::new16());
 
-pub type AuthDecisionMaker = PgDecisionMaker<AuthEvent, Json<AuthEvent>, WithPgSnapshot>;
+pub type AuthDecisionMaker = PgDecisionMaker<AuthEvent, MessagePack<AuthEvent>, WithPgSnapshot>;
 
-pub type AuthEventStore = PgEventStore<AuthEvent, Json<AuthEvent>>;
+pub type AuthEventStore = PgEventStore<AuthEvent, MessagePack<AuthEvent>>;
 
 #[derive(Debug, Clone, PartialEq, Event, Serialize, Deserialize)]
 #[stream(UserEvent, [UserCreated, UserDeleted])]
@@ -212,6 +212,8 @@ impl AuthInterface {
                     .map_err(|_| UserError::SeedFailure(email))?;
             }
         }
+        // allow time for the view models to update
+        tokio::time::sleep(Duration::from_millis(100)).await;
         Ok(())
     }
 
@@ -235,7 +237,7 @@ impl AuthInterface {
         let passkeys = sqlx::query_as!(
             PasskeyState,
             r#"
-            SELECT id as "id: _", user_id as "user_id: _", passkey as "passkey: _" FROM passkeys WHERE user_id = $1
+            SELECT id as "id: PasskeyId", user_id as "user_id: UserId", passkey as "passkey: MsgPack<CorePasskey>" FROM passkeys WHERE user_id = $1
         "#,
         user_id as UserId)
             .fetch_all(&self.projection_pool)
@@ -247,7 +249,7 @@ impl AuthInterface {
     pub async fn get_all_credentials(&self) -> Result<Vec<CorePasskey>, PasskeyError> {
         let passkeys = sqlx::query_scalar!(
             r#"
-            SELECT passkey as "passkey: Postcard<CorePasskey>" FROM passkeys
+            SELECT passkey as "passkey: MsgPack<CorePasskey>" FROM passkeys
         "#
         )
         .fetch_all(&self.projection_pool)
@@ -258,16 +260,17 @@ impl AuthInterface {
 
     pub async fn find_user_by_credential(
         &self,
-        credential_id: &[u8],
+        credential_id: &CredentialID,
     ) -> Result<Option<(UserId, PasskeyId)>, PasskeyError> {
         Ok(sqlx::query_as!(
             PasskeyState,
             r#"
             SELECT user_id as "user_id: _", id as "id: _", passkey as "passkey: _" FROM passkeys WHERE credential_id = $1
         "#,
-        Postcard(credential_id) as Postcard<&[u8]>)
+        MsgPack(credential_id) as MsgPack<&CredentialID>)
             .fetch_optional(&self.projection_pool)
-            .await?.map(|pk| (pk.user_id, pk.id)))
+            .await?
+            .map(|pk| (pk.user_id, pk.id)))
     }
 }
 
@@ -326,8 +329,8 @@ impl EventListener<PgEventId, AuthEvent> for AuthInterface {
                 "#,
                 passkey_id as PasskeyId,
                 user_id as UserId,
-                Postcard(passkey.as_ref()) as Postcard<&CorePasskey>,
-                Postcard(passkey.cred_id()) as Postcard<&CredentialID>)
+                MsgPack(passkey.as_ref()) as MsgPack<&CorePasskey>,
+                MsgPack(passkey.cred_id()) as MsgPack<&CredentialID>)
                     .execute(&self.projection_pool)
                     .await
                     .map(drop)
