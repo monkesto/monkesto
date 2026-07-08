@@ -174,6 +174,10 @@ async fn main() {
     .expect("failed to create pgpool");
 
     let session_store = tower_sessions_sqlx_store::PostgresStore::new(auth_pool.clone());
+    session_store
+        .migrate()
+        .await
+        .expect("failed to migrate session store");
     let session_layer = SessionManagerLayer::new(session_store);
 
     let serde = Json::<AuthEvent>::default();

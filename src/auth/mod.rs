@@ -144,7 +144,7 @@ impl AuthInterface {
         })
     }
     pub async fn email_exists(&self, email: &Email) -> UserResult<bool> {
-        sqlx::query_scalar!(
+        Ok(sqlx::query_scalar!(
             r#"
             SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)
         "#,
@@ -152,7 +152,7 @@ impl AuthInterface {
         )
         .fetch_one(&self.projection_pool)
         .await?
-        .ok_or(UserError::EmailDoesntExist(email.clone()))
+        .unwrap_or(false))
     }
 
     pub async fn query_user(&self, user_id: UserId) -> UserResult<UserState> {
