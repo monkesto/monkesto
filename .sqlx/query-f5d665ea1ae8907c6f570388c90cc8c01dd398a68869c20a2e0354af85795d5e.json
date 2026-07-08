@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE TABLE IF NOT EXISTS users (\n                id BYTEA PRIMARY KEY,\n                email TEXT NOT NULL,\n                webauthn_uuid UUID NOT NULL\n            )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "f5d665ea1ae8907c6f570388c90cc8c01dd398a68869c20a2e0354af85795d5e"
+}

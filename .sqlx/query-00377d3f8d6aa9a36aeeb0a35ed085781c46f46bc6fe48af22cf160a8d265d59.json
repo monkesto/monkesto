@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id as \"id: _\", email as \"email: Email\", webauthn_uuid FROM users WHERE id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: _",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 1,
+        "name": "email: Email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "webauthn_uuid",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "00377d3f8d6aa9a36aeeb0a35ed085781c46f46bc6fe48af22cf160a8d265d59"
+}
