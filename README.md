@@ -19,6 +19,7 @@ cd monkesto
 ```
 cargo install cargo-watch
 cargo install cargo-make
+cargo install sqlx-cli
 npm install
 ```
 
