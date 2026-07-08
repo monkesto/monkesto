@@ -10,4 +10,6 @@ pub trait AuthzProjection: Send + Sync {
     async fn role(&self, role_id: RoleId) -> Result<RoleState, Self::Error>;
 
     async fn roles(&self, actor: &Actor) -> Result<HashSet<RoleId>, Self::Error>;
+
+    async fn all_roles(&self) -> Result<Vec<(RoleId, RoleState)>, Self::Error>;
 }

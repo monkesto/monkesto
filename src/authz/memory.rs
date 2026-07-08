@@ -48,6 +48,15 @@ impl AuthzProjection for AuthzMemoryProjection {
             })
             .collect())
     }
+
+    async fn all_roles(&self) -> Result<Vec<(RoleId, RoleState)>, Self::Error> {
+        let state = self.state.lock().expect("poisoned");
+        Ok(state
+            .roles
+            .iter()
+            .map(|(role_id, role)| (*role_id, role.clone()))
+            .collect())
+    }
 }
 
 impl SyncMemoryProjection<AuthzEvent> for AuthzMemoryProjection {

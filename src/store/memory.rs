@@ -1,9 +1,9 @@
 use super::After;
 use super::EventFamily;
+use super::EventFor;
 use super::EventId;
 use super::Outcome;
 use super::Page;
-use super::RecordFor;
 use super::Store;
 use super::When;
 use std::collections::HashMap;
@@ -88,58 +88,50 @@ where
 impl<E, P> Store<E> for MemoryStore<E, P>
 where
     E: EventFamily,
-    E::Record: RecordFor<E>,
     P: SyncMemoryProjection<E>,
 {
     type Error = P::Error;
 
-    async fn record(
+    async fn record<S>(
         &self,
         by: E::Authority,
         at: chrono::DateTime<chrono::Utc>,
-        record: E::Record,
-    ) -> Result<Outcome<E>, Self::Error> {
-        self.commit(by, at, vec![record]).await
-    }
-
-    async fn commit(
-        &self,
-        by: E::Authority,
-        at: chrono::DateTime<chrono::Utc>,
-        records: Vec<E::Record>,
-    ) -> Result<Outcome<E>, Self::Error> {
+        id: S::Id,
+        payload: S::Payload,
+        when: When<EventId>,
+    ) -> Result<Outcome<E>, Self::Error>
+    where
+        S: super::Stream,
+        E: EventFor<S>,
+    {
         let mut state = self.state.lock().expect("poisoned");
-        if records.iter().any(|record| {
-            let latest = state
-                .streams
-                .get(&record.id())
-                .and_then(|events| events.last())
-                .map(EventFamily::event_id);
+        let family_id = E::id_for(id);
+        let latest = state
+            .streams
+            .get(&family_id)
+            .and_then(|events| events.last())
+            .map(EventFamily::event_id);
 
-            match record.when() {
-                When::Empty => latest.is_some(),
-                When::Within(event_id) => latest.map(|latest| latest > event_id).unwrap_or(true),
-            }
-        }) {
+        let should_skip = match when {
+            When::Empty => latest.is_some(),
+            When::Within(event_id) => latest.map(|latest| latest > event_id).unwrap_or(true),
+        };
+        if should_skip {
             return Ok(Outcome::Skipped);
         }
 
-        let mut events = Vec::with_capacity(records.len());
-        for record in records {
-            state.latest = state.latest.next();
-            let event_id = state.latest;
-            let event = record.into_event(event_id, by.clone(), at);
-            state
-                .streams
-                .entry(event.id())
-                .or_default()
-                .push(event.clone());
-            events.push(event);
-        }
+        state.latest = state.latest.next();
+        let event_id = state.latest;
+        let event = E::new_event(event_id, by, at, id, payload);
+        state
+            .streams
+            .entry(event.id())
+            .or_default()
+            .push(event.clone());
 
-        state.events.extend(events.iter().cloned());
-        state.projection.apply(&events)?;
-        Ok(Outcome::Recorded(events))
+        state.events.push(event.clone());
+        state.projection.apply(std::slice::from_ref(&event))?;
+        Ok(Outcome::Recorded(event))
     }
 
     async fn review(
@@ -199,10 +191,8 @@ mod tests {
     use super::*;
     use crate::store::Event;
     use crate::store::EventFamily;
+    use crate::store::EventFor;
     use crate::store::EventId;
-    use crate::store::Outcome;
-    use crate::store::Record;
-    use crate::store::RecordFor;
     use crate::store::Stream;
     use crate::store::When;
     use chrono::Utc;
@@ -231,12 +221,6 @@ mod tests {
         Beta(u32),
     }
 
-    #[derive(Clone)]
-    enum TestRecord {
-        Alpha(Record<AlphaStream>),
-        Beta(Record<BetaStream>),
-    }
-
     #[derive(Clone, Debug)]
     enum TestEvent {
         Alpha(Event<i32, AlphaStream>),
@@ -245,7 +229,6 @@ mod tests {
 
     impl EventFamily for TestEvent {
         type Id = TestId;
-        type Record = TestRecord;
         type Authority = i32;
 
         fn event_id(&self) -> EventId {
@@ -263,43 +246,47 @@ mod tests {
         }
     }
 
-    impl RecordFor<TestEvent> for TestRecord {
-        fn id(&self) -> TestId {
-            match self {
-                TestRecord::Alpha(record) => TestId::Alpha(record.id),
-                TestRecord::Beta(record) => TestId::Beta(record.id),
-            }
+    impl EventFor<AlphaStream> for TestEvent {
+        fn id_for(id: u32) -> TestId {
+            TestId::Alpha(id)
         }
 
-        fn when(&self) -> When<EventId> {
-            match self {
-                TestRecord::Alpha(record) => record.when,
-                TestRecord::Beta(record) => record.when,
-            }
-        }
-
-        fn into_event(
-            self,
+        fn new_event(
             event_id: EventId,
             authority: i32,
             timestamp: chrono::DateTime<chrono::Utc>,
+            id: u32,
+            payload: &'static str,
         ) -> TestEvent {
-            match self {
-                TestRecord::Alpha(record) => TestEvent::Alpha(Event {
-                    event_id,
-                    timestamp,
-                    authority,
-                    id: record.id,
-                    payload: record.payload,
-                }),
-                TestRecord::Beta(record) => TestEvent::Beta(Event {
-                    event_id,
-                    timestamp,
-                    authority,
-                    id: record.id,
-                    payload: record.payload,
-                }),
-            }
+            TestEvent::Alpha(Event {
+                event_id,
+                timestamp,
+                authority,
+                id,
+                payload,
+            })
+        }
+    }
+
+    impl EventFor<BetaStream> for TestEvent {
+        fn id_for(id: u32) -> TestId {
+            TestId::Beta(id)
+        }
+
+        fn new_event(
+            event_id: EventId,
+            authority: i32,
+            timestamp: chrono::DateTime<chrono::Utc>,
+            id: u32,
+            payload: &'static str,
+        ) -> TestEvent {
+            TestEvent::Beta(Event {
+                event_id,
+                timestamp,
+                authority,
+                id,
+                payload,
+            })
         }
     }
 
@@ -326,72 +313,16 @@ mod tests {
         let projection_events = projection.events.clone();
         let store = MemoryStore::<TestEvent, TestProjection>::with_projection(projection);
         store
-            .record(
-                1,
-                Utc::now(),
-                TestRecord::Alpha(Record {
-                    id: 10,
-                    payload: "first",
-                    when: When::Empty,
-                }),
-            )
+            .record::<AlphaStream>(1, Utc::now(), 10, "first", When::Empty)
             .await
             .expect("record should succeed");
         store
-            .record(
-                1,
-                Utc::now(),
-                TestRecord::Alpha(Record {
-                    id: 10,
-                    payload: "skipped",
-                    when: When::Empty,
-                }),
-            )
+            .record::<AlphaStream>(1, Utc::now(), 10, "skipped", When::Empty)
             .await
             .expect("record should succeed");
 
         let events = projection_events.lock().expect("poisoned");
         assert_eq!(events.len(), 1);
         assert!(matches!(&events[0], TestEvent::Alpha(event) if event.payload == "first"));
-    }
-
-    #[tokio::test]
-    async fn projection_receives_all_commit_events_before_return() {
-        let projection = TestProjection::default();
-        let projection_events = projection.events.clone();
-        let store = MemoryStore::<TestEvent, TestProjection>::with_projection(projection);
-        let result = store
-            .commit(
-                1,
-                Utc::now(),
-                vec![
-                    TestRecord::Alpha(Record {
-                        id: 10,
-                        payload: "alpha",
-                        when: When::Empty,
-                    }),
-                    TestRecord::Beta(Record {
-                        id: 20,
-                        payload: "beta",
-                        when: When::Empty,
-                    }),
-                ],
-            )
-            .await
-            .expect("commit should succeed");
-
-        let Outcome::Recorded(recorded_events) = result else {
-            panic!("expected recorded");
-        };
-        let projected_events = projection_events.lock().expect("poisoned");
-        assert_eq!(projected_events.len(), 2);
-        assert_eq!(
-            projected_events[0].event_id(),
-            recorded_events[0].event_id()
-        );
-        assert_eq!(
-            projected_events[1].event_id(),
-            recorded_events[1].event_id()
-        );
     }
 }

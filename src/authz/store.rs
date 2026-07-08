@@ -1,15 +1,15 @@
 use super::GrantId;
 use super::RoleId;
+use super::grant::GrantPayload;
 use super::grant::GrantStream;
+use super::role::RolePayload;
 use super::role::RoleStream;
 use crate::authority::Authority;
 use crate::store::Event;
 use crate::store::EventFamily;
+use crate::store::EventFor;
 use crate::store::EventId;
-use crate::store::Record;
-use crate::store::RecordFor;
 use crate::store::Store;
-use crate::store::When;
 use crate::store::sqlite::SqliteStreamId;
 use chrono::DateTime;
 use chrono::Utc;
@@ -18,12 +18,6 @@ use chrono::Utc;
 pub enum AuthzId {
     Role(RoleId),
     Grant(GrantId),
-}
-
-#[derive(Clone)]
-pub enum AuthzRecord {
-    Role(Record<RoleStream>),
-    Grant(Record<GrantStream>),
 }
 
 #[derive(Clone, Debug)]
@@ -38,7 +32,6 @@ impl<S> AuthzStore for S where S: Store<AuthzEvent> {}
 
 impl EventFamily for AuthzEvent {
     type Id = AuthzId;
-    type Record = AuthzRecord;
     type Authority = Authority;
 
     fn event_id(&self) -> EventId {
@@ -64,50 +57,54 @@ impl SqliteStreamId for AuthzId {
         }
     }
 
-    fn stream_id(&self) -> &[u8] {
+    fn stream_id(&self) -> Vec<u8> {
         match self {
-            AuthzId::Role(id) => id.as_bytes(),
-            AuthzId::Grant(id) => id.as_bytes(),
+            AuthzId::Role(id) => id.as_bytes().to_vec(),
+            AuthzId::Grant(id) => id.as_bytes().to_vec(),
         }
     }
 }
 
-impl RecordFor<AuthzEvent> for AuthzRecord {
-    fn id(&self) -> AuthzId {
-        match self {
-            AuthzRecord::Role(record) => AuthzId::Role(record.id),
-            AuthzRecord::Grant(record) => AuthzId::Grant(record.id),
-        }
+impl EventFor<RoleStream> for AuthzEvent {
+    fn id_for(id: RoleId) -> AuthzId {
+        AuthzId::Role(id)
     }
 
-    fn when(&self) -> When<EventId> {
-        match self {
-            AuthzRecord::Role(record) => record.when,
-            AuthzRecord::Grant(record) => record.when,
-        }
-    }
-
-    fn into_event(
-        self,
+    fn new_event(
         event_id: EventId,
         authority: Authority,
         timestamp: DateTime<Utc>,
+        id: RoleId,
+        payload: RolePayload,
     ) -> AuthzEvent {
-        match self {
-            AuthzRecord::Role(record) => AuthzEvent::Role(Event {
-                event_id,
-                timestamp,
-                authority,
-                id: record.id,
-                payload: record.payload,
-            }),
-            AuthzRecord::Grant(record) => AuthzEvent::Grant(Event {
-                event_id,
-                timestamp,
-                authority,
-                id: record.id,
-                payload: record.payload,
-            }),
-        }
+        AuthzEvent::Role(Event {
+            event_id,
+            timestamp,
+            authority,
+            id,
+            payload,
+        })
+    }
+}
+
+impl EventFor<GrantStream> for AuthzEvent {
+    fn id_for(id: GrantId) -> AuthzId {
+        AuthzId::Grant(id)
+    }
+
+    fn new_event(
+        event_id: EventId,
+        authority: Authority,
+        timestamp: DateTime<Utc>,
+        id: GrantId,
+        payload: GrantPayload,
+    ) -> AuthzEvent {
+        AuthzEvent::Grant(Event {
+            event_id,
+            timestamp,
+            authority,
+            id,
+            payload,
+        })
     }
 }

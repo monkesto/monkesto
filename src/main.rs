@@ -22,6 +22,7 @@ pub mod store;
 use crate::account::AccountMemoryStore;
 use crate::account::AccountService;
 use crate::auth::{AuthEvent, AuthInterface};
+use crate::authz::AuthzSqliteService;
 use crate::journal::JournalMemoryStore;
 use crate::journal::JournalService;
 use crate::transaction::TransactionMemoryStore;
@@ -40,7 +41,11 @@ use disintegrate_postgres::{PgEventStore, PgSnapshotter, WithPgSnapshot, decisio
 use dotenvy::dotenv;
 use seed::seed_dev_data;
 use sqlx::PgPool;
+use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::sqlite::SqlitePoolOptions;
 use std::env;
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 use tokio::signal;
 use tower_http::services::ServeFile;
@@ -53,6 +58,7 @@ type MemoryJournalService = JournalService<JournalMemoryStore>;
 type MemoryAccountService = AccountService<AccountMemoryStore, JournalMemoryStore>;
 type MemoryTransactionService =
     TransactionService<TransactionMemoryStore, AccountMemoryStore, JournalMemoryStore>;
+type AppAuthzService = AuthzSqliteService;
 
 #[derive(Clone)]
 struct AppState {
@@ -60,10 +66,11 @@ struct AppState {
     journal_service: MemoryJournalService,
     account_service: MemoryAccountService,
     transaction_service: MemoryTransactionService,
+    authz_service: AppAuthzService,
 }
 
 impl AppState {
-    fn new(auth_interface: AuthInterface) -> Self {
+    fn new(auth_interface: AuthInterface, authz_service: AppAuthzService) -> Self {
         let journal_store = JournalMemoryStore::new();
         let account_store = AccountMemoryStore::new();
         let transaction_store = TransactionMemoryStore::new();
@@ -81,6 +88,7 @@ impl AppState {
             journal_service,
             account_service,
             transaction_service,
+            authz_service,
         }
     }
 }
@@ -100,6 +108,12 @@ impl FromRef<AppState> for MemoryAccountService {
 impl FromRef<AppState> for MemoryTransactionService {
     fn from_ref(state: &AppState) -> Self {
         state.transaction_service.clone()
+    }
+}
+
+impl FromRef<AppState> for AppAuthzService {
+    fn from_ref(state: &AppState) -> Self {
+        state.authz_service.clone()
     }
 }
 
@@ -126,6 +140,29 @@ async fn main() {
         .init();
 
     let addr = env::var("SITE_ADDR").unwrap_or("0.0.0.0:3000".to_string());
+
+    let authz_sqlite_max_connections = env::var("AUTHZ_SQLITE_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1);
+    let authz_sqlite_url = if let Ok(url) = env::var("AUTHZ_SQLITE_URL") {
+        url
+    } else if let Ok(filename) = env::var("AUTHZ_SQLITE_FILENAME") {
+        format!("sqlite://{}", PathBuf::from(filename).display())
+    } else {
+        "sqlite::memory:?cache=shared".to_string()
+    };
+    let authz_sqlite_options = SqliteConnectOptions::from_str(&authz_sqlite_url)
+        .expect("failed to parse authz sqlite url")
+        .create_if_missing(true);
+    let authz_pool = SqlitePoolOptions::new()
+        .max_connections(authz_sqlite_max_connections)
+        .connect_with(authz_sqlite_options)
+        .await
+        .expect("failed to connect authz sqlite pool");
+    let authz_service = authz::connect_sqlite_service(authz_pool)
+        .await
+        .expect("failed to initialize authz sqlite service");
 
     // other stores will have to namespace themselves or use a separate database to avoid event table conflicts
     let auth_pool = PgPool::connect(
@@ -157,7 +194,7 @@ async fn main() {
         auth_interface.clone(),
     ));
 
-    let state = AppState::new(auth_interface.clone());
+    let state = AppState::new(auth_interface.clone(), authz_service);
 
     seed_dev_data(&state)
         .await
@@ -171,7 +208,8 @@ async fn main() {
 
     let journal_routes = journal::router()
         .merge(account::router())
-        .merge(transaction::router());
+        .merge(transaction::router())
+        .merge(authz::router());
 
     // the dockerfile defines this for production deployments
     let site_root = env::var("SITE_ROOT").unwrap_or_else(|_| "target/site".to_string());
