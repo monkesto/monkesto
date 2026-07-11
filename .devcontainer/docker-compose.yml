@@ -1,0 +1,44 @@
+volumes:
+  db-data:
+  node-modules:
+  rust-target:
+
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgres://monkesto:monkesto@db:5432/monkesto
+    volumes:
+      - ../..:/workspaces:cached
+      - type: volume
+        source: node-modules
+        target: /workspaces/monkesto/node_modules
+        volume:
+          nocopy: true
+      - type: volume
+        source: rust-target
+        target: /workspaces/monkesto/target
+        volume:
+          nocopy: true
+    command: sleep infinity
+    network_mode: service:db
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=monkesto
+      - POSTGRES_PASSWORD=monkesto
+      - POSTGRES_DB=monkesto
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monkesto -d monkesto"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
