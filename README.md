@@ -23,6 +23,24 @@ cargo install sqlx-cli
 npm install
 ```
 
+## Configure the database:
+
+Monkesto requires PostgreSQL at runtime. Set its connection URL and enable
+SQLx's offline mode in `.env` so the project can compile against the checked-in
+`.sqlx` query metadata before a new database has been initialized:
+
+```dotenv
+DATABASE_URL=postgres://monkesto:monkesto@localhost:5432/monkesto
+SQLX_OFFLINE=true
+```
+
+After changing a `sqlx::query!` invocation or its database schema, refresh the
+checked-in query metadata against a running, up-to-date database:
+
+```sh
+cargo sqlx prepare -- --all-targets
+```
+
 ## Start the server:
 
 ```
