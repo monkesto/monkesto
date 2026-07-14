@@ -53,7 +53,7 @@ pub async fn journal_list(
                                             Actor::System => {"System"},
                                             Actor::Anonymous => {"Anonymous"},
                                             Actor::User(creator_id) => {
-                                                 @match state.auth_interface.query_user(*creator_id).await {
+                                                 @match state.auth_service.query_user(*creator_id).await {
                                                     Ok(user) => (user.email.to_string()),
 
                                                     Err(e) => (format!("failed to fetch creator email: {:?}", e)),
@@ -193,7 +193,7 @@ pub async fn journal_detail(
                                                 Actor::System => {"System"},
                                                 Actor::Anonymous => {"Anonymous"},
                                                 Actor::User(creator_id) => {
-                                                     @match state.auth_interface.query_user(*creator_id).await {
+                                                     @match state.auth_service.query_user(*creator_id).await {
                                                         Ok(user) => (user.email.to_string()),
 
                                                         Err(e) => (format!("failed to fetch creator email: {:?}", e)),

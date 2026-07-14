@@ -1,7 +1,7 @@
 use super::user::DEV_USERS;
 use super::user::UserId;
 use super::user::UserState;
-use super::{AuthInterface, AuthSession};
+use super::{AuthService, AuthSession};
 use crate::monkesto_error::OrRedirect;
 use crate::theme::theme_with_head;
 use axum::extract::Extension;
@@ -73,14 +73,14 @@ impl IntoResponse for SigninError {
 /// This struct encapsulates the start and finish phases of authentication.
 pub struct SigninAuthenticator<'a> {
     webauthn: &'a Webauthn,
-    auth_interface: &'a AuthInterface,
+    auth_service: &'a AuthService,
 }
 
 impl<'a> SigninAuthenticator<'a> {
-    pub fn new(webauthn: &'a Webauthn, auth_interface: &'a AuthInterface) -> Self {
+    pub fn new(webauthn: &'a Webauthn, auth_service: &'a AuthService) -> Self {
         Self {
             webauthn,
-            auth_interface,
+            auth_service,
         }
     }
 
@@ -92,7 +92,7 @@ impl<'a> SigninAuthenticator<'a> {
     /// Returns the challenge request and auth state, or None if it fails.
     pub async fn start(&self) -> Option<(RequestChallengeResponse, PasskeyAuthentication)> {
         let all_credentials: Vec<webauthn_rs::prelude::Passkey> = self
-            .auth_interface
+            .auth_service
             .get_all_credentials()
             .await
             .unwrap_or_default()
@@ -124,7 +124,7 @@ impl<'a> SigninAuthenticator<'a> {
             .map_err(|_| SigninError::AuthenticationFailed)?;
 
         let (user_id, _passkey_id) = dbg!(
-            self.auth_interface
+            self.auth_service
                 .find_user_by_credential(auth_result.cred_id())
                 .await
         )
@@ -293,7 +293,7 @@ fn auth_page(
 
 async fn handle_signin_page(
     webauthn: Arc<Webauthn>,
-    auth_interface: AuthInterface,
+    auth_service: AuthService,
     auth_session: AuthSession,
     webauthn_url: String,
     query: Query<SigninQuery>,
@@ -305,7 +305,7 @@ async fn handle_signin_page(
     _ = session.remove_value("usernameless_auth_state").await;
 
     // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
-    let authenticator = SigninAuthenticator::new(&webauthn, &auth_interface);
+    let authenticator = SigninAuthenticator::new(&webauthn, &auth_service);
     let challenge_data = match authenticator.start().await {
         Some((rcr, auth_state)) => {
             // Store auth state in session
@@ -332,7 +332,7 @@ async fn handle_signin_page(
     });
 
     // Get dev users for the dev login form
-    let dev_users = auth_interface.get_dev_users().await;
+    let dev_users = auth_service.get_dev_users().await;
 
     let markup = auth_page(
         &webauthn_url,
@@ -350,7 +350,7 @@ async fn handle_signin_page(
 
 async fn handle_signin_completion(
     webauthn: Arc<Webauthn>,
-    auth_interface: AuthInterface,
+    auth_service: AuthService,
     mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
@@ -377,7 +377,7 @@ async fn handle_signin_completion(
         .ok_or(SigninError::SessionExpired)?;
 
     // Verify the authentication using SigninAuthenticator
-    let authenticator = SigninAuthenticator::new(&webauthn, &auth_interface);
+    let authenticator = SigninAuthenticator::new(&webauthn, &auth_service);
     match authenticator.finish(&credential, &auth_state).await {
         Ok((user_id, _auth_result)) => {
             // Clear the auth state
@@ -385,7 +385,7 @@ async fn handle_signin_completion(
             _ = session.remove_value("auth_state").await;
 
             // Get the user and log them in via axum_login
-            let user = auth_interface
+            let user = auth_service
                 .get_user(&user_id)
                 .await
                 .map_err(|e| SigninError::StoreError(e.to_string()))?
@@ -413,7 +413,7 @@ async fn handle_signin_completion(
 
 pub async fn signin_get(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(auth_interface): Extension<AuthInterface>,
+    Extension(auth_service): Extension<AuthService>,
     Extension(webauthn_url): Extension<String>,
     auth_session: AuthSession,
     query: Query<SigninQuery>,
@@ -421,7 +421,7 @@ pub async fn signin_get(
     let next = query.next.clone();
     handle_signin_page(
         webauthn,
-        auth_interface,
+        auth_service,
         auth_session,
         webauthn_url,
         query,
@@ -432,7 +432,7 @@ pub async fn signin_get(
 
 pub async fn signin_post(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(auth_interface): Extension<AuthInterface>,
+    Extension(auth_service): Extension<AuthService>,
     auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, impl IntoResponse> {
@@ -441,17 +441,17 @@ pub async fn signin_post(
     // Check for dev login first
     if let Some(dev_user_id) = form.get("dev_user_id") {
         return Ok(
-            handle_dev_login(auth_interface, auth_session, dev_user_id, next)
+            handle_dev_login(auth_service, auth_session, dev_user_id, next)
                 .await
                 .into_response(),
         );
     }
 
-    handle_signin_completion(webauthn, auth_interface, auth_session, form, next).await
+    handle_signin_completion(webauthn, auth_service, auth_session, form, next).await
 }
 
 async fn handle_dev_login(
-    auth_interface: AuthInterface,
+    auth_service: AuthService,
     mut auth_session: AuthSession,
     dev_user_id: &str,
     next: Option<String>,
@@ -463,7 +463,7 @@ async fn handle_dev_login(
     let user_id = UserId::from_str(dev_user_id).or_redirect("/signin?error=invalid_userid")?;
 
     // Look up the user
-    let user = auth_interface
+    let user = auth_service
         .query_user(user_id)
         .await
         .or_redirect("/signin?error=auth_failed")?;

@@ -19,7 +19,7 @@ pub mod util;
 
 use crate::account::AccountMemoryStore;
 use crate::account::AccountService;
-use crate::auth::{AuthEventStore, AuthInterface};
+use crate::auth::{AuthEventStore, AuthService};
 use crate::authz::{AuthzEventStore, AuthzService, RoleIndex};
 use crate::journal::JournalMemoryStore;
 use crate::journal::JournalService;
@@ -53,7 +53,7 @@ type MemoryTransactionService =
     TransactionService<TransactionMemoryStore, AccountMemoryStore, JournalMemoryStore>;
 #[derive(Clone)]
 struct AppState {
-    auth_interface: AuthInterface,
+    auth_service: AuthService,
     journal_service: MemoryJournalService,
     account_service: MemoryAccountService,
     transaction_service: MemoryTransactionService,
@@ -61,12 +61,12 @@ struct AppState {
 }
 
 impl AppState {
-    fn new(auth_interface: AuthInterface, authz_service: AuthzService) -> Self {
+    fn new(auth_service: AuthService, authz_service: AuthzService) -> Self {
         let journal_store = JournalMemoryStore::new();
         let account_store = AccountMemoryStore::new();
         let transaction_store = TransactionMemoryStore::new();
 
-        let journal_service = JournalService::new(journal_store, auth_interface.clone());
+        let journal_service = JournalService::new(journal_store, auth_service.clone());
         let account_service = AccountService::new(account_store, journal_service.clone());
         let transaction_service = TransactionService::new(
             transaction_store,
@@ -75,7 +75,7 @@ impl AppState {
         );
 
         Self {
-            auth_interface,
+            auth_service,
             journal_service,
             account_service,
             transaction_service,
@@ -109,7 +109,7 @@ impl FromRef<AppState> for AuthzService {
 }
 
 type StateType = AppState;
-type BackendType = AuthInterface;
+type BackendType = AuthService;
 
 #[tokio::main]
 async fn main() {
@@ -147,13 +147,13 @@ async fn main() {
     let auth_event_store = AuthEventStore::try_new(auth_pool.clone())
         .await
         .expect("failed to create an auth event store");
-    let auth_interface = AuthInterface::try_new(auth_pool.clone(), &auth_event_store)
+    let auth_service = AuthService::try_new(auth_pool.clone(), &auth_event_store)
         .await
         .expect("failed to create a projection pool");
 
     tokio::spawn(auth::event_listener(
         auth_event_store.clone(),
-        auth_interface.clone(),
+        auth_service.clone(),
     ));
 
     sqlx::query("CREATE SCHEMA IF NOT EXISTS authz")
@@ -184,17 +184,17 @@ async fn main() {
         .expect("failed to create the role index");
     let authz_service = AuthzService::new(authz_event_store, role_index);
 
-    let state = AppState::new(auth_interface.clone(), authz_service);
+    let state = AppState::new(auth_service.clone(), authz_service);
 
     seed_dev_data(&state)
         .await
         .expect("Failed to seed dev data");
 
     // use the service's user_store so that the data syncs
-    let auth_layer = AuthManagerLayerBuilder::new(auth_interface.clone(), session_layer).build();
+    let auth_layer = AuthManagerLayerBuilder::new(auth_service.clone(), session_layer).build();
 
     let webauthn_routes =
-        auth::router(auth_interface.clone()).expect("Failed to initialize WebAuthn routes");
+        auth::router(auth_service.clone()).expect("Failed to initialize WebAuthn routes");
 
     let journal_routes = journal::router()
         .merge(account::router())

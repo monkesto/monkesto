@@ -2,7 +2,7 @@ use super::PasskeyEvent;
 use super::UserId;
 use super::layout::layout;
 use super::user::User;
-pub(crate) use super::{AuthEvent, AuthInterface, AuthSession, PasskeyId};
+pub(crate) use super::{AuthEvent, AuthService, AuthSession, PasskeyId};
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::time_provider::{DefaultTimeProvider, TimeProvider, TimeStamp};
@@ -254,7 +254,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 pub async fn delete_passkey_post(
-    Extension(interface): Extension<AuthInterface>,
+    Extension(service): Extension<AuthService>,
     auth_session: AuthSession,
     Path(passkey_id_str): Path<String>,
 ) -> Result<impl IntoResponse, PasskeyError> {
@@ -271,7 +271,7 @@ pub async fn delete_passkey_post(
         .map_err(|_| PasskeyError::InvalidInput)?;
 
     // Remove the passkey from the user's passkeys
-    if interface
+    if service
         .decision_maker
         .make(DeletePasskey::new(
             passkey_id,
@@ -291,7 +291,7 @@ pub async fn delete_passkey_post(
 
 pub async fn create_passkey_post(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(auth_interface): Extension<AuthInterface>,
+    Extension(auth_service): Extension<AuthService>,
     auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, PasskeyError> {
@@ -326,7 +326,7 @@ pub async fn create_passkey_post(
                 let passkey_id = PasskeyId::new();
 
                 // Add the new passkey to the user's existing passkeys
-                if auth_interface
+                if auth_service
                     .decision_maker
                     .make(CreatePasskey::new(
                         passkey_id,
@@ -353,12 +353,12 @@ pub async fn create_passkey_post(
     } else {
         // This is initial request - start registration
         // Get user's existing passkeys
-        let existing_passkeys = auth_interface
+        let existing_passkeys = auth_service
             .get_user_passkeys(user_id)
             .await
             .unwrap_or_default();
 
-        let user = auth_interface
+        let user = auth_service
             .query_user(user_id)
             .await
             .map_err(|_| PasskeyError::UserDoesntExist(user_id))?;

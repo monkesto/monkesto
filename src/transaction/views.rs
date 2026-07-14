@@ -77,7 +77,7 @@ async fn build_transaction_node(
     {
         Ok(auth) => match auth.actor() {
             Actor::User(id) => state
-                .auth_interface
+                .auth_service
                 .query_user(*id)
                 .await
                 .map(|u| u.email.to_string())

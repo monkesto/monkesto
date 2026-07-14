@@ -45,7 +45,7 @@ use webauthn_rs::prelude::WebauthnBuilder;
 use webauthn_rs::prelude::WebauthnError as WebauthnCoreError;
 use webauthn_rs::prelude::{CredentialID, Url, Uuid};
 
-pub type AuthSession = axum_login::AuthSession<AuthInterface>;
+pub type AuthSession = axum_login::AuthSession<AuthService>;
 
 type Timestamp = DateTime<Utc>;
 /// Errors that occur during WebAuthn router initialization/configuration.
@@ -109,13 +109,13 @@ pub enum AuthEvent {
 }
 
 #[derive(Clone)]
-pub struct AuthInterface {
+pub struct AuthService {
     query: StreamQuery<PgEventId, AuthEvent>,
     projection_pool: PgPool,
     decision_maker: PgAuthDecisionMaker,
 }
 
-impl AuthInterface {
+impl AuthService {
     pub async fn try_new(
         pool: PgPool,
         event_store: &AuthEventStore,
@@ -290,7 +290,7 @@ impl AuthInterface {
     }
 }
 
-impl AuthnBackend for AuthInterface {
+impl AuthnBackend for AuthService {
     type User = UserState;
     type Credentials = ();
     type Error = UserError;
@@ -307,7 +307,7 @@ impl AuthnBackend for AuthInterface {
 }
 
 #[async_trait]
-impl EventListener<PgEventId, AuthEvent> for AuthInterface {
+impl EventListener<PgEventId, AuthEvent> for AuthService {
     type Error = sqlx::Error;
 
     fn id(&self) -> &'static str {
@@ -364,10 +364,10 @@ impl EventListener<PgEventId, AuthEvent> for AuthInterface {
     }
 }
 
-pub(crate) async fn event_listener(event_store: AuthEventStore, interface: AuthInterface) {
+pub(crate) async fn event_listener(event_store: AuthEventStore, service: AuthService) {
     PgEventListener::builder(event_store.event_store)
         .register_listener(
-            interface,
+            service,
             PgEventListenerConfig::poller(Duration::from_secs(60))
                 .with_notifier()
                 .fetch_size(100)
@@ -394,7 +394,7 @@ fn handle_event_listener_retry(
 }
 
 pub fn router<S: Clone + Send + Sync + 'static>(
-    auth_interface: AuthInterface,
+    auth_service: AuthService,
 ) -> Result<Router<S>, AuthConfigError> {
     // Get base URL from environment variable, defaulting to localhost:3000
     let base_url = env::var("RAILWAY_PUBLIC_DOMAIN")
@@ -424,7 +424,7 @@ pub fn router<S: Clone + Send + Sync + 'static>(
         .route("/passkey/{id}/delete", post(passkey::delete_passkey_post))
         .route("/signout", get(signout::signout_get))
         .route("/signout", post(signout::signout_post))
-        .route_layer(login_required!(AuthInterface, login_url = "/signin"));
+        .route_layer(login_required!(AuthService, login_url = "/signin"));
 
     // Public routes (no login required)
     let public_routes = Router::new()
@@ -435,5 +435,5 @@ pub fn router<S: Clone + Send + Sync + 'static>(
         .merge(protected_routes)
         .layer(Extension(webauthn_url))
         .layer(Extension(webauthn))
-        .layer(Extension(auth_interface)))
+        .layer(Extension(auth_service)))
 }

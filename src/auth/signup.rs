@@ -22,7 +22,7 @@ use webauthn_rs_proto::ResidentKeyRequirement;
 
 use super::passkey::{CorePasskey, CreatePasskey, PasskeyId};
 use super::user::{CreateUser, UserId};
-use super::{AuthInterface, AuthSession};
+use super::{AuthService, AuthSession};
 
 use crate::authority::Actor;
 use crate::authority::Authority;
@@ -279,14 +279,14 @@ async fn handle_signup_get(
 
 async fn handle_email_submission(
     webauthn: Arc<Webauthn>,
-    auth_interface: AuthInterface,
+    auth_service: AuthService,
     auth_session: AuthSession,
     webauthn_url: String,
     email: Email,
     next: Option<String>,
 ) -> Result<Response, SignupError> {
     // Check if email is already taken
-    if auth_interface.email_exists(&email).await.unwrap_or(false) {
+    if auth_service.email_exists(&email).await.unwrap_or(false) {
         return Ok(Redirect::to("/signup?error=email_taken").into_response());
     }
 
@@ -355,7 +355,7 @@ async fn handle_email_submission(
 
 async fn handle_credential_submission(
     webauthn: Arc<Webauthn>,
-    auth_interface: AuthInterface,
+    auth_service: AuthService,
     mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
@@ -390,7 +390,7 @@ async fn handle_credential_submission(
             // Store the new user and their passkey
             let email_validated = Email::try_new(&email).map_err(|_| SignupError::InvalidInput)?;
 
-            auth_interface
+            auth_service
                 .decision_maker
                 .make(CreateUser::new(
                     user_id,
@@ -402,7 +402,7 @@ async fn handle_credential_submission(
                 .await
                 .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
 
-            auth_interface
+            auth_service
                 .decision_maker
                 .make(CreatePasskey::new(
                     passkey_id,
@@ -448,14 +448,14 @@ pub async fn signup_get(
 
 pub async fn signup_post(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(auth_interface): Extension<AuthInterface>,
+    Extension(auth_service): Extension<AuthService>,
     Extension(webauthn_url): Extension<String>,
     auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let next = form.get("next").cloned();
     if let Some(_credential_json) = form.get("credential") {
-        handle_credential_submission(webauthn, auth_interface, auth_session, form, next).await
+        handle_credential_submission(webauthn, auth_service, auth_session, form, next).await
     } else if let Some(email_str) = form.get("email") {
         let email = match Email::try_new(email_str) {
             Ok(em) => em,
@@ -464,7 +464,7 @@ pub async fn signup_post(
 
         handle_email_submission(
             webauthn,
-            auth_interface,
+            auth_service,
             auth_session,
             webauthn_url,
             email,
