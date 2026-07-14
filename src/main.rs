@@ -20,7 +20,7 @@ pub mod util;
 use crate::account::AccountMemoryStore;
 use crate::account::AccountService;
 use crate::auth::{AuthEvent, AuthInterface};
-use crate::authz::{AuthzEventStore, AuthzProjection, AuthzService};
+use crate::authz::{AuthzEventStore, AuthzService, RoleIndex};
 use crate::journal::JournalMemoryStore;
 use crate::journal::JournalService;
 use crate::transaction::TransactionMemoryStore;
@@ -188,10 +188,10 @@ async fn main() {
     let authz_event_store = AuthzEventStore::try_new(authz_pool.clone())
         .await
         .expect("failed to create an authz event store");
-    let authz_projection = AuthzProjection::try_new(authz_pool, authz_event_store.clone())
+    let role_index = RoleIndex::try_new(authz_pool, authz_event_store.clone())
         .await
-        .expect("failed to create the authz projection");
-    let authz_service = AuthzService::new(authz_event_store, authz_projection);
+        .expect("failed to create the role index");
+    let authz_service = AuthzService::new(authz_event_store, role_index);
 
     let state = AppState::new(auth_interface.clone(), authz_service);
 

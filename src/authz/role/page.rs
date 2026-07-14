@@ -1,10 +1,8 @@
+use super::RoleState;
 use crate::BackendType;
 use crate::StateType;
 use crate::auth::get_user;
-use crate::authority::Actor;
-use crate::authority::Authority;
-use crate::id;
-use crate::id::Ident;
+use crate::authority::{Actor, Authority};
 use crate::journal::layout::layout;
 use crate::monkesto_error::OrRedirect;
 use crate::name::Name;
@@ -14,24 +12,14 @@ use axum::response::Redirect;
 use axum::routing::get;
 use axum_extra::extract::Form;
 use axum_login::AuthSession;
-use maud::Markup;
-use maud::html;
+use maud::{Markup, html};
 use serde::Deserialize;
-use std::collections::HashSet;
-
-id!(RoleId, Ident::new16());
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RoleState {
-    Absent,
-    Present { name: Name, actors: HashSet<Actor> },
-}
 
 pub fn router() -> Router<StateType> {
     Router::new().route("/authz/roles", get(roles_page).post(create_role))
 }
 
-pub async fn roles_page(
+async fn roles_page(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
 ) -> Result<Markup, Redirect> {
@@ -111,11 +99,11 @@ pub async fn roles_page(
 }
 
 #[derive(Deserialize)]
-pub struct CreateRoleForm {
+struct CreateRoleForm {
     role_name: String,
 }
 
-pub async fn create_role(
+async fn create_role(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Form(form): Form<CreateRoleForm>,
