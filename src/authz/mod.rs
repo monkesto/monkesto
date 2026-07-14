@@ -1,17 +1,10 @@
+mod disintegrate;
 mod grant;
-mod memory;
-mod projection;
 mod role;
-mod service;
-mod sqlite;
-mod store;
 
+pub use disintegrate::{AuthzEventStore, AuthzProjection, AuthzService};
 pub use grant::GrantId;
-pub use grant::GrantPayload;
 pub use role::RoleId;
-pub use role::RolePayload;
-pub use sqlite::AuthzSqliteService;
-pub use sqlite::connect_service as connect_sqlite_service;
 
 use axum::Router;
 use axum_login::login_required;

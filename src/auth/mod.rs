@@ -352,7 +352,7 @@ pub(crate) async fn event_listener(event_store: AuthEventStore, interface: AuthI
     PgEventListener::builder(event_store)
         .register_listener(
             interface,
-            PgEventListenerConfig::poller(Duration::from_secs(5))
+            PgEventListenerConfig::poller(Duration::from_secs(60))
                 .with_notifier()
                 .fetch_size(100)
                 .with_retry(handle_event_listener_retry),

@@ -22,7 +22,7 @@ pub mod store;
 use crate::account::AccountMemoryStore;
 use crate::account::AccountService;
 use crate::auth::{AuthEvent, AuthInterface};
-use crate::authz::AuthzSqliteService;
+use crate::authz::{AuthzEventStore, AuthzProjection, AuthzService};
 use crate::journal::JournalMemoryStore;
 use crate::journal::JournalService;
 use crate::transaction::TransactionMemoryStore;
@@ -41,11 +41,8 @@ use disintegrate_postgres::{PgEventStore, PgSnapshotter, WithPgSnapshot, decisio
 use dotenvy::dotenv;
 use seed::seed_dev_data;
 use sqlx::PgPool;
-use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::postgres::PgPoolOptions;
 use std::env;
-use std::path::PathBuf;
-use std::str::FromStr;
 use std::time::Duration;
 use tokio::signal;
 use tower_http::services::ServeFile;
@@ -58,19 +55,17 @@ type MemoryJournalService = JournalService<JournalMemoryStore>;
 type MemoryAccountService = AccountService<AccountMemoryStore, JournalMemoryStore>;
 type MemoryTransactionService =
     TransactionService<TransactionMemoryStore, AccountMemoryStore, JournalMemoryStore>;
-type AppAuthzService = AuthzSqliteService;
-
 #[derive(Clone)]
 struct AppState {
     auth_interface: AuthInterface,
     journal_service: MemoryJournalService,
     account_service: MemoryAccountService,
     transaction_service: MemoryTransactionService,
-    authz_service: AppAuthzService,
+    authz_service: AuthzService,
 }
 
 impl AppState {
-    fn new(auth_interface: AuthInterface, authz_service: AppAuthzService) -> Self {
+    fn new(auth_interface: AuthInterface, authz_service: AuthzService) -> Self {
         let journal_store = JournalMemoryStore::new();
         let account_store = AccountMemoryStore::new();
         let transaction_store = TransactionMemoryStore::new();
@@ -111,7 +106,7 @@ impl FromRef<AppState> for MemoryTransactionService {
     }
 }
 
-impl FromRef<AppState> for AppAuthzService {
+impl FromRef<AppState> for AuthzService {
     fn from_ref(state: &AppState) -> Self {
         state.authz_service.clone()
     }
@@ -141,37 +136,10 @@ async fn main() {
 
     let addr = env::var("SITE_ADDR").unwrap_or("0.0.0.0:3000".to_string());
 
-    let authz_sqlite_max_connections = env::var("AUTHZ_SQLITE_MAX_CONNECTIONS")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(1);
-    let authz_sqlite_url = if let Ok(url) = env::var("AUTHZ_SQLITE_URL") {
-        url
-    } else if let Ok(filename) = env::var("AUTHZ_SQLITE_FILENAME") {
-        format!("sqlite://{}", PathBuf::from(filename).display())
-    } else {
-        "sqlite::memory:?cache=shared".to_string()
-    };
-    let authz_sqlite_options = SqliteConnectOptions::from_str(&authz_sqlite_url)
-        .expect("failed to parse authz sqlite url")
-        .create_if_missing(true);
-    let authz_pool = SqlitePoolOptions::new()
-        .max_connections(authz_sqlite_max_connections)
-        .connect_with(authz_sqlite_options)
+    let database_url = env::var("DATABASE_URL").expect("failed to fetch database url");
+    let auth_pool = PgPool::connect(&database_url)
         .await
-        .expect("failed to connect authz sqlite pool");
-    let authz_service = authz::connect_sqlite_service(authz_pool)
-        .await
-        .expect("failed to initialize authz sqlite service");
-
-    // other stores will have to namespace themselves or use a separate database to avoid event table conflicts
-    let auth_pool = PgPool::connect(
-        env::var("DATABASE_URL")
-            .expect("failed to fetch database url")
-            .as_str(),
-    )
-    .await
-    .expect("failed to create pgpool");
+        .expect("failed to create pgpool");
 
     let session_store = tower_sessions_sqlx_store::PostgresStore::new(auth_pool.clone());
     session_store
@@ -187,9 +155,10 @@ async fn main() {
     let snapshotter = PgSnapshotter::try_new(auth_pool.clone(), 10)
         .await
         .expect("failed to create an auth snapshotter");
-    let decision_maker = decision_maker(auth_event_store.clone(), WithPgSnapshot::new(snapshotter));
+    let auth_decision_maker =
+        decision_maker(auth_event_store.clone(), WithPgSnapshot::new(snapshotter));
 
-    let auth_interface = AuthInterface::try_new(auth_pool.clone(), decision_maker)
+    let auth_interface = AuthInterface::try_new(auth_pool.clone(), auth_decision_maker)
         .await
         .expect("failed to create a projection pool");
 
@@ -197,6 +166,34 @@ async fn main() {
         auth_event_store.clone(),
         auth_interface.clone(),
     ));
+
+    sqlx::query("CREATE SCHEMA IF NOT EXISTS authz")
+        .execute(&auth_pool)
+        .await
+        .expect("failed to create the authz schema");
+
+    // Disintegrate uses unqualified object names and cannot target a schema directly, so
+    // authz needs a schema-scoped pool. Ideally the backend would qualify its objects with
+    // a configured schema, allowing isolated event stores to share a pool.
+    let authz_pool = PgPoolOptions::new()
+        .after_connect(|connection, _| {
+            Box::pin(async move {
+                sqlx::query("SET search_path TO authz")
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&database_url)
+        .await
+        .expect("failed to create an authz pool");
+    let authz_event_store = AuthzEventStore::try_new(authz_pool.clone())
+        .await
+        .expect("failed to create an authz event store");
+    let authz_projection = AuthzProjection::try_new(authz_pool, authz_event_store.clone())
+        .await
+        .expect("failed to create the authz projection");
+    let authz_service = AuthzService::new(authz_event_store, authz_projection);
 
     let state = AppState::new(auth_interface.clone(), authz_service);
 
