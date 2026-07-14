@@ -17,8 +17,6 @@ mod time_provider;
 mod transaction;
 pub mod util;
 
-pub mod store;
-
 use crate::account::AccountMemoryStore;
 use crate::account::AccountService;
 use crate::auth::{AuthEvent, AuthInterface};
