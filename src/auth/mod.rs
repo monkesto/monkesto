@@ -4,6 +4,7 @@ pub mod passkey;
 mod signin;
 mod signout;
 mod signup;
+mod store;
 pub mod user;
 
 use crate::id::Ident;
@@ -29,7 +30,7 @@ use disintegrate::serde::messagepack::MessagePack;
 use disintegrate::{Event, EventListener, PersistedEvent, StreamQuery, query};
 use disintegrate_postgres::{
     PgDecisionMaker, PgEventId, PgEventListener, PgEventListenerConfig, PgEventListenerError,
-    PgEventStore, RetryAction, WithPgSnapshot,
+    PgSnapshotter, RetryAction, WithPgSnapshot, decision_maker,
 };
 pub use layout::layout;
 use passkey::CorePasskey;
@@ -38,6 +39,7 @@ use sqlx::PgPool;
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
+pub use store::AuthEventStore;
 use thiserror::Error;
 use webauthn_rs::prelude::WebauthnBuilder;
 use webauthn_rs::prelude::WebauthnError as WebauthnCoreError;
@@ -58,12 +60,18 @@ pub enum AuthConfigError {
     InvalidHost,
 }
 
+#[derive(Debug, Error)]
+pub enum AuthConnectError {
+    #[error(transparent)]
+    Sqlx(#[from] sqlx::Error),
+    #[error("disintegrate error: {0}")]
+    Disintegrate(String),
+}
+
 id!(UserId, Ident::new16());
 id!(PasskeyId, Ident::new16());
 
-pub type AuthDecisionMaker = PgDecisionMaker<AuthEvent, MessagePack<AuthEvent>, WithPgSnapshot>;
-
-pub type AuthEventStore = PgEventStore<AuthEvent, MessagePack<AuthEvent>>;
+type PgAuthDecisionMaker = PgDecisionMaker<AuthEvent, MessagePack<AuthEvent>, WithPgSnapshot>;
 
 #[derive(Debug, Clone, PartialEq, Event, Serialize, Deserialize)]
 #[stream(UserEvent, [UserCreated, UserDeleted])]
@@ -104,14 +112,14 @@ pub enum AuthEvent {
 pub struct AuthInterface {
     query: StreamQuery<PgEventId, AuthEvent>,
     projection_pool: PgPool,
-    decision_maker: AuthDecisionMaker,
+    decision_maker: PgAuthDecisionMaker,
 }
 
 impl AuthInterface {
     pub async fn try_new(
         pool: PgPool,
-        decision_maker: AuthDecisionMaker,
-    ) -> Result<Self, sqlx::Error> {
+        event_store: &AuthEventStore,
+    ) -> Result<Self, AuthConnectError> {
         sqlx::query!(
             r#"
             CREATE TABLE IF NOT EXISTS users (
@@ -136,6 +144,14 @@ impl AuthInterface {
         )
         .execute(&pool)
         .await?;
+
+        let snapshotter = PgSnapshotter::try_new(pool.clone(), 10)
+            .await
+            .map_err(|error| AuthConnectError::Disintegrate(error.to_string()))?;
+        let decision_maker = decision_maker(
+            event_store.event_store.clone(),
+            WithPgSnapshot::new(snapshotter),
+        );
 
         Ok(Self {
             query: query!(AuthEvent),
@@ -349,7 +365,7 @@ impl EventListener<PgEventId, AuthEvent> for AuthInterface {
 }
 
 pub(crate) async fn event_listener(event_store: AuthEventStore, interface: AuthInterface) {
-    PgEventListener::builder(event_store)
+    PgEventListener::builder(event_store.event_store)
         .register_listener(
             interface,
             PgEventListenerConfig::poller(Duration::from_secs(60))

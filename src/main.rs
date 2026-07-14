@@ -19,7 +19,7 @@ pub mod util;
 
 use crate::account::AccountMemoryStore;
 use crate::account::AccountService;
-use crate::auth::{AuthEvent, AuthInterface};
+use crate::auth::{AuthEventStore, AuthInterface};
 use crate::authz::{AuthzEventStore, AuthzService, RoleIndex};
 use crate::journal::JournalMemoryStore;
 use crate::journal::JournalService;
@@ -34,8 +34,6 @@ use axum::response::Redirect;
 use axum::routing::get;
 use axum_login::tracing::{Level, Span};
 use axum_login::{AuthManagerLayerBuilder, tracing};
-use disintegrate::serde::messagepack::MessagePack;
-use disintegrate_postgres::{PgEventStore, PgSnapshotter, WithPgSnapshot, decision_maker};
 use dotenvy::dotenv;
 use seed::seed_dev_data;
 use sqlx::PgPool;
@@ -146,17 +144,10 @@ async fn main() {
         .expect("failed to migrate session store");
     let session_layer = SessionManagerLayer::new(session_store);
 
-    let serde = MessagePack::<AuthEvent>::default();
-    let auth_event_store = PgEventStore::try_new(auth_pool.clone(), serde)
+    let auth_event_store = AuthEventStore::try_new(auth_pool.clone())
         .await
         .expect("failed to create an auth event store");
-    let snapshotter = PgSnapshotter::try_new(auth_pool.clone(), 10)
-        .await
-        .expect("failed to create an auth snapshotter");
-    let auth_decision_maker =
-        decision_maker(auth_event_store.clone(), WithPgSnapshot::new(snapshotter));
-
-    let auth_interface = AuthInterface::try_new(auth_pool.clone(), auth_decision_maker)
+    let auth_interface = AuthInterface::try_new(auth_pool.clone(), &auth_event_store)
         .await
         .expect("failed to create a projection pool");
 
