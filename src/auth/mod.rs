@@ -9,7 +9,7 @@ pub mod user;
 
 use crate::id::Ident;
 
-use crate::auth::passkey::{PasskeyError, PasskeyState};
+use crate::auth::passkey::{CreatePasskey, DeletePasskey, PasskeyError, PasskeyState};
 use crate::auth::user::{CreateUser, DEV_USERS, UserError, UserResult, UserState};
 use crate::authority::Authority;
 use crate::email::Email;
@@ -27,7 +27,7 @@ use axum::routing::post;
 use axum_login::{AuthnBackend, login_required, tracing};
 use chrono::{DateTime, Utc};
 use disintegrate::serde::messagepack::MessagePack;
-use disintegrate::{Event, EventListener, PersistedEvent, StreamQuery, query};
+use disintegrate::{DecisionError, Event, EventListener, PersistedEvent, StreamQuery, query};
 use disintegrate_postgres::{
     PgDecisionMaker, PgEventId, PgEventListener, PgEventListenerConfig, PgEventListenerError,
     PgSnapshotter, RetryAction, WithPgSnapshot, decision_maker,
@@ -159,6 +159,58 @@ impl AuthService {
             decision_maker,
         })
     }
+
+    pub async fn create_user(
+        &self,
+        user_id: UserId,
+        email: Email,
+        webauthn_uuid: Uuid,
+        authority: Authority,
+        timestamp: TimeStamp,
+    ) -> Result<(), DecisionError<UserError>> {
+        self.decision_maker
+            .make(CreateUser::new(
+                user_id,
+                email,
+                webauthn_uuid,
+                authority,
+                timestamp,
+            ))
+            .await
+            .map(drop)
+    }
+
+    pub async fn create_passkey(
+        &self,
+        passkey_id: PasskeyId,
+        user_id: UserId,
+        passkey: CorePasskey,
+        authority: Authority,
+        timestamp: TimeStamp,
+    ) -> Result<(), DecisionError<PasskeyError>> {
+        self.decision_maker
+            .make(CreatePasskey::new(
+                passkey_id, user_id, passkey, authority, timestamp,
+            ))
+            .await
+            .map(drop)
+    }
+
+    pub async fn delete_passkey(
+        &self,
+        passkey_id: PasskeyId,
+        user_id: UserId,
+        authority: Authority,
+        timestamp: TimeStamp,
+    ) -> Result<(), DecisionError<PasskeyError>> {
+        self.decision_maker
+            .make(DeletePasskey::new(
+                passkey_id, user_id, authority, timestamp,
+            ))
+            .await
+            .map(drop)
+    }
+
     pub async fn email_exists(&self, email: &Email) -> UserResult<bool> {
         Ok(sqlx::query_scalar!(
             r#"
@@ -216,16 +268,15 @@ impl AuthService {
 
         for (email, (user_id, webauthn_uuid)) in DEV_USERS.clone() {
             if let Ok(false) = self.email_exists(&email).await {
-                self.decision_maker
-                    .make(CreateUser {
-                        user_id,
-                        email: email.clone(),
-                        webauthn_uuid,
-                        authority: Authority::Direct(Actor::System),
-                        timestamp: time_provider.get_time(),
-                    })
-                    .await
-                    .map_err(|_| UserError::SeedFailure(email))?;
+                self.create_user(
+                    user_id,
+                    email.clone(),
+                    webauthn_uuid,
+                    Authority::Direct(Actor::System),
+                    time_provider.get_time(),
+                )
+                .await
+                .map_err(|_| UserError::SeedFailure(email))?;
             }
         }
         // allow time for the view models to update

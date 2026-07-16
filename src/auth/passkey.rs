@@ -169,7 +169,7 @@ pub struct DeletePasskey {
 }
 
 impl DeletePasskey {
-    fn new(
+    pub(super) fn new(
         passkey_id: PasskeyId,
         user_id: UserId,
         authority: Authority,
@@ -272,13 +272,12 @@ pub async fn delete_passkey_post(
 
     // Remove the passkey from the user's passkeys
     if service
-        .decision_maker
-        .make(DeletePasskey::new(
+        .delete_passkey(
             passkey_id,
             user_id,
             Authority::Direct(Actor::User(user_id)),
             DefaultTimeProvider.get_time(),
-        ))
+        )
         .await
         .is_err()
     {
@@ -327,14 +326,13 @@ pub async fn create_passkey_post(
 
                 // Add the new passkey to the user's existing passkeys
                 if auth_service
-                    .decision_maker
-                    .make(CreatePasskey::new(
+                    .create_passkey(
                         passkey_id,
                         user_id,
                         CorePasskey(passkey),
                         Authority::Direct(Actor::User(user_id)),
                         DefaultTimeProvider.get_time(),
-                    ))
+                    )
                     .await
                     .is_err()
                 {

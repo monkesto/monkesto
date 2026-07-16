@@ -20,8 +20,8 @@ use webauthn_rs::prelude::Webauthn;
 use webauthn_rs_proto::AuthenticatorSelectionCriteria;
 use webauthn_rs_proto::ResidentKeyRequirement;
 
-use super::passkey::{CorePasskey, CreatePasskey, PasskeyId};
-use super::user::{CreateUser, UserId};
+use super::passkey::{CorePasskey, PasskeyId};
+use super::user::UserId;
 use super::{AuthService, AuthSession};
 
 use crate::authority::Actor;
@@ -391,26 +391,24 @@ async fn handle_credential_submission(
             let email_validated = Email::try_new(&email).map_err(|_| SignupError::InvalidInput)?;
 
             auth_service
-                .decision_maker
-                .make(CreateUser::new(
+                .create_user(
                     user_id,
                     email_validated.clone(),
                     webauthn_uuid,
                     Authority::Direct(Actor::Anonymous),
                     DefaultTimeProvider.get_time(),
-                ))
+                )
                 .await
                 .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
 
             auth_service
-                .decision_maker
-                .make(CreatePasskey::new(
+                .create_passkey(
                     passkey_id,
                     user_id,
                     CorePasskey(passkey),
                     Authority::Direct(Actor::User(user_id)),
                     DefaultTimeProvider.get_time(),
-                ))
+                )
                 .await
                 .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
 
