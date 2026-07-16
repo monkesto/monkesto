@@ -1,5 +1,5 @@
 use crate::account::AccountStoreError;
-use crate::auth::user::UserError;
+use crate::authn::user::UserError;
 use crate::email::EmailError;
 use crate::id::IdentError;
 use crate::journal::JournalStoreError;

@@ -1,5 +1,5 @@
-use crate::auth::AuthService;
-use crate::auth::user::UserId;
+use crate::authn::AuthnService;
+use crate::authn::user::UserId;
 use crate::authority::{Actor, Authority};
 use crate::email::Email;
 use crate::journal::JournalStore;
@@ -22,17 +22,17 @@ where
     J: JournalStore<EventId = u64>,
 {
     journal_store: J,
-    auth_service: AuthService,
+    authn_service: AuthnService,
 }
 
 impl<J> JournalService<J>
 where
     J: JournalStore<EventId = u64>,
 {
-    pub fn new(journal_store: J, auth_service: AuthService) -> Self {
+    pub fn new(journal_store: J, authn_service: AuthnService) -> Self {
         Self {
             journal_store,
-            auth_service,
+            authn_service,
         }
     }
 
@@ -314,7 +314,7 @@ where
         invitee: Email,
         permissions: Permissions,
     ) -> JournalStoreResult<u64> {
-        let invitee_id = self.auth_service.lookup_user_id(&invitee).await?;
+        let invitee_id = self.authn_service.lookup_user_id(&invitee).await?;
 
         if !self
             .journal_store

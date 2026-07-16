@@ -1,7 +1,7 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::account::{AccountId, AccountState};
-use crate::auth::get_user;
+use crate::authn::get_user;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::id::Ident;

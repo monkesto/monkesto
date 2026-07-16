@@ -7,7 +7,7 @@ use maud::html;
 
 use super::layout::layout;
 use super::passkey::PasskeyState;
-use super::{AuthService, AuthSession};
+use super::{AuthSession, AuthnService};
 use crate::theme::theme_with_head;
 
 fn me_page(email: &str, passkeys: &[PasskeyState]) -> Markup {
@@ -116,7 +116,7 @@ fn not_logged_in_page() -> Markup {
 }
 
 pub async fn me_get(
-    Extension(auth_service): Extension<AuthService>,
+    Extension(authn_service): Extension<AuthnService>,
     auth_session: AuthSession,
 ) -> impl IntoResponse {
     // Check if user is logged in
@@ -133,13 +133,13 @@ pub async fn me_get(
     };
 
     // Get user passkeys
-    let passkeys = auth_service
+    let passkeys = authn_service
         .get_user_passkeys(user_id)
         .await
         .unwrap_or_default();
 
     // Get the email for this user
-    let email = auth_service
+    let email = authn_service
         .query_user(user_id)
         .await
         .map(|usr| usr.email.to_string())

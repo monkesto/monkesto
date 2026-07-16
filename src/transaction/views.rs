@@ -1,7 +1,7 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::account::views::render_account_options;
-use crate::auth::get_user;
+use crate::authn::get_user;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::journal::JournalState;
@@ -77,7 +77,7 @@ async fn build_transaction_node(
     {
         Ok(auth) => match auth.actor() {
             Actor::User(id) => state
-                .auth_service
+                .authn_service
                 .query_user(*id)
                 .await
                 .map(|u| u.email.to_string())
