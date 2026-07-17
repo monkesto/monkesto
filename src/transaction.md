@@ -2,10 +2,12 @@
 
 A transaction is a balanced set of entries that are applied to journals and accumulated to accounts as a single atomic unit. A transaction's entries are authored, accepted, and applied as one unit. A subset of its entries is not the whole transaction.
 
-A transaction may have an arbitrary number of entries, provided that the entries, together, follow the transactional consistency rules. Each entry consists of several pieces of data:
+A transaction may have an arbitrary number of entries, provided that the entries, together, follow the transactional consistency rules.
+
+Every entry consists of several pieces of data:
 
 - Journal
-- Account
+- Account or Fund (transfer or activity)
 - Entry Type (Debit/Credit)
 - Amount
 - Currency
@@ -24,15 +26,11 @@ Every pair of journal and currency must have credit amounts that exactly equal t
 
 ## Balances
 
-An account balance is determined by summing the debit and credit amounts for all entries in all transactions for a given account. The account balance must always be in relation to some set of journals. It could be a balance for just one journal, or it could be a balance for a journal and all its subjournals, recursively. Less usually, it could even be a balance for a disjoint set of subjournals.
+An account, activity, or fund balance is determined by summing the debit and credit amounts for all entries in all transactions for a given account, activity, or fund. The balance must always be in relation to a journal or set of journals.
 
 When calculating the balances for an account, it can also be desirable to report the balance for an account as well as the balance for all its subaccounts for a given set of journals, in order to provide a summary of the account balance that includes subaccounts, recursively.
 
 An account with no associated entries in any transaction has a balance of 0.
-
-## Account visibility
-
-The account that is associated with a journal in an entry must be in the same journal, or in a parent journal of the associated journal. That is, accounts that are for a parent journal are visible to entries in subjournals of the parent journal automatically, even though a manager of accounts on a subjournal is not allowed to remove those accounts because they are not a manager of the parent journal.
 
 ## Entry visibility
 
