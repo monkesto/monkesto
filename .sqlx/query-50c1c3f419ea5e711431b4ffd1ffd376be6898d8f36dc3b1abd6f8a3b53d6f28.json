@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO users (id, email, webauthn_uuid) VALUES($1, $2, $3) ON CONFLICT DO NOTHING\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "50c1c3f419ea5e711431b4ffd1ffd376be6898d8f36dc3b1abd6f8a3b53d6f28"
+}

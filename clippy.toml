@@ -1,1 +1,7 @@
 allow-unwrap-in-tests = true
+
+disallowed-methods = [
+    { path = "sqlx::query", reason = "Prefer compile-time verified query macros.", replacement = "sqlx::query!"},
+    { path = "sqlx::query_as", reason = "Prefer compile-time verified query macros.", replacement = "sqlx::query_as!" },
+    { path = "sqlx::query_scalar", reason = "Prefer compile-time verified query macros.", replacement = "sqlx::query_scalar!" }
+]

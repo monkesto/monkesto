@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "CREATE SCHEMA IF NOT EXISTS authz",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "34d33e0be16618e72b90e646de2b0cb21395056e74ca832500560cfa19931a0e"
+}

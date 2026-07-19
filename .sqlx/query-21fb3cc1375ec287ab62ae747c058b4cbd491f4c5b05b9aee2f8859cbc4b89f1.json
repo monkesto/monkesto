@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE TABLE IF NOT EXISTS accounts (\n                id TEXT PRIMARY KEY,\n                journal_id TEXT NOT NULL,\n                name TEXT NOT NULL,\n                balance BIGINT NOT NULL\n            )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "21fb3cc1375ec287ab62ae747c058b4cbd491f4c5b05b9aee2f8859cbc4b89f1"
+}

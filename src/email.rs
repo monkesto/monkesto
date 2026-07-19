@@ -43,6 +43,12 @@ impl AsRef<str> for Email {
     }
 }
 
+impl Default for Email {
+    fn default() -> Self {
+        Email::try_new("default@example.com".to_string()).expect("valid default email")
+    }
+}
+
 impl Type<Postgres> for Email {
     fn type_info() -> <Postgres as Database>::TypeInfo {
         <&str as Type<Postgres>>::type_info()

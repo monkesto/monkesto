@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SET search_path TO journal",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "14966d6caa2cc224645f9393e24fa11caa1a7f75b17a4e57760376a8b90a45bd"
+}

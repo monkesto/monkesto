@@ -1,3 +1,4 @@
+use arrayvec::ArrayString;
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
 use cuid::is_cuid2;
@@ -15,9 +16,9 @@ use thiserror::Error;
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Ident {
-    Cuid10([u8; 10]),
-    Cuid16([u8; 16]),
-    Custom([u8; 5]),
+    Cuid10(ArrayString<10>),
+    Cuid16(ArrayString<16>),
+    Custom(ArrayString<5>),
 }
 
 #[derive(Debug, Error, Serialize, Deserialize, Clone, Eq, PartialEq)]
@@ -32,38 +33,32 @@ pub enum IdentError {
 impl Ident {
     pub fn new10() -> Self {
         Self::Cuid10(
-            cuid2_slug()
-                .as_bytes()
-                .try_into()
-                .expect("failed to generate new cuid10"),
+            ArrayString::from(cuid2_slug().as_str()).expect("generated cuid10 string too large"),
         )
     }
     pub fn new16() -> Self {
         Self::Cuid16(
-            Cuid2Constructor::new()
-                .with_length(16)
-                .create_id()
-                .as_bytes()
-                .try_into()
-                .expect("failed to generate new cuid16"),
+            ArrayString::from(Cuid2Constructor::new().with_length(16).create_id().as_str())
+                .expect("generated cuid16 string too large"),
         )
     }
 
-    pub fn as_bytes(&self) -> &[u8] {
+    pub fn nil() -> Self {
+        Self::from_str("uinit").expect("nil cuid guaranteed to be valid")
+    }
+
+    pub fn as_str(&self) -> &str {
         match self {
-            Ident::Cuid10(id) => id.as_ref(),
-            Ident::Cuid16(id) => id.as_ref(),
-            Ident::Custom(id) => id.as_ref(),
+            Ident::Cuid10(id) => id.as_str(),
+            Ident::Cuid16(id) => id.as_str(),
+            Ident::Custom(id) => id.as_str(),
         }
     }
 }
 
-impl TryFrom<&[u8]> for Ident {
-    type Error = IdentError;
-
-    fn try_from(bytes: &[u8]) -> Result<Self, IdentError> {
-        let str = str::from_utf8(bytes).map_err(|e| IdentError::Parse(e.to_string()))?;
-        Self::from_str(str)
+impl Default for Ident {
+    fn default() -> Self {
+        Self::nil()
     }
 }
 
@@ -75,6 +70,7 @@ static VALID_CUSTOM_IDENTS: phf::Set<&'static str> = phf_set! {
     "annie",
     "isaac",
     "sarah",
+    "uinit"
 };
 
 impl FromStr for Ident {
@@ -90,53 +86,42 @@ impl FromStr for Ident {
             5 => {
                 if VALID_CUSTOM_IDENTS.contains(s) {
                     Ok(Self::Custom(
-                        s.as_bytes().try_into().expect("custom Ident invalid size"),
+                        ArrayString::from(s).expect("custom ident too large"),
                     ))
                 } else {
                     Err(IdentError::InvalidId(s.to_owned()))
                 }
             }
             10 => Ok(Self::Cuid10(
-                s.as_bytes()
-                    .try_into()
-                    .expect("10-length Ident invalid size"),
+                ArrayString::from(s).expect("10-length Ident invalid size"),
             )),
             16 => Ok(Self::Cuid16(
-                s.as_bytes()
-                    .try_into()
-                    .expect("16 length Ident invalid size"),
+                ArrayString::from(s).expect("16-length Ident invalid size"),
             )),
             _ => Err(IdentError::InvalidId(s.to_owned())),
         }
     }
 }
 
-// this has the potential to panic if the id is created manually rather than with helper functions
+impl From<String> for Ident {
+    fn from(value: String) -> Self {
+        Self::from_str(value.as_str()).expect("invalid ident")
+    }
+}
+
 impl Display for Ident {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            Ident::Cuid10(id) => write!(
-                f,
-                "{}",
-                str::from_utf8(id).expect("failed to convert Cuid10 to string")
-            ),
-            Ident::Cuid16(id) => write!(
-                f,
-                "{}",
-                str::from_utf8(id).expect("failed to convert Cuid16 to string")
-            ),
-            Ident::Custom(id) => write!(
-                f,
-                "{}",
-                str::from_utf8(id).expect("failed to convert custom Ident to string")
-            ),
+            Ident::Cuid10(id) => write!(f, "{id}",),
+            Ident::Cuid16(id) => write!(f, "{id}",),
+            Ident::Custom(id) => write!(f, "{id}",),
         }
     }
 }
 
 impl Type<Postgres> for Ident {
     fn type_info() -> <Postgres as Database>::TypeInfo {
-        <Vec<u8> as Type<Postgres>>::type_info()
+        <&str as Type<Postgres>>::type_info()
     }
 }
 
@@ -145,15 +130,14 @@ impl<'q> Encode<'q, Postgres> for Ident {
         &self,
         buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
     ) -> Result<IsNull, BoxDynError> {
-        let bytes = self.as_bytes().to_vec();
-        <Vec<u8> as Encode<Postgres>>::encode(bytes, buf)
+        <&str as Encode<Postgres>>::encode(self.as_str(), buf)
     }
 }
 
 impl<'r> Decode<'r, Postgres> for Ident {
     fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
-        let bytes = <Vec<u8> as Decode<Postgres>>::decode(value)?;
-        Ok(Self::try_from(bytes.as_slice())?)
+        let str = <&str as Decode<Postgres>>::decode(value)?;
+        Ok(Self::from_str(str)?)
     }
 }
 
@@ -177,6 +161,10 @@ macro_rules! id {
             pub fn new() -> Self {
                 Self($new_fn)
             }
+
+            pub fn nil() -> Self {
+                Self($crate::id::Ident::nil())
+            }
         }
 
         impl ::std::ops::Deref for $id_name {
@@ -195,23 +183,20 @@ macro_rules! id {
             }
         }
 
+        impl From<String> for $id_name {
+            fn from(value: String) -> Self {
+                Self(<Ident as From<String>>::from(value))
+            }
+        }
         impl ::std::fmt::Display for $id_name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 write!(f, "{}", self.0)
             }
         }
 
-        impl TryFrom<&[u8]> for $id_name {
-            type Error = $crate::id::IdentError;
-
-            fn try_from(bytes: &[u8]) -> Result<Self, Self::Error> {
-                Ok(Self($crate::id::Ident::try_from(bytes)?))
-            }
-        }
-
         impl ::sqlx::Type<::sqlx::Postgres> for $id_name {
             fn type_info() -> <::sqlx::Postgres as ::sqlx::Database>::TypeInfo {
-                <Ident as ::sqlx::Type<::sqlx::Postgres>>::type_info()
+                <&str as ::sqlx::Type<::sqlx::Postgres>>::type_info()
             }
         }
 
@@ -241,6 +226,12 @@ macro_rules! id {
                 <String as ::disintegrate::IntoIdentifierValue>::into_identifier_value(
                     self.to_string(),
                 )
+            }
+        }
+
+        impl Default for $id_name {
+            fn default() -> Self {
+                Self(Default::default())
             }
         }
     };

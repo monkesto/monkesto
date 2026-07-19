@@ -1,12 +1,12 @@
 use crate::BackendType;
 use crate::StateType;
-use crate::authn::get_user;
-use crate::authn::user::UserId;
+use crate::auth::get_user;
+use crate::auth::user::UserId;
 use crate::authority::Actor;
 use crate::authority::Authority;
+use crate::journal::JournalId;
 use crate::journal::Permissions;
 use crate::journal::layout::layout;
-use crate::journal::{JournalId, JournalNameOrUnknown};
 use crate::monkesto_error::MonkestoError;
 use crate::monkesto_error::UrlError;
 use axum::extract::Path;
@@ -76,24 +76,8 @@ pub async fn person_detail_page(
         .get_journal(journal_id, &authority)
         .await;
 
-    let journal_state = match journal_state_res {
-        Ok(Some(js)) => js,
-        Ok(None) => {
-            return Ok(layout(
-                None,
-                true,
-                None,
-                html! {
-                    div class="max-w-2xl mx-auto py-8 px-4" {
-                        div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
-                            p class="text-sm text-red-700 dark:text-red-200" {
-                                "Journal not found"
-                            }
-                        }
-                    }
-                },
-            ));
-        }
+    let (journal_state, _, _) = match journal_state_res {
+        Ok(js) => js,
         Err(e) => {
             return Ok(layout(
                 None,
@@ -112,142 +96,105 @@ pub async fn person_detail_page(
         }
     };
 
-    match state
+    let permissions = match state
         .journal_service
-        .effective_permissions(journal_id, &authority)
+        .get_effective_permissions(journal_id, &Authority::Direct(Actor::User(target_user_id)))
         .await
     {
-        Ok(permissions) if !permissions.contains(Permissions::READ) => Ok(layout(
-            Some(&journal_state.name.to_string()),
-            true,
-            Some(&id),
-            html! {
-                div class="max-w-2xl mx-auto py-8 px-4" {
-                    div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
-                        p class="text-sm text-red-700 dark:text-red-200" {
-                            "You do not have permission to view this journal."
-                        }
-                    }
-                }
-            },
-        )),
-        Ok(_) => {
-            let permissions = match state
-                .journal_service
-                .effective_permissions(journal_id, &Authority::Direct(Actor::User(target_user_id)))
-                .await
-            {
-                Ok(perms) => perms,
-                Err(_e) => {
-                    return Ok(layout(
-                        Some(&journal_state.name.to_string()),
-                        true,
-                        Some(&id),
-                        html! {
-                            div class="max-w-2xl mx-auto py-8 px-4" {
-                                div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
-                                    p class="text-sm text-red-700 dark:text-red-200" {
-                                        "Failed to get user permissions."
-                                    }
-                                }
-                            }
-                        },
-                    ));
-                }
-            };
-
-            let target_email = match state.authn_service.query_user(target_user_id).await {
-                Ok(user) => user.email.to_string(),
-                Err(e) => format!("Error fetching email: {}", e),
-            };
-
-            let content = html! {
-                div class="max-w-2xl mx-auto py-8 px-4" {
-                    div class="flex justify-between items-center mb-8" {
-                        h2 class="text-2xl font-bold text-gray-900 dark:text-white" { (target_email) }
-                        @if journal_state.owner == target_user_id {
-                            span class="inline-flex items-center rounded-md bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 ring-1 ring-inset ring-indigo-700/10 dark:ring-indigo-400/30" { "Owner" }
-                        }
-                    }
-
-
-                    div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700" {
-                        div class="px-4 py-5 sm:p-6" {
-                            h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4" { "Permissions" }
-
-                            form method="post" action=(format!("/journal/{}/person/{}/update", id, person_id)) class="space-y-4" {
-                                div class="space-y-4" {
-                                    (permission_checkbox("read", "Read Access", permissions.contains(Permissions::READ)))
-                                    (permission_checkbox("add_account", "Add Accounts", permissions.contains(Permissions::ADD_ACCOUNT)))
-                                    (permission_checkbox("append_transaction", "Append Transactions", permissions.contains(Permissions::APPEND_TRANSACTION)))
-                                    (permission_checkbox("invite", "Invite Users", permissions.contains(Permissions::INVITE)))
-                                    (permission_checkbox("create_subjournal", "Create Subjournals", permissions.contains(Permissions::CREATE_SUBJOURNAL)))
-                                }
-
-                                div class="mt-6 flex items-center justify-end gap-x-6" {
-                                    button
-                                    type="submit"
-                                    class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:hover:bg-indigo-400" {
-                                        "Update Permissions"
-                                    }
-                                }
-                            }
-                        }
-
-
-                        div class="mt-8 bg-white dark:bg-gray-800 shadow sm:rounded-lg overflow-hidden border border-red-200 dark:border-red-900/30" {
-                            div class="px-4 py-5 sm:p-6" {
-                                h3 class="text-base font-semibold text-red-600 dark:text-red-400 mb-4" { "Danger Zone" }
-                                p class="text-sm text-gray-500 dark:text-gray-400 mb-4" { "Removing this user will immediately revoke their access to this journal." }
-                                form method="post" action=(format!("/journal/{}/person/{}/remove", id, person_id)) {
-                                    button
-                                    type="submit"
-                                    class="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-red-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 dark:bg-red-500 dark:hover:bg-red-400" {
-                                        "Remove User from Journal"
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    @if let Some(e) = err.err {
-                        div class="mt-6 bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
-                            p class="text-sm text-red-700 dark:text-red-200" {
-                                (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
-                            }
-                        }
-                    }
-                }
-            };
-
-            let wrapped_content = html! {
-                div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
-                    (content)
-                }
-            };
-
-            Ok(layout(
-                Some(&journal_state.name.to_string()),
+        Ok(perms) => perms,
+        Err(_e) => {
+            return Ok(layout(
+                Some(journal_state.name.as_ref()),
                 true,
                 Some(&id),
-                wrapped_content,
-            ))
+                html! {
+                    div class="max-w-2xl mx-auto py-8 px-4" {
+                        div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
+                            p class="text-sm text-red-700 dark:text-red-200" {
+                                "Failed to get user permissions."
+                            }
+                        }
+                    }
+                },
+            ));
         }
-        Err(_e) => Ok(layout(
-            Some(&journal_state.name.to_string()),
-            true,
-            Some(&id),
-            html! {
-                div class="max-w-2xl mx-auto py-8 px-4" {
-                    div class="bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
-                        p class="text-sm text-red-700 dark:text-red-200" {
-                            "Failed to fetch permissions."
+    };
+
+    let target_email = match state.auth_service.fetch_user(target_user_id).await {
+        Ok(user) => user.email.to_string(),
+        Err(e) => format!("Error fetching email: {}", e),
+    };
+
+    let content = html! {
+        div class="max-w-2xl mx-auto py-8 px-4" {
+            div class="flex justify-between items-center mb-8" {
+                h2 class="text-2xl font-bold text-gray-900 dark:text-white" { (target_email) }
+                @if journal_state.owner_id == target_user_id {
+                    span class="inline-flex items-center rounded-md bg-indigo-50 dark:bg-indigo-900/30 px-2 py-1 text-xs font-medium text-indigo-700 dark:text-indigo-300 ring-1 ring-inset ring-indigo-700/10 dark:ring-indigo-400/30" { "Owner" }
+                }
+            }
+
+
+            div class="bg-white dark:bg-gray-800 shadow sm:rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700" {
+                div class="px-4 py-5 sm:p-6" {
+                    h3 class="text-base font-semibold text-gray-900 dark:text-white mb-4" { "Permissions" }
+
+                    form method="post" action=(format!("/journal/{}/person/{}/update", id, person_id)) class="space-y-4" {
+                        div class="space-y-4" {
+                            (permission_checkbox("read", "Read Access", permissions.contains(Permissions::READ)))
+                            (permission_checkbox("add_account", "Add Accounts", permissions.contains(Permissions::ADD_ACCOUNT)))
+                            (permission_checkbox("append_transaction", "Append Transactions", permissions.contains(Permissions::APPEND_TRANSACTION)))
+                            (permission_checkbox("invite", "Invite Users", permissions.contains(Permissions::INVITE)))
+                        }
+
+                        div class="mt-6 flex items-center justify-end gap-x-6" {
+                            button
+                            type="submit"
+                            class="rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:hover:bg-indigo-400" {
+                                "Update Permissions"
+                            }
                         }
                     }
                 }
-            },
-        )),
-    }
+
+
+                div class="mt-8 bg-white dark:bg-gray-800 shadow sm:rounded-lg overflow-hidden border border-red-200 dark:border-red-900/30" {
+                    div class="px-4 py-5 sm:p-6" {
+                        h3 class="text-base font-semibold text-red-600 dark:text-red-400 mb-4" { "Danger Zone" }
+                        p class="text-sm text-gray-500 dark:text-gray-400 mb-4" { "Removing this user will immediately revoke their access to this journal." }
+                        form method="post" action=(format!("/journal/{}/person/{}/remove", id, person_id)) {
+                            button
+                            type="submit"
+                            class="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white shadow-xs hover:bg-red-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 dark:bg-red-500 dark:hover:bg-red-400" {
+                                "Remove User from Journal"
+                            }
+                        }
+                    }
+                }
+            }
+
+            @if let Some(e) = err.err {
+                div class="mt-6 bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
+                    p class="text-sm text-red-700 dark:text-red-200" {
+                        (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
+                    }
+                }
+            }
+        }
+    };
+
+    let wrapped_content = html! {
+        div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
+            (content)
+        }
+    };
+
+    Ok(layout(
+        Some(journal_state.name.as_ref()),
+        true,
+        Some(&id),
+        wrapped_content,
+    ))
 }
 
 fn permission_checkbox(name: &'static str, label: &'static str, checked: bool) -> Markup {
@@ -277,18 +224,20 @@ pub async fn people_list_page(
 ) -> Result<Markup, Redirect> {
     let user = get_user(session)?;
 
+    let user_authority = &Authority::Direct(Actor::User(user.id));
+
     let journal_id_res = JournalId::from_str(&id);
 
     let content = html! {
         @if let Ok(journal_id) = journal_id_res {
-            @match state.journal_service.get_journal_members(journal_id, &Authority::Direct(Actor::User(user.id))).await {
+            @match state.journal_service.list_journal_members(journal_id, &Authority::Direct(Actor::User(user.id))).await {
                 Ok(users) => {
                     @for user_id in users {
                         a
                         href=(format!("/journal/{}/person/{}", id, user_id))
                         class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
                             h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                @match state.authn_service.query_user(user_id).await {
+                                @match state.auth_service.fetch_user(user_id).await {
                                     Ok(user) => (user.email),
                                     Err(e) => (format!("failed to fetch email: {:?}", e)),
                                 }
@@ -369,14 +318,19 @@ pub async fn people_list_page(
         }
     };
 
+    let journal_name = if let Ok(id) = journal_id_res {
+        state
+            .journal_service
+            .get_journal(id, user_authority)
+            .await
+            .map(|(j, _, _)| j.name.to_string())
+            .unwrap_or_else(|e| format!("failed to fetch the journal name: {e}"))
+    } else {
+        "invalid journal id".to_string()
+    };
+
     Ok(layout(
-        Some(
-            &state
-                .journal_service
-                .get_name_from_res(journal_id_res)
-                .await
-                .or_unknown(),
-        ),
+        Some(&journal_name),
         true,
         Some(&id),
         wrapped_content,

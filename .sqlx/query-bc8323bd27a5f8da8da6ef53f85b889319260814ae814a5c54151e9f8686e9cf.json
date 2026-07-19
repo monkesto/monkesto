@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "CREATE SCHEMA IF NOT EXISTS journal",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "bc8323bd27a5f8da8da6ef53f85b889319260814ae814a5c54151e9f8686e9cf"
+}

@@ -1,30 +1,25 @@
-mod account;
-mod authn;
+mod auth;
 mod authority;
 mod authz;
 mod email;
 mod entitlement;
-mod event;
+mod event_id;
 mod id;
 mod journal;
 mod monkesto_error;
+mod msgpack;
 pub mod name;
 mod notfoundpage;
-mod postcard;
 mod seed;
+mod status;
 mod theme;
 mod time_provider;
-mod transaction;
 pub mod util;
 
-use crate::account::AccountMemoryStore;
-use crate::account::AccountService;
-use crate::authn::{AuthnEventStore, AuthnService};
+use crate::auth::{AuthEventStore, AuthService};
 use crate::authz::{AuthzEventStore, AuthzService, RoleIndex};
-use crate::journal::JournalMemoryStore;
 use crate::journal::JournalService;
-use crate::transaction::TransactionMemoryStore;
-use crate::transaction::TransactionService;
+use crate::journal::store::JournalEventStore;
 use axum::Router;
 use axum::extract::FromRef;
 use axum::http::header;
@@ -35,6 +30,7 @@ use axum::routing::get;
 use axum_login::tracing::{Level, Span};
 use axum_login::{AuthManagerLayerBuilder, tracing};
 use dotenvy::dotenv;
+use journal::{account, transaction};
 use seed::seed_dev_data;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
@@ -47,58 +43,30 @@ use tower_sessions::SessionManagerLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-type MemoryJournalService = JournalService<JournalMemoryStore>;
-type MemoryAccountService = AccountService<AccountMemoryStore, JournalMemoryStore>;
-type MemoryTransactionService =
-    TransactionService<TransactionMemoryStore, AccountMemoryStore, JournalMemoryStore>;
 #[derive(Clone)]
 struct AppState {
-    authn_service: AuthnService,
-    journal_service: MemoryJournalService,
-    account_service: MemoryAccountService,
-    transaction_service: MemoryTransactionService,
+    auth_service: AuthService,
+    journal_service: JournalService,
     authz_service: AuthzService,
 }
 
 impl AppState {
-    fn new(authn_service: AuthnService, authz_service: AuthzService) -> Self {
-        let journal_store = JournalMemoryStore::new();
-        let account_store = AccountMemoryStore::new();
-        let transaction_store = TransactionMemoryStore::new();
-
-        let journal_service = JournalService::new(journal_store, authn_service.clone());
-        let account_service = AccountService::new(account_store, journal_service.clone());
-        let transaction_service = TransactionService::new(
-            transaction_store,
-            account_service.clone(),
-            journal_service.clone(),
-        );
-
+    fn new(
+        auth_service: AuthService,
+        authz_service: AuthzService,
+        journal_service: JournalService,
+    ) -> Self {
         Self {
-            authn_service,
+            auth_service,
             journal_service,
-            account_service,
-            transaction_service,
             authz_service,
         }
     }
 }
 
-impl FromRef<AppState> for MemoryJournalService {
-    fn from_ref(state: &AppState) -> Self {
-        state.journal_service.clone()
-    }
-}
-
-impl FromRef<AppState> for MemoryAccountService {
-    fn from_ref(state: &AppState) -> Self {
-        state.account_service.clone()
-    }
-}
-
-impl FromRef<AppState> for MemoryTransactionService {
-    fn from_ref(state: &AppState) -> Self {
-        state.transaction_service.clone()
+impl FromRef<AppState> for JournalService {
+    fn from_ref(input: &AppState) -> Self {
+        input.journal_service.clone()
     }
 }
 
@@ -109,7 +77,7 @@ impl FromRef<AppState> for AuthzService {
 }
 
 type StateType = AppState;
-type BackendType = AuthnService;
+type BackendType = AuthService;
 
 #[tokio::main]
 async fn main() {
@@ -133,41 +101,30 @@ async fn main() {
     let addr = env::var("SITE_ADDR").unwrap_or("0.0.0.0:3000".to_string());
 
     let database_url = env::var("DATABASE_URL").expect("failed to fetch database url");
-    let auth_pool = PgPool::connect(&database_url)
+
+    let public_pool = PgPool::connect(&database_url)
         .await
         .expect("failed to create pgpool");
 
-    let session_store = tower_sessions_sqlx_store::PostgresStore::new(auth_pool.clone());
-    session_store
-        .migrate()
-        .await
-        .expect("failed to migrate session store");
-    let session_layer = SessionManagerLayer::new(session_store);
-
-    let authn_event_store = AuthnEventStore::try_new(auth_pool.clone())
-        .await
-        .expect("failed to create an auth event store");
-    let authn_service = AuthnService::try_new(auth_pool.clone(), &authn_event_store)
-        .await
-        .expect("failed to create a projection pool");
-
-    tokio::spawn(authn::event_listener(
-        authn_event_store.clone(),
-        authn_service.clone(),
-    ));
-
-    sqlx::query("CREATE SCHEMA IF NOT EXISTS authz")
-        .execute(&auth_pool)
+    sqlx::query!("CREATE SCHEMA IF NOT EXISTS authz")
+        .execute(&public_pool)
         .await
         .expect("failed to create the authz schema");
 
-    // Disintegrate uses unqualified object names and cannot target a schema directly, so
-    // authz needs a schema-scoped pool. Ideally the backend would qualify its objects with
-    // a configured schema, allowing isolated event stores to share a pool.
-    let authz_pool = PgPoolOptions::new()
+    sqlx::query!("CREATE SCHEMA IF NOT EXISTS authn")
+        .execute(&public_pool)
+        .await
+        .expect("failed to create the authn schema");
+
+    sqlx::query!("CREATE SCHEMA IF NOT EXISTS journal")
+        .execute(&public_pool)
+        .await
+        .expect("failed to create the journal schema");
+
+    let authn_pool = PgPoolOptions::new()
         .after_connect(|connection, _| {
             Box::pin(async move {
-                sqlx::query("SET search_path TO authz")
+                sqlx::query!("SET search_path TO authn")
                     .execute(connection)
                     .await?;
                 Ok(())
@@ -176,25 +133,90 @@ async fn main() {
         .connect(&database_url)
         .await
         .expect("failed to create an authz pool");
+
+    let session_store = tower_sessions_sqlx_store::PostgresStore::new(authn_pool.clone());
+    session_store
+        .migrate()
+        .await
+        .expect("failed to migrate session store");
+    let session_layer = SessionManagerLayer::new(session_store);
+
+    let auth_event_store = AuthEventStore::try_new(authn_pool.clone())
+        .await
+        .expect("failed to create an auth event store");
+    let auth_service = AuthService::try_new(authn_pool.clone(), &auth_event_store)
+        .await
+        .expect("failed to create a projection pool");
+
+    tokio::spawn(auth::event_listener(
+        auth_event_store.clone(),
+        auth_service.clone(),
+    ));
+
+    let journal_pool = PgPoolOptions::new()
+        .after_connect(|connection, _| {
+            Box::pin(async move {
+                sqlx::query!("SET search_path TO journal")
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&database_url)
+        .await
+        .expect("failed to create a journal pool");
+
+    let journal_event_store = JournalEventStore::try_new(journal_pool.clone())
+        .await
+        .expect("failed to create a journal event store");
+
+    let journal_service =
+        JournalService::try_new(journal_pool.clone(), journal_event_store.clone())
+            .await
+            .expect("failed to create a journal service");
+
+    tokio::spawn(journal::domain::event_listener(
+        journal_event_store,
+        journal_service.clone(),
+    ));
+
+    // Disintegrate uses unqualified object names and cannot target a schema directly, so
+    // authz needs a schema-scoped pool. Ideally, the backend would qualify its objects with
+    // a configured schema, allowing isolated event stores to share a pool.
+    let authz_pool = PgPoolOptions::new()
+        .after_connect(|connection, _| {
+            Box::pin(async move {
+                sqlx::query!("SET search_path TO authz")
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect(&database_url)
+        .await
+        .expect("failed to create an authz pool");
+
     let authz_event_store = AuthzEventStore::try_new(authz_pool.clone())
         .await
         .expect("failed to create an authz event store");
+
     let role_index = RoleIndex::try_new(authz_pool, authz_event_store.clone())
         .await
         .expect("failed to create the role index");
+
     let authz_service = AuthzService::new(authz_event_store, role_index);
 
-    let state = AppState::new(authn_service.clone(), authz_service);
+    let state = AppState::new(auth_service.clone(), authz_service, journal_service);
 
     seed_dev_data(&state)
         .await
         .expect("Failed to seed dev data");
 
     // use the service's user_store so that the data syncs
-    let auth_layer = AuthManagerLayerBuilder::new(authn_service.clone(), session_layer).build();
+    let auth_layer = AuthManagerLayerBuilder::new(auth_service.clone(), session_layer).build();
 
     let webauthn_routes =
-        authn::router(authn_service.clone()).expect("Failed to initialize WebAuthn routes");
+        auth::router(auth_service.clone()).expect("Failed to initialize WebAuthn routes");
 
     let journal_routes = journal::router()
         .merge(account::router())

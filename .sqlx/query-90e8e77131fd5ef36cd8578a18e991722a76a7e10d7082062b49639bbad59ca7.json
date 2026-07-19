@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE TABLE IF NOT EXISTS passkeys (\n                id TEXT PRIMARY KEY,\n                user_id BYTEA NOT NULL,\n                passkey BYTEA NOT NULL,\n                credential_id BYTEA NOT NULL\n            )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "90e8e77131fd5ef36cd8578a18e991722a76a7e10d7082062b49639bbad59ca7"
+}

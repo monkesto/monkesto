@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE journal_members SET permissions = $1 WHERE user_id = $2 AND journal_id = $3\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "55a0306845bfb7bd3d2d222e91e1c2cf0ece7dfaa3125f4474e0fa88124a11f6"
+}

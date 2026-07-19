@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SET search_path TO authn",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "1f138bf487a64fbd2f55322289a85db11da75d458ddc61a30a53a1c5a14ede3b"
+}

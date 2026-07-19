@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE TABLE IF NOT EXISTS journal_members (\n                user_id TEXT NOT NULL,\n                journal_id TEXT NOT NULL,\n                permissions INTEGER NOT NULL\n            )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d51fb4ca4e2fabe81390b1437f897a0f126b9461d6ff97000c0e9e548d12071b"
+}

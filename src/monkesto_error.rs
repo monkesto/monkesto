@@ -1,13 +1,14 @@
-use crate::account::AccountStoreError;
-use crate::authn::user::UserError;
+use crate::auth::user::UserError;
 use crate::email::EmailError;
 use crate::id::IdentError;
-use crate::journal::JournalStoreError;
+use crate::journal::JournalError;
+use crate::journal::account::AccountError;
+use crate::journal::transaction::TransactionError;
 use crate::name::NameError;
-use crate::transaction::TransactionStoreError;
 use axum::response::Redirect;
 use base64::Engine;
 use base64::engine::general_purpose;
+use disintegrate::DecisionError;
 use postcard::to_allocvec;
 use serde::Deserialize;
 use serde::Serialize;
@@ -28,16 +29,52 @@ pub enum MonkestoError {
     EmailCreation(#[from] EmailError),
 
     #[error("an error was returned from the journal store: {0}")]
-    JournalStore(#[from] JournalStoreError),
+    Journal(#[from] JournalError),
 
     #[error("an error was returned from the user store: {0}")]
     UserStore(#[from] UserError),
 
     #[error("an error was returned from the account store: {0}")]
-    AccountStore(#[from] AccountStoreError),
+    Account(#[from] AccountError),
 
     #[error("an error was returned from the transaction store: {0}")]
-    TransactionStore(#[from] TransactionStoreError),
+    Transaction(#[from] TransactionError),
+
+    #[error("the disintegrate event store returned an error: {0}")]
+    DisintegrateEvent(String),
+
+    #[error("the disintegrate state store returned an error: {0}")]
+    DisintegrateState(String),
+}
+
+impl From<DecisionError<JournalError>> for MonkestoError {
+    fn from(value: DecisionError<JournalError>) -> Self {
+        match value {
+            DecisionError::EventStore(e) => Self::DisintegrateEvent(e.to_string()),
+            DecisionError::StateStore(e) => Self::DisintegrateState(e.to_string()),
+            DecisionError::Domain(e) => Self::Journal(e),
+        }
+    }
+}
+
+impl From<DecisionError<AccountError>> for MonkestoError {
+    fn from(value: DecisionError<AccountError>) -> Self {
+        match value {
+            DecisionError::EventStore(e) => Self::DisintegrateEvent(e.to_string()),
+            DecisionError::StateStore(e) => Self::DisintegrateState(e.to_string()),
+            DecisionError::Domain(e) => Self::Account(e),
+        }
+    }
+}
+
+impl From<DecisionError<TransactionError>> for MonkestoError {
+    fn from(value: DecisionError<TransactionError>) -> Self {
+        match value {
+            DecisionError::EventStore(e) => Self::DisintegrateEvent(e.to_string()),
+            DecisionError::StateStore(e) => Self::DisintegrateState(e.to_string()),
+            DecisionError::Domain(e) => Self::Transaction(e),
+        }
+    }
 }
 
 impl MonkestoError {

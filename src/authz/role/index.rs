@@ -2,12 +2,13 @@ use super::{RoleId, RoleIndexError, RoleState};
 use crate::authority::Actor;
 use crate::authz::event::AuthzEvent;
 use crate::authz::store::AuthzEventStore;
+use crate::name::Name;
 use async_trait::async_trait;
 use disintegrate::{EventListener, PersistedEvent, StreamQuery, query};
 use disintegrate_postgres::{
     PgEventId, PgEventListener, PgEventListenerConfig, PgEventListenerError, RetryAction,
 };
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -19,21 +20,21 @@ pub struct RoleIndex {
 
 impl RoleIndex {
     pub async fn try_new(pool: PgPool, event_store: AuthzEventStore) -> Result<Self, sqlx::Error> {
-        sqlx::query(
+        sqlx::query!(
             r#"CREATE TABLE IF NOT EXISTS authz_role (
-            id BYTEA PRIMARY KEY, name BYTEA NOT NULL, latest_event_id BIGINT NOT NULL
+            id TEXT PRIMARY KEY, name BYTEA NOT NULL, latest_event_id BIGINT NOT NULL
         )"#,
         )
         .execute(&pool)
         .await?;
-        sqlx::query(
+        sqlx::query!(
             r#"CREATE TABLE IF NOT EXISTS authz_role_actor (
-            role_id BYTEA NOT NULL, actor BYTEA NOT NULL, PRIMARY KEY (role_id, actor)
+            role_id TEXT NOT NULL, actor BYTEA NOT NULL, PRIMARY KEY (role_id, actor)
         )"#,
         )
         .execute(&pool)
         .await?;
-        sqlx::query(
+        sqlx::query!(
             "CREATE INDEX IF NOT EXISTS authz_role_actor_actor_idx ON authz_role_actor (actor)",
         )
         .execute(&pool)
@@ -64,45 +65,46 @@ impl RoleIndex {
     }
 
     pub async fn find_role(&self, role_id: RoleId) -> Result<RoleState, RoleIndexError> {
-        let row = sqlx::query("SELECT name, latest_event_id FROM authz_role WHERE id = $1")
-            .bind(role_id)
-            .fetch_optional(&self.pool)
-            .await?;
-        let Some(row) = row else {
-            return Ok(RoleState::Absent);
-        };
-        let actors = sqlx::query("SELECT actor FROM authz_role_actor WHERE role_id = $1")
-            .bind(role_id)
+        let name = sqlx::query_scalar!(
+            r#"SELECT name as "name: Name" FROM authz_role WHERE id = $1"#,
+            role_id as RoleId
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(name) = name {
+            let actors = sqlx::query_scalar!(
+                r#"SELECT actor as "actor: Actor" FROM authz_role_actor WHERE role_id = $1"#,
+                role_id as RoleId
+            )
             .fetch_all(&self.pool)
             .await?
             .into_iter()
-            .map(|row| postcard::from_bytes::<Actor>(&row.get::<Vec<u8>, _>("actor")))
-            .collect::<Result<HashSet<_>, _>>()?;
-        Ok(RoleState::Present {
-            name: postcard::from_bytes(&row.get::<Vec<u8>, _>("name"))?,
-            actors,
-        })
+            .collect::<HashSet<_>>();
+
+            return Ok(RoleState::Present { name, actors });
+        }
+
+        Ok(RoleState::Absent)
     }
 
     pub async fn find_roles(&self, actor: &Actor) -> Result<HashSet<RoleId>, RoleIndexError> {
-        sqlx::query("SELECT role_id FROM authz_role_actor WHERE actor = $1")
-            .bind(postcard::to_allocvec(actor)?)
-            .fetch_all(&self.pool)
-            .await?
-            .into_iter()
-            .map(|row| {
-                RoleId::try_from(row.get::<Vec<u8>, _>("role_id").as_slice()).map_err(Into::into)
-            })
-            .collect()
+        Ok(sqlx::query_scalar!(
+            r#"SELECT role_id as "role_id: RoleId" FROM authz_role_actor WHERE actor = $1"#,
+            actor as &Actor
+        )
+        .fetch_all(&self.pool)
+        .await?
+        .into_iter()
+        .collect())
     }
 
     pub async fn find_all_roles(&self) -> Result<Vec<(RoleId, RoleState)>, RoleIndexError> {
-        let rows = sqlx::query("SELECT id FROM authz_role ORDER BY id")
+        let roles = sqlx::query_scalar!(r#"SELECT id as "id: RoleId" FROM authz_role ORDER BY id"#)
             .fetch_all(&self.pool)
             .await?;
-        let mut result = Vec::with_capacity(rows.len());
-        for row in rows {
-            let id = RoleId::try_from(row.get::<Vec<u8>, _>("id").as_slice())?;
+        let mut result = Vec::with_capacity(roles.len());
+        for id in roles {
             result.push((id, self.find_role(id).await?));
         }
         Ok(result)
@@ -125,26 +127,28 @@ impl RoleIndex {
         let event_id = event.id();
         match event.into_inner() {
             AuthzEvent::RoleCreated { role_id, name, .. } => {
-                sqlx::query("INSERT INTO authz_role (id, name, latest_event_id) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING")
-                    .bind(role_id).bind(postcard::to_allocvec(&name)?).bind(event_id).execute(&self.pool).await?;
+                sqlx::query!("INSERT INTO authz_role (id, name, latest_event_id) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING", role_id as RoleId, name as Name, event_id)
+                    .execute(&self.pool).await?;
             }
             AuthzEvent::RoleActorAdded { role_id, actor, .. } => {
                 let mut tx = self.pool.begin().await?;
-                sqlx::query("INSERT INTO authz_role_actor (role_id, actor) VALUES ($1, $2) ON CONFLICT DO NOTHING")
-                    .bind(role_id).bind(postcard::to_allocvec(&actor)?).execute(&mut *tx).await?;
-                sqlx::query("UPDATE authz_role SET latest_event_id = GREATEST(latest_event_id, $1) WHERE id = $2")
-                    .bind(event_id).bind(role_id).execute(&mut *tx).await?;
+                sqlx::query!("INSERT INTO authz_role_actor (role_id, actor) VALUES ($1, $2) ON CONFLICT DO NOTHING", role_id as RoleId, actor as Actor)
+                    .execute(&mut *tx).await?;
+                sqlx::query!("UPDATE authz_role SET latest_event_id = GREATEST(latest_event_id, $1) WHERE id = $2", event_id, role_id as RoleId)
+                    .execute(&mut *tx).await?;
                 tx.commit().await?;
             }
             AuthzEvent::RoleActorRemoved { role_id, actor, .. } => {
                 let mut tx = self.pool.begin().await?;
-                sqlx::query("DELETE FROM authz_role_actor WHERE role_id = $1 AND actor = $2")
-                    .bind(role_id)
-                    .bind(postcard::to_allocvec(&actor)?)
-                    .execute(&mut *tx)
-                    .await?;
-                sqlx::query("UPDATE authz_role SET latest_event_id = GREATEST(latest_event_id, $1) WHERE id = $2")
-                    .bind(event_id).bind(role_id).execute(&mut *tx).await?;
+                sqlx::query!(
+                    "DELETE FROM authz_role_actor WHERE role_id = $1 AND actor = $2",
+                    role_id as RoleId,
+                    actor as Actor
+                )
+                .execute(&mut *tx)
+                .await?;
+                sqlx::query!("UPDATE authz_role SET latest_event_id = GREATEST(latest_event_id, $1) WHERE id = $2", event_id, role_id as RoleId)
+                    .execute(&mut *tx).await?;
                 tx.commit().await?;
             }
             AuthzEvent::GrantCreated { .. } | AuthzEvent::GrantRevoked { .. } => {}

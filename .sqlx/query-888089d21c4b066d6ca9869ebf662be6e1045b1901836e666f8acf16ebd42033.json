@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "CREATE TABLE IF NOT EXISTS authz_role (\n            id TEXT PRIMARY KEY, name BYTEA NOT NULL, latest_event_id BIGINT NOT NULL\n        )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "888089d21c4b066d6ca9869ebf662be6e1045b1901836e666f8acf16ebd42033"
+}

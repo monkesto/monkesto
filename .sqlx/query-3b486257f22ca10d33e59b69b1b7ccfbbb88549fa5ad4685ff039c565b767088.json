@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    DELETE FROM journal_members WHERE user_id = $1 AND journal_id = $2\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3b486257f22ca10d33e59b69b1b7ccfbbb88549fa5ad4685ff039c565b767088"
+}

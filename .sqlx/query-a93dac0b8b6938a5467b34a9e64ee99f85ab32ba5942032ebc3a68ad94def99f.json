@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "CREATE TABLE IF NOT EXISTS authz_role_actor (\n            role_id TEXT NOT NULL, actor BYTEA NOT NULL, PRIMARY KEY (role_id, actor)\n        )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a93dac0b8b6938a5467b34a9e64ee99f85ab32ba5942032ebc3a68ad94def99f"
+}

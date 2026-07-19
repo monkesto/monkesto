@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT j.id as \"id: JournalId\", j.owner_id as \"owner_id: UserId\", j.name as \"name: Name\", e.payload as \"payload!\"\n            FROM journals j\n            INNER JOIN event e\n                ON e.journal_id = $1 AND e.event_type = 'JournalCreated'\n            WHERE j.id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "owner_id: UserId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name: Name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "payload!",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "d4c2aac6d1cbb24fe7c870a8238482371764ad08f79ebcc38cb3f76e57c3d435"
+}

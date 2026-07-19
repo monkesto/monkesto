@@ -1,7 +1,7 @@
 use super::RoleState;
 use crate::BackendType;
 use crate::StateType;
-use crate::authn::get_user;
+use crate::auth::get_user;
 use crate::authority::{Actor, Authority};
 use crate::journal::layout::layout;
 use crate::monkesto_error::OrRedirect;

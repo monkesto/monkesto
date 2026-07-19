@@ -7,16 +7,16 @@ edition = "2024"
 axum = { version = "0.8.0", features = ["macros"] }
 tower-sessions = { version = "0.14" }
 serde = { version = "1", features = ["derive"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
-chrono = { version = "0.4.42", features = ["serde"] }
+tokio = { version = "1.52.4", features = ["macros", "rt-multi-thread", "signal"] }
+chrono = { version = "0.4.45", features = ["serde"] }
 dotenvy = "0.15.7"
-bitflags = { version = "2.10.0", features = ["serde"] }
+bitflags = { version = "2.13.1", features = ["serde"] }
 chrono-tz = "0.10.4"
 base64 = "0.22.1"
 postcard = { version = "1.1.3", features = ["alloc"] }
 cuid = { version = "2.0.4" }
 maud = { version = "0.27.0", features = ["axum"] }
-webauthn-rs = { version = "0.5.4", features = ["danger-allow-state-serialisation"] }
+webauthn-rs = { version = "0.5.5", features = ["danger-allow-state-serialisation"] }
 tracing-subscriber = "0.3.22"
 tower-http = { version = "0.7.0", features = ["fs", "trace"] }
 url = "2.5.7"
@@ -26,20 +26,22 @@ serde_json = "1.0.148"
 dashmap = "6.1.0"
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-none", "sqlite", "postgres"] }
 tower-sessions-sqlx-store = { version = "0.15.0", features = ["postgres"] }
-regex = "1.12.2"
+regex = "1.13.1"
 phf = { version = "0.14.0", features = ["macros"] }
 webauthn-rs-proto = "0.5.4"
-axum-extra = { version = "0.12.5", features = ["form"] }
-rust_decimal = { version = "1.40.0", features = ["macros"] }
+axum-extra = { version = "0.12.6", features = ["form"] }
+rust_decimal = { version = "1.42.1", features = ["macros"] }
 axum-test = "21.0.0"
 http = "1.4.1"
 disintegrate = { version = "4.0.0", features = ["macros", "serde-messagepack"] }
 disintegrate-postgres = { version = "4.0.1", features = ["listener"] }
 async-trait = "0.1.89"
 rmp-serde = "1.3.1"
+arrayvec = { version = "0.7.8", features = ["serde"] }
 
 [lints.clippy]
-unwrap_used = "deny"
+unwrap_used = "warn"
+disallowed_methods = "warn"
 
 [profile.release]
 opt-level = 3

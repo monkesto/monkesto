@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE authz_role SET latest_event_id = GREATEST(latest_event_id, $1) WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bfc8187b2a882763100b5592b91e67a36d8c84b7b03a907eae42ffbdc655ff82"
+}

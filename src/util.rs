@@ -34,10 +34,7 @@ pub trait GetError: GetLocation {
 
     /// Asserts that the response has the given error.
     fn assert_error(&self, expected_error: MonkestoError) {
-        assert!(
-            self.get_error()
-                .is_some_and(|error| error == expected_error)
-        );
+        assert_eq!(self.get_error(), Some(expected_error))
     }
 
     /// Asserts that the response does not have an error.

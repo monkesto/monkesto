@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT role_id as \"role_id: RoleId\" FROM authz_role_actor WHERE actor = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "role_id: RoleId",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a91a9d7bfe6ccc4fb145842500a09abceaba896a8fef5dcaaea249e8b40dd53c"
+}

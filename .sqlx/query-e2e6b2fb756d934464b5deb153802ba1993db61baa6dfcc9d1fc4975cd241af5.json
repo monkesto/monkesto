@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT a.id as \"id: AccountId\", a.journal_id as \"journal_id: JournalId\", a.balance, a.name as \"name: Name\", e.payload as \"payload!\"\n            FROM accounts a\n            INNER JOIN event e\n                ON e.account_id = a.id AND e.event_type = 'AccountCreated'\n            WHERE a.journal_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: AccountId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "balance",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "name: Name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "payload!",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "e2e6b2fb756d934464b5deb153802ba1993db61baa6dfcc9d1fc4975cd241af5"
+}

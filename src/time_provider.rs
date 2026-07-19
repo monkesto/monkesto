@@ -1,10 +1,10 @@
-pub type TimeStamp = DateTime<Utc>;
+pub type Timestamp = DateTime<Utc>;
 
 use chrono::{DateTime, Duration, Utc};
 use std::cell::Cell;
 
 pub trait TimeProvider {
-    fn get_time(&self) -> TimeStamp;
+    fn get_time(&self) -> Timestamp;
 }
 
 pub struct DefaultTimeProvider;
@@ -17,7 +17,7 @@ impl DefaultTimeProvider {
 }
 
 impl TimeProvider for DefaultTimeProvider {
-    fn get_time(&self) -> TimeStamp {
+    fn get_time(&self) -> Timestamp {
         Utc::now()
     }
 }
@@ -35,7 +35,7 @@ impl IncrementalTimeProvider {
 }
 
 impl TimeProvider for IncrementalTimeProvider {
-    fn get_time(&self) -> TimeStamp {
+    fn get_time(&self) -> Timestamp {
         let old_value = self.current_value.get();
 
         // increment the timestamp by one second
@@ -47,7 +47,7 @@ impl TimeProvider for IncrementalTimeProvider {
 }
 
 impl TimeProvider for DateTime<Utc> {
-    fn get_time(&self) -> TimeStamp {
+    fn get_time(&self) -> Timestamp {
         *self
     }
 }

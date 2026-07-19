@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "CREATE INDEX IF NOT EXISTS authz_role_actor_actor_idx ON authz_role_actor (actor)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "5e5e011ab0d6c6f0cd791683c3df9e0cfdcae3b4946f2286f6fa2d4bfd2dd34e"
+}

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT t.id as \"id: TransactionId\", t.journal_id as \"journal_id: JournalId\", t.updates as \"updates: MsgPack<Vec<BalanceUpdate>>\", e.payload as \"payload!\"\n            FROM transactions t\n            INNER JOIN event e\n                ON e.transaction_id = t.id AND e.event_type = 'TransactionCreated'\n            WHERE t.journal_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: TransactionId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "updates: MsgPack<Vec<BalanceUpdate>>",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "payload!",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "d3c6e53268ae83b1c549b1f5687e428c5b5e76f62d96aaff25423272cee585ac"
+}

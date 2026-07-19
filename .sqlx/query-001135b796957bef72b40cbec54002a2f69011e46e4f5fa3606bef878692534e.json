@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT user_id as \"user_id: UserId\", id as \"id: PasskeyId\", passkey as \"passkey: _\" FROM passkeys WHERE credential_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id: UserId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "id: PasskeyId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "passkey: _",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "001135b796957bef72b40cbec54002a2f69011e46e4f5fa3606bef878692534e"
+}

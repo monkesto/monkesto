@@ -1,13 +1,16 @@
 use crate::BackendType;
 use crate::StateType;
-use crate::authn::get_user;
-use crate::authn::user::UserId;
+use crate::auth::get_user;
+use crate::auth::user::UserId;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::email::Email;
-use crate::journal::{JournalId, Permissions};
+use crate::event_id::GetEventId;
+use crate::journal::member::{AddJournalMember, RemoveJournalMember, UpdateJournalMember};
+use crate::journal::{CreateJournal, JournalId, Permissions};
 use crate::monkesto_error::OrRedirect;
 use crate::name::Name;
+use crate::time_provider::{DefaultTimeProvider, TimeProvider};
 use axum::extract::Path;
 use axum::extract::State;
 use axum::response::Redirect;
@@ -31,16 +34,21 @@ pub async fn create_journal(
 
     let name = Name::try_new(form.journal_name).or_redirect(CALLBACK_URL)?;
 
-    state
+    let event_id = state
         .journal_service
-        .create_journal(
+        .decision_maker
+        .make(CreateJournal::new(
             JournalId::new(),
-            name,
             user.id,
-            &Authority::Direct(Actor::User(user.id)),
-        )
+            name,
+            Authority::Direct(Actor::User(user.id)),
+            DefaultTimeProvider.get_time(),
+        ))
         .await
-        .or_redirect(CALLBACK_URL)?;
+        .or_redirect(CALLBACK_URL)?
+        .event_id();
+
+    state.journal_service.wait_for(event_id).await;
 
     Ok(Redirect::to(CALLBACK_URL))
 }
@@ -52,7 +60,6 @@ pub struct InviteUserForm {
     pub add_account: Option<String>,
     pub append_transaction: Option<String>,
     pub invite: Option<String>,
-    pub create_subjournal: Option<String>,
 }
 
 pub async fn invite_member(
@@ -82,20 +89,28 @@ pub async fn invite_member(
     if form.invite.is_some() {
         invitee_permissions.insert(Permissions::INVITE);
     }
-    if form.create_subjournal.is_some() {
-        invitee_permissions.insert(Permissions::CREATE_SUBJOURNAL);
-    }
 
-    state
-        .journal_service
-        .journal_invite_member(
-            journal_id,
-            &Authority::Direct(Actor::User(user.id)),
-            email,
-            invitee_permissions,
-        )
+    let invitee_id = state
+        .auth_service
+        .lookup_user_id(&email)
         .await
         .or_redirect(callback_url)?;
+
+    let event_id = state
+        .journal_service
+        .decision_maker
+        .make(AddJournalMember::new(
+            journal_id,
+            invitee_id,
+            invitee_permissions,
+            Authority::Direct(Actor::User(user.id)),
+            DefaultTimeProvider.get_time(),
+        ))
+        .await
+        .or_redirect(callback_url)?
+        .event_id();
+
+    state.journal_service.wait_for(event_id).await;
 
     Ok(Redirect::to(callback_url))
 }
@@ -106,7 +121,6 @@ pub struct UpdatePermissionsForm {
     pub add_account: Option<String>,
     pub append_transaction: Option<String>,
     pub invite: Option<String>,
-    pub create_subjournal: Option<String>,
 }
 
 pub async fn update_permissions(
@@ -134,51 +148,24 @@ pub async fn update_permissions(
     if form.invite.is_some() {
         new_permissions.insert(Permissions::INVITE);
     }
-    if form.create_subjournal.is_some() {
-        new_permissions.insert(Permissions::CREATE_SUBJOURNAL);
-    }
 
-    state
+    let event_id = state
         .journal_service
-        .update_member_permissions(
+        .decision_maker
+        .make(UpdateJournalMember::new(
             journal_id,
             target_user_id,
             new_permissions,
             Authority::Direct(Actor::User(user.id)),
-        )
+            DefaultTimeProvider.get_time(),
+        ))
         .await
-        .or_redirect(callback_url)?;
+        .or_redirect(callback_url)?
+        .event_id();
+
+    state.journal_service.wait_for(event_id).await;
 
     Ok(Redirect::to(callback_url))
-}
-
-#[derive(Deserialize)]
-pub struct CreateSubJournalForm {
-    subjournal_name: String,
-}
-
-pub async fn create_sub_journal(
-    State(state): State<StateType>,
-    session: AuthSession<BackendType>,
-    Path(id): Path<String>,
-    Form(form): Form<CreateSubJournalForm>,
-) -> Result<Redirect, Redirect> {
-    let callback_url = format!("/journal/{}/subjournals", id);
-
-    let user = get_user(session)?;
-    let authority = Authority::Direct(Actor::User(user.id));
-
-    let name = Name::try_new(form.subjournal_name).or_redirect(&callback_url)?;
-
-    let journal_id = JournalId::from_str(&id).or_redirect(&callback_url)?;
-
-    state
-        .journal_service
-        .create_subjournal(journal_id, name, &authority)
-        .await
-        .or_redirect(&callback_url)?;
-
-    Ok(Redirect::to(&callback_url))
 }
 
 pub async fn remove_member(
@@ -193,15 +180,20 @@ pub async fn remove_member(
     let journal_id = JournalId::from_str(&id).or_redirect(person_detail_url)?;
     let target_user_id = UserId::from_str(&person_id).or_redirect(person_detail_url)?;
 
-    state
+    let event_id = state
         .journal_service
-        .remove_member(
+        .decision_maker
+        .make(RemoveJournalMember::new(
             journal_id,
             target_user_id,
             Authority::Direct(Actor::User(user.id)),
-        )
+            DefaultTimeProvider.get_time(),
+        ))
         .await
-        .or_redirect(callback_url)?;
+        .or_redirect(callback_url)?
+        .event_id();
+
+    state.journal_service.wait_for(event_id).await;
 
     Ok(Redirect::to(callback_url))
 }

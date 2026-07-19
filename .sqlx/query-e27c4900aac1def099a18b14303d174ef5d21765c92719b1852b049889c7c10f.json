@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SET search_path TO authz",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "e27c4900aac1def099a18b14303d174ef5d21765c92719b1852b049889c7c10f"
+}

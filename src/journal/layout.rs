@@ -1,4 +1,4 @@
-use crate::authn::layout as app_layout;
+use crate::auth::layout as app_layout;
 use maud::Markup;
 use maud::html;
 

@@ -1,12 +1,17 @@
+pub mod account;
 pub mod commands;
+pub mod domain;
 pub mod layout;
+pub mod member;
 pub mod person;
 pub mod service;
+pub mod store;
+pub mod transaction;
 pub mod views;
 
 use crate::id::Ident;
 pub use service::JournalService;
-use std::collections::HashMap;
+use std::cmp::PartialEq;
 
 use axum::Router;
 use axum::routing::get;
@@ -15,7 +20,10 @@ use axum_login::login_required;
 id!(JournalId, Ident::new16());
 
 #[derive(Error, Debug, Serialize, Deserialize, PartialEq)]
-pub enum JournalStoreError {
+pub enum JournalError {
+    #[error("a journal already exists with the id {0}")]
+    IdCollision(JournalId),
+
     #[error("invalid journal: {0}")]
     InvalidJournal(JournalId),
 
@@ -32,16 +40,37 @@ pub enum JournalStoreError {
     UserLookupFailed(Email),
 
     #[error("The user {0} already has access to this journal")]
-    UserAlreadyHasAccess(Email),
+    UserAlreadyHasAccess(UserId),
 
-    #[error("The user doesn't have access to this journal")]
-    UserDoesntHaveAccess,
+    #[error("The user {0} doesn't have access to this journal")]
+    UserDoesntHaveAccess(UserId),
 
     #[error("Failed to create an Ident: {0}")]
     IdentCreation(#[from] IdentError),
+
+    #[error("sqlx returned an error: {0}")]
+    Sqlx(String),
+
+    #[error("failed to serialize or deserialize a value with rmp-serde: {0}")]
+    MsgPack(String),
+
+    #[error("failed to construct permissions from an integer: {0}")]
+    PermissionDecode(#[from] PermissionDecodeError),
 }
 
-pub type JournalStoreResult<T> = Result<T, JournalStoreError>;
+impl From<sqlx::Error> for JournalError {
+    fn from(value: Error) -> Self {
+        Self::Sqlx(value.to_string())
+    }
+}
+
+impl From<rmp_serde::decode::Error> for JournalError {
+    fn from(value: rmp_serde::decode::Error) -> Self {
+        Self::MsgPack(value.to_string())
+    }
+}
+
+pub type JournalResult<T> = Result<T, JournalError>;
 
 pub fn router() -> Router<crate::StateType> {
     Router::new()
@@ -52,14 +81,6 @@ pub fn router() -> Router<crate::StateType> {
         )
         .route("/journal/{id}", get(views::journal_detail))
         .route("/journal/{id}/person", get(person::people_list_page))
-        .route(
-            "/journal/{id}/subjournals",
-            get(views::sub_journal_list_page),
-        )
-        .route(
-            "/journal/{id}/createsubjournal",
-            axum::routing::post(commands::create_sub_journal),
-        )
         .route(
             "/journal/{id}/invite",
             axum::routing::post(commands::invite_member),
@@ -79,278 +100,170 @@ pub fn router() -> Router<crate::StateType> {
         .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
 }
 
-use crate::authn::user::UserError;
-use crate::authn::user::UserId;
-use crate::authority::Actor;
-use crate::authority::Authority;
+use crate::auth::user::UserError;
+use crate::auth::user::UserId;
+use crate::authority::{Actor, Authority};
 use crate::email::Email;
-use crate::event::Event;
-use crate::event::EventStore;
 use crate::id;
 use crate::id::IdentError;
-use crate::journal::JournalStoreError::InvalidJournal;
+use crate::journal::JournalError::InvalidJournal;
+use crate::journal::domain::JournalDomainEvent;
+use crate::journal::member::JournalMember;
 use crate::name::Name;
+use crate::status::Status;
+use crate::time_provider::Timestamp;
 use bitflags::bitflags;
-use chrono::DateTime;
-use chrono::Utc;
-use dashmap::DashMap;
+use disintegrate::{Decision, StateMutate, StateQuery};
+use domain::JournalEvent;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::{Database, Decode, Encode, Error, Postgres, Type};
 use std::fmt::Display;
 use std::fmt::Formatter;
-use std::ops::Deref;
-use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::RwLock;
 
-pub trait JournalStore:
-    Clone
-    + Send
-    + Sync
-    + 'static
-    + EventStore<Id = JournalId, Payload = JournalPayload, Error = JournalStoreError>
-{
-    /// returns the cached state of the journal
-    async fn get_journal(&self, journal_id: JournalId) -> JournalStoreResult<Option<JournalState>>;
-
-    /// returns all journals that a user is a member of (owner or tenant)
-    async fn get_user_journals(&self, user_id: UserId) -> JournalStoreResult<Vec<JournalId>>;
-
-    /// returns all direct child journals of the given journal
-    async fn get_subjournals(&self, journal_id: JournalId) -> JournalStoreResult<Vec<JournalId>>;
-
-    async fn get_permissions(
-        &self,
-        journal_id: JournalId,
-        authority: &Authority,
-    ) -> JournalStoreResult<Permissions>;
-
-    async fn get_name(&self, journal_id: JournalId) -> JournalStoreResult<Name> {
-        self.get_journal(journal_id)
-            .await?
-            .ok_or(InvalidJournal(journal_id))
-            .map(|s| s.name)
+/// validates that an `Authority` has sufficient permissions to perform an action
+pub fn validate_permissions(
+    member: &JournalMember,
+    authority: &Authority,
+    journal_owner: UserId,
+    permissions: Permissions,
+) -> bool {
+    if let Some(user_id) = authority.user_id()
+        && user_id == journal_owner
+    {
+        return true;
     }
 
-    async fn get_owner(&self, journal_id: JournalId) -> JournalStoreResult<UserId> {
-        self.get_journal(journal_id)
-            .await?
-            .ok_or(InvalidJournal(journal_id))
-            .map(|s| s.owner)
+    if (member.status.valid() && member.permissions.contains(permissions))
+        || matches!(authority.actor(), Actor::System)
+    {
+        return true;
     }
 
-    async fn get_creation_timestamp(
-        &self,
-        journal_id: JournalId,
-    ) -> JournalStoreResult<Option<DateTime<Utc>>>;
-
-    async fn get_creator(&self, journal_id: JournalId) -> JournalStoreResult<Authority>;
-
-    async fn get_members(
-        &self,
-        journal_id: JournalId,
-    ) -> JournalStoreResult<HashMap<UserId, Permissions>>;
+    false
 }
 
-#[derive(Clone)]
-#[allow(clippy::type_complexity)]
-pub struct JournalMemoryStore {
-    global_events: Arc<RwLock<Vec<Arc<Event<JournalPayload, JournalId>>>>>,
-    local_events: Arc<DashMap<JournalId, Vec<Arc<Event<JournalPayload, JournalId>>>>>,
-
-    journal_table: Arc<DashMap<JournalId, JournalState>>,
-    journal_members: Arc<DashMap<(JournalId, UserId), Permissions>>,
-    /// Index of user_id -> set of journal_ids they belong to
-    user_journals: Arc<DashMap<UserId, std::collections::HashSet<JournalId>>>,
-    /// Index of parent_journal_id -> set of child journal_ids
-    subjournals: Arc<DashMap<JournalId, std::collections::HashSet<JournalId>>>,
+#[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
+#[state_query(JournalEvent)]
+pub struct Journal {
+    #[id]
+    pub journal_id: JournalId,
+    pub owner: UserId,
+    pub name: Name,
+    pub status: Status,
 }
 
-impl JournalMemoryStore {
-    pub fn new() -> Self {
+impl Journal {
+    pub fn new(journal_id: JournalId) -> Self {
         Self {
-            global_events: Arc::new(RwLock::new(Vec::new())),
-            local_events: Arc::new(DashMap::new()),
-            journal_table: Arc::new(DashMap::new()),
-            journal_members: Arc::new(DashMap::new()),
-            user_journals: Arc::new(DashMap::new()),
-            subjournals: Arc::new(DashMap::new()),
+            journal_id,
+            ..Default::default()
         }
     }
 }
 
-impl EventStore for JournalMemoryStore {
-    type Id = JournalId;
-    type EventId = u64;
-    type Payload = JournalPayload;
-    type Error = JournalStoreError;
+impl StateMutate for Journal {
+    fn mutate(&mut self, event: Self::Event) {
+        match event {
+            JournalEvent::JournalCreated { owner, name, .. } => {
+                self.owner = owner;
+                self.name = name;
+                self.status = Status::Valid;
+            }
+            JournalEvent::JournalDeleted { .. } => self.status = Status::Deleted,
+        }
+    }
+}
 
-    async fn record(
-        &self,
-        id: JournalId,
+pub struct CreateJournal {
+    journal_id: JournalId,
+    owner: UserId,
+    name: Name,
+    authority: Authority,
+    timestamp: Timestamp,
+}
+
+impl CreateJournal {
+    pub fn new(
+        journal_id: JournalId,
+        owner: UserId,
+        name: Name,
         authority: Authority,
-        payload: JournalPayload,
-    ) -> JournalStoreResult<u64> {
-        let (event_id, event) = {
-            let mut global_events = self.global_events.write().await;
-            let event_id = global_events.len() as u64;
-            let event = Arc::new(Event::new(payload.clone(), id, event_id, authority));
-            global_events.push(event.clone());
-            (event_id, event)
-        };
-
-        match payload.clone().usage(id) {
-            PayloadUsage::CreatesState(state) => {
-                self.local_events.insert(id, vec![event.clone()]);
-
-                // Add creator to the user_journals index
-                self.user_journals
-                    .entry(state.owner)
-                    .or_default()
-                    .insert(id);
-
-                // Add to subjournal index if this is a child journal
-                if let Some(parent_id) = state.parent_journal_id {
-                    self.subjournals.entry(parent_id).or_default().insert(id);
-                }
-
-                self.journal_table.insert(id, state);
-            }
-            PayloadUsage::ModifiesState(mod_fn) => {
-                if let Some(mut local_events) = self.local_events.get_mut(&id)
-                    && let Some(mut state) = self.journal_table.get_mut(&id)
-                {
-                    match payload {
-                        JournalPayload::Modified(JournalModifiedPayload::AddedTenant {
-                            id: user_id,
-                            permissions,
-                        }) => {
-                            self.user_journals.entry(user_id).or_default().insert(id);
-                            self.journal_members.insert((id, user_id), permissions);
-                        }
-                        JournalPayload::Modified(JournalModifiedPayload::RemovedTenant {
-                            id: user_id,
-                        }) => {
-                            self.user_journals.entry(user_id).or_default().remove(&id);
-                            self.journal_members.remove(&(id, user_id));
-                        }
-                        _ => {}
-                    }
-
-                    local_events.push(event.clone());
-                    mod_fn(&mut state);
-                } else {
-                    return Err(InvalidJournal(id));
-                }
-            }
+        timestamp: Timestamp,
+    ) -> Self {
+        Self {
+            journal_id,
+            owner,
+            name,
+            authority,
+            timestamp,
         }
-
-        Ok(event_id)
-    }
-
-    async fn get_events(
-        &self,
-        id: JournalId,
-        after: u64,
-        limit: u64,
-    ) -> Result<Vec<Event<JournalPayload, JournalId>>, Self::Error> {
-        let events = self.local_events.get(&id).ok_or(InvalidJournal(id))?;
-
-        // avoid a panic fn start > len
-        if after >= events.len() as u64 {
-            return Ok(Vec::new());
-        }
-
-        // clamp the end value to the vector length
-        let end = std::cmp::min(events.len(), (after + limit + 1) as usize);
-
-        Ok(events[(after + 1) as usize..end]
-            .iter()
-            .map(|j| j.deref().clone())
-            .collect())
     }
 }
 
-impl JournalStore for JournalMemoryStore {
-    async fn get_journal(&self, journal_id: JournalId) -> JournalStoreResult<Option<JournalState>> {
-        Ok(self
-            .journal_table
-            .get(&journal_id)
-            .map(|state| (*state).clone()))
+impl Decision for CreateJournal {
+    type Event = JournalDomainEvent;
+    type StateQuery = Journal;
+    type Error = JournalError;
+
+    fn state_query(&self) -> Self::StateQuery {
+        Journal::new(self.journal_id)
     }
 
-    async fn get_user_journals(&self, user_id: UserId) -> JournalStoreResult<Vec<JournalId>> {
-        Ok(self
-            .user_journals
-            .get(&user_id)
-            .map(|set| set.iter().copied().collect())
-            .unwrap_or_default())
+    fn process(&self, state: &Self::StateQuery) -> Result<Vec<Self::Event>, Self::Error> {
+        if state.status.found() {
+            return Err(JournalError::IdCollision(self.journal_id));
+        }
+
+        Ok(vec![JournalDomainEvent::JournalCreated {
+            journal_id: self.journal_id,
+            owner: self.owner,
+            name: self.name.clone(),
+            authority: self.authority.clone(),
+            timestamp: self.timestamp,
+        }])
     }
+}
 
-    async fn get_subjournals(&self, journal_id: JournalId) -> JournalStoreResult<Vec<JournalId>> {
-        Ok(self
-            .subjournals
-            .get(&journal_id)
-            .map(|set| set.iter().copied().collect())
-            .unwrap_or_default())
-    }
+pub struct DeleteJournal {
+    journal_id: JournalId,
+    authority: Authority,
+    timestamp: Timestamp,
+}
 
-    async fn get_creation_timestamp(
-        &self,
-        journal_id: JournalId,
-    ) -> JournalStoreResult<Option<DateTime<Utc>>> {
-        // get the timestamp of the first event pertaining to the journal
-
-        // TODO: maybe? add a check to make sure that the first event is actually a creation payload; however, it should be enforced when the payload is recorded
-        Ok(self
-            .local_events
-            .get(&journal_id)
-            .and_then(|j| j.first().map(|e| e.timestamp)))
-    }
-
-    async fn get_creator(&self, journal_id: JournalId) -> JournalStoreResult<Authority> {
-        self.local_events
-            .get(&journal_id)
-            .and_then(|j| j.first().map(|e| e.authority.clone()))
-            .ok_or(InvalidJournal(journal_id))
-    }
-    async fn get_permissions(
-        &self,
-        journal_id: JournalId,
-        authority: &Authority,
-    ) -> JournalStoreResult<Permissions> {
-        match authority {
-            Authority::Direct(actor) => match actor {
-                Actor::User(user_id) => {
-                    if self.get_owner(journal_id).await? == *user_id {
-                        return Ok(Permissions::all());
-                    }
-
-                    if let Some(perms) = self.journal_members.get(&(journal_id, *user_id)) {
-                        Ok(*perms)
-                    } else {
-                        Ok(Permissions::empty())
-                    }
-                }
-                Actor::System => Ok(Permissions::all()),
-                Actor::Anonymous => Ok(Permissions::empty()),
-            },
-            Authority::Delegated { .. } => {
-                todo!("handle delegated permissions")
-            }
+#[expect(unused)]
+impl DeleteJournal {
+    pub fn new(journal_id: JournalId, authority: Authority, timestamp: Timestamp) -> Self {
+        Self {
+            journal_id,
+            authority,
+            timestamp,
         }
     }
+}
 
-    async fn get_members(
-        &self,
-        journal_id: JournalId,
-    ) -> JournalStoreResult<HashMap<UserId, Permissions>> {
-        Ok(self
-            .journal_members
-            .iter()
-            .filter(|ref_multi| ref_multi.key().0 == journal_id)
-            .map(|ref_multi| (ref_multi.key().1, *ref_multi.value()))
-            .collect())
+impl Decision for DeleteJournal {
+    type Event = JournalDomainEvent;
+    type StateQuery = Journal;
+    type Error = JournalError;
+
+    fn state_query(&self) -> Self::StateQuery {
+        Journal::new(self.journal_id)
+    }
+
+    fn process(&self, state: &Self::StateQuery) -> Result<Vec<Self::Event>, Self::Error> {
+        if !state.status.valid() {
+            return Err(InvalidJournal(state.journal_id));
+        }
+
+        Ok(vec![JournalDomainEvent::JournalDeleted {
+            journal_id: self.journal_id,
+            authority: self.authority.clone(),
+            timestamp: self.timestamp,
+        }])
     }
 }
 
@@ -361,14 +274,34 @@ bitflags! {
         const ADD_ACCOUNT = 1 << 1;
         const APPEND_TRANSACTION = 1 << 2;
         const INVITE = 1 << 3;
-        const CREATE_SUBJOURNAL = 1 << 4;
-        const OWNER = 1 << 5;
+        const OWNER = 1 << 4;
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Error)]
-#[expect(unused)]
-struct PermissionDecodeError(i32);
+impl Type<Postgres> for Permissions {
+    fn type_info() -> <Postgres as Database>::TypeInfo {
+        <i32 as Type<Postgres>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for Permissions {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        <i32 as Encode<Postgres>>::encode(self.bits(), buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for Permissions {
+    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
+        let val = <i32 as Decode<Postgres>>::decode(value)?;
+        Ok(Permissions::from_bits(val).ok_or(PermissionDecodeError(val))?)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Error, PartialEq)]
+pub struct PermissionDecodeError(i32);
 
 impl Display for PermissionDecodeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -377,130 +310,5 @@ impl Display for PermissionDecodeError {
             "an unknown bit was set in the permission value: {}",
             self.0
         )
-    }
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum JournalModifiedPayload {
-    Renamed {
-        name: Name,
-    },
-    AddedTenant {
-        id: UserId,
-        permissions: Permissions,
-    },
-    TransferredOwnership {
-        new_owner: UserId,
-    },
-    RemovedTenant {
-        id: UserId,
-    },
-    UpdatedTenantPermissions {
-        id: UserId,
-        permissions: Permissions,
-    },
-    Deleted,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum JournalPayload {
-    Created {
-        name: Name,
-        owner: UserId,
-        parent_journal_id: Option<JournalId>,
-    },
-    Modified(JournalModifiedPayload),
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JournalState {
-    pub id: JournalId,
-    pub name: Name,
-    pub owner: UserId,
-    // implementations must find a way to store this separately
-    // pub members: Postcard<HashMap<UserId, Permissions>>,
-    pub parent_journal_id: Option<JournalId>,
-}
-
-pub enum PayloadUsage {
-    CreatesState(JournalState),
-    ModifiesState(Box<dyn FnOnce(&mut JournalState)>),
-}
-
-impl JournalPayload {
-    fn usage<T: Into<JournalId>>(self, entity_id: T) -> PayloadUsage {
-        match self {
-            JournalPayload::Created {
-                name,
-                owner,
-                parent_journal_id,
-            } => PayloadUsage::CreatesState(JournalState {
-                id: entity_id.into(),
-                name,
-                owner,
-                parent_journal_id,
-            }),
-            JournalPayload::Modified(modified_payload) => {
-                PayloadUsage::ModifiesState(Box::new(move |state: &mut JournalState| {
-                    match modified_payload {
-                        JournalModifiedPayload::Renamed { name } => state.name = name,
-                        JournalModifiedPayload::AddedTenant {
-                            id: _,
-                            permissions: _,
-                        } => {}
-                        JournalModifiedPayload::TransferredOwnership { new_owner } => {
-                            state.owner = new_owner
-                        }
-                        JournalModifiedPayload::RemovedTenant { id: _ } => {}
-                        JournalModifiedPayload::UpdatedTenantPermissions {
-                            id: _,
-                            permissions: _,
-                        } => {}
-                        JournalModifiedPayload::Deleted => {}
-                    }
-                }))
-            }
-        }
-    }
-}
-
-pub trait JournalNameOrUnknown {
-    fn or_unknown(&self) -> String;
-}
-
-impl<E> JournalNameOrUnknown for Result<JournalState, E>
-where
-    E: std::error::Error,
-{
-    fn or_unknown(&self) -> String {
-        match self {
-            Ok(journal) => journal.name.to_string(),
-            Err(e) => format!("Error loading journal: {}", e),
-        }
-    }
-}
-
-impl<E> JournalNameOrUnknown for Result<Option<Name>, E>
-where
-    E: std::error::Error,
-{
-    fn or_unknown(&self) -> String {
-        match self {
-            Ok(Some(journal)) => journal.to_string(),
-            Ok(None) => "Unknown Journal".into(),
-            Err(e) => format!("Error loading journal: {}", e),
-        }
-    }
-}
-
-impl<E> JournalNameOrUnknown for Result<Name, E>
-where
-    E: std::error::Error,
-{
-    fn or_unknown(&self) -> String {
-        match self {
-            Ok(journal) => journal.to_string(),
-            Err(e) => format!("Error loading journal: {}", e),
-        }
     }
 }

@@ -1,7 +1,10 @@
-pub(crate) use crate::authn::user::UserId;
+pub(crate) use crate::auth::user::UserId;
 pub use crate::authz::GrantId;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::{Database, Decode, Encode, Postgres, Type};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Actor {
@@ -24,12 +27,39 @@ impl Authority {
     pub fn actor(&self) -> &Actor {
         match self {
             Authority::Direct(actor) => actor,
-            Authority::Delegated { grantor, .. } => grantor,
+            Authority::Delegated { grantee, .. } => grantee,
         }
     }
 
-    pub fn as_bytes(&self) -> Vec<u8> {
-        postcard::to_allocvec(self).expect("Failed to serialize authority")
+    pub fn user_id(&self) -> Option<UserId> {
+        match self.actor() {
+            Actor::Anonymous => None,
+            Actor::System => None,
+            Actor::User(user_id) => Some(*user_id),
+        }
+    }
+}
+
+impl Type<Postgres> for Actor {
+    fn type_info() -> <Postgres as Database>::TypeInfo {
+        <&[u8] as Type<Postgres>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for Actor {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        let bytes = postcard::to_allocvec(self)?;
+        <Vec<u8> as Encode<Postgres>>::encode(bytes, buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for Actor {
+    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
+        let bytes = <&[u8] as Decode<Postgres>>::decode(value)?;
+        Ok(postcard::from_bytes(bytes)?)
     }
 }
 
