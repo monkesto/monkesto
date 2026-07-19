@@ -2,7 +2,7 @@ use super::PasskeyEvent;
 use super::UserId;
 use super::layout::layout;
 use super::user::User;
-pub(crate) use super::{AuthEvent, AuthService, AuthSession, PasskeyId};
+pub(crate) use super::{AuthSession, AuthnEvent, AuthnService, PasskeyId};
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::time_provider::{DefaultTimeProvider, TimeProvider, Timestamp};
@@ -131,7 +131,7 @@ impl CreatePasskey {
 }
 
 impl Decision for CreatePasskey {
-    type Event = AuthEvent;
+    type Event = AuthnEvent;
     type StateQuery = (User, Passkey);
     type Error = PasskeyError;
 
@@ -151,7 +151,7 @@ impl Decision for CreatePasskey {
             return Err(PasskeyError::IdConflict(passkey.passkey_id));
         }
 
-        Ok(vec![AuthEvent::PasskeyCreated {
+        Ok(vec![AuthnEvent::PasskeyCreated {
             passkey_id: self.passkey_id,
             user_id: self.user_id,
             passkey: Box::new(self.passkey.clone()),
@@ -169,7 +169,7 @@ pub struct DeletePasskey {
 }
 
 impl DeletePasskey {
-    fn new(
+    pub(crate) fn new(
         passkey_id: PasskeyId,
         user_id: UserId,
         authority: Authority,
@@ -185,7 +185,7 @@ impl DeletePasskey {
 }
 
 impl Decision for DeletePasskey {
-    type Event = AuthEvent;
+    type Event = AuthnEvent;
     type StateQuery = (User, Passkey);
     type Error = PasskeyError;
 
@@ -205,7 +205,7 @@ impl Decision for DeletePasskey {
             return Err(PasskeyError::PasskeyDoesntExist(passkey.passkey_id));
         }
 
-        Ok(vec![AuthEvent::PasskeyDeleted {
+        Ok(vec![AuthnEvent::PasskeyDeleted {
             passkey_id: self.passkey_id,
             authority: self.authority.clone(),
             timestamp: self.timestamp,
@@ -254,7 +254,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 pub async fn delete_passkey_post(
-    Extension(service): Extension<AuthService>,
+    Extension(service): Extension<AuthnService>,
     auth_session: AuthSession,
     Path(passkey_id_str): Path<String>,
 ) -> Result<impl IntoResponse, PasskeyError> {
@@ -272,13 +272,12 @@ pub async fn delete_passkey_post(
 
     // Remove the passkey from the user's passkeys
     if service
-        .decision_maker
-        .make(DeletePasskey::new(
+        .delete_passkey(
             passkey_id,
             user_id,
             Authority::Direct(Actor::User(user_id)),
             DefaultTimeProvider.get_time(),
-        ))
+        )
         .await
         .is_err()
     {
@@ -291,7 +290,7 @@ pub async fn delete_passkey_post(
 
 pub async fn create_passkey_post(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(auth_service): Extension<AuthService>,
+    Extension(authn_service): Extension<AuthnService>,
     auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, PasskeyError> {
@@ -326,15 +325,14 @@ pub async fn create_passkey_post(
                 let passkey_id = PasskeyId::new();
 
                 // Add the new passkey to the user's existing passkeys
-                if auth_service
-                    .decision_maker
-                    .make(CreatePasskey::new(
+                if authn_service
+                    .create_passkey(
                         passkey_id,
                         user_id,
                         CorePasskey(passkey),
                         Authority::Direct(Actor::User(user_id)),
                         DefaultTimeProvider.get_time(),
-                    ))
+                    )
                     .await
                     .is_err()
                 {
@@ -353,12 +351,12 @@ pub async fn create_passkey_post(
     } else {
         // This is initial request - start registration
         // Get user's existing passkeys
-        let existing_passkeys = auth_service
+        let existing_passkeys = authn_service
             .get_user_passkeys(user_id)
             .await
             .unwrap_or_default();
 
-        let user = auth_service
+        let user = authn_service
             .fetch_user(user_id)
             .await
             .map_err(|_| PasskeyError::UserDoesntExist(user_id))?;

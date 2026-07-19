@@ -1,5 +1,5 @@
-use crate::auth::AuthConnectError;
-use crate::auth::user::UserId;
+use crate::authn::AuthConnectError;
+use crate::authn::user::UserId;
 use crate::authority::{Actor, Authority};
 use crate::journal::JournalError;
 use crate::journal::JournalError::PermissionError;

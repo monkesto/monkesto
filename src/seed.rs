@@ -1,5 +1,5 @@
 use crate::AppState;
-use crate::auth::user::{CreateUser, DEV_USERS, UserError};
+use crate::authn::user::{CreateUser, DEV_USERS, UserError};
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
@@ -22,7 +22,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
 
     for (email, (user_id, webauthn_uuid)) in DEV_USERS.clone() {
         match state
-            .auth_service
+            .authn_service
             .decision_maker
             .make(CreateUser {
                 user_id,
@@ -240,7 +240,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
     }
 
     // wait for the projections to update
-    state.auth_service.wait_for(latest_user_event).await;
+    state.authn_service.wait_for(latest_user_event).await;
     state.journal_service.wait_for(latest_journal_event).await;
 
     Ok(())

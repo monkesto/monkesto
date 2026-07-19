@@ -1,4 +1,4 @@
-use crate::auth::UserId;
+use crate::authn::UserId;
 use crate::authority::Authority;
 use crate::journal::account::AccountId;
 use crate::journal::store::JournalEventStore;

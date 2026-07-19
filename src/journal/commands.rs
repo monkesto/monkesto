@@ -1,7 +1,7 @@
 use crate::BackendType;
 use crate::StateType;
-use crate::auth::get_user;
-use crate::auth::user::UserId;
+use crate::authn::get_user;
+use crate::authn::user::UserId;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::email::Email;
@@ -91,7 +91,7 @@ pub async fn invite_member(
     }
 
     let invitee_id = state
-        .auth_service
+        .authn_service
         .lookup_user_id(&email)
         .await
         .or_redirect(callback_url)?;

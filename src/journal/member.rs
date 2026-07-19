@@ -1,4 +1,4 @@
-use crate::auth::UserId;
+use crate::authn::UserId;
 use crate::authority::Authority;
 use crate::journal::domain::{JournalDomainEvent, MemberEvent};
 use crate::journal::{Journal, JournalError, JournalId, Permissions, validate_permissions};

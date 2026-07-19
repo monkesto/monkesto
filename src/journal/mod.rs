@@ -100,8 +100,8 @@ pub fn router() -> Router<crate::StateType> {
         .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
 }
 
-use crate::auth::user::UserError;
-use crate::auth::user::UserId;
+use crate::authn::user::UserError;
+use crate::authn::user::UserId;
 use crate::authority::{Actor, Authority};
 use crate::email::Email;
 use crate::id;

@@ -1,7 +1,7 @@
 use crate::BackendType;
 use crate::StateType;
-use crate::auth::user::UserState;
-use crate::auth::{UserId, get_user};
+use crate::authn::user::UserState;
+use crate::authn::{UserId, get_user};
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::email::Email;
@@ -65,7 +65,7 @@ pub async fn transaction_list_page(
             .list_journal_members(*id, &user_authority)
             .await
         {
-            Ok(ids) => match state.auth_service.fetch_users(ids.as_slice()).await {
+            Ok(ids) => match state.authn_service.fetch_users(ids.as_slice()).await {
                 Ok(members) => Ok(members
                     .into_iter()
                     .map(|m| (m.id, m))
@@ -115,7 +115,7 @@ pub async fn transaction_list_page(
                                                     (email.to_string())
                                                 } @else {
                                                     // the user may be the owner or somebody who left the journal after creating the transaction
-                                                    @match state.auth_service.fetch_user(*id).await {
+                                                    @match state.authn_service.fetch_user(*id).await {
                                                         Ok(user) => {
                                                             // maud assumes that you never want to call functions for
                                                             // side effects and makes you assign a value to the result

@@ -20,9 +20,9 @@ use webauthn_rs::prelude::Webauthn;
 use webauthn_rs_proto::AuthenticatorSelectionCriteria;
 use webauthn_rs_proto::ResidentKeyRequirement;
 
-use super::passkey::{CorePasskey, CreatePasskey, PasskeyId};
-use super::user::{CreateUser, UserId};
-use super::{AuthService, AuthSession};
+use super::passkey::{CorePasskey, PasskeyId};
+use super::user::UserId;
+use super::{AuthSession, AuthnService};
 
 use crate::authority::Actor;
 use crate::authority::Authority;
@@ -279,14 +279,14 @@ async fn handle_signup_get(
 
 async fn handle_email_submission(
     webauthn: Arc<Webauthn>,
-    auth_service: AuthService,
+    authn_service: AuthnService,
     auth_session: AuthSession,
     webauthn_url: String,
     email: Email,
     next: Option<String>,
 ) -> Result<Response, SignupError> {
     // Check if email is already taken
-    if auth_service.email_exists(&email).await.unwrap_or(false) {
+    if authn_service.email_exists(&email).await.unwrap_or(false) {
         return Ok(Redirect::to("/signup?error=email_taken").into_response());
     }
 
@@ -355,7 +355,7 @@ async fn handle_email_submission(
 
 async fn handle_credential_submission(
     webauthn: Arc<Webauthn>,
-    auth_service: AuthService,
+    authn_service: AuthnService,
     mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
@@ -390,27 +390,25 @@ async fn handle_credential_submission(
             // Store the new user and their passkey
             let email_validated = Email::try_new(&email).map_err(|_| SignupError::InvalidInput)?;
 
-            auth_service
-                .decision_maker
-                .make(CreateUser::new(
+            authn_service
+                .create_user(
                     user_id,
                     email_validated.clone(),
                     webauthn_uuid,
                     Authority::Direct(Actor::Anonymous),
                     DefaultTimeProvider.get_time(),
-                ))
+                )
                 .await
                 .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
 
-            auth_service
-                .decision_maker
-                .make(CreatePasskey::new(
+            authn_service
+                .create_passkey(
                     passkey_id,
                     user_id,
                     CorePasskey(passkey),
                     Authority::Direct(Actor::User(user_id)),
                     DefaultTimeProvider.get_time(),
-                ))
+                )
                 .await
                 .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
 
@@ -448,14 +446,14 @@ pub async fn signup_get(
 
 pub async fn signup_post(
     Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(auth_service): Extension<AuthService>,
+    Extension(authn_service): Extension<AuthnService>,
     Extension(webauthn_url): Extension<String>,
     auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
     let next = form.get("next").cloned();
     if let Some(_credential_json) = form.get("credential") {
-        handle_credential_submission(webauthn, auth_service, auth_session, form, next).await
+        handle_credential_submission(webauthn, authn_service, auth_session, form, next).await
     } else if let Some(email_str) = form.get("email") {
         let email = match Email::try_new(email_str) {
             Ok(em) => em,
@@ -464,7 +462,7 @@ pub async fn signup_post(
 
         handle_email_submission(
             webauthn,
-            auth_service,
+            authn_service,
             auth_session,
             webauthn_url,
             email,

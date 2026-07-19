@@ -1,4 +1,4 @@
-mod auth;
+mod authn;
 mod authority;
 mod authz;
 mod email;
@@ -16,7 +16,7 @@ mod theme;
 mod time_provider;
 pub mod util;
 
-use crate::auth::{AuthEventStore, AuthService};
+use crate::authn::{AuthnEventStore, AuthnService};
 use crate::authz::{AuthzEventStore, AuthzService, RoleIndex};
 use crate::journal::JournalService;
 use crate::journal::store::JournalEventStore;
@@ -45,19 +45,19 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Clone)]
 struct AppState {
-    auth_service: AuthService,
+    authn_service: AuthnService,
     journal_service: JournalService,
     authz_service: AuthzService,
 }
 
 impl AppState {
     fn new(
-        auth_service: AuthService,
+        authn_service: AuthnService,
         authz_service: AuthzService,
         journal_service: JournalService,
     ) -> Self {
         Self {
-            auth_service,
+            authn_service,
             journal_service,
             authz_service,
         }
@@ -77,7 +77,7 @@ impl FromRef<AppState> for AuthzService {
 }
 
 type StateType = AppState;
-type BackendType = AuthService;
+type BackendType = AuthnService;
 
 #[tokio::main]
 async fn main() {
@@ -141,14 +141,14 @@ async fn main() {
         .expect("failed to migrate session store");
     let session_layer = SessionManagerLayer::new(session_store);
 
-    let auth_event_store = AuthEventStore::try_new(authn_pool.clone())
+    let auth_event_store = AuthnEventStore::try_new(authn_pool.clone())
         .await
         .expect("failed to create an auth event store");
-    let auth_service = AuthService::try_new(authn_pool.clone(), &auth_event_store)
+    let auth_service = AuthnService::try_new(authn_pool.clone(), &auth_event_store)
         .await
         .expect("failed to create a projection pool");
 
-    tokio::spawn(auth::event_listener(
+    tokio::spawn(authn::event_listener(
         auth_event_store.clone(),
         auth_service.clone(),
     ));
@@ -216,7 +216,7 @@ async fn main() {
     let auth_layer = AuthManagerLayerBuilder::new(auth_service.clone(), session_layer).build();
 
     let webauthn_routes =
-        auth::router(auth_service.clone()).expect("Failed to initialize WebAuthn routes");
+        authn::router(auth_service.clone()).expect("Failed to initialize WebAuthn routes");
 
     let journal_routes = journal::router()
         .merge(account::router())

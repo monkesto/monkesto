@@ -9,8 +9,8 @@ pub mod user;
 
 use crate::id::Ident;
 
-use crate::auth::passkey::{PasskeyError, PasskeyState};
-use crate::auth::user::{DEV_USERS, UserError, UserResult, UserState};
+use crate::authn::passkey::{CreatePasskey, DeletePasskey, PasskeyError, PasskeyState};
+use crate::authn::user::{CreateUser, DEV_USERS, UserError, UserResult, UserState};
 use crate::authority::Authority;
 use crate::email::Email;
 use crate::monkesto_error::OrRedirect;
@@ -25,7 +25,7 @@ use axum::routing::get;
 use axum::routing::post;
 use axum_login::{AuthnBackend, login_required, tracing};
 use disintegrate::serde::messagepack::MessagePack;
-use disintegrate::{Event, EventListener, PersistedEvent, StreamQuery, query};
+use disintegrate::{DecisionError, Event, EventListener, PersistedEvent, StreamQuery, query};
 use disintegrate_postgres::{
     PgDecisionMaker, PgEventId, PgEventListener, PgEventListenerConfig, PgEventListenerError,
     PgSnapshotter, RetryAction, WithPgSnapshot, decision_maker,
@@ -38,14 +38,14 @@ use sqlx::{Database, PgPool, Postgres, Type};
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
-pub use store::AuthEventStore;
+pub use store::AuthnEventStore;
 use thiserror::Error;
 use tokio::sync::watch;
 use webauthn_rs::prelude::WebauthnBuilder;
 use webauthn_rs::prelude::WebauthnError as WebauthnCoreError;
 use webauthn_rs::prelude::{CredentialID, Url, Uuid};
 
-pub type AuthSession = axum_login::AuthSession<AuthService>;
+pub type AuthSession = axum_login::AuthSession<AuthnService>;
 
 /// Errors that occur during WebAuthn router initialization/configuration.
 /// These are startup-time errors, not request-handling errors.
@@ -70,12 +70,12 @@ pub enum AuthConnectError {
 id!(UserId, Ident::new16());
 id!(PasskeyId, Ident::new16());
 
-type PgAuthDecisionMaker = PgDecisionMaker<AuthEvent, MessagePack<AuthEvent>, WithPgSnapshot>;
+type PgAuthnDecisionMaker = PgDecisionMaker<AuthnEvent, MessagePack<AuthnEvent>, WithPgSnapshot>;
 
 #[derive(Debug, Clone, PartialEq, Event, Serialize, Deserialize)]
 #[stream(UserEvent, [UserCreated, UserDeleted])]
 #[stream(PasskeyEvent, [PasskeyCreated, PasskeyDeleted])]
-pub enum AuthEvent {
+pub enum AuthnEvent {
     UserCreated {
         #[id]
         user_id: UserId,
@@ -108,10 +108,10 @@ pub enum AuthEvent {
 }
 
 #[derive(Clone)]
-pub struct AuthService {
-    query: StreamQuery<PgEventId, AuthEvent>,
+pub struct AuthnService {
+    query: StreamQuery<PgEventId, AuthnEvent>,
     projection_pool: PgPool,
-    pub decision_maker: PgAuthDecisionMaker,
+    pub decision_maker: PgAuthnDecisionMaker,
     current_event: watch::Sender<PgEventId>,
 }
 
@@ -121,10 +121,10 @@ impl PgHasArrayType for UserId {
     }
 }
 
-impl AuthService {
+impl AuthnService {
     pub async fn try_new(
         pool: PgPool,
-        event_store: &AuthEventStore,
+        event_store: &AuthnEventStore,
     ) -> Result<Self, AuthConnectError> {
         sqlx::query!(
             r#"
@@ -164,12 +164,64 @@ impl AuthService {
         Box::leak(Box::new(receiver));
 
         Ok(Self {
-            query: query!(AuthEvent),
+            query: query!(AuthnEvent),
             projection_pool: pool,
             decision_maker,
             current_event: sender,
         })
     }
+
+    pub async fn create_user(
+        &self,
+        user_id: UserId,
+        email: Email,
+        webauthn_uuid: Uuid,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<(), DecisionError<UserError>> {
+        self.decision_maker
+            .make(CreateUser::new(
+                user_id,
+                email,
+                webauthn_uuid,
+                authority,
+                timestamp,
+            ))
+            .await
+            .map(drop)
+    }
+
+    pub async fn create_passkey(
+        &self,
+        passkey_id: PasskeyId,
+        user_id: UserId,
+        passkey: CorePasskey,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<(), DecisionError<PasskeyError>> {
+        self.decision_maker
+            .make(CreatePasskey::new(
+                passkey_id, user_id, passkey, authority, timestamp,
+            ))
+            .await
+            .map(drop)
+    }
+
+    pub async fn delete_passkey(
+        &self,
+        passkey_id: PasskeyId,
+        user_id: UserId,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<(), DecisionError<PasskeyError>> {
+        self.decision_maker
+            .make(DeletePasskey::new(
+                passkey_id, user_id, authority, timestamp,
+            ))
+            .await
+            .map(drop)
+    }
+
     pub async fn email_exists(&self, email: &Email) -> UserResult<bool> {
         Ok(sqlx::query_scalar!(
             r#"
@@ -296,7 +348,7 @@ impl AuthService {
     }
 }
 
-impl AuthnBackend for AuthService {
+impl AuthnBackend for AuthnService {
     type User = UserState;
     type Credentials = ();
     type Error = UserError;
@@ -313,21 +365,24 @@ impl AuthnBackend for AuthService {
 }
 
 #[async_trait]
-impl EventListener<PgEventId, AuthEvent> for AuthService {
+impl EventListener<PgEventId, AuthnEvent> for AuthnService {
     type Error = sqlx::Error;
 
     fn id(&self) -> &'static str {
         "users/passkeys"
     }
 
-    fn query(&self) -> &StreamQuery<PgEventId, AuthEvent> {
+    fn query(&self) -> &StreamQuery<PgEventId, AuthnEvent> {
         &self.query
     }
 
-    async fn handle(&self, event: PersistedEvent<PgEventId, AuthEvent>) -> Result<(), Self::Error> {
+    async fn handle(
+        &self,
+        event: PersistedEvent<PgEventId, AuthnEvent>,
+    ) -> Result<(), Self::Error> {
         let event_id = event.id();
         match event.into_inner() {
-            AuthEvent::UserCreated {
+            AuthnEvent::UserCreated {
                 user_id,
                 email,
                 webauthn_uuid,
@@ -344,7 +399,7 @@ impl EventListener<PgEventId, AuthEvent> for AuthService {
                 .execute(&self.projection_pool)
                 .await?;
             }
-            AuthEvent::UserDeleted { user_id, .. } => {
+            AuthnEvent::UserDeleted { user_id, .. } => {
                 sqlx::query!(
                     r#"
                     DELETE FROM users where id = $1
@@ -354,7 +409,7 @@ impl EventListener<PgEventId, AuthEvent> for AuthService {
                 .execute(&self.projection_pool)
                 .await?;
             }
-            AuthEvent::PasskeyCreated {
+            AuthnEvent::PasskeyCreated {
                 passkey_id,
                 user_id,
                 passkey,
@@ -370,7 +425,7 @@ impl EventListener<PgEventId, AuthEvent> for AuthService {
                     .execute(&self.projection_pool)
                     .await?;
             }
-            AuthEvent::PasskeyDeleted { passkey_id, .. } => {
+            AuthnEvent::PasskeyDeleted { passkey_id, .. } => {
                 sqlx::query!(
                     r#"
                     DELETE FROM passkeys where id = $1
@@ -390,7 +445,7 @@ impl EventListener<PgEventId, AuthEvent> for AuthService {
     }
 }
 
-pub(crate) async fn event_listener(event_store: AuthEventStore, service: AuthService) {
+pub(crate) async fn event_listener(event_store: AuthnEventStore, service: AuthnService) {
     PgEventListener::builder(event_store.event_store)
         .register_listener(
             service,
@@ -420,7 +475,7 @@ fn handle_event_listener_retry(
 }
 
 pub fn router<S: Clone + Send + Sync + 'static>(
-    auth_service: AuthService,
+    authn_service: AuthnService,
 ) -> Result<Router<S>, AuthConfigError> {
     // Get base URL from environment variable, defaulting to localhost:3000
     let base_url = env::var("RAILWAY_PUBLIC_DOMAIN")
@@ -450,7 +505,7 @@ pub fn router<S: Clone + Send + Sync + 'static>(
         .route("/passkey/{id}/delete", post(passkey::delete_passkey_post))
         .route("/signout", get(signout::signout_get))
         .route("/signout", post(signout::signout_post))
-        .route_layer(login_required!(AuthService, login_url = "/signin"));
+        .route_layer(login_required!(AuthnService, login_url = "/signin"));
 
     // Public routes (no login required)
     let public_routes = Router::new()
@@ -461,5 +516,5 @@ pub fn router<S: Clone + Send + Sync + 'static>(
         .merge(protected_routes)
         .layer(Extension(webauthn_url))
         .layer(Extension(webauthn))
-        .layer(Extension(auth_service)))
+        .layer(Extension(authn_service)))
 }

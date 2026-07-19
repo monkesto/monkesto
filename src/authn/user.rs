@@ -1,4 +1,4 @@
-pub(crate) use super::{AuthEvent, UserEvent, UserId};
+pub(crate) use super::{AuthnEvent, UserEvent, UserId};
 use crate::authority::Authority;
 use crate::email::Email;
 use crate::time_provider::Timestamp;
@@ -156,7 +156,7 @@ impl CreateUser {
 }
 
 impl Decision for CreateUser {
-    type Event = AuthEvent;
+    type Event = AuthnEvent;
     type StateQuery = (User, UserEmail);
     type Error = UserError;
 
@@ -177,7 +177,7 @@ impl Decision for CreateUser {
             return Err(UserError::EmailConflict(self.email.clone()));
         }
 
-        Ok(vec![AuthEvent::UserCreated {
+        Ok(vec![AuthnEvent::UserCreated {
             user_id: self.user_id,
             email: self.email.clone(),
             webauthn_uuid: self.webauthn_uuid,
@@ -205,7 +205,7 @@ impl DeleteUser {
 }
 
 impl Decision for DeleteUser {
-    type Event = AuthEvent;
+    type Event = AuthnEvent;
     type StateQuery = User;
     type Error = UserError;
 
@@ -218,7 +218,7 @@ impl Decision for DeleteUser {
             return Err(UserError::UserDoesntExist(self.user_id));
         }
 
-        Ok(vec![AuthEvent::UserDeleted {
+        Ok(vec![AuthnEvent::UserDeleted {
             user_id: self.user_id,
             authority: self.authority.clone(),
             timestamp: self.timestamp,

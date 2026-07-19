@@ -1,7 +1,7 @@
 use crate::BackendType;
 use crate::StateType;
-use crate::auth::get_user;
-use crate::auth::user::UserId;
+use crate::authn::get_user;
+use crate::authn::user::UserId;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::journal::JournalId;
@@ -120,7 +120,7 @@ pub async fn person_detail_page(
         }
     };
 
-    let target_email = match state.auth_service.fetch_user(target_user_id).await {
+    let target_email = match state.authn_service.fetch_user(target_user_id).await {
         Ok(user) => user.email.to_string(),
         Err(e) => format!("Error fetching email: {}", e),
     };
@@ -237,7 +237,7 @@ pub async fn people_list_page(
                         href=(format!("/journal/{}/person/{}", id, user_id))
                         class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
                             h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                @match state.auth_service.fetch_user(user_id).await {
+                                @match state.authn_service.fetch_user(user_id).await {
                                     Ok(user) => (user.email),
                                     Err(e) => (format!("failed to fetch email: {:?}", e)),
                                 }
