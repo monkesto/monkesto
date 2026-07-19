@@ -118,7 +118,7 @@ pub struct AuthnService {
 
 impl PgHasArrayType for UserId {
     fn array_type_info() -> <Postgres as Database>::TypeInfo {
-        <&[Vec<u8>] as Type<Postgres>>::type_info()
+        <&[&str] as Type<Postgres>>::type_info()
     }
 }
 
