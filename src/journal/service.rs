@@ -1,22 +1,26 @@
 use crate::authn::AuthConnectError;
 use crate::authn::user::UserId;
 use crate::authority::{Actor, Authority};
-use crate::journal::JournalError;
+use crate::event_id::GetEventId;
 use crate::journal::JournalError::PermissionError;
 use crate::journal::JournalId;
 use crate::journal::JournalResult;
 use crate::journal::PermissionDecodeError;
 use crate::journal::Permissions;
-use crate::journal::account::AccountId;
+use crate::journal::account::{AccountError, AccountId, CreateAccount};
 use crate::journal::domain::JournalDomainEvent;
+use crate::journal::member::{AddJournalMember, RemoveJournalMember, UpdateJournalMember};
 use crate::journal::store::JournalEventStore;
-use crate::journal::transaction::{BalanceUpdate, EntryType, TransactionId};
+use crate::journal::transaction::{
+    BalanceUpdate, CreateTransaction, EntryType, TransactionError, TransactionId,
+};
+use crate::journal::{CreateJournal, JournalError};
 use crate::msgpack::MsgPack;
 use crate::name::Name;
 use crate::time_provider::Timestamp;
 use async_trait::async_trait;
 use disintegrate::serde::messagepack::MessagePack;
-use disintegrate::{EventListener, PersistedEvent, StreamQuery, query};
+use disintegrate::{DecisionError, EventListener, PersistedEvent, StreamQuery, query};
 use disintegrate_postgres::{
     PgDecisionMaker, PgEventId, PgSnapshotter, WithPgSnapshot, decision_maker,
 };
@@ -150,6 +154,119 @@ impl JournalService {
             decision_maker,
             current_event: sender,
         })
+    }
+
+    pub async fn create_journal(
+        &self,
+        journal_id: JournalId,
+        owner: UserId,
+        name: Name,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(CreateJournal::new(
+                journal_id, owner, name, authority, timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    pub async fn add_member(
+        &self,
+        journal_id: JournalId,
+        member_id: UserId,
+        permissions: Permissions,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(AddJournalMember::new(
+                journal_id,
+                member_id,
+                permissions,
+                authority,
+                timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    pub async fn update_member(
+        &self,
+        journal_id: JournalId,
+        member_id: UserId,
+        permissions: Permissions,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(UpdateJournalMember::new(
+                journal_id,
+                member_id,
+                permissions,
+                authority,
+                timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    pub async fn remove_member(
+        &self,
+        journal_id: JournalId,
+        member_id: UserId,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(RemoveJournalMember::new(
+                journal_id, member_id, authority, timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    pub async fn create_account(
+        &self,
+        account_id: AccountId,
+        journal_id: JournalId,
+        name: Name,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<AccountError>> {
+        Ok(self
+            .decision_maker
+            .make(CreateAccount::new(
+                account_id, journal_id, name, authority, timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    pub async fn create_transaction(
+        &self,
+        transaction_id: TransactionId,
+        journal_id: JournalId,
+        entries: Vec<BalanceUpdate>,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<TransactionError>> {
+        Ok(self
+            .decision_maker
+            .make(CreateTransaction::new(
+                transaction_id,
+                journal_id,
+                entries,
+                authority,
+                timestamp,
+            ))
+            .await?
+            .event_id())
     }
 
     pub async fn get_effective_permissions(

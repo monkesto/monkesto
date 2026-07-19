@@ -401,7 +401,7 @@ async fn handle_credential_submission(
                 .await
                 .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
 
-            authn_service
+            let ev_id = authn_service
                 .create_passkey(
                     passkey_id,
                     user_id,
@@ -422,6 +422,8 @@ async fn handle_credential_submission(
                 .login(&user)
                 .await
                 .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
+
+            authn_service.wait_for(ev_id).await;
 
             // Redirect to next or default
             let redirect_to = next.as_deref().unwrap_or("/journal");

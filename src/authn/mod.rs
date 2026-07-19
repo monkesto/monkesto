@@ -13,6 +13,7 @@ use crate::authn::passkey::{CreatePasskey, DeletePasskey, PasskeyError, PasskeyS
 use crate::authn::user::{CreateUser, DEV_USERS, UserError, UserResult, UserState};
 use crate::authority::Authority;
 use crate::email::Email;
+use crate::event_id::GetEventId;
 use crate::monkesto_error::OrRedirect;
 use crate::msgpack::MsgPack;
 use crate::time_provider::Timestamp;
@@ -178,8 +179,9 @@ impl AuthnService {
         webauthn_uuid: Uuid,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Result<(), DecisionError<UserError>> {
-        self.decision_maker
+    ) -> Result<PgEventId, DecisionError<UserError>> {
+        Ok(self
+            .decision_maker
             .make(CreateUser::new(
                 user_id,
                 email,
@@ -187,8 +189,8 @@ impl AuthnService {
                 authority,
                 timestamp,
             ))
-            .await
-            .map(drop)
+            .await?
+            .event_id())
     }
 
     pub async fn create_passkey(
@@ -198,13 +200,14 @@ impl AuthnService {
         passkey: CorePasskey,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Result<(), DecisionError<PasskeyError>> {
-        self.decision_maker
+    ) -> Result<PgEventId, DecisionError<PasskeyError>> {
+        Ok(self
+            .decision_maker
             .make(CreatePasskey::new(
                 passkey_id, user_id, passkey, authority, timestamp,
             ))
-            .await
-            .map(drop)
+            .await?
+            .event_id())
     }
 
     pub async fn delete_passkey(
@@ -213,13 +216,14 @@ impl AuthnService {
         user_id: UserId,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Result<(), DecisionError<PasskeyError>> {
-        self.decision_maker
+    ) -> Result<PgEventId, DecisionError<PasskeyError>> {
+        Ok(self
+            .decision_maker
             .make(DeletePasskey::new(
                 passkey_id, user_id, authority, timestamp,
             ))
-            .await
-            .map(drop)
+            .await?
+            .event_id())
     }
 
     pub async fn email_exists(&self, email: &Email) -> UserResult<bool> {

@@ -5,9 +5,7 @@ use crate::authn::user::UserId;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::email::Email;
-use crate::event_id::GetEventId;
-use crate::journal::member::{AddJournalMember, RemoveJournalMember, UpdateJournalMember};
-use crate::journal::{CreateJournal, JournalId, Permissions};
+use crate::journal::{JournalId, Permissions};
 use crate::monkesto_error::OrRedirect;
 use crate::name::Name;
 use crate::time_provider::{DefaultTimeProvider, TimeProvider};
@@ -36,17 +34,15 @@ pub async fn create_journal(
 
     let event_id = state
         .journal_service
-        .decision_maker
-        .make(CreateJournal::new(
+        .create_journal(
             JournalId::new(),
             user.id,
             name,
             Authority::Direct(Actor::User(user.id)),
             DefaultTimeProvider.get_time(),
-        ))
+        )
         .await
-        .or_redirect(CALLBACK_URL)?
-        .event_id();
+        .or_redirect(CALLBACK_URL)?;
 
     state.journal_service.wait_for(event_id).await;
 
@@ -98,17 +94,15 @@ pub async fn invite_member(
 
     let event_id = state
         .journal_service
-        .decision_maker
-        .make(AddJournalMember::new(
+        .add_member(
             journal_id,
             invitee_id,
             invitee_permissions,
             Authority::Direct(Actor::User(user.id)),
             DefaultTimeProvider.get_time(),
-        ))
+        )
         .await
-        .or_redirect(callback_url)?
-        .event_id();
+        .or_redirect(callback_url)?;
 
     state.journal_service.wait_for(event_id).await;
 
@@ -151,17 +145,15 @@ pub async fn update_permissions(
 
     let event_id = state
         .journal_service
-        .decision_maker
-        .make(UpdateJournalMember::new(
+        .update_member(
             journal_id,
             target_user_id,
             new_permissions,
             Authority::Direct(Actor::User(user.id)),
             DefaultTimeProvider.get_time(),
-        ))
+        )
         .await
-        .or_redirect(callback_url)?
-        .event_id();
+        .or_redirect(callback_url)?;
 
     state.journal_service.wait_for(event_id).await;
 
@@ -182,16 +174,14 @@ pub async fn remove_member(
 
     let event_id = state
         .journal_service
-        .decision_maker
-        .make(RemoveJournalMember::new(
+        .remove_member(
             journal_id,
             target_user_id,
             Authority::Direct(Actor::User(user.id)),
             DefaultTimeProvider.get_time(),
-        ))
+        )
         .await
-        .or_redirect(callback_url)?
-        .event_id();
+        .or_redirect(callback_url)?;
 
     state.journal_service.wait_for(event_id).await;
 

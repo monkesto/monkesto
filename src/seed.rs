@@ -1,14 +1,12 @@
 use crate::AppState;
-use crate::authn::user::{CreateUser, DEV_USERS, UserError};
+use crate::authn::user::{DEV_USERS, UserError};
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
-use crate::event_id::GetEventId;
-use crate::journal::account::{AccountError, AccountId, CreateAccount};
-use crate::journal::member::AddJournalMember;
+use crate::journal::account::{AccountError, AccountId};
+use crate::journal::transaction::EntryType;
 use crate::journal::transaction::{BalanceUpdate, TransactionError, TransactionId};
-use crate::journal::transaction::{CreateTransaction, EntryType};
-use crate::journal::{CreateJournal, JournalError, JournalId, Permissions};
+use crate::journal::{JournalError, JournalId, Permissions};
 use crate::monkesto_error::MonkestoResult;
 use crate::name::Name;
 use crate::time_provider::{IncrementalTimeProvider, TimeProvider};
@@ -23,17 +21,16 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
     for (email, (user_id, webauthn_uuid)) in DEV_USERS.clone() {
         match state
             .authn_service
-            .decision_maker
-            .make(CreateUser {
+            .create_user(
                 user_id,
-                email: email.clone(),
+                email.clone(),
                 webauthn_uuid,
-                authority: Authority::Direct(Actor::System),
-                timestamp: time_provider.get_time(),
-            })
+                Authority::Direct(Actor::System),
+                time_provider.get_time(),
+            )
             .await
         {
-            Ok(ev) => latest_user_event = ev.event_id(),
+            Ok(ev_id) => latest_user_event = ev_id,
 
             // the user was already seeded
             Err(DecisionError::Domain(UserError::IdConflict(_))) => {}
@@ -75,17 +72,16 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
     for (id, name) in journals {
         match state
             .journal_service
-            .decision_maker
-            .make(CreateJournal::new(
+            .create_journal(
                 id,
                 pacioli_id,
                 name,
                 pacioli_authority.clone(),
                 time_provider.get_time(),
-            ))
+            )
             .await
         {
-            Ok(ev) => latest_journal_event = ev.event_id(),
+            Ok(ev_id) => latest_journal_event = ev_id,
             // journal already exists, ignore
             Err(DecisionError::Domain(JournalError::IdCollision(_))) => {}
             Err(e) => return Err(e.into()),
@@ -94,17 +90,16 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
 
     match state
         .journal_service
-        .decision_maker
-        .make(AddJournalMember::new(
+        .add_member(
             maple_ridge_academy_id,
             wedgwood_id,
             Permissions::READ | Permissions::ADD_ACCOUNT | Permissions::APPEND_TRANSACTION,
             pacioli_authority.clone(),
             time_provider.get_time(),
-        ))
+        )
         .await
     {
-        Ok(ev) => latest_journal_event = ev.event_id(),
+        Ok(ev_id) => latest_journal_event = ev_id,
         Err(DecisionError::Domain(JournalError::UserAlreadyHasAccess(_))) => {}
         Err(e) => return Err(e.into()),
     }
@@ -126,17 +121,16 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
     for (id, name) in accounts {
         match state
             .journal_service
-            .decision_maker
-            .make(CreateAccount::new(
+            .create_account(
                 id,
                 maple_ridge_academy_id,
                 name,
                 pacioli_authority.clone(),
                 time_provider.get_time(),
-            ))
+            )
             .await
         {
-            Ok(ev) => latest_journal_event = ev.event_id(),
+            Ok(ev_id) => latest_journal_event = ev_id,
             Err(DecisionError::Domain(AccountError::IdCollision(_))) => {}
             Err(e) => return Err(e.into()),
         }
@@ -223,17 +217,16 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
     for (id, entries) in transactions {
         match state
             .journal_service
-            .decision_maker
-            .make(CreateTransaction::new(
+            .create_transaction(
                 id,
                 maple_ridge_academy_id,
                 entries,
                 pacioli_authority.clone(),
                 time_provider.get_time(),
-            ))
+            )
             .await
         {
-            Ok(ev) => latest_journal_event = ev.event_id(),
+            Ok(ev_id) => latest_journal_event = ev_id,
             Err(DecisionError::Domain(TransactionError::IdCollision(_))) => {}
             Err(e) => return Err(e.into()),
         }

@@ -271,7 +271,7 @@ pub async fn delete_passkey_post(
         .map_err(|_| PasskeyError::InvalidInput)?;
 
     // Remove the passkey from the user's passkeys
-    if service
+    if let Ok(ev_id) = service
         .delete_passkey(
             passkey_id,
             user_id,
@@ -279,13 +279,13 @@ pub async fn delete_passkey_post(
             DefaultTimeProvider.get_time(),
         )
         .await
-        .is_err()
     {
-        return Ok(Redirect::to("/me?error=passkeydeletionfailure").into_response());
+        service.wait_for(ev_id).await;
+        // Redirect back to passkey page
+        return Ok(Redirect::to("/me").into_response());
     }
 
-    // Redirect back to passkey page
-    Ok(Redirect::to("/me").into_response())
+    Ok(Redirect::to("/me?error=passkeydeletionfailure").into_response())
 }
 
 pub async fn create_passkey_post(
@@ -325,7 +325,7 @@ pub async fn create_passkey_post(
                 let passkey_id = PasskeyId::new();
 
                 // Add the new passkey to the user's existing passkeys
-                if authn_service
+                if let Ok(ev_id) = authn_service
                     .create_passkey(
                         passkey_id,
                         user_id,
@@ -334,13 +334,12 @@ pub async fn create_passkey_post(
                         DefaultTimeProvider.get_time(),
                     )
                     .await
-                    .is_err()
                 {
-                    return Ok(Redirect::to("/signup?error=passkeycreationfailure").into_response());
+                    authn_service.wait_for(ev_id).await;
+                    // Redirect back to passkey management page
+                    return Ok(Redirect::to("/me").into_response());
                 }
-
-                // Redirect back to passkey management page
-                Ok(Redirect::to("/me").into_response())
+                Ok(Redirect::to("/signup?error=passkeycreationfailure").into_response())
             }
             Err(_) => {
                 // Clear the registration state on failure

@@ -146,7 +146,7 @@ impl StateMutate for Transaction {
 pub struct CreateTransaction {
     transaction_id: TransactionId,
     journal_id: JournalId,
-    updates: Vec<BalanceUpdate>,
+    entries: Vec<BalanceUpdate>,
     authority: Authority,
     timestamp: Timestamp,
 }
@@ -155,14 +155,14 @@ impl CreateTransaction {
     pub fn new(
         transaction_id: TransactionId,
         journal_id: JournalId,
-        updates: Vec<BalanceUpdate>,
+        entries: Vec<BalanceUpdate>,
         authority: Authority,
         timestamp: Timestamp,
     ) -> Self {
         Self {
             transaction_id,
             journal_id,
-            updates,
+            entries,
             authority,
             timestamp,
         }
@@ -200,7 +200,7 @@ impl Decision for CreateTransaction {
 
         let mut balance = 0;
 
-        for update in self.updates.iter() {
+        for update in self.entries.iter() {
             if !accounts.accounts.contains(&update.account_id) {
                 return Err(TransactionError::InvalidAccount(update.account_id));
             }
@@ -229,7 +229,7 @@ impl Decision for CreateTransaction {
         Ok(vec![JournalDomainEvent::TransactionCreated {
             transaction_id: self.transaction_id,
             journal_id: self.journal_id,
-            balance_updates: self.updates.clone(),
+            balance_updates: self.entries.clone(),
             authority: self.authority.clone(),
             timestamp: self.timestamp,
         }])

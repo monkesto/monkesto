@@ -3,9 +3,8 @@ use crate::StateType;
 use crate::authn::get_user;
 use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::event_id::GetEventId;
 use crate::journal::JournalId;
-use crate::journal::account::{AccountId, CreateAccount};
+use crate::journal::account::AccountId;
 use crate::monkesto_error::OrRedirect;
 use crate::name::Name;
 use crate::time_provider::{DefaultTimeProvider, TimeProvider};
@@ -38,17 +37,15 @@ pub async fn create_account(
 
     let event_id = state
         .journal_service
-        .decision_maker
-        .make(CreateAccount::new(
+        .create_account(
             AccountId::new(),
             journal_id,
             name,
             Authority::Direct(Actor::User(user.id)),
             DefaultTimeProvider.get_time(),
-        ))
+        )
         .await
-        .or_redirect(callback_url)?
-        .event_id();
+        .or_redirect(callback_url)?;
 
     state.journal_service.wait_for(event_id).await;
 

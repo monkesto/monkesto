@@ -3,13 +3,12 @@ use crate::StateType;
 use crate::authn::get_user;
 use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::event_id::GetEventId;
 use crate::journal::JournalId;
 use crate::journal::account::AccountId;
+use crate::journal::transaction::EntryType;
 use crate::journal::transaction::TransactionError::InvalidBalanceUpdates;
 use crate::journal::transaction::TransactionError::ParseDecimal;
 use crate::journal::transaction::{BalanceUpdate, TransactionId};
-use crate::journal::transaction::{CreateTransaction, EntryType};
 use crate::monkesto_error::OrRedirect;
 use crate::time_provider::{DefaultTimeProvider, TimeProvider};
 use axum::extract::Path;
@@ -110,17 +109,15 @@ pub async fn transact(
 
     let event_id = state
         .journal_service
-        .decision_maker
-        .make(CreateTransaction::new(
+        .create_transaction(
             TransactionId::new(),
             journal_id,
             updates,
             user_authority,
             DefaultTimeProvider.get_time(),
-        ))
+        )
         .await
-        .or_redirect(callback_url)?
-        .event_id();
+        .or_redirect(callback_url)?;
 
     state.journal_service.wait_for(event_id).await;
 
