@@ -3,9 +3,9 @@ use crate::authn::user::{DEV_USERS, UserError};
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
-use crate::journal::account::{AccountError, AccountId};
+use crate::journal::account::AccountId;
 use crate::journal::transaction::EntryType;
-use crate::journal::transaction::{BalanceUpdate, TransactionError, TransactionId};
+use crate::journal::transaction::{BalanceUpdate, TransactionId};
 use crate::journal::{JournalError, JournalId, Permissions};
 use crate::monkesto_error::MonkestoResult;
 use crate::name::Name;
@@ -33,7 +33,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
             Ok(ev_id) => latest_user_event = ev_id,
 
             // the user was already seeded
-            Err(DecisionError::Domain(UserError::IdConflict(_))) => {}
+            Err(DecisionError::Domain(UserError::IdCollision(_))) => {}
 
             Err(_) => return Err(UserError::SeedFailure(email))?,
         }
@@ -131,7 +131,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
             .await
         {
             Ok(ev_id) => latest_journal_event = ev_id,
-            Err(DecisionError::Domain(AccountError::IdCollision(_))) => {}
+            Err(DecisionError::Domain(JournalError::AccountIdCollision(_))) => {}
             Err(e) => return Err(e.into()),
         }
     }
@@ -227,7 +227,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
             .await
         {
             Ok(ev_id) => latest_journal_event = ev_id,
-            Err(DecisionError::Domain(TransactionError::IdCollision(_))) => {}
+            Err(DecisionError::Domain(JournalError::TransactionIdCollision(_))) => {}
             Err(e) => return Err(e.into()),
         }
     }

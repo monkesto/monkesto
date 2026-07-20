@@ -37,7 +37,7 @@ pub enum UserError {
     #[error("a user with the email: {0} doesn't exist")]
     EmailDoesntExist(Email),
     #[error("a user with the id {0} already exists")]
-    IdConflict(UserId),
+    IdCollision(UserId),
     #[error("no user exists with the provided id: {0}")]
     UserDoesntExist(UserId),
     #[error("there isn't any user associated with the current session")]
@@ -169,7 +169,7 @@ impl Decision for CreateUser {
         (id_user, email_user): &Self::StateQuery,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if id_user.status.found() {
-            return Err(UserError::IdConflict(self.user_id));
+            return Err(UserError::IdCollision(self.user_id));
         }
 
         // TODO(gabriel) do we want to allow deleted users to create new accounts with the same email?

@@ -43,6 +43,12 @@ use tower_sessions::SessionManagerLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+pub mod proto {
+    pub mod error {
+        include!(concat!(env!("OUT_DIR"), "/proto.error.rs"));
+    }
+}
+
 #[derive(Clone)]
 struct AppState {
     authn_service: AuthnService,

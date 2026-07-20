@@ -22,14 +22,12 @@ pub fn router() -> Router<crate::StateType> {
 
 use crate::authority::Authority;
 use crate::id;
-use crate::journal::account::{AccountError, AccountId};
+use crate::journal::account::AccountId;
 use crate::journal::member::JournalMember;
-use crate::journal::transaction::TransactionError::InvalidEntryType;
 use crate::journal::{Journal, Permissions, validate_permissions};
 use crate::journal::{JournalError, JournalId};
 use crate::status::Status;
 use crate::time_provider::Timestamp;
-use TransactionError::InvalidTransaction;
 use disintegrate::{Decision, StateMutate, StateQuery};
 use serde::Deserialize;
 use serde::Serialize;
@@ -38,44 +36,29 @@ use std::fmt::Display;
 use std::str::FromStr;
 use thiserror::Error;
 
-#[derive(Debug, Error, Serialize, Deserialize, PartialEq)]
-pub enum TransactionError {
-    #[error("Invalid transaction: {0}")]
-    InvalidTransaction(TransactionId),
-
-    #[error("A transaction with the id {0} already exists")]
-    IdCollision(TransactionId),
-
-    #[error("Invalid journal: {0}")]
-    InvalidJournal(JournalId),
-
-    #[error("Invalid account: {0}")]
-    InvalidAccount(AccountId),
-
-    #[error("Invalid entry type: {0} expected \"Dr\" or \"Cr\"")]
+#[derive(Error, Debug, Serialize, Deserialize, PartialEq)]
+pub enum TransactionValidationError {
+    #[error("Received an invalid entry type. Expected Dr or Cr, found {0}")]
     InvalidEntryType(String),
-
-    #[error("Failed to parse a decimal number from the input: {0}")]
+    #[error("Did not receive any transaction entries")]
+    NoTransactionEntries,
+    #[error("Did not receive a corresponding amount for an entry")]
+    MissingEntryAmount,
+    #[error("Did not receive a corresponding entry type for an entry")]
+    MissingEntryType,
+    #[error("Invalid entry amount: {0}")]
     ParseDecimal(String),
-
-    #[error("The transaction does not have balanced credits and debits")]
-    TransactionNotBalanced,
-
-    #[error("The journal store returned an error: {0}")]
-    JournalStore(#[from] JournalError),
-
-    #[error("The account store returned an error: {0}")]
-    AccountStore(#[from] AccountError),
-
-    #[error("The user does not have the required permission: {:?}", .0)]
-    Permission(Permissions),
-
-    #[error("The supplied balance updates were invalid: {0}")]
-    InvalidBalanceUpdates(String),
+    #[error("Received an entry with a partial cent value: {0}")]
+    PartialCentValue(String),
+    #[error("Received an entry with a value greater than 9 quintillion")]
+    OutOfRange(String),
+    #[error(
+        "Received an entry with a negative amount: {0}. Please use the debit/credit selector instead."
+    )]
+    NegativeEntryAmount(String),
+    #[error("Imbalanced transaction: {:?}", 0)]
+    ImbalancedTransaction(Vec<BalanceUpdate>),
 }
-
-#[expect(unused)]
-pub type TransactionResult<T> = Result<T, TransactionError>;
 
 // TODO(gabriel) there's probably a more efficient way to validate that the applicable accounts exist
 #[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
@@ -172,7 +155,7 @@ impl CreateTransaction {
 impl Decision for CreateTransaction {
     type Event = JournalDomainEvent;
     type StateQuery = (Transaction, AllJournalAccounts, Journal, JournalMember);
-    type Error = TransactionError;
+    type Error = JournalError;
 
     fn state_query(&self) -> Self::StateQuery {
         (
@@ -191,18 +174,18 @@ impl Decision for CreateTransaction {
         (transaction, accounts, journal, actor): &Self::StateQuery,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if transaction.status.found() {
-            return Err(TransactionError::IdCollision(self.transaction_id));
+            return Err(JournalError::TransactionIdCollision(self.transaction_id));
         }
 
         if !journal.status.valid() {
-            return Err(TransactionError::InvalidJournal(self.journal_id));
+            return Err(JournalError::InvalidJournal(self.journal_id));
         }
 
         let mut balance = 0;
 
         for update in self.entries.iter() {
             if !accounts.accounts.contains(&update.account_id) {
-                return Err(TransactionError::InvalidAccount(update.account_id));
+                return Err(JournalError::InvalidAccount(update.account_id));
             }
 
             match update.entry_type {
@@ -212,7 +195,9 @@ impl Decision for CreateTransaction {
         }
 
         if balance != 0 {
-            return Err(TransactionError::TransactionNotBalanced);
+            return Err(JournalError::TransactionValidation(
+                TransactionValidationError::ImbalancedTransaction(self.entries.clone()),
+            ));
         }
 
         if !validate_permissions(
@@ -221,9 +206,7 @@ impl Decision for CreateTransaction {
             journal.owner,
             Permissions::APPEND_TRANSACTION,
         ) {
-            return Err(TransactionError::Permission(
-                Permissions::APPEND_TRANSACTION,
-            ));
+            return Err(JournalError::Permissions(Permissions::APPEND_TRANSACTION));
         }
 
         Ok(vec![JournalDomainEvent::TransactionCreated {
@@ -263,7 +246,7 @@ impl DeleteTransaction {
 impl Decision for DeleteTransaction {
     type Event = JournalDomainEvent;
     type StateQuery = (Transaction, Journal, JournalMember);
-    type Error = TransactionError;
+    type Error = JournalError;
 
     fn state_query(&self) -> Self::StateQuery {
         (
@@ -281,15 +264,15 @@ impl Decision for DeleteTransaction {
         (transaction, journal, actor): &Self::StateQuery,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if !transaction.status.valid() || transaction.journal_id != self.journal_id {
-            return Err(InvalidTransaction(self.transaction_id));
+            return Err(JournalError::InvalidTransaction(self.transaction_id));
         }
 
         if !journal.status.valid() {
-            return Err(TransactionError::InvalidJournal(self.journal_id));
+            return Err(JournalError::InvalidJournal(self.journal_id));
         }
 
         if !validate_permissions(actor, &self.authority, journal.owner, Permissions::OWNER) {
-            return Err(TransactionError::Permission(Permissions::OWNER));
+            return Err(JournalError::Permissions(Permissions::OWNER));
         }
 
         Ok(vec![JournalDomainEvent::TransactionDeleted {
@@ -316,12 +299,14 @@ impl Display for EntryType {
 }
 
 impl FromStr for EntryType {
-    type Err = TransactionError;
+    type Err = JournalError;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "Dr" => Ok(Self::Debit),
             "Cr" => Ok(Self::Credit),
-            _ => Err(InvalidEntryType(s.to_string())),
+            _ => Err(JournalError::TransactionValidation(
+                TransactionValidationError::InvalidEntryType(s.to_string()),
+            )),
         }
     }
 }

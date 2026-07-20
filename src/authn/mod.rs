@@ -112,7 +112,7 @@ pub enum AuthnEvent {
 pub struct AuthnService {
     query: StreamQuery<PgEventId, AuthnEvent>,
     projection_pool: PgPool,
-    pub decision_maker: PgAuthnDecisionMaker,
+    decision_maker: PgAuthnDecisionMaker,
     current_event: watch::Sender<PgEventId>,
 }
 

@@ -142,7 +142,7 @@ impl Decision for AddJournalMember {
             journal.owner,
             Permissions::INVITE.union(self.permissions),
         ) {
-            return Err(JournalError::PermissionError(
+            return Err(JournalError::Permissions(
                 Permissions::INVITE.union(self.permissions),
             ));
         }
@@ -217,7 +217,7 @@ impl Decision for UpdateJournalMember {
             journal.owner,
             Permissions::OWNER.union(self.permissions),
         ) {
-            return Err(JournalError::PermissionError(
+            return Err(JournalError::Permissions(
                 Permissions::OWNER.union(self.permissions),
             ));
         }
@@ -284,7 +284,7 @@ impl Decision for RemoveJournalMember {
         }
 
         if !validate_permissions(actor, &self.authority, journal.owner, Permissions::OWNER) {
-            return Err(JournalError::PermissionError(Permissions::OWNER));
+            return Err(JournalError::Permissions(Permissions::OWNER));
         }
 
         Ok(vec![JournalDomainEvent::MemberRemoved {

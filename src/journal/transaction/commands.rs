@@ -3,12 +3,10 @@ use crate::StateType;
 use crate::authn::get_user;
 use crate::authority::Actor;
 use crate::authority::Authority;
-use crate::journal::JournalId;
 use crate::journal::account::AccountId;
-use crate::journal::transaction::EntryType;
-use crate::journal::transaction::TransactionError::InvalidBalanceUpdates;
-use crate::journal::transaction::TransactionError::ParseDecimal;
 use crate::journal::transaction::{BalanceUpdate, TransactionId};
+use crate::journal::transaction::{EntryType, TransactionValidationError};
+use crate::journal::{JournalError, JournalId};
 use crate::monkesto_error::OrRedirect;
 use crate::time_provider::{DefaultTimeProvider, TimeProvider};
 use axum::extract::Path;
@@ -44,8 +42,8 @@ pub async fn transact(
     let mut updates = Vec::new();
 
     if form.account.is_empty() {
-        return Err(InvalidBalanceUpdates(
-            "no balance updates were supplied".to_string(),
+        return Err(JournalError::TransactionValidation(
+            TransactionValidationError::NoTransactionEntries,
         ))
         .or_redirect(callback_url);
     }
@@ -56,13 +54,17 @@ pub async fn transact(
             let str_decimal_amt = form
                 .amount
                 .get(idx)
-                .ok_or(InvalidBalanceUpdates(
-                    "no entries were provided".to_string(),
+                .ok_or(JournalError::TransactionValidation(
+                    TransactionValidationError::MissingEntryAmount,
                 ))
                 .or_redirect(callback_url)?;
 
             let dec_amt = Decimal::from_str(str_decimal_amt)
-                .map_err(|_| ParseDecimal(str_decimal_amt.to_string()))
+                .map_err(|_| {
+                    JournalError::TransactionValidation(TransactionValidationError::ParseDecimal(
+                        str_decimal_amt.to_string(),
+                    ))
+                })
                 .or_redirect(callback_url)?
                 * dec!(100);
 
@@ -70,29 +72,33 @@ pub async fn transact(
             // this should not be possible unless a user uses the
             //  inspector tool to change their HTML
             if !dec_amt.is_integer() {
-                return Err(InvalidBalanceUpdates(
-                    "at least one entry contained a partial cent amount value".to_string(),
+                return Err(JournalError::TransactionValidation(
+                    TransactionValidationError::PartialCentValue(str_decimal_amt.to_string()),
                 ))
                 .or_redirect(callback_url);
             } else {
                 let amt = dec_amt
                     .to_i64()
-                    .ok_or(InvalidBalanceUpdates(
-                        "at least one entry was out of range for a 64-bit integer".to_string(),
-                    ))
+                    .ok_or_else(|| {
+                        JournalError::TransactionValidation(TransactionValidationError::OutOfRange(
+                            str_decimal_amt.to_string(),
+                        ))
+                    })
                     .or_redirect(callback_url)?;
 
                 // error when the amount is below zero to prevent confusion with the credit/debit selector
                 if amt <= 0 {
-                    return Err(InvalidBalanceUpdates("at least one entry contained a negative amount, use the debit/credit selector instead".to_string()))
-                        .or_redirect(callback_url);
+                    return Err(JournalError::TransactionValidation(
+                        TransactionValidationError::NegativeEntryAmount(dec_amt.to_string()),
+                    ))
+                    .or_redirect(callback_url);
                 }
 
                 let entry_type = EntryType::from_str(
                     form.entry_type
                         .get(idx)
-                        .ok_or(InvalidBalanceUpdates(
-                            "at least one entry was missing an entry type".to_string(),
+                        .ok_or(JournalError::TransactionValidation(
+                            TransactionValidationError::MissingEntryType,
                         ))
                         .or_redirect(callback_url)?,
                 )

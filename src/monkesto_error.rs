@@ -2,8 +2,6 @@ use crate::authn::user::UserError;
 use crate::email::EmailError;
 use crate::id::IdentError;
 use crate::journal::JournalError;
-use crate::journal::account::AccountError;
-use crate::journal::transaction::TransactionError;
 use crate::name::NameError;
 use axum::response::Redirect;
 use base64::Engine;
@@ -32,13 +30,7 @@ pub enum MonkestoError {
     Journal(#[from] JournalError),
 
     #[error("an error was returned from the user store: {0}")]
-    UserStore(#[from] UserError),
-
-    #[error("an error was returned from the account store: {0}")]
-    Account(#[from] AccountError),
-
-    #[error("an error was returned from the transaction store: {0}")]
-    Transaction(#[from] TransactionError),
+    User(#[from] UserError),
 
     #[error("the disintegrate event store returned an error: {0}")]
     DisintegrateEvent(String),
@@ -53,26 +45,6 @@ impl From<DecisionError<JournalError>> for MonkestoError {
             DecisionError::EventStore(e) => Self::DisintegrateEvent(e.to_string()),
             DecisionError::StateStore(e) => Self::DisintegrateState(e.to_string()),
             DecisionError::Domain(e) => Self::Journal(e),
-        }
-    }
-}
-
-impl From<DecisionError<AccountError>> for MonkestoError {
-    fn from(value: DecisionError<AccountError>) -> Self {
-        match value {
-            DecisionError::EventStore(e) => Self::DisintegrateEvent(e.to_string()),
-            DecisionError::StateStore(e) => Self::DisintegrateState(e.to_string()),
-            DecisionError::Domain(e) => Self::Account(e),
-        }
-    }
-}
-
-impl From<DecisionError<TransactionError>> for MonkestoError {
-    fn from(value: DecisionError<TransactionError>) -> Self {
-        match value {
-            DecisionError::EventStore(e) => Self::DisintegrateEvent(e.to_string()),
-            DecisionError::StateStore(e) => Self::DisintegrateState(e.to_string()),
-            DecisionError::Domain(e) => Self::Transaction(e),
         }
     }
 }

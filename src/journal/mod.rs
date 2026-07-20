@@ -24,20 +24,29 @@ pub enum JournalError {
     #[error("a journal already exists with the id {0}")]
     IdCollision(JournalId),
 
+    #[error("an account already exists with the id {0}")]
+    AccountIdCollision(AccountId),
+
+    #[error("a transaction already exists with the id {0}")]
+    TransactionIdCollision(TransactionId),
+
     #[error("invalid journal: {0}")]
     InvalidJournal(JournalId),
+
+    #[error("invalid account: {0}")]
+    InvalidAccount(AccountId),
+
+    #[error("invalid transaction: {0}")]
+    InvalidTransaction(TransactionId),
+
+    #[error("failed to validate a transaction: {0}")]
+    TransactionValidation(#[from] TransactionValidationError),
 
     #[error("user doesn't exist: {0}")]
     InvalidUser(UserId),
 
     #[error("The user doesn't have the {:?} permission", .0)]
-    PermissionError(Permissions),
-
-    #[error("The user store returned an error {0}")]
-    UserError(#[from] UserError),
-
-    #[error("Unable to find a user id for {0}")]
-    UserLookupFailed(Email),
+    Permissions(Permissions),
 
     #[error("The user {0} already has access to this journal")]
     UserAlreadyHasAccess(UserId),
@@ -100,15 +109,15 @@ pub fn router() -> Router<crate::StateType> {
         .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
 }
 
-use crate::authn::user::UserError;
 use crate::authn::user::UserId;
 use crate::authority::{Actor, Authority};
-use crate::email::Email;
 use crate::id;
 use crate::id::IdentError;
 use crate::journal::JournalError::InvalidJournal;
+use crate::journal::account::AccountId;
 use crate::journal::domain::JournalDomainEvent;
 use crate::journal::member::JournalMember;
+use crate::journal::transaction::{TransactionId, TransactionValidationError};
 use crate::name::Name;
 use crate::status::Status;
 use crate::time_provider::Timestamp;

@@ -14,7 +14,7 @@ pub struct Email(String);
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Error)]
 pub enum EmailError {
     #[error("invalid email address")]
-    RegexViolated,
+    RegexViolated(String),
 }
 
 static EMAIL_REGEX: LazyLock<Regex> =
@@ -28,7 +28,7 @@ impl Email {
             return Ok(Self(sanitized));
         }
 
-        Err(EmailError::RegexViolated)
+        Err(EmailError::RegexViolated(sanitized))
     }
 }
 

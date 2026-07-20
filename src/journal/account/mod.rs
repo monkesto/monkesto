@@ -6,30 +6,6 @@ use axum::routing::get;
 use axum_login::login_required;
 use std::convert::From;
 
-#[derive(Error, Debug, Serialize, Deserialize, PartialEq)]
-pub enum AccountError {
-    #[error("An account with the id {0} doesn't exist")]
-    InvalidAccount(AccountId),
-
-    #[error("A journal with the id {0} doesn't exist")]
-    InvalidJournal(JournalId),
-
-    #[error("An account with the id {0} already exists")]
-    IdCollision(AccountId),
-
-    #[error("An account with the id {0} already exists")]
-    AccountExists(AccountId),
-
-    #[error("The user doesn't have the {:?} permission", .0)]
-    PermissionError(Permissions),
-
-    #[error("The journal store returned an error: {0}")]
-    JournalError(#[from] JournalError),
-}
-
-#[expect(unused)]
-pub type AccountStoreResult<T> = Result<T, AccountError>;
-
 pub fn router() -> Router<crate::StateType> {
     Router::new()
         .route("/journal/{id}/account", get(views::account_list_page))
@@ -50,11 +26,9 @@ use crate::journal::{JournalError, JournalId};
 use crate::name::Name;
 use crate::status::Status;
 use crate::time_provider::Timestamp;
-use AccountError::InvalidAccount;
 use disintegrate::{Decision, StateMutate, StateQuery};
 use serde::Deserialize;
 use serde::Serialize;
-use thiserror::Error;
 
 id!(AccountId, Ident::new16());
 
@@ -126,7 +100,7 @@ impl CreateAccount {
 impl Decision for CreateAccount {
     type Event = JournalDomainEvent;
     type StateQuery = (Account, Journal, JournalMember);
-    type Error = AccountError;
+    type Error = JournalError;
 
     fn state_query(&self) -> Self::StateQuery {
         (
@@ -144,11 +118,11 @@ impl Decision for CreateAccount {
         (account, journal, actor): &Self::StateQuery,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if account.status.found() {
-            return Err(AccountError::IdCollision(self.account_id));
+            return Err(JournalError::AccountIdCollision(self.account_id));
         }
 
         if !journal.status.valid() {
-            return Err(AccountError::InvalidJournal(self.journal_id));
+            return Err(JournalError::InvalidJournal(self.journal_id));
         }
 
         if !validate_permissions(
@@ -157,7 +131,7 @@ impl Decision for CreateAccount {
             journal.owner,
             Permissions::ADD_ACCOUNT,
         ) {
-            return Err(AccountError::PermissionError(Permissions::ADD_ACCOUNT));
+            return Err(JournalError::Permissions(Permissions::ADD_ACCOUNT));
         }
 
         Ok(vec![JournalDomainEvent::AccountCreated {
@@ -200,7 +174,7 @@ impl RenameAccount {
 impl Decision for RenameAccount {
     type Event = JournalDomainEvent;
     type StateQuery = (Account, Journal, JournalMember);
-    type Error = AccountError;
+    type Error = JournalError;
 
     fn state_query(&self) -> Self::StateQuery {
         (
@@ -218,15 +192,15 @@ impl Decision for RenameAccount {
         (account, journal, actor): &Self::StateQuery,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if !account.status.valid() || account.journal_id != self.journal_id {
-            return Err(InvalidAccount(self.account_id));
+            return Err(JournalError::InvalidAccount(self.account_id));
         }
 
         if !journal.status.valid() {
-            return Err(AccountError::InvalidJournal(self.journal_id));
+            return Err(JournalError::InvalidJournal(self.journal_id));
         }
 
         if !validate_permissions(actor, &self.authority, journal.owner, Permissions::OWNER) {
-            return Err(AccountError::PermissionError(Permissions::OWNER));
+            return Err(JournalError::Permissions(Permissions::OWNER));
         }
 
         Ok(vec![JournalDomainEvent::AccountRenamed {
@@ -265,7 +239,7 @@ impl DeleteAccount {
 impl Decision for DeleteAccount {
     type Event = JournalDomainEvent;
     type StateQuery = (Account, Journal, JournalMember);
-    type Error = AccountError;
+    type Error = JournalError;
 
     fn state_query(&self) -> Self::StateQuery {
         (
@@ -283,15 +257,15 @@ impl Decision for DeleteAccount {
         (account, journal, actor): &Self::StateQuery,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if !account.status.valid() || account.journal_id != self.journal_id {
-            return Err(InvalidAccount(self.account_id));
+            return Err(JournalError::InvalidAccount(self.account_id));
         }
 
         if !journal.status.valid() {
-            return Err(AccountError::InvalidJournal(self.journal_id));
+            return Err(JournalError::InvalidJournal(self.journal_id));
         }
 
         if !validate_permissions(actor, &self.authority, journal.owner, Permissions::OWNER) {
-            return Err(AccountError::PermissionError(Permissions::OWNER));
+            return Err(JournalError::Permissions(Permissions::OWNER));
         }
 
         Ok(vec![JournalDomainEvent::AccountDeleted {

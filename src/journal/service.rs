@@ -2,18 +2,15 @@ use crate::authn::AuthConnectError;
 use crate::authn::user::UserId;
 use crate::authority::{Actor, Authority};
 use crate::event_id::GetEventId;
-use crate::journal::JournalError::PermissionError;
 use crate::journal::JournalId;
 use crate::journal::JournalResult;
 use crate::journal::PermissionDecodeError;
 use crate::journal::Permissions;
-use crate::journal::account::{AccountError, AccountId, CreateAccount};
+use crate::journal::account::{AccountId, CreateAccount};
 use crate::journal::domain::JournalDomainEvent;
 use crate::journal::member::{AddJournalMember, RemoveJournalMember, UpdateJournalMember};
 use crate::journal::store::JournalEventStore;
-use crate::journal::transaction::{
-    BalanceUpdate, CreateTransaction, EntryType, TransactionError, TransactionId,
-};
+use crate::journal::transaction::{BalanceUpdate, CreateTransaction, EntryType, TransactionId};
 use crate::journal::{CreateJournal, JournalError};
 use crate::msgpack::MsgPack;
 use crate::name::Name;
@@ -79,7 +76,7 @@ struct TransactionStateWithPayload {
 pub struct JournalService {
     query: StreamQuery<PgEventId, JournalDomainEvent>,
     projection_pool: PgPool,
-    pub decision_maker: PgJournalDecisionMaker,
+    decision_maker: PgJournalDecisionMaker,
     current_event: watch::Sender<PgEventId>,
 }
 
@@ -238,7 +235,7 @@ impl JournalService {
         name: Name,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Result<PgEventId, DecisionError<AccountError>> {
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
         Ok(self
             .decision_maker
             .make(CreateAccount::new(
@@ -255,7 +252,7 @@ impl JournalService {
         entries: Vec<BalanceUpdate>,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Result<PgEventId, DecisionError<TransactionError>> {
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
         Ok(self
             .decision_maker
             .make(CreateTransaction::new(
@@ -499,7 +496,7 @@ impl JournalService {
             .await?
             .contains(Permissions::READ)
         {
-            return Err(PermissionError(Permissions::READ));
+            return Err(JournalError::Permissions(Permissions::READ));
         }
 
         let transactions = sqlx::query_as!(
