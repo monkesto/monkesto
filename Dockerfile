@@ -2,7 +2,7 @@
 FROM rustlang/rust:nightly-trixie AS builder
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs
+    && apt-get install -y nodejs protobuf-compiler
 
 # Make an /app dir, which everything will eventually live in
 RUN mkdir -p /app
@@ -18,7 +18,7 @@ RUN cargo build --release
 FROM debian:trixie-slim AS runtime
 WORKDIR /app
 RUN apt-get update -y \
-    && apt-get install -y --no-install-recommends openssl ca-certificates protobuf-compiler\
+    && apt-get install -y --no-install-recommends openssl ca-certificates \
     && apt-get autoremove -y \
     && apt-get clean -y \
     && rm -rf /var/lib/apt/lists/*
