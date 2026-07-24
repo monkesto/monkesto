@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT t.id as \"id: TransactionId\", t.journal_id as \"journal_id: JournalId\", t.updates as \"updates: MsgPack<Vec<BalanceUpdate>>\", e.payload as \"payload!\"\n            FROM transactions t\n            INNER JOIN event e\n                ON e.transaction_id = t.id AND e.event_type = 'TransactionCreated'\n            WHERE t.journal_id = $1\n            ",
+  "query": "\n            SELECT t.id as \"id: TransactionId\", t.journal_id as \"journal_id: JournalId\", t.entries as \"entries: TransactionEntries\", e.payload as \"payload!\"\n            FROM transactions t\n            INNER JOIN event e\n                ON e.transaction_id = t.id AND e.event_type = 'TransactionCreated'\n            WHERE t.journal_id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -15,7 +15,7 @@
       },
       {
         "ordinal": 2,
-        "name": "updates: MsgPack<Vec<BalanceUpdate>>",
+        "name": "entries: TransactionEntries",
         "type_info": "Bytea"
       },
       {
@@ -36,5 +36,5 @@
       true
     ]
   },
-  "hash": "d3c6e53268ae83b1c549b1f5687e428c5b5e76f62d96aaff25423272cee585ac"
+  "hash": "73b19291cdd672dfc42b5b5a53f9492cb1b58788ca83be4cee0e5d85c113f791"
 }

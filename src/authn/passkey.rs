@@ -17,7 +17,6 @@ use axum::response::Response;
 use maud::PreEscaped;
 use maud::html;
 use std::collections::HashMap;
-use std::ops::Deref;
 use std::sync::Arc;
 use thiserror::Error;
 use webauthn_rs::prelude::PasskeyRegistration;
@@ -45,25 +44,11 @@ pub enum PasskeyError {
     Sqlx(#[from] sqlx::Error),
 }
 
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
-pub struct CorePasskey(pub webauthn_rs::prelude::Passkey);
-
-// todo: figure out why this wasn't implemented in the original type
-impl Eq for CorePasskey {}
-
-impl Deref for CorePasskey {
-    type Target = webauthn_rs::prelude::Passkey;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 #[derive(Debug, Clone, FromRow)]
 pub struct PasskeyState {
     pub id: PasskeyId,
     pub user_id: UserId,
-    pub passkey: MsgPack<CorePasskey>,
+    pub passkey: CorePasskey,
 }
 
 #[derive(Debug, StateQuery, Clone, Serialize, Deserialize)]
@@ -248,7 +233,7 @@ impl IntoResponse for PasskeyError {
     }
 }
 
-use crate::msgpack::MsgPack;
+use crate::authn::corepasskey::CorePasskey;
 use disintegrate::{Decision, StateMutate, StateQuery};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;

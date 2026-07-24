@@ -2,57 +2,106 @@ syntax = "proto3";
 
 package proto.error;
 
-message IdentError {
+import "google/protobuf/empty.proto";
+
+message ProtoIdentError {
   oneof ident_error_type {
     string parse = 1;
     string invalid_id = 2;
   }
 }
 
-message NameError {
+message ProtoNameError {
   oneof name_error_type {
     string too_short = 1;
     string too_long = 2;
   }
 }
 
-message JournalError {
+message ProtoBalanceUpdate {
+  message ProtoEntryType {
+    oneof entry_type {
+      google.protobuf.Empty credit = 1;
+      google.protobuf.Empty debit = 2;
+    }
+  }
+
+  string account_id = 1;
+  uint64 amount = 2;
+  ProtoEntryType entry_type = 3;
+}
+
+message RepeatedBalanceUpdates {
+  repeated ProtoBalanceUpdate updates = 1;
+}
+
+message ProtoJournalError {
+  message ProtoTransactionValidationError {
+
+    oneof transaction_validation_error_type {
+      string invalid_entry_type = 1;
+      google.protobuf.Empty no_transaction_entries = 2;
+      google.protobuf.Empty missing_entry_amount = 3;
+      google.protobuf.Empty missing_entry_type = 4;
+      string parse_decimal = 5;
+      string partial_cent_value = 6;
+      string out_of_range = 7;
+      string negative_entry_amount = 8;
+      RepeatedBalanceUpdates imbalanced_transaction = 9;
+    }
+  }
+
   oneof journal_error_type {
     string id_collision = 1;
-    string invalid_journal = 2;
-    string invalid_user = 3;
-    int32 permissions = 4;
-    string user_already_has_access = 5;
-    string used_doesnt_have_access = 6;
-    IdentError ident_creation = 7;
-    string sqlx = 8;
-    int32 permission_decode = 9;
+    string account_id_collision = 2;
+    string transaction_id_collision = 3;
+    string invalid_journal = 4;
+    string invalid_account = 5;
+    string invalid_transaction = 6;
+    int32 permissions = 7;
+    string user_already_has_access = 8;
+    string user_doesnt_have_access = 9;
+    ProtoIdentError ident_creation = 10;
+    string event_decode = 11;
+    string sqlx = 12;
+    int32 permission_decode = 13;
+    ProtoTransactionValidationError transaction_validation = 14;
   }
 }
 
-
-
-message UserError {
-  message UserNotFound {}
-
+message ProtoUserError {
   oneof user_error_type {
     string email_conflict = 1;
     string email_doesnt_exist = 2;
     string id_collision = 3;
     string user_doesnt_exist = 4;
-    UserNotFound user_not_found = 5;
-    string sqlx = 6;
-    string seed_failure = 7;
+    string passkey_decode = 5;
+    google.protobuf.Empty session_not_found = 6;
+    string sqlx = 7;
+    string seed_failure = 8;
   }
 }
 
-message MonkestoError {
-  bytes error_decode = 1;
-  NameError name_creation = 2;
-  IdentError ident_creation = 3;
-  string email_creation = 4;
-  JournalError journal = 5;
-  UserError user = 6;
+message ProtoDecodeError {
+ oneof proto_error_type {
+   google.protobuf.Empty deserialize = 1;
+   google.protobuf.Empty field_required = 2;
+   int32 permission_decode = 3;
+   string parse_email = 4;
+ }
+}
+
+message ProtoMonkestoError {
+  oneof monkesto_error_type {
+    ProtoDecodeError error_decode = 1;
+    ProtoNameError name_creation = 2;
+    ProtoIdentError ident_creation = 3;
+    string email_creation = 4;
+    ProtoJournalError journal = 5;
+    ProtoUserError user = 6;
+    string disintegrate_event = 7;
+    string disintegrate_state = 8;
+  }
 }
 
 

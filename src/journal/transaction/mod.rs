@@ -26,17 +26,22 @@ use crate::journal::account::AccountId;
 use crate::journal::member::JournalMember;
 use crate::journal::{Journal, Permissions, validate_permissions};
 use crate::journal::{JournalError, JournalId};
+use crate::proto::error::RepeatedBalanceUpdates;
 use crate::status::Status;
 use crate::time_provider::Timestamp;
 use disintegrate::{Decision, StateMutate, StateQuery};
+use prost::Message;
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::str::FromStr;
 use thiserror::Error;
 
-#[derive(Error, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Error, Debug, PartialEq)]
 pub enum TransactionValidationError {
     #[error("Received an invalid entry type. Expected Dr or Cr, found {0}")]
     InvalidEntryType(String),
@@ -57,7 +62,7 @@ pub enum TransactionValidationError {
     )]
     NegativeEntryAmount(String),
     #[error("Imbalanced transaction: {:?}", 0)]
-    ImbalancedTransaction(Vec<BalanceUpdate>),
+    ImbalancedTransaction(TransactionEntries),
 }
 
 // TODO(gabriel) there's probably a more efficient way to validate that the applicable accounts exist
@@ -196,7 +201,9 @@ impl Decision for CreateTransaction {
 
         if balance != 0 {
             return Err(JournalError::TransactionValidation(
-                TransactionValidationError::ImbalancedTransaction(self.entries.clone()),
+                TransactionValidationError::ImbalancedTransaction(TransactionEntries(
+                    self.entries.clone(),
+                )),
             ));
         }
 
@@ -316,4 +323,32 @@ pub struct BalanceUpdate {
     pub account_id: AccountId,
     pub amount: u64,
     pub entry_type: EntryType,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct TransactionEntries(pub Vec<BalanceUpdate>);
+
+impl Type<Postgres> for TransactionEntries {
+    fn type_info() -> <Postgres as Database>::TypeInfo {
+        <&[u8] as Type<Postgres>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for TransactionEntries {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        let bytes =
+            RepeatedBalanceUpdates::from(TransactionEntries(self.0.clone())).encode_to_vec();
+        <Vec<u8> as Encode<Postgres>>::encode(bytes, buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for TransactionEntries {
+    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
+        let bytes = <&[u8] as Decode<Postgres>>::decode(value)?;
+        let prost_entries = RepeatedBalanceUpdates::decode(bytes)?;
+        Ok(prost_entries.try_into()?)
+    }
 }

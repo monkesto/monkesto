@@ -3,19 +3,20 @@ use crate::email::EmailError;
 use crate::id::IdentError;
 use crate::journal::JournalError;
 use crate::name::NameError;
+use crate::proto::error::ProtoMonkestoError;
+use crate::serde::error::ProtoError;
 use axum::response::Redirect;
 use base64::Engine;
 use base64::engine::general_purpose;
 use disintegrate::DecisionError;
-use postcard::to_allocvec;
+use prost::Message;
 use serde::Deserialize;
-use serde::Serialize;
 use thiserror::Error;
 
-#[derive(Debug, Error, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Error, PartialEq)]
 pub enum MonkestoError {
     #[error("failed to decode an error")]
-    Decode,
+    Proto(#[from] ProtoError),
 
     #[error("failed to create a name: {0}")]
     NameCreation(#[from] NameError),
@@ -50,23 +51,25 @@ impl From<DecisionError<JournalError>> for MonkestoError {
 }
 
 impl MonkestoError {
-    pub fn encode(&self) -> String {
-        // to_allocvec should be infallible
-        let bytes = to_allocvec(self).expect("postcard error serialization failed");
-
-        general_purpose::URL_SAFE_NO_PAD.encode(bytes)
-    }
-
-    pub fn redirect(&self, page: &str) -> Redirect {
-        Redirect::to(&format!("{}?err={}", page, self.encode()))
+    pub fn redirect(self, page: &str) -> Redirect {
+        let bytes = ProtoMonkestoError::from(self).encode_to_vec();
+        Redirect::to(&format!(
+            "{}?err={}",
+            page,
+            general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+        ))
     }
 
     pub fn decode(err: &str) -> Self {
-        general_purpose::URL_SAFE_NO_PAD
+        if let Some(Ok(proto_error)) = general_purpose::URL_SAFE_NO_PAD
             .decode(err)
             .ok()
-            .and_then(|bytes| postcard::from_bytes(&bytes).ok())
-            .unwrap_or(Self::Decode)
+            .map(|bytes| ProtoMonkestoError::decode(bytes.as_slice()))
+        {
+            proto_error.try_into().unwrap_or_else(MonkestoError::Proto)
+        } else {
+            MonkestoError::Proto(ProtoError::Deserialize)
+        }
     }
 }
 

@@ -1,3 +1,4 @@
+mod corepasskey;
 mod layout;
 mod me;
 pub mod passkey;
@@ -9,13 +10,13 @@ pub mod user;
 
 use crate::id::Ident;
 
+use crate::authn::corepasskey::CorePasskey;
 use crate::authn::passkey::{CreatePasskey, DeletePasskey, PasskeyError, PasskeyState};
 use crate::authn::user::{CreateUser, DEV_USERS, UserError, UserResult, UserState};
 use crate::authority::Authority;
 use crate::email::Email;
 use crate::event_id::GetEventId;
 use crate::monkesto_error::OrRedirect;
-use crate::msgpack::MsgPack;
 use crate::time_provider::Timestamp;
 use crate::{id, shutdown};
 use async_trait::async_trait;
@@ -32,7 +33,6 @@ use disintegrate_postgres::{
     PgSnapshotter, RetryAction, WithPgSnapshot, decision_maker,
 };
 pub use layout::layout;
-use passkey::CorePasskey;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgHasArrayType;
 use sqlx::{Database, PgPool, Postgres, Type};
@@ -307,7 +307,7 @@ impl AuthnService {
         let passkeys = sqlx::query_as!(
             PasskeyState,
             r#"
-            SELECT id as "id: PasskeyId", user_id as "user_id: UserId", passkey as "passkey: MsgPack<CorePasskey>" FROM passkeys WHERE user_id = $1
+            SELECT id as "id: PasskeyId", user_id as "user_id: UserId", passkey as "passkey: CorePasskey" FROM passkeys WHERE user_id = $1
         "#,
         user_id as UserId)
             .fetch_all(&self.projection_pool)
@@ -319,13 +319,13 @@ impl AuthnService {
     pub async fn get_all_credentials(&self) -> Result<Vec<CorePasskey>, PasskeyError> {
         let passkeys = sqlx::query_scalar!(
             r#"
-            SELECT passkey as "passkey: MsgPack<CorePasskey>" FROM passkeys
+            SELECT passkey as "passkey: CorePasskey" FROM passkeys
         "#
         )
         .fetch_all(&self.projection_pool)
         .await?;
 
-        Ok(passkeys.into_iter().map(|p| p.0).collect())
+        Ok(passkeys)
     }
 
     pub async fn find_user_by_credential(
@@ -335,9 +335,9 @@ impl AuthnService {
         Ok(sqlx::query_as!(
             PasskeyState,
             r#"
-            SELECT user_id as "user_id: UserId", id as "id: PasskeyId", passkey as "passkey: _" FROM passkeys WHERE credential_id = $1
+            SELECT user_id as "user_id: UserId", id as "id: PasskeyId", passkey as "passkey: CorePasskey" FROM passkeys WHERE credential_id = $1
         "#,
-        MsgPack(credential_id) as MsgPack<&CredentialID>)
+        credential_id.as_ref())
             .fetch_optional(&self.projection_pool)
             .await?
             .map(|pk| (pk.user_id, pk.id)))
@@ -424,8 +424,8 @@ impl EventListener<PgEventId, AuthnEvent> for AuthnService {
                 "#,
                 passkey_id as PasskeyId,
                 user_id as UserId,
-                MsgPack(passkey.as_ref()) as MsgPack<&CorePasskey>,
-                MsgPack(passkey.cred_id()) as MsgPack<&CredentialID>)
+                passkey.as_ref() as &CorePasskey,
+                passkey.cred_id().as_ref())
                     .execute(&self.projection_pool)
                     .await?;
             }
@@ -466,7 +466,7 @@ pub(crate) async fn event_listener(event_store: AuthnEventStore, service: AuthnS
 pub fn get_user(session: AuthSession) -> Result<UserState, Redirect> {
     session
         .user
-        .ok_or(UserError::UserNotFound)
+        .ok_or(UserError::SessionNotFound)
         .or_redirect("/signin")
 }
 

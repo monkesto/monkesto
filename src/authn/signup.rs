@@ -1,3 +1,7 @@
+use super::passkey::PasskeyId;
+use super::user::UserId;
+use super::{AuthSession, AuthnService};
+use crate::authn::corepasskey::CorePasskey;
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Query;
@@ -19,10 +23,6 @@ use webauthn_rs::prelude::Uuid;
 use webauthn_rs::prelude::Webauthn;
 use webauthn_rs_proto::AuthenticatorSelectionCriteria;
 use webauthn_rs_proto::ResidentKeyRequirement;
-
-use super::passkey::{CorePasskey, PasskeyId};
-use super::user::UserId;
-use super::{AuthSession, AuthnService};
 
 use crate::authority::Actor;
 use crate::authority::Authority;

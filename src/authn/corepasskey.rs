@@ -1,33 +1,30 @@
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, Postgres, Type};
-use std::fmt::Debug;
-use std::ops::{Deref, DerefMut};
+use std::ops::Deref;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct MsgPack<T>(pub T);
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct CorePasskey(pub webauthn_rs::prelude::Passkey);
 
-impl<T> Deref for MsgPack<T> {
-    type Target = T;
+// todo: figure out why this wasn't implemented in the original type
+impl Eq for CorePasskey {}
+
+impl Deref for CorePasskey {
+    type Target = webauthn_rs::prelude::Passkey;
+
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
-impl<T> DerefMut for MsgPack<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
 
-impl<T> Type<Postgres> for MsgPack<T> {
+impl Type<Postgres> for CorePasskey {
     fn type_info() -> <Postgres as Database>::TypeInfo {
         <&[u8] as Type<Postgres>>::type_info()
     }
 }
 
-impl<'q, T: Serialize> Encode<'q, Postgres> for MsgPack<T> {
+impl<'q> Encode<'q, Postgres> for CorePasskey {
     fn encode_by_ref(
         &self,
         buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
@@ -37,7 +34,7 @@ impl<'q, T: Serialize> Encode<'q, Postgres> for MsgPack<T> {
     }
 }
 
-impl<'r, T: DeserializeOwned> Decode<'r, Postgres> for MsgPack<T> {
+impl<'r> Decode<'r, Postgres> for CorePasskey {
     fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
         let bytes = <&[u8] as Decode<Postgres>>::decode(value)?;
         Ok(rmp_serde::from_slice(bytes)?)

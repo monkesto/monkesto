@@ -30,7 +30,7 @@ impl axum_login::AuthUser for UserState {
     }
 }
 
-#[derive(Debug, thiserror::Error, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, thiserror::Error, PartialEq)]
 pub enum UserError {
     #[error("the email {0} already exists")]
     EmailConflict(Email),
@@ -41,11 +41,13 @@ pub enum UserError {
     #[error("no user exists with the provided id: {0}")]
     UserDoesntExist(UserId),
     #[error("there isn't any user associated with the current session")]
-    UserNotFound,
+    SessionNotFound,
     #[error("sqlx returned an error: {0}")]
     Sqlx(String),
     #[error("failed to seed a dev user with the email {0}")]
     SeedFailure(Email),
+    #[error("failed to decode a passkey: {0}")]
+    PasskeyDecode(String),
 }
 
 impl From<sqlx::Error> for UserError {

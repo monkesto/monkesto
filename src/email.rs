@@ -11,7 +11,7 @@ use thiserror::Error;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Email(String);
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum EmailError {
     #[error("invalid email address")]
     RegexViolated(String),

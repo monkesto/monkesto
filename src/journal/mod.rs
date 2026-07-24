@@ -19,7 +19,7 @@ use axum_login::login_required;
 
 id!(JournalId, Ident::new16());
 
-#[derive(Error, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Error, Debug, PartialEq)]
 pub enum JournalError {
     #[error("a journal already exists with the id {0}")]
     IdCollision(JournalId),
@@ -42,9 +42,6 @@ pub enum JournalError {
     #[error("failed to validate a transaction: {0}")]
     TransactionValidation(#[from] TransactionValidationError),
 
-    #[error("user doesn't exist: {0}")]
-    InvalidUser(UserId),
-
     #[error("The user doesn't have the {:?} permission", .0)]
     Permissions(Permissions),
 
@@ -60,11 +57,11 @@ pub enum JournalError {
     #[error("sqlx returned an error: {0}")]
     Sqlx(String),
 
-    #[error("failed to serialize or deserialize a value with rmp-serde: {0}")]
-    MsgPack(String),
-
     #[error("failed to construct permissions from an integer: {0}")]
     PermissionDecode(#[from] PermissionDecodeError),
+
+    #[error("failed to decode an event: {0}")]
+    EventDecode(String),
 }
 
 impl From<sqlx::Error> for JournalError {
@@ -75,7 +72,7 @@ impl From<sqlx::Error> for JournalError {
 
 impl From<rmp_serde::decode::Error> for JournalError {
     fn from(value: rmp_serde::decode::Error) -> Self {
-        Self::MsgPack(value.to_string())
+        Self::EventDecode(value.to_string())
     }
 }
 
@@ -310,7 +307,7 @@ impl<'r> Decode<'r, Postgres> for Permissions {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Error, PartialEq)]
-pub struct PermissionDecodeError(i32);
+pub struct PermissionDecodeError(pub i32);
 
 impl Display for PermissionDecodeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

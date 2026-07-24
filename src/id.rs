@@ -4,8 +4,7 @@ use cuid::cuid2_slug;
 use cuid::is_cuid2;
 use disintegrate::{IdentifierType, IdentifierValue, IntoIdentifierValue};
 use phf::phf_set;
-use serde::Deserialize;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, Postgres, Type};
@@ -14,14 +13,14 @@ use std::fmt::{self};
 use std::str::FromStr;
 use thiserror::Error;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Ident {
     Cuid10(ArrayString<10>),
     Cuid16(ArrayString<16>),
     Custom(ArrayString<5>),
 }
 
-#[derive(Debug, Error, Serialize, Deserialize, Clone, Eq, PartialEq)]
+#[derive(Debug, Error, Clone, Eq, PartialEq)]
 pub enum IdentError {
     #[error("Failed to parse the provided bytes: {0}")]
     Parse(String),

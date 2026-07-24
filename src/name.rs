@@ -61,7 +61,7 @@ impl<'r> Decode<'r, Postgres> for Name {
     }
 }
 
-#[derive(Error, Debug, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Error, Debug, Eq, PartialEq)]
 pub enum NameError {
     #[error("The name {0} is too short")]
     TooShort(String),

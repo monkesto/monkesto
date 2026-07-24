@@ -10,9 +10,10 @@ use crate::journal::account::{AccountId, CreateAccount};
 use crate::journal::domain::JournalDomainEvent;
 use crate::journal::member::{AddJournalMember, RemoveJournalMember, UpdateJournalMember};
 use crate::journal::store::JournalEventStore;
-use crate::journal::transaction::{BalanceUpdate, CreateTransaction, EntryType, TransactionId};
+use crate::journal::transaction::{
+    BalanceUpdate, CreateTransaction, EntryType, TransactionEntries, TransactionId,
+};
 use crate::journal::{CreateJournal, JournalError};
-use crate::msgpack::MsgPack;
 use crate::name::Name;
 use crate::time_provider::Timestamp;
 use async_trait::async_trait;
@@ -68,7 +69,7 @@ struct AccountStateWithPayload {
 struct TransactionStateWithPayload {
     id: TransactionId,
     journal_id: JournalId,
-    updates: MsgPack<Vec<BalanceUpdate>>,
+    entries: TransactionEntries,
     payload: Vec<u8>,
 }
 
@@ -127,7 +128,7 @@ impl JournalService {
             CREATE TABLE IF NOT EXISTS transactions (
                 id TEXT PRIMARY KEY,
                 journal_id TEXT NOT NULL,
-                updates BYTEA NOT NULL
+                entries BYTEA NOT NULL
             )
         "#
         )
@@ -502,7 +503,7 @@ impl JournalService {
         let transactions = sqlx::query_as!(
             TransactionStateWithPayload,
             r#"
-            SELECT t.id as "id: TransactionId", t.journal_id as "journal_id: JournalId", t.updates as "updates: MsgPack<Vec<BalanceUpdate>>", e.payload as "payload!"
+            SELECT t.id as "id: TransactionId", t.journal_id as "journal_id: JournalId", t.entries as "entries: TransactionEntries", e.payload as "payload!"
             FROM transactions t
             INNER JOIN event e
                 ON e.transaction_id = t.id AND e.event_type = 'TransactionCreated'
@@ -528,7 +529,7 @@ impl JournalService {
                         TransactionState {
                             id: transaction.id,
                             journal_id: transaction.journal_id,
-                            entries: transaction.updates.0,
+                            entries: transaction.entries.0,
                         },
                         authority,
                         timestamp,
@@ -696,11 +697,11 @@ impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
 
                 sqlx::query!(
                     r#"
-                    INSERT INTO transactions (id, journal_id, updates) VALUES($1, $2, $3) ON CONFLICT DO NOTHING
+                    INSERT INTO transactions (id, journal_id, entries) VALUES($1, $2, $3) ON CONFLICT DO NOTHING
                     "#,
                     transaction_id as TransactionId,
                     journal_id as JournalId,
-                    MsgPack(balance_updates.clone()) as MsgPack<Vec<BalanceUpdate>>
+                    TransactionEntries(balance_updates.clone()) as TransactionEntries
                 )
                 .execute(&mut *tx)
                 .await?;
@@ -730,7 +731,7 @@ impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
 
                 let balance_updates = sqlx::query_scalar!(
                     r#"
-                    DELETE FROM transactions WHERE id = $1 RETURNING updates as "updates: MsgPack<Vec<BalanceUpdate>>"
+                    DELETE FROM transactions WHERE id = $1 RETURNING entries as "entries: TransactionEntries"
                     "#,
                     transaction_id as TransactionId,
                     )
