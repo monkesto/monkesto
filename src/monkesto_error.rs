@@ -7,7 +7,7 @@ use crate::proto::error::ProtoMonkestoError;
 use crate::serde::error::ProtoError;
 use axum::response::Redirect;
 use base64::Engine;
-use base64::engine::general_purpose;
+use base64::engine::{DecodePaddingMode, GeneralPurposeConfig, simd};
 use disintegrate::DecisionError;
 use prost::Message;
 use serde::Deserialize;
@@ -56,15 +56,18 @@ impl MonkestoError {
         Redirect::to(&format!(
             "{}?err={}",
             page,
-            general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+            simd::Simd::standard(GeneralPurposeConfig::new().with_encode_padding(false))
+                .encode(bytes)
         ))
     }
 
     pub fn decode(err: &str) -> Self {
-        if let Some(Ok(proto_error)) = general_purpose::URL_SAFE_NO_PAD
-            .decode(err)
-            .ok()
-            .map(|bytes| ProtoMonkestoError::decode(bytes.as_slice()))
+        if let Some(Ok(proto_error)) = simd::Simd::standard(
+            GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::RequireNone),
+        )
+        .decode(err)
+        .ok()
+        .map(|bytes| ProtoMonkestoError::decode(bytes.as_slice()))
         {
             proto_error.try_into().unwrap_or_else(MonkestoError::Proto)
         } else {
