@@ -43,6 +43,7 @@ use tower_sessions::SessionManagerLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
+#[allow(clippy::all)]
 pub mod proto {
     pub mod error {
         include!(concat!(env!("OUT_DIR"), "/proto.error.rs"));
