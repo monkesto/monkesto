@@ -275,7 +275,7 @@ async fn main() {
     let app = app.with_state(state);
 
     // run our app with hyper
-    println!("listening on http://{}", &addr);
+    println!("listening on http://{}", addr);
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .expect("failed to bind the tcp address");
