@@ -73,7 +73,7 @@ pub async fn person_detail_page(
 
     let journal_state_res = state
         .journal_service
-        .get_journal(journal_id, &authority)
+        .get_journal(journal_id, authority)
         .await;
 
     let (journal_state, _, _) = match journal_state_res {
@@ -98,7 +98,7 @@ pub async fn person_detail_page(
 
     let permissions = match state
         .journal_service
-        .get_effective_permissions(journal_id, &Authority::Direct(Actor::User(target_user_id)))
+        .get_effective_permissions(journal_id, Authority::Direct(Actor::User(target_user_id)))
         .await
     {
         Ok(perms) => perms,
@@ -224,13 +224,13 @@ pub async fn people_list_page(
 ) -> Result<Markup, Redirect> {
     let user = get_user(session)?;
 
-    let user_authority = &Authority::Direct(Actor::User(user.id));
+    let user_authority = Authority::Direct(Actor::User(user.id));
 
     let journal_id_res = JournalId::from_str(&id);
 
     let content = html! {
         @if let Ok(journal_id) = journal_id_res {
-            @match state.journal_service.list_journal_members(journal_id, &Authority::Direct(Actor::User(user.id))).await {
+            @match state.journal_service.list_journal_members(journal_id, Authority::Direct(Actor::User(user.id))).await {
                 Ok(users) => {
                     @for user_id in users {
                         a

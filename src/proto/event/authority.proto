@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package proto.event.authority;
+import "google/protobuf/empty.proto";
+
+
+message ProtoActor {
+  oneof actor_type {
+    string user = 1;
+    google.protobuf.Empty system = 2;
+    google.protobuf.Empty anonymous = 3;
+  }
+}
+
+message ProtoAuthority {
+  message ProtoDelegatedAuthority {
+    ProtoActor grantor = 1;
+    string grant_id = 2;
+    ProtoActor grantee = 3;
+  }
+
+  oneof ProtoAuthorityType {
+    ProtoActor direct = 1;
+    ProtoDelegatedAuthority delegated = 2;
+  }
+}

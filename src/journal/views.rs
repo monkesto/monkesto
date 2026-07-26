@@ -122,7 +122,7 @@ pub async fn journal_detail(
         Ok(s) => {
             state
                 .journal_service
-                .get_journal(s, &Authority::Direct(Actor::User(user.id)))
+                .get_journal(s, Authority::Direct(Actor::User(user.id)))
                 .await
         }
         Err(e) => Err(e.into()),
@@ -131,7 +131,7 @@ pub async fn journal_detail(
     let content = if let Ok(journal_id) = JournalId::from_str(&id) {
         let journal_state_res = state
             .journal_service
-            .get_journal(journal_id, &Authority::Direct(Actor::User(user.id)))
+            .get_journal(journal_id, Authority::Direct(Actor::User(user.id)))
             .await;
         html! {
             div class="flex flex-col gap-6" {

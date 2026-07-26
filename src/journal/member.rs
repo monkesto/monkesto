@@ -138,7 +138,7 @@ impl Decision for AddJournalMember {
 
         if !validate_permissions(
             actor,
-            &self.authority,
+            self.authority,
             journal.owner,
             Permissions::INVITE.union(self.permissions),
         ) {
@@ -151,7 +151,7 @@ impl Decision for AddJournalMember {
             journal_id: self.journal_id,
             user_id: self.user_id,
             permissions: self.permissions,
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }
@@ -213,7 +213,7 @@ impl Decision for UpdateJournalMember {
 
         if !validate_permissions(
             actor,
-            &self.authority,
+            self.authority,
             journal.owner,
             Permissions::OWNER.union(self.permissions),
         ) {
@@ -226,7 +226,7 @@ impl Decision for UpdateJournalMember {
             journal_id: self.journal_id,
             permissions: self.permissions,
             user_id: self.user_id,
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }
@@ -283,14 +283,14 @@ impl Decision for RemoveJournalMember {
             return Err(JournalError::UserDoesntHaveAccess(self.user_id));
         }
 
-        if !validate_permissions(actor, &self.authority, journal.owner, Permissions::OWNER) {
+        if !validate_permissions(actor, self.authority, journal.owner, Permissions::OWNER) {
             return Err(JournalError::Permissions(Permissions::OWNER));
         }
 
         Ok(vec![JournalDomainEvent::MemberRemoved {
             journal_id: self.journal_id,
             user_id: self.user_id,
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }

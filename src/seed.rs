@@ -76,7 +76,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
                 id,
                 pacioli_id,
                 name,
-                pacioli_authority.clone(),
+                pacioli_authority,
                 time_provider.get_time(),
             )
             .await
@@ -94,7 +94,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
             maple_ridge_academy_id,
             wedgwood_id,
             Permissions::READ | Permissions::ADD_ACCOUNT | Permissions::APPEND_TRANSACTION,
-            pacioli_authority.clone(),
+            pacioli_authority,
             time_provider.get_time(),
         )
         .await
@@ -125,7 +125,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
                 id,
                 maple_ridge_academy_id,
                 name,
-                pacioli_authority.clone(),
+                pacioli_authority,
                 time_provider.get_time(),
             )
             .await
@@ -221,7 +221,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
                 id,
                 maple_ridge_academy_id,
                 entries,
-                pacioli_authority.clone(),
+                pacioli_authority,
                 time_provider.get_time(),
             )
             .await

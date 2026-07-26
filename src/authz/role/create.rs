@@ -18,7 +18,7 @@ impl Decision for CreateRole {
         Ok(vec![AuthzEvent::RoleCreated {
             role_id: self.role_id,
             name: self.name.clone(),
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }

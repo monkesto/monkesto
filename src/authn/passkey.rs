@@ -161,7 +161,7 @@ impl Decision for CreatePasskey {
             passkey_id: self.passkey_id,
             user_id: self.user_id,
             passkey: Box::new(self.passkey.clone()),
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }
@@ -213,7 +213,7 @@ impl Decision for DeletePasskey {
 
         Ok(vec![AuthnEvent::PasskeyDeleted {
             passkey_id: self.passkey_id,
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }

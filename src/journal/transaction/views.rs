@@ -38,7 +38,7 @@ pub async fn transaction_list_page(
         match &journal_id_res {
             Ok(id) => state
                 .journal_service
-                .list_journal_transactions(*id, &user_authority)
+                .list_journal_transactions(*id, user_authority)
                 .await
                 .map_err(|e| e.into()),
             Err(e) => Err(e.clone().into()),
@@ -47,7 +47,7 @@ pub async fn transaction_list_page(
     let accounts_res: MonkestoResult<HashMap<AccountId, AccountState>> = match &journal_id_res {
         Ok(id) => match state
             .journal_service
-            .list_journal_accounts(*id, &user_authority)
+            .list_journal_accounts(*id, user_authority)
             .await
         {
             Ok(accounts) => Ok(accounts
@@ -62,7 +62,7 @@ pub async fn transaction_list_page(
     let members_res: MonkestoResult<HashMap<UserId, UserState>> = match &journal_id_res {
         Ok(id) => match state
             .journal_service
-            .list_journal_members(*id, &user_authority)
+            .list_journal_members(*id, user_authority)
             .await
         {
             Ok(ids) => match state.authn_service.fetch_users(ids.as_slice()).await {
@@ -218,16 +218,10 @@ pub async fn transaction_list_page(
     };
 
     let journal_name = match &journal_id_res {
-        Ok(id) => {
-            match state
-                .journal_service
-                .get_journal(*id, &user_authority)
-                .await
-            {
-                Ok((journal, _, _)) => journal.name.to_string(),
-                Err(e) => format!("failed to fetch the journal: {e}"),
-            }
-        }
+        Ok(id) => match state.journal_service.get_journal(*id, user_authority).await {
+            Ok((journal, _, _)) => journal.name.to_string(),
+            Err(e) => format!("failed to fetch the journal: {e}"),
+        },
         Err(e) => format!("invalid journal id: {e}"),
     };
 

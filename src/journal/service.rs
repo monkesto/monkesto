@@ -270,7 +270,7 @@ impl JournalService {
     pub async fn get_effective_permissions(
         &self,
         journal_id: JournalId,
-        authority: &Authority,
+        authority: Authority,
     ) -> JournalResult<Permissions> {
         match authority.actor() {
             Actor::System => Ok(Permissions::OWNER),
@@ -362,7 +362,7 @@ impl JournalService {
     pub async fn get_journal(
         &self,
         journal_id: JournalId,
-        authority: &Authority,
+        authority: Authority,
     ) -> JournalResult<(JournalState, Authority, Timestamp)> {
         if !self
             .get_effective_permissions(journal_id, authority)
@@ -412,7 +412,7 @@ impl JournalService {
     pub async fn list_journal_members(
         &self,
         journal_id: JournalId,
-        authority: &Authority,
+        authority: Authority,
     ) -> JournalResult<Vec<UserId>> {
         if !self
             .get_effective_permissions(journal_id, authority)
@@ -435,7 +435,7 @@ impl JournalService {
     pub async fn list_journal_accounts(
         &self,
         journal_id: JournalId,
-        authority: &Authority,
+        authority: Authority,
     ) -> JournalResult<Vec<(AccountState, Authority, Timestamp)>> {
         if !self
             .get_effective_permissions(journal_id, authority)
@@ -490,7 +490,7 @@ impl JournalService {
     pub async fn list_journal_transactions(
         &self,
         journal_id: JournalId,
-        authority: &Authority,
+        authority: Authority,
     ) -> JournalResult<Vec<(TransactionState, Authority, Timestamp)>> {
         if !self
             .get_effective_permissions(journal_id, authority)

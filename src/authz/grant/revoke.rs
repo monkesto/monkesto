@@ -20,7 +20,7 @@ impl Decision for RevokeGrant {
         }
         Ok(vec![AuthzEvent::GrantRevoked {
             grant_id: self.grant_id,
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }

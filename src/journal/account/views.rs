@@ -36,7 +36,7 @@ pub async fn account_list_page(
 
     let content = html! {
         @if let Ok(journal_id) = journal_id_res {
-            @match state.journal_service.list_journal_accounts(journal_id, &authority).await {
+            @match state.journal_service.list_journal_accounts(journal_id, authority).await {
                 Ok(journal_accounts) => {
                      @for (acc, _, _) in journal_accounts {
                         a
@@ -120,7 +120,7 @@ pub async fn account_list_page(
     let journal_name = if let Ok(id) = journal_id_res {
         state
             .journal_service
-            .get_journal(id, &authority)
+            .get_journal(id, authority)
             .await
             .map(|(j, _, _)| j.name.to_string())
             .unwrap_or_else(|e| format!("failed to fetch the journal name: {e}"))

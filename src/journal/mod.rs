@@ -133,7 +133,7 @@ use thiserror::Error;
 /// validates that an `Authority` has sufficient permissions to perform an action
 pub fn validate_permissions(
     member: &JournalMember,
-    authority: &Authority,
+    authority: Authority,
     journal_owner: UserId,
     permissions: Permissions,
 ) -> bool {
@@ -228,7 +228,7 @@ impl Decision for CreateJournal {
             journal_id: self.journal_id,
             owner: self.owner,
             name: self.name.clone(),
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }
@@ -267,7 +267,7 @@ impl Decision for DeleteJournal {
 
         Ok(vec![JournalDomainEvent::JournalDeleted {
             journal_id: self.journal_id,
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }

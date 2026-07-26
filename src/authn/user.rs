@@ -215,7 +215,7 @@ impl Decision for CreateUser {
             user_id: self.user_id,
             email: self.email.clone(),
             webauthn_uuid: self.webauthn_uuid,
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }
@@ -254,7 +254,7 @@ impl Decision for DeleteUser {
 
         Ok(vec![AuthnEvent::UserDeleted {
             user_id: self.user_id,
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }

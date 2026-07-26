@@ -209,7 +209,7 @@ impl Decision for CreateTransaction {
 
         if !validate_permissions(
             actor,
-            &self.authority,
+            self.authority,
             journal.owner,
             Permissions::APPEND_TRANSACTION,
         ) {
@@ -220,7 +220,7 @@ impl Decision for CreateTransaction {
             transaction_id: self.transaction_id,
             journal_id: self.journal_id,
             balance_updates: self.entries.clone(),
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }
@@ -278,13 +278,13 @@ impl Decision for DeleteTransaction {
             return Err(JournalError::InvalidJournal(self.journal_id));
         }
 
-        if !validate_permissions(actor, &self.authority, journal.owner, Permissions::OWNER) {
+        if !validate_permissions(actor, self.authority, journal.owner, Permissions::OWNER) {
             return Err(JournalError::Permissions(Permissions::OWNER));
         }
 
         Ok(vec![JournalDomainEvent::TransactionDeleted {
             transaction_id: self.transaction_id,
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }

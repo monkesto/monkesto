@@ -127,7 +127,7 @@ impl Decision for CreateAccount {
 
         if !validate_permissions(
             actor,
-            &self.authority,
+            self.authority,
             journal.owner,
             Permissions::ADD_ACCOUNT,
         ) {
@@ -138,7 +138,7 @@ impl Decision for CreateAccount {
             account_id: self.account_id,
             journal_id: self.journal_id,
             name: self.name.clone(),
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }
@@ -199,14 +199,14 @@ impl Decision for RenameAccount {
             return Err(JournalError::InvalidJournal(self.journal_id));
         }
 
-        if !validate_permissions(actor, &self.authority, journal.owner, Permissions::OWNER) {
+        if !validate_permissions(actor, self.authority, journal.owner, Permissions::OWNER) {
             return Err(JournalError::Permissions(Permissions::OWNER));
         }
 
         Ok(vec![JournalDomainEvent::AccountRenamed {
             account_id: self.account_id,
             new_name: self.name.clone(),
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }
@@ -264,13 +264,13 @@ impl Decision for DeleteAccount {
             return Err(JournalError::InvalidJournal(self.journal_id));
         }
 
-        if !validate_permissions(actor, &self.authority, journal.owner, Permissions::OWNER) {
+        if !validate_permissions(actor, self.authority, journal.owner, Permissions::OWNER) {
             return Err(JournalError::Permissions(Permissions::OWNER));
         }
 
         Ok(vec![JournalDomainEvent::AccountDeleted {
             account_id: self.account_id,
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }

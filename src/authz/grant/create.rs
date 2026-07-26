@@ -22,7 +22,7 @@ impl Decision for CreateGrant {
         Ok(vec![AuthzEvent::GrantCreated {
             grant_id: self.grant_id,
             role_id: self.role_id,
-            authority: self.authority.clone(),
+            authority: self.authority,
             timestamp: self.timestamp,
         }])
     }

@@ -21,15 +21,15 @@ impl Decision for ChangeRoleActor {
         Ok(vec![if self.add {
             AuthzEvent::RoleActorAdded {
                 role_id: self.role_id,
-                actor: self.actor.clone(),
-                authority: self.authority.clone(),
+                actor: self.actor,
+                authority: self.authority,
                 timestamp: self.timestamp,
             }
         } else {
             AuthzEvent::RoleActorRemoved {
                 role_id: self.role_id,
-                actor: self.actor.clone(),
-                authority: self.authority.clone(),
+                actor: self.actor,
+                authority: self.authority,
                 timestamp: self.timestamp,
             }
         }])
