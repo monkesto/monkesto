@@ -102,12 +102,6 @@ impl FromStr for Ident {
     }
 }
 
-impl From<String> for Ident {
-    fn from(value: String) -> Self {
-        Self::from_str(value.as_str()).expect("invalid ident")
-    }
-}
-
 impl Display for Ident {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
@@ -182,11 +176,6 @@ macro_rules! id {
             }
         }
 
-        impl From<String> for $id_name {
-            fn from(value: String) -> Self {
-                Self(<Ident as From<String>>::from(value))
-            }
-        }
         impl ::std::fmt::Display for $id_name {
             fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
                 write!(f, "{}", self.0)

@@ -31,7 +31,7 @@ pub enum PasskeyError {
     #[error("Invalid input data")]
     InvalidInput,
     #[error("Session error: {0}")]
-    SessionError(#[from] tower_sessions::session::Error),
+    SessionError(String),
     #[error("a passkey with the id {0} already exists")]
     IdConflict(PasskeyId),
     #[error("no passkey exists with the provided id: {0}")]
@@ -39,9 +39,30 @@ pub enum PasskeyError {
     #[error("no user exists with the provided id: {0}")]
     UserDoesntExist(UserId),
     #[error("failed to serialize a value with serde_json")]
-    Json(#[from] serde_json::Error),
+    Json(String),
     #[error("received an error from sqlx: {0}")]
-    Sqlx(#[from] sqlx::Error),
+    Sqlx(String),
+}
+
+impl From<tower_sessions::session::Error> for PasskeyError {
+    fn from(err: tower_sessions::session::Error) -> Self {
+        match err {
+            Error::SerdeJson(s) => Self::Json(s.to_string()),
+            Error::Store(s) => Self::SessionError(s.to_string()),
+        }
+    }
+}
+
+impl From<serde_json::Error> for PasskeyError {
+    fn from(err: serde_json::Error) -> Self {
+        Self::Json(err.to_string())
+    }
+}
+
+impl From<sqlx::Error> for PasskeyError {
+    fn from(err: sqlx::Error) -> Self {
+        Self::Sqlx(err.to_string())
+    }
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -237,6 +258,7 @@ use crate::authn::corepasskey::CorePasskey;
 use disintegrate::{Decision, StateMutate, StateQuery};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use tower_sessions::session::Error;
 
 pub async fn delete_passkey_post(
     Extension(service): Extension<AuthnService>,

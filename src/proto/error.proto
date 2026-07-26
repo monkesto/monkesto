@@ -70,6 +70,7 @@ message ProtoJournalError {
 }
 
 message ProtoUserError {
+
   oneof user_error_type {
     string email_conflict = 1;
     string email_doesnt_exist = 2;
@@ -79,16 +80,34 @@ message ProtoUserError {
     google.protobuf.Empty session_not_found = 6;
     string sqlx = 7;
     string seed_failure = 8;
+    google.protobuf.Empty invalid_input = 9;
+    string serde_json = 10;
+    string session = 11;
+    google.protobuf.Empty authentication_failed = 12;
+  }
+}
+
+message ProtoPasskeyError {
+  oneof passkey_error_type {
+    google.protobuf.Empty session_expired = 1;
+    google.protobuf.Empty invalid_input = 2;
+    string session_error = 3;
+    string id_conflict = 4;
+    string passkey_doesnt_exist = 5;
+    string user_doesnt_exist = 6;
+    string json = 7;
+    string sqlx = 8;
   }
 }
 
 message ProtoDecodeError {
- oneof proto_error_type {
-   google.protobuf.Empty deserialize = 1;
-   google.protobuf.Empty field_required = 2;
-   int32 permission_decode = 3;
-   string parse_email = 4;
- }
+  oneof proto_error_type {
+    google.protobuf.Empty deserialize = 1;
+    google.protobuf.Empty field_required = 2;
+    int32 permission_decode = 3;
+    string parse_email = 4;
+    ProtoIdentError ident = 5;
+  }
 }
 
 message ProtoMonkestoError {
@@ -101,6 +120,7 @@ message ProtoMonkestoError {
     ProtoUserError user = 6;
     string disintegrate_event = 7;
     string disintegrate_state = 8;
+    ProtoPasskeyError passkey = 9;
   }
 }
 

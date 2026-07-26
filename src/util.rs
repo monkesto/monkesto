@@ -32,11 +32,6 @@ pub trait GetError: GetLocation {
     /// This will panic if the Location header is not found, if the value is not valid UTF-8, or if the Location header is not a valid URL.
     fn get_error(&self) -> Option<MonkestoError>;
 
-    /// Asserts that the response has the given error.
-    fn assert_error(&self, expected_error: MonkestoError) {
-        assert_eq!(self.get_error(), Some(expected_error))
-    }
-
     /// Asserts that the response does not have an error.
     fn assert_ok(&self) {
         assert!(self.get_error().is_none());

@@ -1,8 +1,9 @@
 use crate::monkesto_error::MonkestoError;
 use crate::proto::error::{
     ProtoBalanceUpdate, ProtoIdentError, ProtoJournalError, ProtoMonkestoError, ProtoNameError,
-    ProtoUserError, RepeatedBalanceUpdates,
+    ProtoPasskeyError, ProtoUserError, RepeatedBalanceUpdates,
 };
+use std::str::FromStr;
 use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
@@ -15,15 +16,20 @@ pub enum ProtoError {
     PermissionDecode(i32),
     #[error("Failed to parse an email: {0}")]
     ParseEmail(#[from] EmailError),
+    #[error("Invalid ident: {0}")]
+    Ident(#[from] IdentError),
 }
 
+use crate::authn::passkey::PasskeyError;
 use crate::authn::user::UserError;
+use crate::authn::{PasskeyId, UserId};
 use crate::email::{Email, EmailError};
 use crate::id::IdentError;
+use crate::journal::account::AccountId;
 use crate::journal::transaction::{
-    BalanceUpdate, EntryType, TransactionEntries, TransactionValidationError,
+    BalanceUpdate, EntryType, TransactionEntries, TransactionId, TransactionValidationError,
 };
-use crate::journal::{JournalError, PermissionDecodeError, Permissions};
+use crate::journal::{JournalError, JournalId, PermissionDecodeError, Permissions};
 use crate::name::NameError;
 use crate::proto::error::proto_balance_update::{ProtoEntryType, proto_entry_type};
 use crate::proto::error::proto_decode_error::ProtoErrorType;
@@ -32,6 +38,7 @@ use crate::proto::error::proto_journal_error::proto_transaction_validation_error
 use crate::proto::error::proto_journal_error::{JournalErrorType, ProtoTransactionValidationError};
 use crate::proto::error::proto_monkesto_error::MonkestoErrorType;
 use crate::proto::error::proto_name_error::NameErrorType;
+use crate::proto::error::proto_passkey_error::PasskeyErrorType;
 use crate::proto::error::proto_user_error::UserErrorType;
 use ProtoError::*;
 
@@ -43,7 +50,7 @@ impl TryFrom<RepeatedBalanceUpdates> for TransactionEntries {
 
         for entry in value.updates {
             translated_updates.push(BalanceUpdate {
-                account_id: entry.account_id.into(),
+                account_id: AccountId::from_str(entry.account_id.as_str())?,
                 amount: entry.amount,
                 entry_type: match entry
                     .entry_type
@@ -95,6 +102,12 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
                     ProtoErrorType::FieldRequired(_) => FieldRequired,
                     ProtoErrorType::PermissionDecode(bits) => PermissionDecode(bits),
                     ProtoErrorType::ParseEmail(em) => ParseEmail(EmailError::RegexViolated(em)),
+                    ProtoErrorType::Ident(e) => {
+                        Ident(match e.ident_error_type.ok_or(FieldRequired)? {
+                            IdentErrorType::Parse(s) => IdentError::Parse(s),
+                            IdentErrorType::InvalidId(s) => IdentError::InvalidId(s),
+                        })
+                    }
                 };
 
                 MonkestoError::Proto(proto_error)
@@ -116,16 +129,20 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
             }
             MonkestoErrorType::Journal(e) => {
                 let journal_error = match e.journal_error_type.ok_or(FieldRequired)? {
-                    JournalErrorType::IdCollision(id) => JournalError::IdCollision(id.into()),
-                    JournalErrorType::InvalidJournal(id) => JournalError::InvalidJournal(id.into()),
+                    JournalErrorType::IdCollision(id) => {
+                        JournalError::IdCollision(JournalId::from_str(id.as_str())?)
+                    }
+                    JournalErrorType::InvalidJournal(id) => {
+                        JournalError::InvalidJournal(JournalId::from_str(id.as_str())?)
+                    }
                     JournalErrorType::Permissions(perms) => JournalError::Permissions(
                         Permissions::from_bits(perms).ok_or(PermissionDecode(perms))?,
                     ),
                     JournalErrorType::UserAlreadyHasAccess(id) => {
-                        JournalError::UserAlreadyHasAccess(id.into())
+                        JournalError::UserAlreadyHasAccess(UserId::from_str(id.as_str())?)
                     }
                     JournalErrorType::UserDoesntHaveAccess(id) => {
-                        JournalError::UserDoesntHaveAccess(id.into())
+                        JournalError::UserDoesntHaveAccess(UserId::from_str(id.as_str())?)
                     }
                     JournalErrorType::IdentCreation(e) => {
                         match e.ident_error_type.ok_or(FieldRequired)? {
@@ -142,14 +159,16 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
                         JournalError::PermissionDecode(PermissionDecodeError(e))
                     }
                     JournalErrorType::AccountIdCollision(id) => {
-                        JournalError::AccountIdCollision(id.into())
+                        JournalError::AccountIdCollision(AccountId::from_str(id.as_str())?)
                     }
                     JournalErrorType::TransactionIdCollision(id) => {
-                        JournalError::TransactionIdCollision(id.into())
+                        JournalError::TransactionIdCollision(TransactionId::from_str(id.as_str())?)
                     }
-                    JournalErrorType::InvalidAccount(id) => JournalError::InvalidAccount(id.into()),
+                    JournalErrorType::InvalidAccount(id) => {
+                        JournalError::InvalidAccount(AccountId::from_str(id.as_str())?)
+                    }
                     JournalErrorType::InvalidTransaction(id) => {
-                        JournalError::InvalidTransaction(id.into())
+                        JournalError::InvalidTransaction(TransactionId::from_str(id.as_str())?)
                     }
                     JournalErrorType::EventDecode(s) => JournalError::EventDecode(s),
 
@@ -199,18 +218,49 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
                     UserErrorType::EmailDoesntExist(e) => {
                         UserError::EmailDoesntExist(Email::try_new(e)?)
                     }
-                    UserErrorType::IdCollision(id) => UserError::IdCollision(id.into()),
-                    UserErrorType::UserDoesntExist(id) => UserError::UserDoesntExist(id.into()),
+                    UserErrorType::IdCollision(id) => {
+                        UserError::IdCollision(UserId::from_str(id.as_str())?)
+                    }
+                    UserErrorType::UserDoesntExist(id) => {
+                        UserError::UserDoesntExist(UserId::from_str(id.as_str())?)
+                    }
                     UserErrorType::SessionNotFound(_) => UserError::SessionNotFound,
                     UserErrorType::Sqlx(e) => UserError::Sqlx(e),
                     UserErrorType::SeedFailure(e) => UserError::SeedFailure(Email::try_new(e)?),
                     UserErrorType::PasskeyDecode(s) => UserError::PasskeyDecode(s),
+                    UserErrorType::InvalidInput(_) => UserError::InvalidInput,
+                    UserErrorType::SerdeJson(s) => UserError::SerdeJson(s),
+
+                    UserErrorType::Session(s) => UserError::Session(s),
+                    UserErrorType::AuthenticationFailed(_) => UserError::AuthenticationFailed,
                 };
 
                 MonkestoError::User(user_error)
             }
             MonkestoErrorType::DisintegrateEvent(s) => MonkestoError::DisintegrateEvent(s),
             MonkestoErrorType::DisintegrateState(s) => MonkestoError::DisintegrateState(s),
+            MonkestoErrorType::Passkey(e) => {
+                let passkey_error = match e.passkey_error_type.ok_or(FieldRequired)? {
+                    PasskeyErrorType::SessionExpired(_) => PasskeyError::SessionExpired,
+
+                    PasskeyErrorType::InvalidInput(_) => PasskeyError::InvalidInput,
+
+                    PasskeyErrorType::SessionError(s) => PasskeyError::SessionError(s),
+                    PasskeyErrorType::IdConflict(id) => {
+                        PasskeyError::IdConflict(PasskeyId::from_str(id.as_str())?)
+                    }
+                    PasskeyErrorType::PasskeyDoesntExist(id) => {
+                        PasskeyError::PasskeyDoesntExist(PasskeyId::from_str(id.as_str())?)
+                    }
+                    PasskeyErrorType::UserDoesntExist(id) => {
+                        PasskeyError::UserDoesntExist(UserId::from_str(id.as_str())?)
+                    }
+                    PasskeyErrorType::Json(s) => PasskeyError::Json(s),
+                    PasskeyErrorType::Sqlx(s) => PasskeyError::Sqlx(s),
+                };
+
+                MonkestoError::Passkey(passkey_error)
+            }
         };
 
         Ok(error)
@@ -227,6 +277,15 @@ impl From<MonkestoError> for ProtoMonkestoError {
                         EmailError::RegexViolated(em) => ProtoErrorType::ParseEmail(em),
                     },
                     Deserialize => ProtoErrorType::Deserialize(()),
+                    Ident(e) => {
+                        let ident_error = match e {
+                            IdentError::Parse(s) => IdentErrorType::Parse(s),
+                            IdentError::InvalidId(s) => IdentErrorType::InvalidId(s),
+                        };
+                        ProtoErrorType::Ident(ProtoIdentError {
+                            ident_error_type: Some(ident_error),
+                        })
+                    }
                 };
 
                 MonkestoErrorType::ErrorDecode(crate::proto::error::ProtoDecodeError {
@@ -350,6 +409,10 @@ impl From<MonkestoError> for ProtoMonkestoError {
                     UserError::Sqlx(s) => UserErrorType::Sqlx(s),
                     UserError::SeedFailure(em) => UserErrorType::SeedFailure(em.to_string()),
                     UserError::PasskeyDecode(s) => UserErrorType::PasskeyDecode(s),
+                    UserError::InvalidInput => UserErrorType::InvalidInput(()),
+                    UserError::SerdeJson(s) => UserErrorType::SerdeJson(s),
+                    UserError::Session(s) => UserErrorType::Session(s),
+                    UserError::AuthenticationFailed => UserErrorType::AuthenticationFailed(()),
                 };
 
                 MonkestoErrorType::User(ProtoUserError {
@@ -358,6 +421,25 @@ impl From<MonkestoError> for ProtoMonkestoError {
             }
             MonkestoError::DisintegrateEvent(s) => MonkestoErrorType::DisintegrateEvent(s),
             MonkestoError::DisintegrateState(s) => MonkestoErrorType::DisintegrateState(s),
+            MonkestoError::Passkey(e) => {
+                let e = match e {
+                    PasskeyError::SessionExpired => PasskeyErrorType::SessionExpired(()),
+                    PasskeyError::InvalidInput => PasskeyErrorType::InvalidInput(()),
+                    PasskeyError::SessionError(s) => PasskeyErrorType::SessionError(s),
+                    PasskeyError::IdConflict(id) => PasskeyErrorType::IdConflict(id.to_string()),
+                    PasskeyError::PasskeyDoesntExist(id) => {
+                        PasskeyErrorType::PasskeyDoesntExist(id.to_string())
+                    }
+                    PasskeyError::UserDoesntExist(id) => {
+                        PasskeyErrorType::UserDoesntExist(id.to_string())
+                    }
+                    PasskeyError::Json(s) => PasskeyErrorType::Json(s),
+                    PasskeyError::Sqlx(s) => PasskeyErrorType::Sqlx(s),
+                };
+                MonkestoErrorType::Passkey(ProtoPasskeyError {
+                    passkey_error_type: Some(e),
+                })
+            }
         };
 
         ProtoMonkestoError {

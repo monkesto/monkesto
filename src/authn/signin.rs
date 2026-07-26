@@ -1,8 +1,8 @@
 use super::user::DEV_USERS;
-use super::user::UserId;
 use super::user::UserState;
+use super::user::{UserError, UserId};
 use super::{AuthSession, AuthnService};
-use crate::monkesto_error::OrRedirect;
+use crate::monkesto_error::{MonkestoError, OrRedirect};
 use crate::theme::theme_with_head;
 use axum::extract::Extension;
 use axum::extract::Form;
@@ -11,7 +11,6 @@ use axum::http::StatusCode;
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
-use axum::response::Response;
 use axum_login::AuthnBackend;
 use maud::Markup;
 use maud::PreEscaped;
@@ -19,55 +18,11 @@ use maud::html;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use thiserror::Error;
 use webauthn_rs::prelude::AuthenticationResult;
 use webauthn_rs::prelude::PasskeyAuthentication;
 use webauthn_rs::prelude::PublicKeyCredential;
 use webauthn_rs::prelude::RequestChallengeResponse;
 use webauthn_rs::prelude::Webauthn;
-
-/// Errors that occur during the signin flow.
-#[derive(Error, Debug)]
-pub enum SigninError {
-    #[error("Authentication failed")]
-    AuthenticationFailed,
-    #[error("Authentication session expired")]
-    SessionExpired,
-    #[error("Invalid input data")]
-    InvalidInput,
-    #[error("Session error: {0}")]
-    SessionError(#[from] tower_sessions::session::Error),
-    #[error("User not found")]
-    UserNotFound,
-    #[error("Store operation failed: {0}")]
-    StoreError(String),
-    #[error("Login failed: {0}")]
-    LoginFailed(String),
-}
-
-impl IntoResponse for SigninError {
-    fn into_response(self) -> Response {
-        match self {
-            SigninError::SessionExpired => {
-                Redirect::to("/signin?error=session_expired").into_response()
-            }
-            SigninError::AuthenticationFailed => {
-                Redirect::to("/signin?error=auth_failed").into_response()
-            }
-            SigninError::InvalidInput => (StatusCode::BAD_REQUEST, "Invalid input").into_response(),
-            SigninError::UserNotFound => (StatusCode::NOT_FOUND, "User not found").into_response(),
-            SigninError::SessionError(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Session error").into_response()
-            }
-            SigninError::StoreError(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Store operation failed").into_response()
-            }
-            SigninError::LoginFailed(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Login failed").into_response()
-            }
-        }
-    }
-}
 
 /// Handles WebAuthn authentication flow (signin).
 /// This struct encapsulates the start and finish phases of authentication.
@@ -117,19 +72,20 @@ impl<'a> SigninAuthenticator<'a> {
         &self,
         credential: &PublicKeyCredential,
         auth_state: &PasskeyAuthentication,
-    ) -> Result<(UserId, AuthenticationResult), SigninError> {
+    ) -> Result<(UserId, AuthenticationResult), Redirect> {
         let auth_result = self
             .webauthn
             .finish_passkey_authentication(credential, auth_state)
-            .map_err(|_| SigninError::AuthenticationFailed)?;
+            .map_err(|_| UserError::AuthenticationFailed)
+            .or_redirect("/signin")?;
 
-        let (user_id, _passkey_id) = dbg!(
-            self.authn_service
-                .find_user_by_credential(auth_result.cred_id())
-                .await
-        )
-        .map_err(|e| SigninError::StoreError(e.to_string()))?
-        .ok_or(SigninError::UserNotFound)?;
+        let (user_id, _passkey_id) = self
+            .authn_service
+            .find_user_by_credential(auth_result.cred_id())
+            .await
+            .or_redirect("/signin")?
+            .ok_or(UserError::AuthenticationFailed)
+            .or_redirect("/signin")?;
 
         Ok((user_id, auth_result))
     }
@@ -144,7 +100,7 @@ pub struct SigninQuery {
 fn auth_page(
     webauthn_url: &str,
     challenge_data: Option<&str>,
-    error_message: Option<&str>,
+    error_message: Option<String>,
     next: Option<&str>,
     dev_users: &[UserState],
 ) -> Markup {
@@ -320,15 +276,18 @@ async fn handle_signin_page(
         None => None,
     };
 
-    let error_message: Option<&str> = None;
-
     // Handle error messages from query parameters
-    let error_message = error_message.or_else(|| match query.error.as_deref() {
-        Some("session_expired") => {
-            Some("Your authentication session has expired. Please try again.")
+    let error_str = query.error.clone().map(|str| {
+        let error = MonkestoError::decode(&str);
+        match error {
+            MonkestoError::User(UserError::SessionNotFound) => {
+                "Your authentication session has expired. Please try again.".to_string()
+            }
+            MonkestoError::User(UserError::AuthenticationFailed) => {
+                "Authentication failed. Please try again.".to_string()
+            }
+            _ => error.to_string(),
         }
-        Some("auth_failed") => Some("Authentication failed. Please try again."),
-        _ => None,
     });
 
     // Get dev users for the dev login form
@@ -337,7 +296,7 @@ async fn handle_signin_page(
     let markup = auth_page(
         &webauthn_url,
         challenge_data.as_deref(),
-        error_message,
+        error_str,
         next.as_deref(),
         &dev_users,
     );
@@ -354,27 +313,31 @@ async fn handle_signin_completion(
     mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
-) -> Result<Response, SigninError> {
+) -> Result<impl IntoResponse, Redirect> {
     // Extract credential from form
     let credential_json = form_data
         .get("credential")
-        .ok_or(SigninError::InvalidInput)?;
+        .ok_or(UserError::InvalidInput)
+        .or_redirect("/signin")?;
 
     // Parse the JSON credential data
-    let credential: PublicKeyCredential =
-        serde_json::from_str(credential_json).map_err(|_| SigninError::InvalidInput)?;
+    let credential: PublicKeyCredential = serde_json::from_str(credential_json)
+        .map_err(UserError::from)
+        .or_redirect("/signin")?;
 
     // Get auth state from session (checking both possible keys for compatibility)
     let session = &auth_session.session;
     let auth_state = session
         .get::<PasskeyAuthentication>("identifierless_auth_state")
-        .await?
+        .await
+        .map_err(UserError::from)
+        .or_redirect("/signin")?
         .or_else(|| {
             // Try the regular auth_state key as fallback - this is sync so we can't await here
             // For now, just use the identifierless_auth_state
             None
         })
-        .ok_or(SigninError::SessionExpired)?;
+        .ok_or(MonkestoError::from(UserError::SessionNotFound).redirect("/signin"))?;
 
     // Verify the authentication using SigninAuthenticator
     let authenticator = SigninAuthenticator::new(&webauthn, &authn_service);
@@ -388,13 +351,15 @@ async fn handle_signin_completion(
             let user = authn_service
                 .get_user(&user_id)
                 .await
-                .map_err(|e| SigninError::StoreError(e.to_string()))?
-                .ok_or(SigninError::UserNotFound)?;
+                .or_redirect("/signin")?
+                .ok_or(MonkestoError::from(UserError::AuthenticationFailed))
+                .or_redirect("/signin")?;
 
             auth_session
                 .login(&user)
                 .await
-                .map_err(|e| SigninError::LoginFailed(e.to_string()))?;
+                .map_err(UserError::from)
+                .or_redirect("/signin")?;
 
             // Redirect to next or default
             let redirect_to = next.as_deref().unwrap_or("/journal");
@@ -406,7 +371,7 @@ async fn handle_signin_completion(
             _ = session.remove_value("auth_state").await;
 
             // Redirect back to login with error
-            Ok(Redirect::to("/signin?error=auth_failed").into_response())
+            Err(UserError::AuthenticationFailed).or_redirect("/journal")
         }
     }
 }
@@ -435,7 +400,7 @@ pub async fn signin_post(
     Extension(authn_service): Extension<AuthnService>,
     auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
-) -> Result<impl IntoResponse, impl IntoResponse> {
+) -> Result<impl IntoResponse, Redirect> {
     let next = form.get("next").cloned();
 
     // Check for dev login first
@@ -447,7 +412,11 @@ pub async fn signin_post(
         );
     }
 
-    handle_signin_completion(webauthn, authn_service, auth_session, form, next).await
+    Ok(
+        handle_signin_completion(webauthn, authn_service, auth_session, form, next)
+            .await?
+            .into_response(),
+    )
 }
 
 async fn handle_dev_login(
@@ -460,23 +429,25 @@ async fn handle_dev_login(
     use std::str::FromStr;
 
     // Parse the user ID
-    let user_id = UserId::from_str(dev_user_id).or_redirect("/signin?error=invalid_userid")?;
+    let user_id = UserId::from_str(dev_user_id).or_redirect("/signin")?;
 
     // Look up the user
     let user = authn_service
         .fetch_user(user_id)
         .await
-        .or_redirect("/signin?error=auth_failed")?;
+        .or_redirect("/signin")?;
 
     // Verify this is a dev user
     if !DEV_USERS.clone().contains_key(&user.email) {
-        return Ok(Redirect::to("/signin?error=auth_failed").into_response());
+        return Err(UserError::InvalidInput).or_redirect("/signin");
     }
 
     // Log them in
-    if auth_session.login(&user).await.is_err() {
-        return Ok(Redirect::to("/signin?error=auth_failed").into_response());
-    }
+    auth_session
+        .login(&user)
+        .await
+        .map_err(UserError::from)
+        .or_redirect("/signin")?;
 
     // Redirect to next or default
     let redirect_to = next.as_deref().unwrap_or("/journal");

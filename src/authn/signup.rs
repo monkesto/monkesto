@@ -1,5 +1,5 @@
 use super::passkey::PasskeyId;
-use super::user::UserId;
+use super::user::{UserError, UserId};
 use super::{AuthSession, AuthnService};
 use crate::authn::corepasskey::CorePasskey;
 use axum::extract::Extension;
@@ -16,7 +16,6 @@ use maud::html;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use thiserror::Error;
 use webauthn_rs::prelude::PasskeyRegistration;
 use webauthn_rs::prelude::RegisterPublicKeyCredential;
 use webauthn_rs::prelude::Uuid;
@@ -27,43 +26,9 @@ use webauthn_rs_proto::ResidentKeyRequirement;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::email::Email;
+use crate::monkesto_error::{MonkestoError, OrRedirect};
 use crate::theme::theme_with_head;
 use crate::time_provider::{DefaultTimeProvider, TimeProvider};
-
-/// Errors that occur during the signup flow.
-#[derive(Error, Debug)]
-pub enum SignupError {
-    #[error("Session expired")]
-    SessionExpired,
-    #[error("Invalid input data")]
-    InvalidInput,
-    #[error("Session error: {0}")]
-    SessionError(#[from] tower_sessions::session::Error),
-    #[error("Serialization error: {0}")]
-    SerializationError(#[from] serde_json::Error),
-    #[error("Login failed: {0}")]
-    LoginFailed(String),
-}
-
-impl IntoResponse for SignupError {
-    fn into_response(self) -> Response {
-        match self {
-            SignupError::SessionExpired => {
-                Redirect::to("/signup?error=session_expired").into_response()
-            }
-            SignupError::InvalidInput => (StatusCode::BAD_REQUEST, "Invalid input").into_response(),
-            SignupError::SessionError(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Session error").into_response()
-            }
-            SignupError::SerializationError(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Serialization error").into_response()
-            }
-            SignupError::LoginFailed(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Login failed").into_response()
-            }
-        }
-    }
-}
 
 #[derive(Deserialize)]
 pub struct SignupQuery {
@@ -127,10 +92,10 @@ fn email_form_page(webauthn_url: &str, error_message: Option<&str>, next: Option
                             }
                         }
 
-                        @if let Some(error_message) = error_message {
+                        @if let Some(error_str) = error_message {
                             div class="mt-6" {
                                 p class="text-center text-sm/6 text-red-500" {
-                                    (error_message)
+                                    (MonkestoError::decode(error_str))
                                 }
                             }
                         }
@@ -284,7 +249,9 @@ async fn handle_email_submission(
     webauthn_url: String,
     email: Email,
     next: Option<String>,
-) -> Result<Response, SignupError> {
+) -> Result<Response, Redirect> {
+    const CALLBACK_URL: &str = "/signup";
+
     // Check if email is already taken
     if authn_service.email_exists(&email).await.unwrap_or(false) {
         return Ok(Redirect::to("/signup?error=email_taken").into_response());
@@ -330,10 +297,14 @@ async fn handle_email_submission(
                         next.clone(),
                     ),
                 )
-                .await?;
+                .await
+                .map_err(|e| UserError::SerdeJson(e.to_string()))
+                .or_redirect(CALLBACK_URL)?;
 
             // Serialize challenge to JSON
-            let challenge_json = serde_json::to_string(&ccr)?;
+            let challenge_json = serde_json::to_string(&ccr)
+                .map_err(UserError::from)
+                .or_redirect("/signup")?;
 
             // Return challenge page
             let markup = challenge_page(
@@ -359,21 +330,29 @@ async fn handle_credential_submission(
     mut auth_session: AuthSession,
     form_data: Form<HashMap<String, String>>,
     next: Option<String>,
-) -> Result<Response, SignupError> {
+) -> Result<Response, Redirect> {
+    const CALLBACK_URL: &str = "/signup";
+
     // Extract credential from form
     let credential_json = form_data
         .get("credential")
-        .ok_or(SignupError::InvalidInput)?;
+        .map(|s| s.as_str())
+        .ok_or(UserError::InvalidInput)
+        .or_redirect(CALLBACK_URL)?;
 
-    let credential: RegisterPublicKeyCredential =
-        serde_json::from_str(credential_json).map_err(|_| SignupError::InvalidInput)?;
+    let credential: RegisterPublicKeyCredential = serde_json::from_str(credential_json)
+        .map_err(UserError::from)
+        .or_redirect(CALLBACK_URL)?;
 
     // Get registration state from session
     let session = &auth_session.session;
     let (email, user_id, webauthn_uuid, reg_state, stored_next) = session
         .get::<(String, UserId, Uuid, PasskeyRegistration, Option<String>)>("reg_state")
-        .await?
-        .ok_or(SignupError::SessionExpired)?;
+        .await
+        .map_err(|e| UserError::Session(e.to_string()))
+        .or_redirect(CALLBACK_URL)?
+        .ok_or(UserError::SessionNotFound)
+        .or_redirect(CALLBACK_URL)?;
 
     // Use next from form if provided, otherwise fall back to stored next
     let next = next.or(stored_next);
@@ -388,7 +367,7 @@ async fn handle_credential_submission(
             let passkey_id = PasskeyId::new();
 
             // Store the new user and their passkey
-            let email_validated = Email::try_new(&email).map_err(|_| SignupError::InvalidInput)?;
+            let email_validated = Email::try_new(&email).or_redirect(CALLBACK_URL)?;
 
             authn_service
                 .create_user(
@@ -399,7 +378,7 @@ async fn handle_credential_submission(
                     DefaultTimeProvider.get_time(),
                 )
                 .await
-                .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
+                .or_redirect(CALLBACK_URL)?;
 
             let ev_id = authn_service
                 .create_passkey(
@@ -410,7 +389,7 @@ async fn handle_credential_submission(
                     DefaultTimeProvider.get_time(),
                 )
                 .await
-                .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
+                .or_redirect(CALLBACK_URL)?;
 
             // Log in the newly registered user via axum_login
             let user = super::user::UserState {
@@ -421,7 +400,8 @@ async fn handle_credential_submission(
             auth_session
                 .login(&user)
                 .await
-                .map_err(|e| SignupError::LoginFailed(e.to_string()))?;
+                .map_err(UserError::from)
+                .or_redirect(CALLBACK_URL)?;
 
             authn_service.wait_for(ev_id).await;
 
@@ -452,15 +432,12 @@ pub async fn signup_post(
     Extension(webauthn_url): Extension<String>,
     auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, Redirect> {
     let next = form.get("next").cloned();
     if let Some(_credential_json) = form.get("credential") {
-        handle_credential_submission(webauthn, authn_service, auth_session, form, next).await
+        Ok(handle_credential_submission(webauthn, authn_service, auth_session, form, next).await?)
     } else if let Some(email_str) = form.get("email") {
-        let email = match Email::try_new(email_str) {
-            Ok(em) => em,
-            Err(_) => return Err(SignupError::InvalidInput),
-        };
+        let email = Email::try_new(email_str).or_redirect("/signup")?;
 
         handle_email_submission(
             webauthn,
@@ -472,6 +449,6 @@ pub async fn signup_post(
         )
         .await
     } else {
-        Err(SignupError::InvalidInput)
+        Err(UserError::InvalidInput).or_redirect("/signup")
     }
 }

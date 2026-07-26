@@ -1,3 +1,4 @@
+use crate::authn::passkey::PasskeyError;
 use crate::authn::user::UserError;
 use crate::email::EmailError;
 use crate::id::IdentError;
@@ -13,7 +14,7 @@ use prost::Message;
 use serde::Deserialize;
 use thiserror::Error;
 
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error)]
 pub enum MonkestoError {
     #[error("failed to decode an error")]
     Proto(#[from] ProtoError),
@@ -33,6 +34,9 @@ pub enum MonkestoError {
     #[error("an error was returned from the user store: {0}")]
     User(#[from] UserError),
 
+    #[error("an error was returned from the passkey store")]
+    Passkey(#[from] PasskeyError),
+
     #[error("the disintegrate event store returned an error: {0}")]
     DisintegrateEvent(String),
 
@@ -46,6 +50,26 @@ impl From<DecisionError<JournalError>> for MonkestoError {
             DecisionError::EventStore(e) => Self::DisintegrateEvent(e.to_string()),
             DecisionError::StateStore(e) => Self::DisintegrateState(e.to_string()),
             DecisionError::Domain(e) => Self::Journal(e),
+        }
+    }
+}
+
+impl From<DecisionError<UserError>> for MonkestoError {
+    fn from(value: DecisionError<UserError>) -> Self {
+        match value {
+            DecisionError::EventStore(e) => Self::DisintegrateEvent(e.to_string()),
+            DecisionError::StateStore(e) => Self::DisintegrateState(e.to_string()),
+            DecisionError::Domain(e) => Self::User(e),
+        }
+    }
+}
+
+impl From<DecisionError<PasskeyError>> for MonkestoError {
+    fn from(value: DecisionError<PasskeyError>) -> Self {
+        match value {
+            DecisionError::EventStore(e) => Self::DisintegrateEvent(e.to_string()),
+            DecisionError::StateStore(e) => Self::DisintegrateState(e.to_string()),
+            DecisionError::Domain(e) => Self::Passkey(e),
         }
     }
 }

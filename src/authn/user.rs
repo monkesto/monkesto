@@ -48,11 +48,43 @@ pub enum UserError {
     SeedFailure(Email),
     #[error("failed to decode a passkey: {0}")]
     PasskeyDecode(String),
+    #[error("invalid input")]
+    InvalidInput,
+    #[error("failed to encode or decode a value with serde-json")]
+    SerdeJson(String),
+    #[error("failed to insert or retrieve a session credential: {0}")]
+    Session(String),
+    #[error("authentication failed")]
+    AuthenticationFailed,
 }
 
 impl From<sqlx::Error> for UserError {
     fn from(value: sqlx::Error) -> Self {
         Self::Sqlx(value.to_string())
+    }
+}
+
+impl From<serde_json::Error> for UserError {
+    fn from(value: serde_json::Error) -> Self {
+        Self::SerdeJson(value.to_string())
+    }
+}
+
+impl From<axum_login::Error<AuthnService>> for UserError {
+    fn from(value: axum_login::Error<AuthnService>) -> Self {
+        match value {
+            axum_login::Error::Session(e) => Self::Session(e.to_string()),
+            axum_login::Error::Backend(e) => e,
+        }
+    }
+}
+
+impl From<tower_sessions::session::Error> for UserError {
+    fn from(value: tower_sessions::session::Error) -> Self {
+        match value {
+            tower_sessions::session::Error::SerdeJson(s) => UserError::SerdeJson(s.to_string()),
+            tower_sessions::session::Error::Store(s) => UserError::Session(s.to_string()),
+        }
     }
 }
 
@@ -228,6 +260,7 @@ impl Decision for DeleteUser {
     }
 }
 
+use crate::authn::AuthnService;
 use crate::status::Status;
 use webauthn_rs::prelude::Uuid;
 
