@@ -371,7 +371,7 @@ async fn handle_signin_completion(
             _ = session.remove_value("auth_state").await;
 
             // Redirect back to login with error
-            Err(UserError::AuthenticationFailed).or_redirect("/journal")
+            Err(UserError::AuthenticationFailed).or_redirect("/login")
         }
     }
 }

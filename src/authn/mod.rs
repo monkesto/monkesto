@@ -145,7 +145,7 @@ impl AuthnService {
             r#"
             CREATE TABLE IF NOT EXISTS passkeys (
                 id TEXT PRIMARY KEY,
-                user_id BYTEA NOT NULL,
+                user_id TEXT NOT NULL,
                 passkey BYTEA NOT NULL,
                 credential_id BYTEA NOT NULL
             )
