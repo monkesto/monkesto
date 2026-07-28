@@ -17,6 +17,7 @@ use crate::authority::Authority;
 use crate::email::Email;
 use crate::event_id::GetEventId;
 use crate::monkesto_error::OrRedirect;
+use crate::proto::event::authn::ProtoAuthnEvent;
 use crate::time_provider::Timestamp;
 use crate::{id, shutdown};
 use async_trait::async_trait;
@@ -26,7 +27,7 @@ use axum::response::Redirect;
 use axum::routing::get;
 use axum::routing::post;
 use axum_login::{AuthnBackend, login_required, tracing};
-use disintegrate::serde::messagepack::MessagePack;
+use disintegrate::serde::prost::Prost;
 use disintegrate::{DecisionError, Event, EventListener, PersistedEvent, StreamQuery, query};
 use disintegrate_postgres::{
     PgDecisionMaker, PgEventId, PgEventListener, PgEventListenerConfig, PgEventListenerError,
@@ -71,7 +72,8 @@ pub enum AuthConnectError {
 id!(UserId, Ident::new16());
 id!(PasskeyId, Ident::new16());
 
-type PgAuthnDecisionMaker = PgDecisionMaker<AuthnEvent, MessagePack<AuthnEvent>, WithPgSnapshot>;
+type PgAuthnDecisionMaker =
+    PgDecisionMaker<AuthnEvent, Prost<AuthnEvent, ProtoAuthnEvent>, WithPgSnapshot>;
 
 #[derive(Debug, Clone, PartialEq, Event, Serialize, Deserialize)]
 #[stream(UserEvent, [UserCreated, UserDeleted])]

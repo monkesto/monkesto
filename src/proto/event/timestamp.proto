@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+package proto.event.timestamp;
+
+message ProtoTimestamp {
+  int64 unix_millis = 1;
+}
+

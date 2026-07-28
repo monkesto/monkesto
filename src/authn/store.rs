@@ -1,9 +1,10 @@
 use super::AuthnEvent;
-use disintegrate::serde::messagepack::MessagePack;
+use crate::proto::event::authn::ProtoAuthnEvent;
+use disintegrate::serde::prost::Prost;
 use disintegrate_postgres::PgEventStore;
 use sqlx::PgPool;
 
-pub(super) type PgAuthnEventStore = PgEventStore<AuthnEvent, MessagePack<AuthnEvent>>;
+pub(super) type PgAuthnEventStore = PgEventStore<AuthnEvent, Prost<AuthnEvent, ProtoAuthnEvent>>;
 
 #[derive(Clone)]
 pub struct AuthnEventStore {
@@ -12,7 +13,8 @@ pub struct AuthnEventStore {
 
 impl AuthnEventStore {
     pub async fn try_new(pool: PgPool) -> Result<Self, disintegrate_postgres::Error> {
-        let event_store = PgEventStore::try_new(pool, MessagePack::<AuthnEvent>::default()).await?;
+        let event_store =
+            PgEventStore::try_new(pool, Prost::<AuthnEvent, ProtoAuthnEvent>::default()).await?;
         Ok(Self { event_store })
     }
 }

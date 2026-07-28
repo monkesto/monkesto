@@ -1,3 +1,5 @@
+use crate::proto::ident::ProtoIdent;
+use crate::serde::error::ProtoError;
 use arrayvec::ArrayString;
 use cuid::Cuid2Constructor;
 use cuid::cuid2_slug;
@@ -112,6 +114,30 @@ impl Display for Ident {
     }
 }
 
+impl From<Ident> for ProtoIdent {
+    fn from(id: Ident) -> Self {
+        ProtoIdent {
+            cuid: id.to_string(),
+        }
+    }
+}
+
+impl TryFrom<ProtoIdent> for Ident {
+    type Error = ProtoError;
+
+    fn try_from(value: ProtoIdent) -> Result<Self, Self::Error> {
+        Ok(Self::from_str(value.cuid.as_str())?)
+    }
+}
+
+impl TryFrom<Option<ProtoIdent>> for Ident {
+    type Error = ProtoError;
+
+    fn try_from(value: Option<ProtoIdent>) -> Result<Self, Self::Error> {
+        value.ok_or(ProtoError::FieldRequired)?.try_into()
+    }
+}
+
 impl Type<Postgres> for Ident {
     fn type_info() -> <Postgres as Database>::TypeInfo {
         <&str as Type<Postgres>>::type_info()
@@ -220,6 +246,30 @@ macro_rules! id {
         impl Default for $id_name {
             fn default() -> Self {
                 Self(Default::default())
+            }
+        }
+
+        impl From<$id_name> for $crate::proto::ident::ProtoIdent {
+            fn from(id: $id_name) -> Self {
+                id.0.into()
+            }
+        }
+
+        impl TryFrom<$crate::proto::ident::ProtoIdent> for $id_name {
+            type Error = $crate::serde::error::ProtoError;
+
+            fn try_from(value: $crate::proto::ident::ProtoIdent) -> Result<Self, Self::Error> {
+                Ok(Self(value.try_into()?))
+            }
+        }
+
+        impl TryFrom<Option<$crate::proto::ident::ProtoIdent>> for $id_name {
+            type Error = $crate::serde::error::ProtoError;
+
+            fn try_from(
+                value: Option<$crate::proto::ident::ProtoIdent>,
+            ) -> Result<Self, Self::Error> {
+                Ok(Self(value.try_into()?))
             }
         }
     };

@@ -1,7 +1,18 @@
-pub type Timestamp = DateTime<Utc>;
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Timestamp(pub DateTime<Utc>);
+
+impl Deref for Timestamp {
+    type Target = DateTime<Utc>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 use chrono::{DateTime, Duration, Utc};
+use serde::{Deserialize, Serialize};
 use std::cell::Cell;
+use std::ops::Deref;
 
 pub trait TimeProvider {
     fn get_time(&self) -> Timestamp;
@@ -18,7 +29,7 @@ impl DefaultTimeProvider {
 
 impl TimeProvider for DefaultTimeProvider {
     fn get_time(&self) -> Timestamp {
-        Utc::now()
+        Timestamp(Utc::now())
     }
 }
 
@@ -42,12 +53,12 @@ impl TimeProvider for IncrementalTimeProvider {
         self.current_value
             .update(|t| t + Duration::milliseconds(1000));
 
-        old_value
+        Timestamp(old_value)
     }
 }
 
 impl TimeProvider for DateTime<Utc> {
     fn get_time(&self) -> Timestamp {
-        *self
+        Timestamp(*self)
     }
 }

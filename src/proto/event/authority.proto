@@ -19,7 +19,7 @@ message ProtoAuthority {
     ProtoActor grantee = 3;
   }
 
-  oneof ProtoAuthorityType {
+  oneof AuthorityType {
     ProtoActor direct = 1;
     ProtoDelegatedAuthority delegated = 2;
   }

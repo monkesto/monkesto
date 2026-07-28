@@ -3,6 +3,7 @@ syntax = "proto3";
 package proto.error;
 
 import "google/protobuf/empty.proto";
+import "proto/ident.proto";
 
 message ProtoIdentError {
   oneof ident_error_type {
@@ -26,7 +27,7 @@ message ProtoBalanceUpdate {
     }
   }
 
-  string account_id = 1;
+  proto.ident.ProtoIdent account_id = 1;
   uint64 amount = 2;
   ProtoEntryType entry_type = 3;
 }
@@ -52,15 +53,15 @@ message ProtoJournalError {
   }
 
   oneof journal_error_type {
-    string id_collision = 1;
-    string account_id_collision = 2;
-    string transaction_id_collision = 3;
-    string invalid_journal = 4;
-    string invalid_account = 5;
-    string invalid_transaction = 6;
+    proto.ident.ProtoIdent id_collision = 1;
+    proto.ident.ProtoIdent account_id_collision = 2;
+    proto.ident.ProtoIdent transaction_id_collision = 3;
+    proto.ident.ProtoIdent invalid_journal = 4;
+    proto.ident.ProtoIdent invalid_account = 5;
+    proto.ident.ProtoIdent invalid_transaction = 6;
     int32 permissions = 7;
-    string user_already_has_access = 8;
-    string user_doesnt_have_access = 9;
+    proto.ident.ProtoIdent user_already_has_access = 8;
+    proto.ident.ProtoIdent user_doesnt_have_access = 9;
     ProtoIdentError ident_creation = 10;
     string event_decode = 11;
     string sqlx = 12;
@@ -74,8 +75,8 @@ message ProtoUserError {
   oneof user_error_type {
     string email_conflict = 1;
     string email_doesnt_exist = 2;
-    string id_collision = 3;
-    string user_doesnt_exist = 4;
+    proto.ident.ProtoIdent id_collision = 3;
+    proto.ident.ProtoIdent user_doesnt_exist = 4;
     string passkey_decode = 5;
     google.protobuf.Empty session_not_found = 6;
     string sqlx = 7;
@@ -92,9 +93,9 @@ message ProtoPasskeyError {
     google.protobuf.Empty session_expired = 1;
     google.protobuf.Empty invalid_input = 2;
     string session_error = 3;
-    string id_conflict = 4;
-    string passkey_doesnt_exist = 5;
-    string user_doesnt_exist = 6;
+    proto.ident.ProtoIdent id_conflict = 4;
+    proto.ident.ProtoIdent passkey_doesnt_exist = 5;
+    proto.ident.ProtoIdent user_doesnt_exist = 6;
     string json = 7;
     string sqlx = 8;
   }
@@ -107,6 +108,7 @@ message ProtoDecodeError {
     int32 permission_decode = 3;
     string parse_email = 4;
     ProtoIdentError ident = 5;
+    string uuid = 6;
   }
 }
 
