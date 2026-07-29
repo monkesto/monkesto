@@ -62,6 +62,9 @@ pub enum JournalError {
 
     #[error("failed to decode an event: {0}")]
     EventDecode(String),
+
+    #[error("failed to decode a proto type: {0}")]
+    ProtoDecode(#[from] ProtoError),
 }
 
 impl From<sqlx::Error> for JournalError {
@@ -70,8 +73,8 @@ impl From<sqlx::Error> for JournalError {
     }
 }
 
-impl From<rmp_serde::decode::Error> for JournalError {
-    fn from(value: rmp_serde::decode::Error) -> Self {
+impl From<prost::DecodeError> for JournalError {
+    fn from(value: prost::DecodeError) -> Self {
         Self::EventDecode(value.to_string())
     }
 }
@@ -116,6 +119,7 @@ use crate::journal::domain::JournalDomainEvent;
 use crate::journal::member::JournalMember;
 use crate::journal::transaction::{TransactionId, TransactionValidationError};
 use crate::name::Name;
+use crate::serde::error::ProtoError;
 use crate::status::Status;
 use crate::time_provider::Timestamp;
 use bitflags::bitflags;

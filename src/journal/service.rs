@@ -15,18 +15,23 @@ use crate::journal::transaction::{
 };
 use crate::journal::{CreateJournal, JournalError};
 use crate::name::Name;
+use crate::proto::event::journal::ProtoJournalDomainEvent;
 use crate::time_provider::Timestamp;
 use async_trait::async_trait;
-use disintegrate::serde::messagepack::MessagePack;
+use disintegrate::serde::prost::Prost;
 use disintegrate::{DecisionError, EventListener, PersistedEvent, StreamQuery, query};
 use disintegrate_postgres::{
     PgDecisionMaker, PgEventId, PgSnapshotter, WithPgSnapshot, decision_maker,
 };
+use prost::Message;
 use sqlx::{FromRow, PgPool};
 use tokio::sync::watch;
 
-type PgJournalDecisionMaker =
-    PgDecisionMaker<JournalDomainEvent, MessagePack<JournalDomainEvent>, WithPgSnapshot>;
+type PgJournalDecisionMaker = PgDecisionMaker<
+    JournalDomainEvent,
+    Prost<JournalDomainEvent, ProtoJournalDomainEvent>,
+    WithPgSnapshot,
+>;
 
 pub struct JournalState {
     pub id: JournalId,
@@ -250,7 +255,7 @@ impl JournalService {
         &self,
         transaction_id: TransactionId,
         journal_id: JournalId,
-        entries: Vec<BalanceUpdate>,
+        entries: TransactionEntries,
         authority: Authority,
         timestamp: Timestamp,
     ) -> Result<PgEventId, DecisionError<JournalError>> {
@@ -334,7 +339,9 @@ impl JournalService {
         let mut journals_with_meta = Vec::with_capacity(journals.len());
 
         for journal in journals {
-            let payload: JournalDomainEvent = rmp_serde::from_slice(journal.payload.as_slice())?;
+            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
+                journal.payload.as_slice(),
+            )?)?;
 
             match payload {
                 JournalDomainEvent::JournalCreated {
@@ -386,7 +393,9 @@ impl JournalService {
             .await?;
 
         if let Some(journal) = journal {
-            let payload: JournalDomainEvent = rmp_serde::from_slice(journal.payload.as_slice())?;
+            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
+                journal.payload.as_slice(),
+            )?)?;
 
             match payload {
                 JournalDomainEvent::JournalCreated {
@@ -461,7 +470,9 @@ impl JournalService {
         let mut transactions_with_meta = Vec::with_capacity(accounts.len());
 
         for account in accounts {
-            let payload: JournalDomainEvent = rmp_serde::from_slice(account.payload.as_slice())?;
+            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
+                account.payload.as_slice(),
+            )?)?;
 
             match payload {
                 JournalDomainEvent::AccountCreated {
@@ -516,8 +527,9 @@ impl JournalService {
         let mut transactions_with_meta = Vec::with_capacity(transactions.len());
 
         for transaction in transactions {
-            let payload: JournalDomainEvent =
-                rmp_serde::from_slice(transaction.payload.as_slice())?;
+            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
+                transaction.payload.as_slice(),
+            )?)?;
 
             match payload {
                 JournalDomainEvent::TransactionCreated {
@@ -701,13 +713,13 @@ impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
                     "#,
                     transaction_id as TransactionId,
                     journal_id as JournalId,
-                    TransactionEntries(balance_updates.clone()) as TransactionEntries
+                    balance_updates.clone() as TransactionEntries
                 )
                 .execute(&mut *tx)
                 .await?;
 
                 // apply the balance updates to each account
-                for update in balance_updates {
+                for update in balance_updates.0 {
                     let update_amt = match update.entry_type {
                         EntryType::Credit => update.amount as i64,
                         EntryType::Debit => -(update.amount as i64),

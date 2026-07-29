@@ -45,6 +45,10 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 #[allow(clippy::all)]
 pub mod proto {
+    pub mod balance_update {
+        include!(concat!(env!("OUT_DIR"), "/proto.balance_update.rs"));
+    }
+
     pub mod error {
         include!(concat!(env!("OUT_DIR"), "/proto.error.rs"));
     }

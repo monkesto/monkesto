@@ -26,7 +26,7 @@ use crate::journal::account::AccountId;
 use crate::journal::member::JournalMember;
 use crate::journal::{Journal, Permissions, validate_permissions};
 use crate::journal::{JournalError, JournalId};
-use crate::proto::error::RepeatedBalanceUpdates;
+use crate::proto::balance_update::RepeatedBalanceUpdates;
 use crate::status::Status;
 use crate::time_provider::Timestamp;
 use disintegrate::{Decision, StateMutate, StateQuery};
@@ -101,7 +101,7 @@ pub struct Transaction {
     #[id]
     transaction_id: TransactionId,
     journal_id: JournalId,
-    updates: Vec<BalanceUpdate>,
+    entries: TransactionEntries,
     status: Status,
 }
 
@@ -123,7 +123,7 @@ impl StateMutate for Transaction {
                 ..
             } => {
                 self.journal_id = journal_id;
-                self.updates = balance_updates;
+                self.entries = balance_updates;
                 self.status = Status::Valid;
             }
             TransactionEvent::TransactionDeleted { .. } => self.status = Status::Deleted,
@@ -134,7 +134,7 @@ impl StateMutate for Transaction {
 pub struct CreateTransaction {
     transaction_id: TransactionId,
     journal_id: JournalId,
-    entries: Vec<BalanceUpdate>,
+    entries: TransactionEntries,
     authority: Authority,
     timestamp: Timestamp,
 }
@@ -143,7 +143,7 @@ impl CreateTransaction {
     pub fn new(
         transaction_id: TransactionId,
         journal_id: JournalId,
-        entries: Vec<BalanceUpdate>,
+        entries: TransactionEntries,
         authority: Authority,
         timestamp: Timestamp,
     ) -> Self {
@@ -188,7 +188,7 @@ impl Decision for CreateTransaction {
 
         let mut balance = 0;
 
-        for update in self.entries.iter() {
+        for update in self.entries.0.iter() {
             if !accounts.accounts.contains(&update.account_id) {
                 return Err(JournalError::InvalidAccount(update.account_id));
             }
@@ -202,7 +202,7 @@ impl Decision for CreateTransaction {
         if balance != 0 {
             return Err(JournalError::TransactionValidation(
                 TransactionValidationError::ImbalancedTransaction(TransactionEntries(
-                    self.entries.clone(),
+                    self.entries.0.clone(),
                 )),
             ));
         }
@@ -325,7 +325,7 @@ pub struct BalanceUpdate {
     pub entry_type: EntryType,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
 pub struct TransactionEntries(pub Vec<BalanceUpdate>);
 
 impl Type<Postgres> for TransactionEntries {

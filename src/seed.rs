@@ -4,8 +4,8 @@ use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
 use crate::journal::account::AccountId;
-use crate::journal::transaction::EntryType;
 use crate::journal::transaction::{BalanceUpdate, TransactionId};
+use crate::journal::transaction::{EntryType, TransactionEntries};
 use crate::journal::{JournalError, JournalId, Permissions};
 use crate::monkesto_error::MonkestoResult;
 use crate::name::Name;
@@ -220,7 +220,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
             .create_transaction(
                 id,
                 maple_ridge_academy_id,
-                entries,
+                TransactionEntries(entries),
                 pacioli_authority,
                 time_provider.get_time(),
             )

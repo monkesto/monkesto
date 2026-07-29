@@ -1,7 +1,7 @@
 use crate::monkesto_error::MonkestoError;
 use crate::proto::error::{
-    ProtoBalanceUpdate, ProtoIdentError, ProtoJournalError, ProtoMonkestoError, ProtoNameError,
-    ProtoPasskeyError, ProtoUserError, RepeatedBalanceUpdates,
+    ProtoDecodeError, ProtoIdentError, ProtoJournalError, ProtoMonkestoError, ProtoNameError,
+    ProtoPasskeyError, ProtoUserError,
 };
 use thiserror::Error;
 
@@ -27,12 +27,9 @@ use crate::authn::passkey::PasskeyError;
 use crate::authn::user::UserError;
 use crate::email::{Email, EmailError};
 use crate::id::IdentError;
-use crate::journal::transaction::{
-    BalanceUpdate, EntryType, TransactionEntries, TransactionValidationError,
-};
+use crate::journal::transaction::TransactionValidationError;
 use crate::journal::{JournalError, PermissionDecodeError, Permissions};
 use crate::name::NameError;
-use crate::proto::error::proto_balance_update::{ProtoEntryType, proto_entry_type};
 use crate::proto::error::proto_decode_error::ProtoErrorType;
 use crate::proto::error::proto_ident_error::IdentErrorType;
 use crate::proto::error::proto_journal_error::proto_transaction_validation_error::TransactionValidationErrorType;
@@ -43,52 +40,66 @@ use crate::proto::error::proto_passkey_error::PasskeyErrorType;
 use crate::proto::error::proto_user_error::UserErrorType;
 use ProtoError::*;
 
-impl TryFrom<RepeatedBalanceUpdates> for TransactionEntries {
-    type Error = ProtoError;
+impl From<ProtoError> for ProtoDecodeError {
+    fn from(e: ProtoError) -> Self {
+        let e = match e {
+            FieldRequired => ProtoErrorType::FieldRequired(()),
+            PermissionDecode(bits) => ProtoErrorType::PermissionDecode(bits),
+            ParseEmail(e) => match e {
+                EmailError::RegexViolated(em) => ProtoErrorType::ParseEmail(em),
+            },
+            Deserialize => ProtoErrorType::Deserialize(()),
+            Ident(e) => {
+                let ident_error = match e {
+                    IdentError::Parse(s) => IdentErrorType::Parse(s),
+                    IdentError::InvalidId(s) => IdentErrorType::InvalidId(s),
+                };
+                ProtoErrorType::Ident(ProtoIdentError {
+                    ident_error_type: Some(ident_error),
+                })
+            }
+            ParseUuid(s) => ProtoErrorType::Uuid(s),
+            ParseName(e) => {
+                let e = match e {
+                    NameError::TooShort(s) => NameErrorType::TooShort(s),
+                    NameError::TooLong(s) => NameErrorType::TooLong(s),
+                };
+                ProtoErrorType::Name(ProtoNameError {
+                    name_error_type: Some(e),
+                })
+            }
+        };
 
-    fn try_from(value: RepeatedBalanceUpdates) -> Result<Self, Self::Error> {
-        let mut translated_updates = Vec::new();
-
-        for entry in value.updates {
-            translated_updates.push(BalanceUpdate {
-                account_id: entry.account_id.ok_or(FieldRequired)?.try_into()?,
-                amount: entry.amount,
-                entry_type: match entry
-                    .entry_type
-                    .ok_or(FieldRequired)?
-                    .entry_type
-                    .ok_or(FieldRequired)?
-                {
-                    proto_entry_type::EntryType::Credit(_) => EntryType::Credit,
-                    proto_entry_type::EntryType::Debit(_) => EntryType::Debit,
-                },
-            })
+        ProtoDecodeError {
+            proto_error_type: Some(e),
         }
-
-        Ok(TransactionEntries(translated_updates))
     }
 }
 
-impl From<TransactionEntries> for RepeatedBalanceUpdates {
-    fn from(updates: TransactionEntries) -> Self {
-        RepeatedBalanceUpdates {
-            updates: updates
-                .0
-                .iter()
-                .map(|u| ProtoBalanceUpdate {
-                    account_id: Some(u.account_id.into()),
-                    amount: u.amount,
-                    entry_type: Some(match u.entry_type {
-                        EntryType::Credit => ProtoEntryType {
-                            entry_type: Some(proto_entry_type::EntryType::Credit(())),
-                        },
-                        EntryType::Debit => ProtoEntryType {
-                            entry_type: Some(proto_entry_type::EntryType::Debit(())),
-                        },
-                    }),
-                })
-                .collect(),
-        }
+impl TryFrom<ProtoDecodeError> for ProtoError {
+    type Error = ProtoError;
+
+    fn try_from(e: ProtoDecodeError) -> Result<Self, Self::Error> {
+        let proto_error = match e.proto_error_type.ok_or(FieldRequired)? {
+            ProtoErrorType::Deserialize(_) => Deserialize,
+            ProtoErrorType::FieldRequired(_) => FieldRequired,
+            ProtoErrorType::PermissionDecode(bits) => PermissionDecode(bits),
+            ProtoErrorType::ParseEmail(em) => ParseEmail(EmailError::RegexViolated(em)),
+            ProtoErrorType::Ident(e) => Ident(match e.ident_error_type.ok_or(FieldRequired)? {
+                IdentErrorType::Parse(s) => IdentError::Parse(s),
+                IdentErrorType::InvalidId(s) => IdentError::InvalidId(s),
+            }),
+            ProtoErrorType::Uuid(s) => ParseUuid(s),
+            ProtoErrorType::Name(e) => {
+                let e = match e.name_error_type.ok_or(FieldRequired)? {
+                    NameErrorType::TooShort(s) => NameError::TooShort(s),
+                    NameErrorType::TooLong(s) => NameError::TooLong(s),
+                };
+                ParseName(e)
+            }
+        };
+
+        Ok(proto_error)
     }
 }
 
@@ -97,30 +108,7 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
 
     fn try_from(proto_error: ProtoMonkestoError) -> Result<Self, Self::Error> {
         let error = match proto_error.monkesto_error_type.ok_or(FieldRequired)? {
-            MonkestoErrorType::ErrorDecode(e) => {
-                let proto_error = match e.proto_error_type.ok_or(FieldRequired)? {
-                    ProtoErrorType::Deserialize(_) => Deserialize,
-                    ProtoErrorType::FieldRequired(_) => FieldRequired,
-                    ProtoErrorType::PermissionDecode(bits) => PermissionDecode(bits),
-                    ProtoErrorType::ParseEmail(em) => ParseEmail(EmailError::RegexViolated(em)),
-                    ProtoErrorType::Ident(e) => {
-                        Ident(match e.ident_error_type.ok_or(FieldRequired)? {
-                            IdentErrorType::Parse(s) => IdentError::Parse(s),
-                            IdentErrorType::InvalidId(s) => IdentError::InvalidId(s),
-                        })
-                    }
-                    ProtoErrorType::Uuid(s) => ParseUuid(s),
-                    ProtoErrorType::Name(e) => {
-                        let e = match e.name_error_type.ok_or(FieldRequired)? {
-                            NameErrorType::TooShort(s) => NameError::TooShort(s),
-                            NameErrorType::TooLong(s) => NameError::TooLong(s),
-                        };
-                        ParseName(e)
-                    }
-                };
-
-                MonkestoError::Proto(proto_error)
-            }
+            MonkestoErrorType::ErrorDecode(e) => MonkestoError::Proto(e.try_into()?),
             MonkestoErrorType::NameCreation(e) => match e.name_error_type.ok_or(FieldRequired)? {
                 NameErrorType::TooShort(s) => MonkestoError::NameCreation(NameError::TooShort(s)),
                 NameErrorType::TooLong(s) => MonkestoError::NameCreation(NameError::TooLong(s)),
@@ -215,6 +203,7 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
 
                         JournalError::TransactionValidation(validation_error)
                     }
+                    JournalErrorType::ProtoDecode(e) => JournalError::ProtoDecode(e.try_into()?),
                 };
 
                 MonkestoError::Journal(journal_error)
@@ -272,39 +261,7 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
 impl From<MonkestoError> for ProtoMonkestoError {
     fn from(error: MonkestoError) -> Self {
         let e = match error {
-            MonkestoError::Proto(e) => {
-                let e = match e {
-                    FieldRequired => ProtoErrorType::FieldRequired(()),
-                    PermissionDecode(bits) => ProtoErrorType::PermissionDecode(bits),
-                    ParseEmail(e) => match e {
-                        EmailError::RegexViolated(em) => ProtoErrorType::ParseEmail(em),
-                    },
-                    Deserialize => ProtoErrorType::Deserialize(()),
-                    Ident(e) => {
-                        let ident_error = match e {
-                            IdentError::Parse(s) => IdentErrorType::Parse(s),
-                            IdentError::InvalidId(s) => IdentErrorType::InvalidId(s),
-                        };
-                        ProtoErrorType::Ident(ProtoIdentError {
-                            ident_error_type: Some(ident_error),
-                        })
-                    }
-                    ParseUuid(s) => ProtoErrorType::Uuid(s),
-                    ParseName(e) => {
-                        let e = match e {
-                            NameError::TooShort(s) => NameErrorType::TooShort(s),
-                            NameError::TooLong(s) => NameErrorType::TooLong(s),
-                        };
-                        ProtoErrorType::Name(ProtoNameError {
-                            name_error_type: Some(e),
-                        })
-                    }
-                };
-
-                MonkestoErrorType::ErrorDecode(crate::proto::error::ProtoDecodeError {
-                    proto_error_type: Some(e),
-                })
-            }
+            MonkestoError::Proto(e) => MonkestoErrorType::ErrorDecode(e.into()),
             MonkestoError::NameCreation(e) => {
                 let e = match e {
                     NameError::TooShort(s) => NameErrorType::TooShort(s),
@@ -398,6 +355,7 @@ impl From<MonkestoError> for ProtoMonkestoError {
                     JournalError::Sqlx(s) => JournalErrorType::Sqlx(s),
                     JournalError::PermissionDecode(e) => JournalErrorType::PermissionDecode(e.0),
                     JournalError::EventDecode(s) => JournalErrorType::EventDecode(s),
+                    JournalError::ProtoDecode(e) => JournalErrorType::ProtoDecode(e.into()),
                 };
 
                 MonkestoErrorType::Journal(ProtoJournalError {

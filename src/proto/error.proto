@@ -4,6 +4,7 @@ package proto.error;
 
 import "google/protobuf/empty.proto";
 import "proto/ident.proto";
+import "proto/balance_update.proto";
 
 message ProtoIdentError {
   oneof ident_error_type {
@@ -19,23 +20,6 @@ message ProtoNameError {
   }
 }
 
-message ProtoBalanceUpdate {
-  message ProtoEntryType {
-    oneof entry_type {
-      google.protobuf.Empty credit = 1;
-      google.protobuf.Empty debit = 2;
-    }
-  }
-
-  proto.ident.ProtoIdent account_id = 1;
-  uint64 amount = 2;
-  ProtoEntryType entry_type = 3;
-}
-
-message RepeatedBalanceUpdates {
-  repeated ProtoBalanceUpdate updates = 1;
-}
-
 message ProtoJournalError {
   message ProtoTransactionValidationError {
 
@@ -48,7 +32,7 @@ message ProtoJournalError {
       string partial_cent_value = 6;
       string out_of_range = 7;
       string negative_entry_amount = 8;
-      RepeatedBalanceUpdates imbalanced_transaction = 9;
+      proto.balance_update.RepeatedBalanceUpdates imbalanced_transaction = 9;
     }
   }
 
@@ -67,6 +51,7 @@ message ProtoJournalError {
     string sqlx = 12;
     int32 permission_decode = 13;
     ProtoTransactionValidationError transaction_validation = 14;
+    ProtoDecodeError proto_decode = 15;
   }
 }
 

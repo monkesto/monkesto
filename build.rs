@@ -4,6 +4,7 @@ fn main() {
 
     prost_build::compile_protos(
         &[
+            "src/proto/balance_update.proto",
             "src/proto/error.proto",
             "src/proto/ident.proto",
             "src/proto/event/authn.proto",

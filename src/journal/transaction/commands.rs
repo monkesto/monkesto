@@ -4,7 +4,7 @@ use crate::authn::get_user;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::journal::account::AccountId;
-use crate::journal::transaction::{BalanceUpdate, TransactionId};
+use crate::journal::transaction::{BalanceUpdate, TransactionEntries, TransactionId};
 use crate::journal::transaction::{EntryType, TransactionValidationError};
 use crate::journal::{JournalError, JournalId};
 use crate::monkesto_error::OrRedirect;
@@ -118,7 +118,7 @@ pub async fn transact(
         .create_transaction(
             TransactionId::new(),
             journal_id,
-            updates,
+            TransactionEntries(updates),
             user_authority,
             DefaultTimeProvider.get_time(),
         )

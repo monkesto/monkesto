@@ -2,7 +2,7 @@ use crate::authn::UserId;
 use crate::authority::Authority;
 use crate::journal::account::AccountId;
 use crate::journal::store::JournalEventStore;
-use crate::journal::transaction::{BalanceUpdate, TransactionId};
+use crate::journal::transaction::{TransactionEntries, TransactionId};
 use crate::journal::{JournalId, JournalService, Permissions};
 use crate::name::Name;
 use crate::shutdown;
@@ -88,7 +88,7 @@ pub enum JournalDomainEvent {
         transaction_id: TransactionId,
         #[id]
         journal_id: JournalId,
-        balance_updates: Vec<BalanceUpdate>,
+        balance_updates: TransactionEntries,
         authority: Authority,
         timestamp: Timestamp,
     },
