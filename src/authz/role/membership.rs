@@ -42,6 +42,7 @@ mod tests {
     use crate::authority::{Actor, Authority};
     use crate::authz::RoleId;
     use crate::name::Name;
+    use crate::time_provider::Timestamp;
     use chrono::Utc;
 
     #[test]
@@ -56,7 +57,7 @@ mod tests {
             actor,
             true,
             Authority::Direct(Actor::System),
-            Utc::now(),
+            Timestamp(Utc::now()),
         );
         assert!(decision.process(&role).expect("valid decision").is_empty());
     }

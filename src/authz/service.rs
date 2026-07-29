@@ -9,6 +9,7 @@ use super::role::{
 use super::store::AuthzEventStore;
 use crate::authority::{Actor, Authority};
 use crate::name::Name;
+use crate::time_provider::Timestamp;
 use chrono::Utc;
 use disintegrate::{DecisionError, PersistedEvent};
 use disintegrate_postgres::PgEventId;
@@ -52,7 +53,12 @@ impl AuthzService {
         let events = self
             .event_store
             .decision_maker
-            .make(CreateRole::new(role_id, name, authority, Utc::now()))
+            .make(CreateRole::new(
+                role_id,
+                name,
+                authority,
+                Timestamp(Utc::now()),
+            ))
             .await
             .map_err(map_role_decision_error)?;
         self.project(events).await?;
@@ -68,7 +74,12 @@ impl AuthzService {
         let events = self
             .event_store
             .decision_maker
-            .make(CreateGrant::new(grant_id, role_id, authority, Utc::now()))
+            .make(CreateGrant::new(
+                grant_id,
+                role_id,
+                authority,
+                Timestamp(Utc::now()),
+            ))
             .await
             .map_err(map_grant_decision_error)?;
         self.project(events).await?;
@@ -83,7 +94,7 @@ impl AuthzService {
         let events = self
             .event_store
             .decision_maker
-            .make(RevokeGrant::new(grant_id, authority, Utc::now()))
+            .make(RevokeGrant::new(grant_id, authority, Timestamp(Utc::now())))
             .await
             .map_err(map_grant_decision_error)?;
         self.project(events).await
@@ -124,7 +135,7 @@ impl AuthzService {
                 actor,
                 add,
                 authority,
-                Utc::now(),
+                Timestamp(Utc::now()),
             ))
             .await
             .map_err(map_role_decision_error)?;

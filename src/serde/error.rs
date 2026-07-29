@@ -15,6 +15,8 @@ pub enum ProtoError {
     PermissionDecode(i32),
     #[error("Failed to parse an email: {0}")]
     ParseEmail(#[from] EmailError),
+    #[error("Failed to parse a name: {0}")]
+    ParseName(#[from] NameError),
     #[error("Invalid ident: {0}")]
     Ident(#[from] IdentError),
     #[error("invalid webauthn-uuid: {0}")]
@@ -108,6 +110,13 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
                         })
                     }
                     ProtoErrorType::Uuid(s) => ParseUuid(s),
+                    ProtoErrorType::Name(e) => {
+                        let e = match e.name_error_type.ok_or(FieldRequired)? {
+                            NameErrorType::TooShort(s) => NameError::TooShort(s),
+                            NameErrorType::TooLong(s) => NameError::TooLong(s),
+                        };
+                        ParseName(e)
+                    }
                 };
 
                 MonkestoError::Proto(proto_error)
@@ -281,6 +290,15 @@ impl From<MonkestoError> for ProtoMonkestoError {
                         })
                     }
                     ParseUuid(s) => ProtoErrorType::Uuid(s),
+                    ParseName(e) => {
+                        let e = match e {
+                            NameError::TooShort(s) => NameErrorType::TooShort(s),
+                            NameError::TooLong(s) => NameErrorType::TooLong(s),
+                        };
+                        ProtoErrorType::Name(ProtoNameError {
+                            name_error_type: Some(e),
+                        })
+                    }
                 };
 
                 MonkestoErrorType::ErrorDecode(crate::proto::error::ProtoDecodeError {

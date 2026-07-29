@@ -1,4 +1,4 @@
-mod event;
+pub mod event;
 mod grant;
 mod role;
 mod service;

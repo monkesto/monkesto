@@ -6,19 +6,18 @@ mod page;
 pub use index::RoleIndex;
 pub use page::router;
 
+use super::event::RoleEvent;
 use crate::authority::{Actor, Authority};
 use crate::authz::event::AuthzEvent;
 use crate::id;
 use crate::id::Ident;
 use crate::name::Name;
-use chrono::{DateTime, Utc};
+use crate::time_provider::Timestamp;
 use disintegrate::{PersistedEvent, StateMutate, StateQuery};
 use disintegrate_postgres::PgEventId;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
-
-use super::event::RoleEvent;
 
 id!(RoleId, Ident::new16());
 
@@ -77,16 +76,11 @@ pub struct CreateRole {
     role_id: RoleId,
     name: Name,
     authority: Authority,
-    timestamp: DateTime<Utc>,
+    timestamp: Timestamp,
 }
 
 impl CreateRole {
-    pub fn new(
-        role_id: RoleId,
-        name: Name,
-        authority: Authority,
-        timestamp: DateTime<Utc>,
-    ) -> Self {
+    pub fn new(role_id: RoleId, name: Name, authority: Authority, timestamp: Timestamp) -> Self {
         Self {
             role_id,
             name,
@@ -101,7 +95,7 @@ pub struct ChangeRoleActor {
     actor: Actor,
     add: bool,
     authority: Authority,
-    timestamp: DateTime<Utc>,
+    timestamp: Timestamp,
 }
 
 impl ChangeRoleActor {
@@ -110,7 +104,7 @@ impl ChangeRoleActor {
         actor: Actor,
         add: bool,
         authority: Authority,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
     ) -> Self {
         Self {
             role_id,
@@ -129,7 +123,7 @@ pub enum RoleIndexError {
     #[error(transparent)]
     Postcard(#[from] postcard::Error),
     #[error(transparent)]
-    Ident(#[from] crate::id::IdentError),
+    Ident(#[from] id::IdentError),
 }
 
 impl RoleIndex {

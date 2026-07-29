@@ -1,16 +1,15 @@
 mod create;
 mod revoke;
 
+use super::RoleId;
+use super::event::GrantEvent;
 use crate::authority::Authority;
 use crate::id;
 use crate::id::Ident;
-use chrono::{DateTime, Utc};
+use crate::time_provider::Timestamp;
 use disintegrate::{StateMutate, StateQuery};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-
-use super::RoleId;
-use super::event::GrantEvent;
 
 id!(GrantId, Ident::new16());
 
@@ -56,7 +55,7 @@ pub struct CreateGrant {
     grant_id: GrantId,
     role_id: RoleId,
     authority: Authority,
-    timestamp: DateTime<Utc>,
+    timestamp: Timestamp,
 }
 
 impl CreateGrant {
@@ -64,7 +63,7 @@ impl CreateGrant {
         grant_id: GrantId,
         role_id: RoleId,
         authority: Authority,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
     ) -> Self {
         Self {
             grant_id,
@@ -78,11 +77,11 @@ impl CreateGrant {
 pub struct RevokeGrant {
     grant_id: GrantId,
     authority: Authority,
-    timestamp: DateTime<Utc>,
+    timestamp: Timestamp,
 }
 
 impl RevokeGrant {
-    pub fn new(grant_id: GrantId, authority: Authority, timestamp: DateTime<Utc>) -> Self {
+    pub fn new(grant_id: GrantId, authority: Authority, timestamp: Timestamp) -> Self {
         Self {
             grant_id,
             authority,

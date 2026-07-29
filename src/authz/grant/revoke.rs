@@ -31,6 +31,7 @@ mod tests {
     use super::*;
     use crate::authority::{Actor, Authority};
     use crate::authz::GrantId;
+    use crate::time_provider::Timestamp;
     use chrono::Utc;
 
     fn authority() -> Authority {
@@ -40,7 +41,7 @@ mod tests {
     #[test]
     fn revoking_a_missing_grant_fails() {
         let grant_id = GrantId::new();
-        let decision = RevokeGrant::new(grant_id, authority(), Utc::now());
+        let decision = RevokeGrant::new(grant_id, authority(), Timestamp(Utc::now()));
         assert_eq!(
             decision.process(&decision.state_query()),
             Err(GrantDecisionError::NotFound(grant_id))
@@ -55,7 +56,7 @@ mod tests {
             found: true,
             revoked: true,
         };
-        let decision = RevokeGrant::new(grant_id, authority(), Utc::now());
+        let decision = RevokeGrant::new(grant_id, authority(), Timestamp(Utc::now()));
         assert!(decision.process(&grant).expect("valid decision").is_empty());
     }
 }

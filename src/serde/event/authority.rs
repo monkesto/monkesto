@@ -56,6 +56,14 @@ impl TryFrom<ProtoActor> for Actor {
     }
 }
 
+impl TryFrom<Option<ProtoActor>> for Actor {
+    type Error = ProtoError;
+
+    fn try_from(value: Option<ProtoActor>) -> Result<Self, Self::Error> {
+        value.ok_or(FieldRequired)?.try_into()
+    }
+}
+
 impl TryFrom<ProtoAuthority> for Authority {
     type Error = ProtoError;
 

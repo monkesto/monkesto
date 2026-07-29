@@ -109,6 +109,7 @@ message ProtoDecodeError {
     string parse_email = 4;
     ProtoIdentError ident = 5;
     string uuid = 6;
+    ProtoNameError name = 7;
   }
 }
 

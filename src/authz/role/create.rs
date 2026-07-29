@@ -30,6 +30,7 @@ mod tests {
     use crate::authority::{Actor, Authority};
     use crate::authz::RoleId;
     use crate::name::Name;
+    use crate::time_provider::Timestamp;
     use chrono::Utc;
 
     #[test]
@@ -39,7 +40,7 @@ mod tests {
             role_id,
             Name::try_new("Administrator".into()).expect("valid name"),
             Authority::Direct(Actor::System),
-            Utc::now(),
+            Timestamp(Utc::now()),
         );
         let events = decision
             .process(&decision.state_query())

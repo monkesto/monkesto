@@ -1,7 +1,7 @@
 use super::{GrantId, RoleId};
 use crate::authority::{Actor, Authority};
 use crate::name::Name;
-use chrono::{DateTime, Utc};
+use crate::time_provider::Timestamp;
 use disintegrate::Event;
 use serde::{Deserialize, Serialize};
 
@@ -14,33 +14,33 @@ pub enum AuthzEvent {
         role_id: RoleId,
         name: Name,
         authority: Authority,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
     },
     RoleActorAdded {
         #[id]
         role_id: RoleId,
         actor: Actor,
         authority: Authority,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
     },
     RoleActorRemoved {
         #[id]
         role_id: RoleId,
         actor: Actor,
         authority: Authority,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
     },
     GrantCreated {
         #[id]
         grant_id: GrantId,
         role_id: RoleId,
         authority: Authority,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
     },
     GrantRevoked {
         #[id]
         grant_id: GrantId,
         authority: Authority,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
     },
 }

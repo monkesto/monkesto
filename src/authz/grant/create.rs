@@ -33,6 +33,7 @@ mod tests {
     use super::*;
     use crate::authority::{Actor, Authority};
     use crate::authz::{GrantId, RoleId};
+    use crate::time_provider::Timestamp;
     use chrono::Utc;
 
     #[test]
@@ -42,7 +43,7 @@ mod tests {
             GrantId::new(),
             role_id,
             Authority::Direct(Actor::System),
-            Utc::now(),
+            Timestamp(Utc::now()),
         );
         assert_eq!(
             decision.process(&decision.state_query()),

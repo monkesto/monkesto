@@ -1,13 +1,15 @@
 use super::event::AuthzEvent;
-use disintegrate::serde::messagepack::MessagePack;
+use crate::proto::event::authz::ProtoAuthzEvent;
+use disintegrate::serde::prost::Prost;
 use disintegrate_postgres::{
     PgDecisionMaker, PgEventStore, PgSnapshotter, WithPgSnapshot, decision_maker,
 };
 use sqlx::PgPool;
 use thiserror::Error;
 
-type PgAuthzDecisionMaker = PgDecisionMaker<AuthzEvent, MessagePack<AuthzEvent>, WithPgSnapshot>;
-type PgAuthzEventStore = PgEventStore<AuthzEvent, MessagePack<AuthzEvent>>;
+type PgAuthzDecisionMaker =
+    PgDecisionMaker<AuthzEvent, Prost<AuthzEvent, ProtoAuthzEvent>, WithPgSnapshot>;
+type PgAuthzEventStore = PgEventStore<AuthzEvent, Prost<AuthzEvent, ProtoAuthzEvent>>;
 
 #[derive(Debug, Error)]
 pub enum AuthzConnectError {
@@ -25,9 +27,12 @@ pub struct AuthzEventStore {
 
 impl AuthzEventStore {
     pub async fn try_new(pool: PgPool) -> Result<Self, AuthzConnectError> {
-        let event_store = PgEventStore::try_new(pool.clone(), MessagePack::<AuthzEvent>::default())
-            .await
-            .map_err(|error| AuthzConnectError::Disintegrate(error.to_string()))?;
+        let event_store = PgEventStore::try_new(
+            pool.clone(),
+            Prost::<AuthzEvent, ProtoAuthzEvent>::default(),
+        )
+        .await
+        .map_err(|error| AuthzConnectError::Disintegrate(error.to_string()))?;
         let snapshotter = PgSnapshotter::try_new(pool.clone(), 10)
             .await
             .map_err(|error| AuthzConnectError::Disintegrate(error.to_string()))?;
