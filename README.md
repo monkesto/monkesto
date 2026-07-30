@@ -23,6 +23,11 @@ cargo install sqlx-cli
 npm install
 ```
 
+### linker
+
+Monkesto uses the [mold](https://github.com/rui314/mold) linker on linux. It must be installed and in your $PATH for the
+build to succeed.
+
 ## Configure the database:
 
 Monkesto requires PostgreSQL at runtime. Set its connection URL and enable

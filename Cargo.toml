@@ -53,5 +53,9 @@ disallowed_methods = "warn"
 [profile.release]
 opt-level = 3
 
+[profile.dev]
+split-debuginfo = "unpacked"
+debug = 1
+
 [dev-dependencies]
 rstest = "0.26.1"

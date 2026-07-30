@@ -46,8 +46,8 @@ jobs:
       - run: rustup toolchain install stable --profile minimal
       - uses: Swatinem/rust-cache@v2
 
-      - name: Install protoc
-        run: sudo apt-get install protobuf-compiler
+      - name: Install protoc and mold
+        run: sudo apt-get install protobuf-compiler mold
 
       - name: Build
         run: cargo test --release

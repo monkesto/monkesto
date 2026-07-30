@@ -2,7 +2,7 @@
 FROM rustlang/rust:nightly-trixie AS builder
 
 RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs protobuf-compiler
+    && apt-get install -y nodejs protobuf-compiler clang mold
 
 # Make an /app dir, which everything will eventually live in
 RUN mkdir -p /app
