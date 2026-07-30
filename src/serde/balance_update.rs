@@ -1,8 +1,8 @@
 use crate::journal::transaction::{BalanceUpdate, EntryType, TransactionEntries};
-use crate::proto::balance_update::proto_balance_update::{ProtoEntryType, proto_entry_type};
-use crate::proto::balance_update::{ProtoBalanceUpdate, RepeatedBalanceUpdates};
 use crate::serde::error::ProtoError;
 use crate::serde::error::ProtoError::FieldRequired;
+use proto::balance_update::proto_balance_update::{ProtoEntryType, proto_entry_type};
+use proto::balance_update::{ProtoBalanceUpdate, RepeatedBalanceUpdates};
 
 impl TryFrom<RepeatedBalanceUpdates> for TransactionEntries {
     type Error = ProtoError;

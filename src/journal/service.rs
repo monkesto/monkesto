@@ -15,7 +15,6 @@ use crate::journal::transaction::{
 };
 use crate::journal::{CreateJournal, JournalError};
 use crate::name::Name;
-use crate::proto::event::journal::ProtoJournalDomainEvent;
 use crate::time_provider::Timestamp;
 use async_trait::async_trait;
 use disintegrate::serde::prost::Prost;
@@ -24,6 +23,7 @@ use disintegrate_postgres::{
     PgDecisionMaker, PgEventId, PgSnapshotter, WithPgSnapshot, decision_maker,
 };
 use prost::Message;
+use proto::event::journal::ProtoJournalDomainEvent;
 use sqlx::{FromRow, PgPool};
 use tokio::sync::watch;
 

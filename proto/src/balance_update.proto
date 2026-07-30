@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package proto.balance_update;
 import "google/protobuf/empty.proto";
-import "proto/ident.proto";
+import "ident.proto";
 
 message ProtoBalanceUpdate {
   message ProtoEntryType {
@@ -12,7 +12,7 @@ message ProtoBalanceUpdate {
     }
   }
 
-  proto.ident.ProtoIdent account_id = 1;
+  ident.ProtoIdent account_id = 1;
   uint64 amount = 2;
   ProtoEntryType entry_type = 3;
 }

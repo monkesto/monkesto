@@ -17,7 +17,6 @@ use crate::authority::Authority;
 use crate::email::Email;
 use crate::event_id::GetEventId;
 use crate::monkesto_error::OrRedirect;
-use crate::proto::event::authn::ProtoAuthnEvent;
 use crate::time_provider::Timestamp;
 use crate::{id, shutdown};
 use async_trait::async_trait;
@@ -34,6 +33,7 @@ use disintegrate_postgres::{
     PgSnapshotter, RetryAction, WithPgSnapshot, decision_maker,
 };
 pub use layout::layout;
+use proto::event::authn::ProtoAuthnEvent;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgHasArrayType;
 use sqlx::{Database, PgPool, Postgres, Type};

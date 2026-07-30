@@ -1,9 +1,9 @@
 use super::event::AuthzEvent;
-use crate::proto::event::authz::ProtoAuthzEvent;
 use disintegrate::serde::prost::Prost;
 use disintegrate_postgres::{
     PgDecisionMaker, PgEventStore, PgSnapshotter, WithPgSnapshot, decision_maker,
 };
+use proto::event::authz::ProtoAuthzEvent;
 use sqlx::PgPool;
 use thiserror::Error;
 

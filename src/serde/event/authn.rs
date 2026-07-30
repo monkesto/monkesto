@@ -1,11 +1,11 @@
 use crate::authn::AuthnEvent;
 use crate::email::Email;
-use crate::proto::event::authn::ProtoAuthnEvent;
-use crate::proto::event::authn::proto_authn_event::{
-    AuthnEventType, ProtoPasskeyCreated, ProtoPasskeyDeleted, ProtoUserCreated, ProtoUserDeleted,
-};
 use crate::serde::error::ProtoError;
 use crate::serde::error::ProtoError::FieldRequired;
+use proto::event::authn::ProtoAuthnEvent;
+use proto::event::authn::proto_authn_event::{
+    AuthnEventType, ProtoPasskeyCreated, ProtoPasskeyDeleted, ProtoUserCreated, ProtoUserDeleted,
+};
 use webauthn_rs::prelude::Uuid;
 
 impl From<AuthnEvent> for ProtoAuthnEvent {

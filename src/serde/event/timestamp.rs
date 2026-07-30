@@ -1,8 +1,8 @@
-use crate::proto::event::timestamp::ProtoTimestamp;
 use crate::serde::error::ProtoError;
 use crate::serde::error::ProtoError::FieldRequired;
 use crate::time_provider::Timestamp;
 use chrono::DateTime;
+use proto::event::timestamp::ProtoTimestamp;
 
 impl From<Timestamp> for ProtoTimestamp {
     fn from(timestamp: Timestamp) -> Self {

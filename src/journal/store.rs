@@ -1,7 +1,7 @@
 use crate::journal::domain::JournalDomainEvent;
-use crate::proto::event::journal::ProtoJournalDomainEvent;
 use disintegrate::serde::prost::Prost;
 use disintegrate_postgres::PgEventStore;
+use proto::event::journal::ProtoJournalDomainEvent;
 use sqlx::PgPool;
 
 pub type PgJournalEventStore =

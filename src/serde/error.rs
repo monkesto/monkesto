@@ -1,5 +1,5 @@
 use crate::monkesto_error::MonkestoError;
-use crate::proto::error::{
+use proto::error::{
     ProtoDecodeError, ProtoIdentError, ProtoJournalError, ProtoMonkestoError, ProtoNameError,
     ProtoPasskeyError, ProtoUserError,
 };
@@ -30,15 +30,15 @@ use crate::id::IdentError;
 use crate::journal::transaction::TransactionValidationError;
 use crate::journal::{JournalError, PermissionDecodeError, Permissions};
 use crate::name::NameError;
-use crate::proto::error::proto_decode_error::ProtoErrorType;
-use crate::proto::error::proto_ident_error::IdentErrorType;
-use crate::proto::error::proto_journal_error::proto_transaction_validation_error::TransactionValidationErrorType;
-use crate::proto::error::proto_journal_error::{JournalErrorType, ProtoTransactionValidationError};
-use crate::proto::error::proto_monkesto_error::MonkestoErrorType;
-use crate::proto::error::proto_name_error::NameErrorType;
-use crate::proto::error::proto_passkey_error::PasskeyErrorType;
-use crate::proto::error::proto_user_error::UserErrorType;
 use ProtoError::*;
+use proto::error::proto_decode_error::ProtoErrorType;
+use proto::error::proto_ident_error::IdentErrorType;
+use proto::error::proto_journal_error::proto_transaction_validation_error::TransactionValidationErrorType;
+use proto::error::proto_journal_error::{JournalErrorType, ProtoTransactionValidationError};
+use proto::error::proto_monkesto_error::MonkestoErrorType;
+use proto::error::proto_name_error::NameErrorType;
+use proto::error::proto_passkey_error::PasskeyErrorType;
+use proto::error::proto_user_error::UserErrorType;
 
 impl From<ProtoError> for ProtoDecodeError {
     fn from(e: ProtoError) -> Self {

@@ -1,4 +1,3 @@
-use crate::proto::ident::ProtoIdent;
 use crate::serde::error::ProtoError;
 use arrayvec::ArrayString;
 use cuid::Cuid2Constructor;
@@ -6,6 +5,7 @@ use cuid::cuid2_slug;
 use cuid::is_cuid2;
 use disintegrate::{IdentifierType, IdentifierValue, IntoIdentifierValue};
 use phf::phf_set;
+use proto::ident::ProtoIdent;
 use serde::{Deserialize, Serialize};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
@@ -249,26 +249,24 @@ macro_rules! id {
             }
         }
 
-        impl From<$id_name> for $crate::proto::ident::ProtoIdent {
+        impl From<$id_name> for ::proto::ident::ProtoIdent {
             fn from(id: $id_name) -> Self {
                 id.0.into()
             }
         }
 
-        impl TryFrom<$crate::proto::ident::ProtoIdent> for $id_name {
+        impl TryFrom<::proto::ident::ProtoIdent> for $id_name {
             type Error = $crate::serde::error::ProtoError;
 
-            fn try_from(value: $crate::proto::ident::ProtoIdent) -> Result<Self, Self::Error> {
+            fn try_from(value: ::proto::ident::ProtoIdent) -> Result<Self, Self::Error> {
                 Ok(Self(value.try_into()?))
             }
         }
 
-        impl TryFrom<Option<$crate::proto::ident::ProtoIdent>> for $id_name {
+        impl TryFrom<Option<::proto::ident::ProtoIdent>> for $id_name {
             type Error = $crate::serde::error::ProtoError;
 
-            fn try_from(
-                value: Option<$crate::proto::ident::ProtoIdent>,
-            ) -> Result<Self, Self::Error> {
+            fn try_from(value: Option<::proto::ident::ProtoIdent>) -> Result<Self, Self::Error> {
                 Ok(Self(value.try_into()?))
             }
         }

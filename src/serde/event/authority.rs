@@ -1,10 +1,10 @@
 use crate::authn::UserId;
 use crate::authority::{Actor, Authority, GrantId};
-use crate::proto::event::authority::proto_actor::ActorType;
-use crate::proto::event::authority::proto_authority::{AuthorityType, ProtoDelegatedAuthority};
-use crate::proto::event::authority::{ProtoActor, ProtoAuthority};
 use crate::serde::error::ProtoError;
 use crate::serde::error::ProtoError::FieldRequired;
+use proto::event::authority::proto_actor::ActorType;
+use proto::event::authority::proto_authority::{AuthorityType, ProtoDelegatedAuthority};
+use proto::event::authority::{ProtoActor, ProtoAuthority};
 use std::str::FromStr;
 
 impl From<Actor> for ProtoActor {

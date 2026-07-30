@@ -1,7 +1,7 @@
 use super::AuthnEvent;
-use crate::proto::event::authn::ProtoAuthnEvent;
 use disintegrate::serde::prost::Prost;
 use disintegrate_postgres::PgEventStore;
+use proto::event::authn::ProtoAuthnEvent;
 use sqlx::PgPool;
 
 pub(super) type PgAuthnEventStore = PgEventStore<AuthnEvent, Prost<AuthnEvent, ProtoAuthnEvent>>;

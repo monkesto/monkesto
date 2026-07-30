@@ -5,6 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$/monkesto-derive/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/monkesto-derive/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/simple-sqlite-store/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/proto/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>

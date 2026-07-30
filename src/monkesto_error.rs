@@ -4,13 +4,13 @@ use crate::email::EmailError;
 use crate::id::IdentError;
 use crate::journal::JournalError;
 use crate::name::NameError;
-use crate::proto::error::ProtoMonkestoError;
 use crate::serde::error::ProtoError;
 use axum::response::Redirect;
 use base64::Engine;
 use base64::engine::{DecodePaddingMode, GeneralPurposeConfig, simd};
 use disintegrate::DecisionError;
 use prost::Message;
+use proto::error::ProtoMonkestoError;
 use serde::Deserialize;
 use thiserror::Error;
 

@@ -1,12 +1,12 @@
 use crate::authz::event::AuthzEvent;
 use crate::name::Name;
-use crate::proto::event::authz::ProtoAuthzEvent;
-use crate::proto::event::authz::proto_authz_event::{
+use crate::serde::error::ProtoError;
+use crate::serde::error::ProtoError::FieldRequired;
+use proto::event::authz::ProtoAuthzEvent;
+use proto::event::authz::proto_authz_event::{
     AuthzEventType, ProtoGrantCreated, ProtoGrantRevoked, ProtoRoleActorAdded,
     ProtoRoleActorRemoved, ProtoRoleCreated,
 };
-use crate::serde::error::ProtoError;
-use crate::serde::error::ProtoError::FieldRequired;
 
 impl From<AuthzEvent> for ProtoAuthzEvent {
     fn from(event: AuthzEvent) -> Self {

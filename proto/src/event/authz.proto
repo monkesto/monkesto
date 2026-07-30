@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package proto.event.authz;
+
+import "google/protobuf/empty.proto";
+import "event/authority.proto";
+import "ident.proto";
+import "event/timestamp.proto";
+
+message ProtoAuthzEvent {
+  message ProtoRoleCreated {
+    ident.ProtoIdent role_id = 1;
+    string name = 2;
+    authority.ProtoAuthority authority = 3;
+    timestamp.ProtoTimestamp timestamp = 4;
+  }
+
+  message ProtoRoleActorAdded {
+    ident.ProtoIdent role_id = 1;
+    event.authority.ProtoActor actor = 2;
+    event.authority.ProtoAuthority authority = 3;
+    event.timestamp.ProtoTimestamp timestamp = 4;
+  }
+
+  message ProtoRoleActorRemoved {
+    ident.ProtoIdent role_id = 1;
+    authority.ProtoActor actor = 2;
+    authority.ProtoAuthority authority = 3;
+    timestamp.ProtoTimestamp timestamp = 4;
+  }
+
+  message ProtoGrantCreated {
+    ident.ProtoIdent grant_id = 1;
+    ident.ProtoIdent role_id = 2;
+    authority.ProtoAuthority authority = 3;
+    timestamp.ProtoTimestamp timestamp = 4;
+  }
+
+  message ProtoGrantRevoked {
+    ident.ProtoIdent grant_id = 1;
+    authority.ProtoAuthority authority = 2;
+    timestamp.ProtoTimestamp timestamp = 3;
+  }
+
+  oneof authz_event_type {
+    ProtoRoleCreated role_created = 1;
+    ProtoRoleActorAdded role_actor_added = 2;
+    ProtoRoleActorRemoved role_actor_removed = 3;
+    ProtoGrantCreated grant_created = 4;
+    ProtoGrantRevoked grant_revoked = 5;
+  }
+}

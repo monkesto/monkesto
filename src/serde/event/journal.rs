@@ -1,14 +1,14 @@
 use crate::journal::Permissions;
 use crate::journal::domain::JournalDomainEvent;
 use crate::name::Name;
-use crate::proto::event::journal::ProtoJournalDomainEvent;
-use crate::proto::event::journal::proto_journal_domain_event::{
+use crate::serde::error::ProtoError;
+use crate::serde::error::ProtoError::FieldRequired;
+use proto::event::journal::ProtoJournalDomainEvent;
+use proto::event::journal::proto_journal_domain_event::{
     JournalDomainEventType, ProtoAccountCreated, ProtoAccountDeleted, ProtoAccountRenamed,
     ProtoJournalCreated, ProtoJournalDeleted, ProtoMemberAdded, ProtoMemberPermissionsUpdated,
     ProtoMemberRemoved, ProtoTransactionCreated, ProtoTransactionDeleted,
 };
-use crate::serde::error::ProtoError;
-use crate::serde::error::ProtoError::FieldRequired;
 
 impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
     fn from(event: JournalDomainEvent) -> Self {

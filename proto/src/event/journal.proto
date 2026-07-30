@@ -1,0 +1,97 @@
+syntax = "proto3";
+
+package proto.event.journal;
+
+import "google/protobuf/empty.proto";
+import "event/authority.proto";
+import "ident.proto";
+import "event/timestamp.proto";
+import "balance_update.proto";
+
+
+message ProtoJournalDomainEvent {
+  message ProtoJournalCreated {
+    ident.ProtoIdent journal_id = 1;
+    ident.ProtoIdent owner_id = 2;
+    string name = 3;
+    authority.ProtoAuthority authority = 4;
+    timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  message ProtoJournalDeleted {
+    ident.ProtoIdent journal_id = 1;
+    authority.ProtoAuthority authority = 2;
+    timestamp.ProtoTimestamp timestamp = 3;
+  }
+
+  message ProtoMemberAdded {
+    ident.ProtoIdent journal_id = 1;
+    ident.ProtoIdent user_id = 2;
+    int32 permissions = 3;
+    authority.ProtoAuthority authority = 4;
+    timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  message ProtoMemberPermissionsUpdated {
+    ident.ProtoIdent journal_id = 1;
+    ident.ProtoIdent user_id = 2;
+    int32 permissions = 3;
+    authority.ProtoAuthority authority = 4;
+    timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  message ProtoMemberRemoved {
+    ident.ProtoIdent journal_id = 1;
+    ident.ProtoIdent user_id = 2;
+    event.authority.ProtoAuthority authority = 3;
+    event.timestamp.ProtoTimestamp timestamp = 4;
+  }
+
+  message ProtoAccountCreated {
+    ident.ProtoIdent account_id = 1;
+    ident.ProtoIdent journal_id = 2;
+    string name = 3;
+    authority.ProtoAuthority authority = 4;
+    timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  message ProtoAccountRenamed {
+    proto.ident.ProtoIdent account_id = 1;
+    string new_name = 2;
+    authority.ProtoAuthority authority = 3;
+    timestamp.ProtoTimestamp timestamp = 4;
+  }
+
+  message ProtoAccountDeleted {
+    ident.ProtoIdent account_id = 1;
+    authority.ProtoAuthority authority = 2;
+    timestamp.ProtoTimestamp timestamp = 3;
+  }
+
+  message ProtoTransactionCreated {
+    ident.ProtoIdent transaction_id = 1;
+    ident.ProtoIdent journal_id = 2;
+    balance_update.RepeatedBalanceUpdates entries = 3;
+    authority.ProtoAuthority authority = 4;
+    timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  message ProtoTransactionDeleted {
+    ident.ProtoIdent transaction_id = 1;
+    authority.ProtoAuthority authority = 2;
+    timestamp.ProtoTimestamp timestamp = 3;
+  }
+
+  oneof journal_domain_event_type {
+    ProtoJournalCreated journal_created = 1;
+    ProtoJournalDeleted journal_deleted = 2;
+    ProtoMemberAdded member_added = 3;
+    ProtoMemberPermissionsUpdated member_permissions_updated = 4;
+    ProtoMemberRemoved member_removed = 5;
+    ProtoAccountCreated account_created = 6;
+    ProtoAccountRenamed account_renamed = 7;
+    ProtoAccountDeleted account_deleted = 8;
+    ProtoTransactionCreated transaction_created = 9;
+    ProtoTransactionDeleted transaction_deleted = 10;
+  }
+}
