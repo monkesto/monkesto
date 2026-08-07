@@ -148,6 +148,8 @@ async fn main() {
         .await
         .expect("failed to create a projection pool");
 
+    tokio::spawn(auth_service.clone().purge_outdated_verification_codes());
+
     tokio::spawn(authn::event_listener(
         auth_event_store.clone(),
         auth_service.clone(),

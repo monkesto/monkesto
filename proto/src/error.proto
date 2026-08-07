@@ -70,6 +70,8 @@ message ProtoUserError {
     string serde_json = 10;
     string session = 11;
     google.protobuf.Empty authentication_failed = 12;
+    google.protobuf.Empty missing_resend_api_key = 13;
+    string resend = 14;
   }
 }
 

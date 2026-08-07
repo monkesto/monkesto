@@ -25,6 +25,7 @@ use axum::extract::Extension;
 use axum::response::Redirect;
 use axum::routing::get;
 use axum::routing::post;
+use axum_login::tracing::log::{Level, log};
 use axum_login::{AuthnBackend, login_required, tracing};
 use disintegrate::serde::prost::Prost;
 use disintegrate::{DecisionError, Event, EventListener, PersistedEvent, StreamQuery, query};
@@ -34,6 +35,9 @@ use disintegrate_postgres::{
 };
 pub use layout::layout;
 use proto::event::authn::ProtoAuthnEvent;
+use rand::Rng;
+use resend_rs::Resend;
+use resend_rs::types::CreateEmailBaseOptions;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgHasArrayType;
 use sqlx::{Database, PgPool, Postgres, Type};
@@ -154,6 +158,18 @@ impl AuthnService {
         .execute(&pool)
         .await?;
 
+        sqlx::query!(
+            r#"
+            CREATE TABLE IF NOT EXISTS verification_codes (
+                email TEXT NOT NULL,
+                code int4 NOT NULL,
+                timestamp TIMESTAMP NOT NULL DEFAULT now()
+            )
+            "#
+        )
+        .execute(&pool)
+        .await?;
+
         let snapshotter = PgSnapshotter::try_new(pool.clone(), 10)
             .await
             .map_err(|error| AuthConnectError::Disintegrate(error.to_string()))?;
@@ -172,6 +188,90 @@ impl AuthnService {
             decision_maker,
             current_event: sender,
         })
+    }
+
+    pub async fn send_user_verification_code(&self, email: &Email) -> Result<(), UserError> {
+        let api_key = env::var("RESEND_API_KEY").map_err(|_| UserError::MissingResendApiKey)?;
+
+        let resend = Resend::new(api_key.as_str());
+
+        // TODO(Gabriel) should this be an environment variable?
+        let from = "Monkesto <noreply@monkesto.com>";
+        let to = [email.as_ref()];
+        let subject = "Monkesto: Your sign-in code";
+
+        let code = rand::thread_rng().gen_range(100_000..999_999);
+
+        let email_html = format!(
+            r#"
+            <!DOCTYPE html>
+            <html>
+            <head><meta charset="UTF-8"></head>
+            <body style="font-family: sans-serif; padding: 2rem;">
+                <h2>Monkesto verification code</h2>
+                <p style="font-size: 1.2rem;">Your code is: <strong style="font-size: 1.5rem; letter-spacing: 0.25rem;">{code}</strong></p>
+                <p>This code expires in <strong>15 minutes</strong>.</p>
+                <hr>
+                <p style="color: #666;">If you didn't request this code, you can ignore this email.</p>
+            </body>
+            </html>
+            "#
+        );
+
+        sqlx::query!(
+            r#"
+            INSERT INTO verification_codes (email, code) VALUES ($1, $2)
+            ON CONFLICT(email) DO UPDATE SET code = EXCLUDED.code, timestamp = EXCLUDED.timestamp
+            "#,
+            email as &Email,
+            code
+        )
+        .execute(&self.projection_pool)
+        .await?;
+
+        let email = CreateEmailBaseOptions::new(from, to, subject).with_html(email_html.as_str());
+        resend.emails.send(email).await?;
+
+        Ok(())
+    }
+
+    pub async fn verify_user_code(&self, code: i32, email: &Email) -> Result<bool, UserError> {
+
+        let db_code = sqlx::query_scalar!(
+            r#"
+            SELECT code from verification_codes where email = $1 AND timestamp >= NOW() - INTERVAL '15 minutes';
+            "#,
+            email as &Email
+        )
+        .fetch_optional(&self.projection_pool)
+            .await?;
+
+        if let Some(db_code) = db_code
+            && db_code == code
+        {
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    pub async fn purge_outdated_verification_codes(self) {
+        let mut timer = tokio::time::interval(Duration::from_mins(15));
+
+        loop {
+            timer.tick().await;
+            let res = sqlx::query!(
+                r#"
+            DELETE FROM verification_codes WHERE timestamp < NOW() - INTERVAL '15 minutes'
+            "#
+            )
+            .execute(&self.projection_pool)
+            .await;
+
+            if res.is_err() {
+                log!(Level::Warn, "failed to purge outdated verification codes");
+            }
+        }
     }
 
     pub async fn create_user(

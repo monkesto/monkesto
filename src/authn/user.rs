@@ -56,6 +56,10 @@ pub enum UserError {
     Session(String),
     #[error("authentication failed")]
     AuthenticationFailed,
+    #[error("failed to send an email, could not fine the resend API key")]
+    MissingResendApiKey,
+    #[error("failed to send an email with resend: {0}")]
+    Resend(String),
 }
 
 impl From<sqlx::Error> for UserError {
@@ -85,6 +89,12 @@ impl From<tower_sessions::session::Error> for UserError {
             tower_sessions::session::Error::SerdeJson(s) => UserError::SerdeJson(s.to_string()),
             tower_sessions::session::Error::Store(s) => UserError::Session(s.to_string()),
         }
+    }
+}
+
+impl From<resend_rs::Error> for UserError {
+    fn from(value: resend_rs::Error) -> Self {
+        UserError::Resend(value.to_string())
     }
 }
 

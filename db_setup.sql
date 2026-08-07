@@ -49,7 +49,13 @@ CREATE TABLE IF NOT EXISTS accounts (
 CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
     journal_id TEXT NOT NULL,
-    updates BYTEA NOT NULL
+    entries BYTEA NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS verification_codes (
+  email TEXT NOT NULL,
+  code int4 NOT NULL,
+  timestamp TIMESTAMP NOT NULL DEFAULT now()
 );
 
 -- stub that includes indexes for the journal store
@@ -62,4 +68,4 @@ CREATE TABLE IF NOT EXISTS event (
     user_id TEXT,
     account_id TEXT,
     transaction_id TEXT
-);
+                                 );

@@ -1,7 +1,7 @@
 # Official site:
 
 You can connect to [monkesto.com] to try out the latest version.
-It is updated with every commit to the main branch. All user/journal data is reset at each commit.
+It is updated with every commit to the main branch. Any user/journal data may be reset at any commit.
 
 [monkesto.com]: https://monkesto.com
 

@@ -227,6 +227,8 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
 
                     UserErrorType::Session(s) => UserError::Session(s),
                     UserErrorType::AuthenticationFailed(_) => UserError::AuthenticationFailed,
+                    UserErrorType::MissingResendApiKey(_) => UserError::MissingResendApiKey,
+                    UserErrorType::Resend(s) => UserError::Resend(s),
                 };
 
                 MonkestoError::User(user_error)
@@ -378,6 +380,8 @@ impl From<MonkestoError> for ProtoMonkestoError {
                     UserError::SerdeJson(s) => UserErrorType::SerdeJson(s),
                     UserError::Session(s) => UserErrorType::Session(s),
                     UserError::AuthenticationFailed => UserErrorType::AuthenticationFailed(()),
+                    UserError::MissingResendApiKey => UserErrorType::MissingResendApiKey(()),
+                    UserError::Resend(s) => UserErrorType::Resend(s),
                 };
 
                 MonkestoErrorType::User(ProtoUserError {

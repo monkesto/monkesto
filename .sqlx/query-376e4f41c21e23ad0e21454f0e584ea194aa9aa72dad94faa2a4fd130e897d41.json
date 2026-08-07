@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT code from verification_codes where email = $1 AND timestamp >= NOW() - INTERVAL '15 minutes';\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "code",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "376e4f41c21e23ad0e21454f0e584ea194aa9aa72dad94faa2a4fd130e897d41"
+}
