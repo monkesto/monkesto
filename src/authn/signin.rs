@@ -1,5 +1,4 @@
 use super::user::DEV_USERS;
-use super::user::UserState;
 use super::user::{UserError, UserId};
 use super::{AuthSession, AuthnService};
 use crate::monkesto_error::{MonkestoError, OrRedirect};
@@ -7,16 +6,14 @@ use crate::theme::theme_with_head;
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Query;
-use axum::http::StatusCode;
-use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum_login::AuthnBackend;
-use maud::Markup;
 use maud::PreEscaped;
 use maud::html;
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 use webauthn_rs::prelude::AuthenticationResult;
 use webauthn_rs::prelude::PasskeyAuthentication;
@@ -46,22 +43,27 @@ impl<'a> SigninAuthenticator<'a> {
     ///
     /// Returns the challenge request and auth state, or None if it fails.
     pub async fn start(&self) -> Option<(RequestChallengeResponse, PasskeyAuthentication)> {
-        let all_credentials: Vec<webauthn_rs::prelude::Passkey> = self
-            .authn_service
-            .get_all_credentials()
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|p| p.0)
-            .collect();
+        if let Ok(wrapped_credentials) = self.authn_service.get_all_credentials().await {
+            // directly cast the passkey wrapper to the inner type (avoids iterating and copying)
 
-        match self.webauthn.start_passkey_authentication(&all_credentials) {
-            Ok((mut rcr, auth_state)) => {
-                // Clear allowCredentials for true identifier-less experience
-                rcr.public_key.allow_credentials.clear();
-                Some((rcr, auth_state))
+            // SAFETY: CorePasskey and webauthn_rs::prelude::Passkey have identical in-memory representation
+            let all_credentials: &[webauthn_rs::prelude::Passkey] = unsafe {
+                std::slice::from_raw_parts(
+                    wrapped_credentials.as_ptr() as *const _,
+                    wrapped_credentials.len(),
+                )
+            };
+
+            match self.webauthn.start_passkey_authentication(all_credentials) {
+                Ok((mut rcr, auth_state)) => {
+                    // Clear allowCredentials for true identifier-less experience
+                    rcr.public_key.allow_credentials.clear();
+                    Some((rcr, auth_state))
+                }
+                Err(_) => None,
             }
-            Err(_) => None,
+        } else {
+            None
         }
     }
 
@@ -97,13 +99,54 @@ pub struct SigninQuery {
     next: Option<String>,
 }
 
-fn auth_page(
-    webauthn_url: &str,
-    challenge_data: Option<&str>,
-    error_message: Option<String>,
-    next: Option<&str>,
-    dev_users: &[UserState],
-) -> Markup {
+pub async fn signin_get(
+    Extension(webauthn): Extension<Arc<Webauthn>>,
+    Extension(authn_service): Extension<AuthnService>,
+    Extension(webauthn_url): Extension<String>,
+    auth_session: AuthSession,
+    query: Query<SigninQuery>,
+) -> impl IntoResponse {
+    // Clear any previous auth state
+    let session = auth_session.session;
+    _ = session.remove_value("auth_state").await;
+    _ = session.remove_value("usernameless_auth_state").await;
+
+    // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
+    let authenticator = SigninAuthenticator::new(&webauthn, &authn_service);
+    let challenge_data = match authenticator.start().await {
+        Some((rcr, auth_state)) => {
+            // Store auth state in session
+            match session
+                .insert("identifierless_auth_state", auth_state)
+                .await
+            {
+                Ok(_) => serde_json::to_string(&rcr).ok(),
+                Err(_) => None,
+            }
+        }
+        None => None,
+    };
+
+    let error_str = query.error.clone().map(|str| {
+        let error = MonkestoError::decode(&str);
+        match error {
+            MonkestoError::User(UserError::SessionNotFound) => {
+                "Your authentication session has expired. Please try again.".to_string()
+            }
+            MonkestoError::User(UserError::AuthenticationFailed) => {
+                "Authentication failed. Please try again.".to_string()
+            }
+            _ => error.to_string(),
+        }
+    });
+
+    // Get dev users for the dev login form
+    let dev_users = authn_service.get_dev_users().await;
+
+    const SIGNIN_JS: &str = include_str!("signin.js");
+
+    let next = query.next.as_deref();
+
     theme_with_head(
         Some("Sign in"),
         html! {
@@ -117,55 +160,7 @@ fn auth_page(
                 }
             }
             script {
-                r#"
-                    function signin() {
-                        const challengeDataElement = document.getElementById('challenge-data');
-                        if (!challengeDataElement) {
-                            document.getElementById('flash_message').innerHTML = 'No challenge data available. Please refresh the page.';
-                            return;
-                        }
-
-                        let credentialRequestOptions;
-                        try {
-                            credentialRequestOptions = JSON.parse(challengeDataElement.textContent);
-                        } catch (error) {
-                            console.error('Failed to parse challenge data:', error);
-                            document.getElementById('flash_message').innerHTML = 'Invalid challenge data. Please refresh the page.';
-                            return;
-                        }
-
-                        // Convert base64url strings to Uint8Arrays
-                        credentialRequestOptions.publicKey.challenge = Base64.toUint8Array(
-                            credentialRequestOptions.publicKey.challenge
-                        );
-                        credentialRequestOptions.publicKey.allowCredentials?.forEach(function(listItem) {
-                            listItem.id = Base64.toUint8Array(listItem.id);
-                        });
-
-                        navigator.credentials.get({
-                            publicKey: credentialRequestOptions.publicKey
-                        }).then(function(assertion) {
-                            // Convert response to base64url and submit via form
-                            const credentialData = {
-                                id: assertion.id,
-                                rawId: Base64.fromUint8Array(new Uint8Array(assertion.rawId), true),
-                                type: assertion.type,
-                                response: {
-                                    authenticatorData: Base64.fromUint8Array(new Uint8Array(assertion.response.authenticatorData), true),
-                                    clientDataJSON: Base64.fromUint8Array(new Uint8Array(assertion.response.clientDataJSON), true),
-                                    signature: Base64.fromUint8Array(new Uint8Array(assertion.response.signature), true),
-                                    userHandle: Base64.fromUint8Array(new Uint8Array(assertion.response.userHandle), true)
-                                }
-                            };
-
-                            document.getElementById('credential-field').value = JSON.stringify(credentialData);
-                            document.getElementById('auth-form').submit();
-                        }).catch(function(error) {
-                            console.error('Authentication error:', error);
-                            document.getElementById('flash_message').innerHTML = 'Authentication failed: ' + error.message;
-                        });
-                    }
-                    "#
+                (PreEscaped(SIGNIN_JS))
             }
         },
         html! {
@@ -194,7 +189,7 @@ fn auth_page(
                         // Hidden form for credential submission
                         form id="auth-form" method="POST" action="signin" style="display: none;" {
                             input type="hidden" id="credential-field" name="credential" value="";
-                            @if let Some(next) = next {
+                            @if let Some(next) = query.next.clone() {
                                 input type="hidden" name="next" value=(next);
                             }
                         }
@@ -210,7 +205,7 @@ fn auth_page(
                         }
 
                         div class="mt-6" {
-                            @if let Some(error_message) = error_message {
+                            @if let Some(error_message) = error_str {
                                 p id="flash_message" class="text-center text-sm/6 text-red-500" {
                                     (error_message)
                                 }
@@ -219,7 +214,6 @@ fn auth_page(
                             }
                         }
 
-                        // Dev login section (only shown if dev users exist)
                         @if !dev_users.is_empty() {
                             div class="mt-10 border-t border-gray-200 dark:border-gray-700" {}
                             p style="margin-top: 1rem; margin-bottom: 1rem;" class="text-center text-xs text-gray-400 dark:text-gray-500" {
@@ -247,83 +241,47 @@ fn auth_page(
     )
 }
 
-async fn handle_signin_page(
-    webauthn: Arc<Webauthn>,
-    authn_service: AuthnService,
-    auth_session: AuthSession,
-    webauthn_url: String,
-    query: Query<SigninQuery>,
-    next: Option<String>,
-) -> impl IntoResponse {
-    // Clear any previous auth state
-    let session = auth_session.session;
-    _ = session.remove_value("auth_state").await;
-    _ = session.remove_value("usernameless_auth_state").await;
-
-    // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
-    let authenticator = SigninAuthenticator::new(&webauthn, &authn_service);
-    let challenge_data = match authenticator.start().await {
-        Some((rcr, auth_state)) => {
-            // Store auth state in session
-            match session
-                .insert("identifierless_auth_state", auth_state)
-                .await
-            {
-                Ok(_) => serde_json::to_string(&rcr).ok(),
-                Err(_) => None,
-            }
-        }
-        None => None,
-    };
-
-    // Handle error messages from query parameters
-    let error_str = query.error.clone().map(|str| {
-        let error = MonkestoError::decode(&str);
-        match error {
-            MonkestoError::User(UserError::SessionNotFound) => {
-                "Your authentication session has expired. Please try again.".to_string()
-            }
-            MonkestoError::User(UserError::AuthenticationFailed) => {
-                "Authentication failed. Please try again.".to_string()
-            }
-            _ => error.to_string(),
-        }
-    });
-
-    // Get dev users for the dev login form
-    let dev_users = authn_service.get_dev_users().await;
-
-    let markup = auth_page(
-        &webauthn_url,
-        challenge_data.as_deref(),
-        error_str,
-        next.as_deref(),
-        &dev_users,
-    );
-    (
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "text/html")],
-        markup,
-    )
-}
-
-async fn handle_signin_completion(
-    webauthn: Arc<Webauthn>,
-    authn_service: AuthnService,
+pub async fn signin_post(
+    Extension(webauthn): Extension<Arc<Webauthn>>,
+    Extension(authn_service): Extension<AuthnService>,
     mut auth_session: AuthSession,
-    form_data: Form<HashMap<String, String>>,
-    next: Option<String>,
+    form: Form<HashMap<String, String>>,
 ) -> Result<impl IntoResponse, Redirect> {
-    // Extract credential from form
-    let credential_json = form_data
+    const CALLBACK_URL: &str = "/signin";
+
+    let next = form.get("next").cloned();
+
+    // TODO(Gabriel): toggle dev login with an env variable
+    if let Some(dev_user_id) = form.get("dev_user_id") {
+        let user_id = UserId::from_str(dev_user_id).or_redirect(CALLBACK_URL)?;
+
+        let user = authn_service
+            .fetch_user(user_id)
+            .await
+            .or_redirect(CALLBACK_URL)?;
+
+        if !DEV_USERS.clone().contains_key(&user.email) {
+            return Err(UserError::InvalidInput).or_redirect(CALLBACK_URL);
+        }
+
+        auth_session
+            .login(&user)
+            .await
+            .map_err(UserError::from)
+            .or_redirect(CALLBACK_URL)?;
+
+        let redirect_to = next.as_deref().unwrap_or("/journal");
+        return Ok(Redirect::to(redirect_to).into_response());
+    }
+
+    let credential_json = form
         .get("credential")
         .ok_or(UserError::InvalidInput)
-        .or_redirect("/signin")?;
+        .or_redirect(CALLBACK_URL)?;
 
-    // Parse the JSON credential data
     let credential: PublicKeyCredential = serde_json::from_str(credential_json)
         .map_err(UserError::from)
-        .or_redirect("/signin")?;
+        .or_redirect(CALLBACK_URL)?;
 
     // Get auth state from session (checking both possible keys for compatibility)
     let session = &auth_session.session;
@@ -331,13 +289,13 @@ async fn handle_signin_completion(
         .get::<PasskeyAuthentication>("identifierless_auth_state")
         .await
         .map_err(UserError::from)
-        .or_redirect("/signin")?
+        .or_redirect(CALLBACK_URL)?
         .or_else(|| {
             // Try the regular auth_state key as fallback - this is sync so we can't await here
             // For now, just use the identifierless_auth_state
             None
         })
-        .ok_or(MonkestoError::from(UserError::SessionNotFound).redirect("/signin"))?;
+        .ok_or(MonkestoError::from(UserError::SessionNotFound).redirect(CALLBACK_URL))?;
 
     // Verify the authentication using SigninAuthenticator
     let authenticator = SigninAuthenticator::new(&webauthn, &authn_service);
@@ -351,17 +309,16 @@ async fn handle_signin_completion(
             let user = authn_service
                 .get_user(&user_id)
                 .await
-                .or_redirect("/signin")?
+                .or_redirect(CALLBACK_URL)?
                 .ok_or(MonkestoError::from(UserError::AuthenticationFailed))
-                .or_redirect("/signin")?;
+                .or_redirect(CALLBACK_URL)?;
 
             auth_session
                 .login(&user)
                 .await
                 .map_err(UserError::from)
-                .or_redirect("/signin")?;
+                .or_redirect(CALLBACK_URL)?;
 
-            // Redirect to next or default
             let redirect_to = next.as_deref().unwrap_or("/journal");
             Ok(Redirect::to(redirect_to).into_response())
         }
@@ -370,86 +327,7 @@ async fn handle_signin_completion(
             _ = session.remove_value("identifierless_auth_state").await;
             _ = session.remove_value("auth_state").await;
 
-            // Redirect back to login with error
-            Err(UserError::AuthenticationFailed).or_redirect("/login")
+            Err(UserError::AuthenticationFailed).or_redirect(CALLBACK_URL)
         }
     }
-}
-
-pub async fn signin_get(
-    Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(authn_service): Extension<AuthnService>,
-    Extension(webauthn_url): Extension<String>,
-    auth_session: AuthSession,
-    query: Query<SigninQuery>,
-) -> impl IntoResponse {
-    let next = query.next.clone();
-    handle_signin_page(
-        webauthn,
-        authn_service,
-        auth_session,
-        webauthn_url,
-        query,
-        next,
-    )
-    .await
-}
-
-pub async fn signin_post(
-    Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(authn_service): Extension<AuthnService>,
-    auth_session: AuthSession,
-    form: Form<HashMap<String, String>>,
-) -> Result<impl IntoResponse, Redirect> {
-    let next = form.get("next").cloned();
-
-    // Check for dev login first
-    if let Some(dev_user_id) = form.get("dev_user_id") {
-        return Ok(
-            handle_dev_login(authn_service, auth_session, dev_user_id, next)
-                .await
-                .into_response(),
-        );
-    }
-
-    Ok(
-        handle_signin_completion(webauthn, authn_service, auth_session, form, next)
-            .await?
-            .into_response(),
-    )
-}
-
-async fn handle_dev_login(
-    authn_service: AuthnService,
-    mut auth_session: AuthSession,
-    dev_user_id: &str,
-    next: Option<String>,
-) -> Result<impl IntoResponse, Redirect> {
-    use super::user::UserId;
-    use std::str::FromStr;
-
-    // Parse the user ID
-    let user_id = UserId::from_str(dev_user_id).or_redirect("/signin")?;
-
-    // Look up the user
-    let user = authn_service
-        .fetch_user(user_id)
-        .await
-        .or_redirect("/signin")?;
-
-    // Verify this is a dev user
-    if !DEV_USERS.clone().contains_key(&user.email) {
-        return Err(UserError::InvalidInput).or_redirect("/signin");
-    }
-
-    // Log them in
-    auth_session
-        .login(&user)
-        .await
-        .map_err(UserError::from)
-        .or_redirect("/signin")?;
-
-    // Redirect to next or default
-    let redirect_to = next.as_deref().unwrap_or("/journal");
-    Ok(Redirect::to(redirect_to).into_response())
 }

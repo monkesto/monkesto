@@ -236,7 +236,6 @@ impl AuthnService {
     }
 
     pub async fn verify_user_code(&self, code: i32, email: &Email) -> Result<bool, UserError> {
-
         let db_code = sqlx::query_scalar!(
             r#"
             SELECT code from verification_codes where email = $1 AND timestamp >= NOW() - INTERVAL '15 minutes';

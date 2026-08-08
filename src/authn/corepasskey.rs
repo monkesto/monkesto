@@ -3,8 +3,8 @@ use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::ops::Deref;
-
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[repr(transparent)]
 pub struct CorePasskey(pub webauthn_rs::prelude::Passkey);
 
 // todo: figure out why this wasn't implemented in the original type
@@ -14,6 +14,12 @@ impl Deref for CorePasskey {
     type Target = webauthn_rs::prelude::Passkey;
 
     fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl AsRef<webauthn_rs::prelude::Passkey> for CorePasskey {
+    fn as_ref(&self) -> &webauthn_rs::prelude::Passkey {
         &self.0
     }
 }

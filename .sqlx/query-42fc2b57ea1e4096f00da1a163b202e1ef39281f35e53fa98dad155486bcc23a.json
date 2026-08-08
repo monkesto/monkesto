@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            DELETE FROM verification_codes WHERE timestamp < NOW() - INTERVAL '15 minutes'\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "42fc2b57ea1e4096f00da1a163b202e1ef39281f35e53fa98dad155486bcc23a"
+}
