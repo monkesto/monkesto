@@ -35,7 +35,7 @@ use disintegrate_postgres::{
 };
 pub use layout::layout;
 use proto::event::authn::ProtoAuthnEvent;
-use rand::Rng;
+use rand::RngExt;
 use resend_rs::Resend;
 use resend_rs::types::CreateEmailBaseOptions;
 use serde::{Deserialize, Serialize};
@@ -199,7 +199,7 @@ impl AuthnService {
         let to = [email.as_ref()];
         let subject = "Monkesto: Your sign-in code";
 
-        let code = rand::thread_rng().gen_range(100_000..999_999);
+        let code = rand::rng().random_range(100_000..999_999);
 
         let email_html = format!(
             r#"
