@@ -44,17 +44,13 @@ impl<'a> SigninAuthenticator<'a> {
     /// Returns the challenge request and auth state, or None if it fails.
     pub async fn start(&self) -> Option<(RequestChallengeResponse, PasskeyAuthentication)> {
         if let Ok(wrapped_credentials) = self.authn_service.get_all_credentials().await {
-            // directly cast the passkey wrapper to the inner type (avoids iterating and copying)
+            let all_credentials: Vec<webauthn_rs::prelude::Passkey> =
+                wrapped_credentials.into_iter().map(|cred| cred.0).collect();
 
-            // SAFETY: CorePasskey and webauthn_rs::prelude::Passkey have identical in-memory representation
-            let all_credentials: &[webauthn_rs::prelude::Passkey] = unsafe {
-                std::slice::from_raw_parts(
-                    wrapped_credentials.as_ptr() as *const _,
-                    wrapped_credentials.len(),
-                )
-            };
-
-            match self.webauthn.start_passkey_authentication(all_credentials) {
+            match self
+                .webauthn
+                .start_passkey_authentication(all_credentials.as_slice())
+            {
                 Ok((mut rcr, auth_state)) => {
                     // Clear allowCredentials for true identifier-less experience
                     rcr.public_key.allow_credentials.clear();
