@@ -9,89 +9,19 @@ use axum::extract::Query;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum_login::AuthnBackend;
-use maud::PreEscaped;
 use maud::html;
+use maud::{Markup, PreEscaped};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use webauthn_rs::prelude::AuthenticationResult;
 use webauthn_rs::prelude::PasskeyAuthentication;
 use webauthn_rs::prelude::PublicKeyCredential;
-use webauthn_rs::prelude::RequestChallengeResponse;
 use webauthn_rs::prelude::Webauthn;
-
-/// Handles WebAuthn authentication flow (signin).
-/// This struct encapsulates the start and finish phases of authentication.
-pub struct SigninAuthenticator<'a> {
-    webauthn: &'a Webauthn,
-    authn_service: &'a AuthnService,
-}
-
-impl<'a> SigninAuthenticator<'a> {
-    pub fn new(webauthn: &'a Webauthn, authn_service: &'a AuthnService) -> Self {
-        Self {
-            webauthn,
-            authn_service,
-        }
-    }
-
-    /// Start the authentication flow by loading credentials and generating a challenge.
-    ///
-    /// The allowCredentials list is cleared for a true identifier-less experience
-    /// (the browser/OS will prompt the user to pick their passkey).
-    ///
-    /// Returns the challenge request and auth state, or None if it fails.
-    pub async fn start(&self) -> Option<(RequestChallengeResponse, PasskeyAuthentication)> {
-        if let Ok(wrapped_credentials) = self.authn_service.get_all_credentials().await {
-            let all_credentials: Vec<webauthn_rs::prelude::Passkey> =
-                wrapped_credentials.into_iter().map(|cred| cred.0).collect();
-
-            match self
-                .webauthn
-                .start_passkey_authentication(all_credentials.as_slice())
-            {
-                Ok((mut rcr, auth_state)) => {
-                    // Clear allowCredentials for true identifier-less experience
-                    rcr.public_key.allow_credentials.clear();
-                    Some((rcr, auth_state))
-                }
-                Err(_) => None,
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Finish the authentication flow by verifying the credential.
-    ///
-    /// Returns the user ID if authentication succeeds.
-    pub async fn finish(
-        &self,
-        credential: &PublicKeyCredential,
-        auth_state: &PasskeyAuthentication,
-    ) -> Result<(UserId, AuthenticationResult), Redirect> {
-        let auth_result = self
-            .webauthn
-            .finish_passkey_authentication(credential, auth_state)
-            .map_err(|_| UserError::AuthenticationFailed)
-            .or_redirect("/signin")?;
-
-        let (user_id, _passkey_id) = self
-            .authn_service
-            .find_user_by_credential(auth_result.cred_id())
-            .await
-            .or_redirect("/signin")?
-            .ok_or(UserError::AuthenticationFailed)
-            .or_redirect("/signin")?;
-
-        Ok((user_id, auth_result))
-    }
-}
 
 #[derive(Deserialize)]
 pub struct SigninQuery {
-    error: Option<String>,
+    err: Option<String>,
     next: Option<String>,
 }
 
@@ -101,17 +31,14 @@ pub async fn signin_get(
     Extension(webauthn_url): Extension<String>,
     auth_session: AuthSession,
     query: Query<SigninQuery>,
-) -> impl IntoResponse {
+) -> Markup {
     // Clear any previous auth state
     let session = auth_session.session;
-    _ = session.remove_value("auth_state").await;
-    _ = session.remove_value("usernameless_auth_state").await;
+    _ = session.remove_value("identifierless_auth_state").await;
 
-    // Generate challenge for identifier-less authentication (WebAuthn "usernameless")
-    let authenticator = SigninAuthenticator::new(&webauthn, &authn_service);
-    let challenge_data = match authenticator.start().await {
-        Some((rcr, auth_state)) => {
-            // Store auth state in session
+    // passing an empty slice to creds enables identifier-less discoverable credentials
+    let challenge_data = match webauthn.start_passkey_authentication(&[]) {
+        Ok((rcr, auth_state)) => {
             match session
                 .insert("identifierless_auth_state", auth_state)
                 .await
@@ -120,10 +47,10 @@ pub async fn signin_get(
                 Err(_) => None,
             }
         }
-        None => None,
+        Err(_) => None,
     };
 
-    let error_str = query.error.clone().map(|str| {
+    let error_str = query.err.clone().map(|str| {
         let error = MonkestoError::decode(&str);
         match error {
             MonkestoError::User(UserError::SessionNotFound) => {
@@ -279,51 +206,41 @@ pub async fn signin_post(
         .map_err(UserError::from)
         .or_redirect(CALLBACK_URL)?;
 
-    // Get auth state from session (checking both possible keys for compatibility)
     let session = &auth_session.session;
     let auth_state = session
         .get::<PasskeyAuthentication>("identifierless_auth_state")
         .await
         .map_err(UserError::from)
         .or_redirect(CALLBACK_URL)?
-        .or_else(|| {
-            // Try the regular auth_state key as fallback - this is sync so we can't await here
-            // For now, just use the identifierless_auth_state
-            None
-        })
         .ok_or(MonkestoError::from(UserError::SessionNotFound).redirect(CALLBACK_URL))?;
 
-    // Verify the authentication using SigninAuthenticator
-    let authenticator = SigninAuthenticator::new(&webauthn, &authn_service);
-    match authenticator.finish(&credential, &auth_state).await {
-        Ok((user_id, _auth_result)) => {
-            // Clear the auth state
-            _ = session.remove_value("identifierless_auth_state").await;
-            _ = session.remove_value("auth_state").await;
+    _ = session.remove_value("identifierless_auth_state").await;
 
-            // Get the user and log them in via axum_login
-            let user = authn_service
-                .get_user(&user_id)
-                .await
-                .or_redirect(CALLBACK_URL)?
-                .ok_or(MonkestoError::from(UserError::AuthenticationFailed))
-                .or_redirect(CALLBACK_URL)?;
+    let auth_result = webauthn
+        .finish_passkey_authentication(&credential, &auth_state)
+        .map_err(|_| UserError::AuthenticationFailed)
+        .or_redirect("/signin")?;
 
-            auth_session
-                .login(&user)
-                .await
-                .map_err(UserError::from)
-                .or_redirect(CALLBACK_URL)?;
+    let (user_id, _passkey_id) = authn_service
+        .find_user_by_credential(auth_result.cred_id())
+        .await
+        .or_redirect("/signin")?
+        .ok_or(UserError::AuthenticationFailed)
+        .or_redirect("/signin")?;
 
-            let redirect_to = next.as_deref().unwrap_or("/journal");
-            Ok(Redirect::to(redirect_to).into_response())
-        }
-        Err(_) => {
-            // Clear the auth state on failure
-            _ = session.remove_value("identifierless_auth_state").await;
-            _ = session.remove_value("auth_state").await;
+    let user = authn_service
+        .get_user(&user_id)
+        .await
+        .or_redirect(CALLBACK_URL)?
+        .ok_or(MonkestoError::from(UserError::AuthenticationFailed))
+        .or_redirect(CALLBACK_URL)?;
 
-            Err(UserError::AuthenticationFailed).or_redirect(CALLBACK_URL)
-        }
-    }
+    auth_session
+        .login(&user)
+        .await
+        .map_err(UserError::from)
+        .or_redirect(CALLBACK_URL)?;
+
+    let redirect_to = next.as_deref().unwrap_or("/journal");
+    Ok(Redirect::to(redirect_to).into_response())
 }

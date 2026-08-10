@@ -195,8 +195,7 @@ impl AuthnService {
 
         let resend = Resend::new(api_key.as_str());
 
-        // TODO(Gabriel) should this be an environment variable?
-        let from = "Monkesto <noreply@monkesto.com>";
+        let from = env::var("RESEND_EMAIL").map_err(|_| UserError::MissingResendApiKey)?;
         let to = [email.as_ref()];
         let subject = "Monkesto: Your sign-in code";
 
@@ -413,18 +412,6 @@ impl AuthnService {
         user_id as UserId)
             .fetch_all(&self.projection_pool)
             .await?;
-
-        Ok(passkeys)
-    }
-
-    pub async fn get_all_credentials(&self) -> Result<Vec<CorePasskey>, PasskeyError> {
-        let passkeys = sqlx::query_scalar!(
-            r#"
-            SELECT passkey as "passkey: CorePasskey" FROM passkeys
-        "#
-        )
-        .fetch_all(&self.projection_pool)
-        .await?;
 
         Ok(passkeys)
     }

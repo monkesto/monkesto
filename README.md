@@ -28,26 +28,52 @@ npm install
 Monkesto uses the [mold](https://github.com/rui314/mold) linker on linux. It must be installed and in your $PATH for the
 build to succeed.
 
-## Configure the database:
+## Configure the environment:
 
-Monkesto requires PostgreSQL at runtime. Set its connection URL and enable
-SQLx's offline mode in `.env` so the project can compile against the checked-in
-`.sqlx` query metadata before a new database has been initialized:
+### postgres
+Monkesto requires PostgreSQL at build and runtime. Run db_setup.sql against your database to allow to prepare the schema expected by the sqlx query macros.
 
 ```dotenv
 DATABASE_URL=postgres://monkesto:monkesto@localhost:5432/monkesto
-SQLX_OFFLINE=true
 ```
 
-After changing a `sqlx::query!` invocation or its database schema, refresh the
-checked-in query metadata against a running, up-to-date database:
+### base url
+Webauthn requires the base url of the deployed site. This is defined with the `RAILWAY_PULBIC_DOMAIN` environment arg. 
 
-```sh
-cargo sqlx prepare -- --all-targets
-```
+If it is not present, `localhost:3000` will be assumed. 
+
+If the base url is incorrect, passkey creation and login will not work.
+
+### email
+Monkesto uses [Resend](https://resend.com/) for email verification and sending authentication codes.
+
+- `RESEND_EMAIL` is the address to send the email from ("Monkesto <noreply@monkesto.com>", for example).
+- `RESEND_API_KEY` is the api key used to send said emails.
+
+If either of these variables are missing, email verification will be skipped and account recovery via email will be unavailable. 
+
+### object storage
+Monkesto uses the S3 api to store uploaded files such as images. 
+The following variables are needed from an S3-compatible service:
+
+- `S3_ENDPOINT`
+- `S3_ACCESS_KEY_ID`
+- `S3_SECRET_ACCESS_KEY`
+
+If any of these variables are missing, file storage and retrevial will be unavailable.
 
 ## Start the server:
 
 ```
 cargo make
 ```
+
+## pre-commit hooks
+`scripts/pre-commit.sh` contains several important steps that correspond with the github CI:
+
+- `cargo fmt` will ensure that the code is properly formatted
+- `cargo sqlx prepare && git add .sqlx` ensures that the sqlx query cache is up to date
+- `cargo clippy -- -D warnings` ensures that there are no compiler errors or warnings
+
+### installation
+You can set these commands to be run automatically before each commit by running `sh scripts/install-hooks.sh` on a unix-based OS. 

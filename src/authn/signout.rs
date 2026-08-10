@@ -1,6 +1,4 @@
 use axum::extract::Form;
-use axum::http::StatusCode;
-use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use maud::Markup;
@@ -11,7 +9,7 @@ use std::collections::HashMap;
 use super::AuthSession;
 use crate::theme::theme_with_head;
 
-fn signout_page(message: Option<&str>) -> Markup {
+pub async fn signout_get() -> Markup {
     theme_with_head(
         Some("Sign out"),
         html! {},
@@ -24,15 +22,10 @@ fn signout_page(message: Option<&str>) -> Markup {
                         "Sign out"
                     }
 
-                    @if let Some(msg) = message {
-                        p class="mt-4 text-center text-sm text-gray-600 dark:text-gray-400" {
-                            (msg)
-                        }
-                    } @else {
-                        p class="mt-4 text-center text-sm text-gray-600 dark:text-gray-400" {
-                            "Are you sure you want to sign out?"
-                        }
+                    p class="mt-4 text-center text-sm text-gray-600 dark:text-gray-400" {
+                        "Are you sure you want to sign out?"
                     }
+
                 }
 
                 div class="mt-10 sm:mx-auto sm:w-full sm:max-w-sm" {
@@ -57,28 +50,16 @@ fn signout_page(message: Option<&str>) -> Markup {
     )
 }
 
-pub async fn signout_get() -> impl IntoResponse {
-    let markup = signout_page(None);
-    (
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "text/html")],
-        markup,
-    )
-}
-
 pub async fn signout_post(
     mut auth_session: AuthSession,
     _form: Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
-    // Log out via axum_login
     _ = auth_session.logout().await;
 
     // Clear any other auth-related session data
     let session = &auth_session.session;
     _ = session.remove_value("identifierless_auth_state").await;
-    _ = session.remove_value("auth_state").await;
     _ = session.remove_value("reg_state").await;
 
-    // Redirect to sign in page
     Redirect::to("/signin")
 }

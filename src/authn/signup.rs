@@ -5,8 +5,6 @@ use crate::authn::corepasskey::CorePasskey;
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Query;
-use axum::http::StatusCode;
-use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
@@ -36,7 +34,20 @@ pub struct SignupQuery {
     next: Option<String>,
 }
 
-fn email_form_page(webauthn_url: &str, error_message: Option<&str>, next: Option<&str>) -> Markup {
+pub async fn signup_get(
+    Extension(webauthn_url): Extension<String>,
+    query: Query<SignupQuery>,
+) -> Markup {
+    let error_message = match query.error.as_deref() {
+        Some("email_taken") => {
+            Some("Email is already registered. Please use another email address.")
+        }
+        Some("invalid_email") => Some("Invalid email format. Please enter a valid email address."),
+        Some("session_expired") => Some("Your sign up session has expired. Please try again."),
+        Some("registration_failed") => Some("Sign up failed. Please try again."),
+        _ => None,
+    };
+
     theme_with_head(
         Some("Sign up"),
         html! {
@@ -69,7 +80,7 @@ fn email_form_page(webauthn_url: &str, error_message: Option<&str>, next: Option
                                 }
                             }
 
-                            @if let Some(next) = next {
+                            @if let Some(ref next) = query.next {
                                 input type="hidden" name="next" value=(next);
                             }
 
@@ -84,7 +95,7 @@ fn email_form_page(webauthn_url: &str, error_message: Option<&str>, next: Option
 
                         p class="mt-6 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
                             "Already have an account? "
-                            @let signin_url = next.map(|n| format!("signin?next={}", n)).unwrap_or_else(|| "signin".to_string());
+                            @let signin_url = query.next.as_ref().map(|n| format!("signin?next={}", n)).unwrap_or_else(|| "signin".to_string());
                             a
                             href=(signin_url)
                             class="font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300" {
@@ -105,84 +116,166 @@ fn email_form_page(webauthn_url: &str, error_message: Option<&str>, next: Option
     )
 }
 
-fn challenge_page(
-    webauthn_url: &str,
-    email: &str,
-    challenge_data: &str,
-    next: Option<&str>,
-) -> Markup {
-    theme_with_head(
-        Some("Create Passkey"),
-        html! {
-            script
-                src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
-                crossorigin="anonymous" {}
-            meta name="webauthn_url" content=(webauthn_url);
-            script id="challenge-data" type="application/json" {
-                (PreEscaped(challenge_data))
+pub async fn signup_post(
+    Extension(webauthn): Extension<Arc<Webauthn>>,
+    Extension(authn_service): Extension<AuthnService>,
+    Extension(webauthn_url): Extension<String>,
+    mut auth_session: AuthSession,
+    form: Form<HashMap<String, String>>,
+) -> Result<Response, Redirect> {
+    let next = form.get("next").cloned();
+    const CALLBACK_URL: &str = "/signup";
+
+    if let Some(_credential_json) = form.get("credential") {
+        // handle credential submission
+
+        let credential_json = form
+            .get("credential")
+            .map(|s| s.as_str())
+            .ok_or(UserError::InvalidInput)
+            .or_redirect(CALLBACK_URL)?;
+
+        let credential: RegisterPublicKeyCredential = serde_json::from_str(credential_json)
+            .map_err(UserError::from)
+            .or_redirect(CALLBACK_URL)?;
+
+        // Get registration state from session
+        let session = &auth_session.session;
+        let (email, user_id, webauthn_uuid, reg_state, stored_next) = session
+            .get::<(String, UserId, Uuid, PasskeyRegistration, Option<String>)>("reg_state")
+            .await
+            .map_err(|e| UserError::Session(e.to_string()))
+            .or_redirect(CALLBACK_URL)?
+            .ok_or(UserError::SessionNotFound)
+            .or_redirect(CALLBACK_URL)?;
+
+        let next = next.or(stored_next);
+
+        // Verify the registration
+        match webauthn.finish_passkey_registration(&credential, &reg_state) {
+            Ok(passkey) => {
+                // Clear the registration state
+                _ = session.remove_value("reg_state").await;
+
+                // Generate a PasskeyId for this passkey
+                let passkey_id = PasskeyId::new();
+
+                // Store the new user and their passkey
+                let email_validated = Email::try_new(&email).or_redirect(CALLBACK_URL)?;
+
+                authn_service
+                    .create_user(
+                        user_id,
+                        email_validated.clone(),
+                        webauthn_uuid,
+                        Authority::Direct(Actor::Anonymous),
+                        DefaultTimeProvider.get_time(),
+                    )
+                    .await
+                    .or_redirect(CALLBACK_URL)?;
+
+                let ev_id = authn_service
+                    .create_passkey(
+                        passkey_id,
+                        user_id,
+                        CorePasskey(passkey),
+                        Authority::Direct(Actor::User(user_id)),
+                        DefaultTimeProvider.get_time(),
+                    )
+                    .await
+                    .or_redirect(CALLBACK_URL)?;
+
+                // Log in the newly registered user via axum_login
+                let user = super::user::UserState {
+                    id: user_id,
+                    webauthn_uuid,
+                    email: email_validated,
+                };
+                auth_session
+                    .login(&user)
+                    .await
+                    .map_err(UserError::from)
+                    .or_redirect(CALLBACK_URL)?;
+
+                authn_service.wait_for(ev_id).await;
+
+                let redirect_to = next.as_deref().unwrap_or("/journal");
+                Ok(Redirect::to(redirect_to).into_response())
             }
-            script {
-                    r#"
-                    window.addEventListener('load', function() {
-                        const challengeDataElement = document.getElementById('challenge-data');
-                        if (!challengeDataElement) {
-                            document.getElementById('flash_message').innerHTML = 'No challenge data available. Please try again.';
-                            return;
-                        }
+            Err(_) => {
+                // Clear the registration state on failure
+                _ = session.remove_value("reg_state").await;
 
-                        let credentialCreationOptions;
-                        try {
-                            credentialCreationOptions = JSON.parse(challengeDataElement.textContent);
-                        } catch (error) {
-                            console.error('Failed to parse challenge data:', error);
-                            document.getElementById('flash_message').innerHTML = 'Invalid challenge data. Please try again.';
-                            return;
-                        }
-
-                        // Convert base64url strings to Uint8Arrays
-                        credentialCreationOptions.publicKey.challenge = Base64.toUint8Array(
-                            credentialCreationOptions.publicKey.challenge
-                        );
-                        credentialCreationOptions.publicKey.user.id = Base64.toUint8Array(
-                            credentialCreationOptions.publicKey.user.id
-                        );
-                        credentialCreationOptions.publicKey.excludeCredentials?.forEach(function(listItem) {
-                            listItem.id = Base64.toUint8Array(listItem.id);
-                        });
-
-                        // Show creating message
-                        document.getElementById('status_message').innerHTML = 'Creating your passkey...';
-
-                        navigator.credentials.create({
-                            publicKey: credentialCreationOptions.publicKey
-                        }).then(function(credential) {
-                            // Convert response to base64url and submit via form
-                            const credentialData = {
-                                id: credential.id,
-                                rawId: Base64.fromUint8Array(new Uint8Array(credential.rawId), true),
-                                type: credential.type,
-                                response: {
-                                    attestationObject: Base64.fromUint8Array(
-                                        new Uint8Array(credential.response.attestationObject), true
-                                    ),
-                                    clientDataJSON: Base64.fromUint8Array(
-                                        new Uint8Array(credential.response.clientDataJSON), true
-                                    )
-                                }
-                            };
-
-                            document.getElementById('credential-field').value = JSON.stringify(credentialData);
-                            document.getElementById('registration-form').submit();
-                        }).catch(function(error) {
-                            console.error('Registration error:', error);
-                            document.getElementById('flash_message').innerHTML = 'Failed to create passkey: ' + error.message;
-                        });
-                    });
-                    "#
+                Err(Redirect::to("/signup?error=registration_failed"))
             }
-        },
-        html! {
-            div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
+        }
+    } else if let Some(email_str) = form.get("email") {
+        // handle email submission
+        let email = Email::try_new(email_str).or_redirect("/signup")?;
+
+        let exclude_credentials = None;
+
+        let user_id = UserId::new();
+
+        let webauthn_uuid = Uuid::new_v4();
+
+        // Clear any previous registration state
+        let session = &auth_session.session;
+        _ = session.remove_value("reg_state").await;
+
+        // Start passkey registration
+        match webauthn.start_passkey_registration(
+            webauthn_uuid,
+            email.as_ref(),
+            email.as_ref(),
+            exclude_credentials,
+        ) {
+            Ok((mut ccr, reg_state)) => {
+                ccr.public_key.authenticator_selection = Some(AuthenticatorSelectionCriteria {
+                    authenticator_attachment: None,
+                    resident_key: Some(ResidentKeyRequirement::Required),
+                    require_resident_key: true,
+                    user_verification: webauthn_rs_proto::UserVerificationPolicy::Required,
+                });
+
+                // Store registration state in session (including next for the credential submission step)
+                session
+                    .insert(
+                        "reg_state",
+                        (
+                            email.clone(),
+                            user_id,
+                            webauthn_uuid,
+                            reg_state,
+                            next.clone(),
+                        ),
+                    )
+                    .await
+                    .map_err(|e| UserError::SerdeJson(e.to_string()))
+                    .or_redirect(CALLBACK_URL)?;
+
+                let challenge_json = serde_json::to_string(&ccr)
+                    .map_err(UserError::from)
+                    .or_redirect("/signup")?;
+
+                const SIGNUP_JS: &str = include_str!("signup.js");
+
+                Ok(theme_with_head(
+                    Some("Create Passkey"),
+                    html! {
+                    script
+                        src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
+                        crossorigin="anonymous" {}
+                    meta name="webauthn_url" content=(webauthn_url);
+                    script id="challenge-data" type="application/json" {
+                        (PreEscaped(challenge_json))
+                    }
+                    script {
+                           (PreEscaped(SIGNUP_JS))
+                    }
+                },
+                    html! {
+                div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
                     div class="sm:mx-auto sm:w-full sm:max-w-sm" {
                         img src="/logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto";
                         h2 class="mt-10 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white" {
@@ -214,240 +307,10 @@ fn challenge_page(
                         }
                     }
                 }
-        },
-    )
-}
-
-async fn handle_signup_get(
-    webauthn_url: String,
-    query: Query<SignupQuery>,
-    next: Option<String>,
-) -> impl IntoResponse {
-    // Handle error messages from query parameters
-    let error_message = match query.error.as_deref() {
-        Some("email_taken") => {
-            Some("Email is already registered. Please use another email address.")
+            }).into_response())
+            }
+            Err(_) => Err(Redirect::to("/signup?error=registration_failed")),
         }
-        Some("invalid_email") => Some("Invalid email format. Please enter a valid email address."),
-        Some("session_expired") => Some("Your sign up session has expired. Please try again."),
-        Some("registration_failed") => Some("Sign up failed. Please try again."),
-        _ => None,
-    };
-
-    let markup = email_form_page(&webauthn_url, error_message, next.as_deref());
-    (
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "text/html")],
-        markup,
-    )
-}
-
-async fn handle_email_submission(
-    webauthn: Arc<Webauthn>,
-    authn_service: AuthnService,
-    auth_session: AuthSession,
-    webauthn_url: String,
-    email: Email,
-    next: Option<String>,
-) -> Result<Response, Redirect> {
-    const CALLBACK_URL: &str = "/signup";
-
-    // Check if email is already taken
-    if authn_service.email_exists(&email).await.unwrap_or(false) {
-        return Ok(Redirect::to("/signup?error=email_taken").into_response());
-    }
-
-    // Get existing credentials for exclusion
-    let exclude_credentials = None; // New user, no existing credentials to exclude
-
-    // Generate new user ID (our internal identifier)
-    let user_id = UserId::new();
-
-    // Generate webauthn UUID (for webauthn-rs compatibility)
-    let webauthn_uuid = Uuid::new_v4();
-
-    // Clear any previous registration state
-    let session = &auth_session.session;
-    _ = session.remove_value("reg_state").await;
-
-    // Start passkey registration
-    match webauthn.start_passkey_registration(
-        webauthn_uuid,
-        email.as_ref(),
-        email.as_ref(),
-        exclude_credentials,
-    ) {
-        Ok((mut ccr, reg_state)) => {
-            ccr.public_key.authenticator_selection = Some(AuthenticatorSelectionCriteria {
-                authenticator_attachment: None,
-                resident_key: Some(ResidentKeyRequirement::Required),
-                require_resident_key: true,
-                user_verification: webauthn_rs_proto::UserVerificationPolicy::Required,
-            });
-
-            // Store registration state in session (including next for the credential submission step)
-            session
-                .insert(
-                    "reg_state",
-                    (
-                        email.clone(),
-                        user_id,
-                        webauthn_uuid,
-                        reg_state,
-                        next.clone(),
-                    ),
-                )
-                .await
-                .map_err(|e| UserError::SerdeJson(e.to_string()))
-                .or_redirect(CALLBACK_URL)?;
-
-            // Serialize challenge to JSON
-            let challenge_json = serde_json::to_string(&ccr)
-                .map_err(UserError::from)
-                .or_redirect("/signup")?;
-
-            // Return challenge page
-            let markup = challenge_page(
-                &webauthn_url,
-                email.as_ref(),
-                &challenge_json,
-                next.as_deref(),
-            );
-            Ok((
-                StatusCode::OK,
-                [(header::CONTENT_TYPE, "text/html")],
-                markup,
-            )
-                .into_response())
-        }
-        Err(_) => Ok(Redirect::to("/signup?error=registration_failed").into_response()),
-    }
-}
-
-async fn handle_credential_submission(
-    webauthn: Arc<Webauthn>,
-    authn_service: AuthnService,
-    mut auth_session: AuthSession,
-    form_data: Form<HashMap<String, String>>,
-    next: Option<String>,
-) -> Result<Response, Redirect> {
-    const CALLBACK_URL: &str = "/signup";
-
-    // Extract credential from form
-    let credential_json = form_data
-        .get("credential")
-        .map(|s| s.as_str())
-        .ok_or(UserError::InvalidInput)
-        .or_redirect(CALLBACK_URL)?;
-
-    let credential: RegisterPublicKeyCredential = serde_json::from_str(credential_json)
-        .map_err(UserError::from)
-        .or_redirect(CALLBACK_URL)?;
-
-    // Get registration state from session
-    let session = &auth_session.session;
-    let (email, user_id, webauthn_uuid, reg_state, stored_next) = session
-        .get::<(String, UserId, Uuid, PasskeyRegistration, Option<String>)>("reg_state")
-        .await
-        .map_err(|e| UserError::Session(e.to_string()))
-        .or_redirect(CALLBACK_URL)?
-        .ok_or(UserError::SessionNotFound)
-        .or_redirect(CALLBACK_URL)?;
-
-    // Use next from form if provided, otherwise fall back to stored next
-    let next = next.or(stored_next);
-
-    // Verify the registration
-    match webauthn.finish_passkey_registration(&credential, &reg_state) {
-        Ok(passkey) => {
-            // Clear the registration state
-            _ = session.remove_value("reg_state").await;
-
-            // Generate a PasskeyId for this passkey
-            let passkey_id = PasskeyId::new();
-
-            // Store the new user and their passkey
-            let email_validated = Email::try_new(&email).or_redirect(CALLBACK_URL)?;
-
-            authn_service
-                .create_user(
-                    user_id,
-                    email_validated.clone(),
-                    webauthn_uuid,
-                    Authority::Direct(Actor::Anonymous),
-                    DefaultTimeProvider.get_time(),
-                )
-                .await
-                .or_redirect(CALLBACK_URL)?;
-
-            let ev_id = authn_service
-                .create_passkey(
-                    passkey_id,
-                    user_id,
-                    CorePasskey(passkey),
-                    Authority::Direct(Actor::User(user_id)),
-                    DefaultTimeProvider.get_time(),
-                )
-                .await
-                .or_redirect(CALLBACK_URL)?;
-
-            // Log in the newly registered user via axum_login
-            let user = super::user::UserState {
-                id: user_id,
-                webauthn_uuid,
-                email: email_validated,
-            };
-            auth_session
-                .login(&user)
-                .await
-                .map_err(UserError::from)
-                .or_redirect(CALLBACK_URL)?;
-
-            authn_service.wait_for(ev_id).await;
-
-            // Redirect to next or default
-            let redirect_to = next.as_deref().unwrap_or("/journal");
-            Ok(Redirect::to(redirect_to).into_response())
-        }
-        Err(_) => {
-            // Clear the registration state on failure
-            _ = session.remove_value("reg_state").await;
-
-            Ok(Redirect::to("/signup?error=registration_failed").into_response())
-        }
-    }
-}
-
-pub async fn signup_get(
-    Extension(webauthn_url): Extension<String>,
-    query: Query<SignupQuery>,
-) -> impl IntoResponse {
-    let next = query.next.clone();
-    handle_signup_get(webauthn_url, query, next).await
-}
-
-pub async fn signup_post(
-    Extension(webauthn): Extension<Arc<Webauthn>>,
-    Extension(authn_service): Extension<AuthnService>,
-    Extension(webauthn_url): Extension<String>,
-    auth_session: AuthSession,
-    form: Form<HashMap<String, String>>,
-) -> Result<impl IntoResponse, Redirect> {
-    let next = form.get("next").cloned();
-    if let Some(_credential_json) = form.get("credential") {
-        Ok(handle_credential_submission(webauthn, authn_service, auth_session, form, next).await?)
-    } else if let Some(email_str) = form.get("email") {
-        let email = Email::try_new(email_str).or_redirect("/signup")?;
-
-        handle_email_submission(
-            webauthn,
-            authn_service,
-            auth_session,
-            webauthn_url,
-            email,
-            next,
-        )
-        .await
     } else {
         Err(UserError::InvalidInput).or_redirect("/signup")
     }
