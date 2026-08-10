@@ -36,18 +36,27 @@ pub async fn signin_get(
     let session = auth_session.session;
     _ = session.remove_value("identifierless_auth_state").await;
 
-    // passing an empty slice to creds enables identifier-less discoverable credentials
-    let challenge_data = match webauthn.start_passkey_authentication(&[]) {
-        Ok((rcr, auth_state)) => {
-            match session
-                .insert("identifierless_auth_state", auth_state)
-                .await
-            {
-                Ok(_) => serde_json::to_string(&rcr).ok(),
-                Err(_) => None,
+    let challenge_data = if let Ok(wrapped_credentials) = authn_service.get_all_credentials().await
+    {
+        let all_credentials: Vec<webauthn_rs::prelude::Passkey> =
+            wrapped_credentials.into_iter().map(|cred| cred.0).collect();
+
+        match webauthn.start_passkey_authentication(all_credentials.as_slice()) {
+            Ok((mut rcr, auth_state)) => {
+                // clearing the allow credentials allows for identifier-less login
+                rcr.public_key.allow_credentials.clear();
+                match session
+                    .insert("identifierless_auth_state", auth_state)
+                    .await
+                {
+                    Ok(_) => serde_json::to_string(&rcr).ok(),
+                    Err(_) => None,
+                }
             }
+            Err(_) => None,
         }
-        Err(_) => None,
+    } else {
+        None
     };
 
     let error_str = query.err.clone().map(|str| {
@@ -63,7 +72,6 @@ pub async fn signin_get(
         }
     });
 
-    // Get dev users for the dev login form
     let dev_users = authn_service.get_dev_users().await;
 
     const SIGNIN_JS: &str = include_str!("signin.js");

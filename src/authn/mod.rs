@@ -326,6 +326,18 @@ impl AuthnService {
             .event_id())
     }
 
+    pub async fn get_all_credentials(&self) -> Result<Vec<CorePasskey>, PasskeyError> {
+        let passkeys = sqlx::query_scalar!(
+            r#"
+            SELECT passkey as "passkey: CorePasskey" FROM passkeys
+        "#
+        )
+        .fetch_all(&self.projection_pool)
+        .await?;
+
+        Ok(passkeys)
+    }
+
     pub async fn email_exists(&self, email: &Email) -> UserResult<bool> {
         Ok(sqlx::query_scalar!(
             r#"
