@@ -60,6 +60,8 @@ pub enum UserError {
     MissingResendApiKey,
     #[error("failed to send an email with resend: {0}")]
     Resend(String),
+    #[error("incorrect verification code")]
+    InvalidVerificationCode,
 }
 
 impl From<sqlx::Error> for UserError {

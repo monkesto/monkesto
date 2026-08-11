@@ -229,6 +229,7 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
                     UserErrorType::AuthenticationFailed(_) => UserError::AuthenticationFailed,
                     UserErrorType::MissingResendApiKey(_) => UserError::MissingResendApiKey,
                     UserErrorType::Resend(s) => UserError::Resend(s),
+                    UserErrorType::InvalidVerificationCode(_) => UserError::InvalidVerificationCode,
                 };
 
                 MonkestoError::User(user_error)
@@ -382,6 +383,9 @@ impl From<MonkestoError> for ProtoMonkestoError {
                     UserError::AuthenticationFailed => UserErrorType::AuthenticationFailed(()),
                     UserError::MissingResendApiKey => UserErrorType::MissingResendApiKey(()),
                     UserError::Resend(s) => UserErrorType::Resend(s),
+                    UserError::InvalidVerificationCode => {
+                        UserErrorType::InvalidVerificationCode(())
+                    }
                 };
 
                 MonkestoErrorType::User(ProtoUserError {

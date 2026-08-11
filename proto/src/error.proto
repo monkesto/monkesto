@@ -72,6 +72,7 @@ message ProtoUserError {
     google.protobuf.Empty authentication_failed = 12;
     google.protobuf.Empty missing_resend_api_key = 13;
     string resend = 14;
+    google.protobuf.Empty invalid_verification_code = 15;
   }
 }
 

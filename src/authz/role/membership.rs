@@ -51,7 +51,7 @@ mod tests {
         let actor = Actor::System;
         let mut role = Role::new(role_id);
         role.name = Some(Name::try_new("Administrator".into()).expect("valid name"));
-        role.actors.insert(actor.clone());
+        role.actors.insert(actor);
         let decision = ChangeRoleActor::new(
             role_id,
             actor,

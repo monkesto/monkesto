@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE TABLE IF NOT EXISTS verification_codes (\n                email TEXT NOT NULL PRIMARY KEY ,\n                code int4 NOT NULL,\n                timestamp TIMESTAMP NOT NULL DEFAULT now()\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "2e75dddc0c5e9e9dc5f7617ff71d671e4eba964e0fbeb4c760a2beca1505a14f"
+}

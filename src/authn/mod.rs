@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgHasArrayType;
 use sqlx::{Database, PgPool, Postgres, Type};
 use std::env;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 pub use store::AuthnEventStore;
 use thiserror::Error;
@@ -52,6 +52,11 @@ use webauthn_rs::prelude::WebauthnError as WebauthnCoreError;
 use webauthn_rs::prelude::{CredentialID, Url, Uuid};
 
 pub type AuthSession = axum_login::AuthSession<AuthnService>;
+
+pub static RESEND_API_KEY: LazyLock<Option<String>> =
+    LazyLock::new(|| env::var("RESEND_API_KEY").ok());
+
+pub static RESEND_EMAIL: LazyLock<Option<String>> = LazyLock::new(|| env::var("RESEND_EMAIL").ok());
 
 /// Errors that occur during WebAuthn router initialization/configuration.
 /// These are startup-time errors, not request-handling errors.
@@ -161,7 +166,7 @@ impl AuthnService {
         sqlx::query!(
             r#"
             CREATE TABLE IF NOT EXISTS verification_codes (
-                email TEXT NOT NULL,
+                email TEXT NOT NULL PRIMARY KEY ,
                 code int4 NOT NULL,
                 timestamp TIMESTAMP NOT NULL DEFAULT now()
             )
@@ -191,11 +196,15 @@ impl AuthnService {
     }
 
     pub async fn send_user_verification_code(&self, email: &Email) -> Result<(), UserError> {
-        let api_key = env::var("RESEND_API_KEY").map_err(|_| UserError::MissingResendApiKey)?;
+        let resend = Resend::new(
+            RESEND_API_KEY
+                .as_deref()
+                .ok_or(UserError::MissingResendApiKey)?,
+        );
 
-        let resend = Resend::new(api_key.as_str());
-
-        let from = env::var("RESEND_EMAIL").map_err(|_| UserError::MissingResendApiKey)?;
+        let from = RESEND_EMAIL
+            .as_deref()
+            .ok_or(UserError::MissingResendApiKey)?;
         let to = [email.as_ref()];
         let subject = "Monkesto: Your sign-in code";
 
@@ -614,7 +623,11 @@ pub fn router<S: Clone + Send + Sync + 'static>(
     // Public routes (no login required)
     let public_routes = Router::new()
         .route("/signin", get(signin::signin_get).post(signin::signin_post))
-        .route("/signup", get(signup::signup_get).post(signup::signup_post));
+        .route("/signup", get(signup::signup_get).post(signup::signup_post))
+        .route(
+            "/signup/verify",
+            get(signup::signup_email_verification_get).post(signup::signup_email_verification_post),
+        );
 
     Ok(public_routes
         .merge(protected_routes)

@@ -1,6 +1,6 @@
 use super::passkey::PasskeyId;
 use super::user::{UserError, UserId};
-use super::{AuthSession, AuthnService};
+use super::{AuthSession, AuthnService, RESEND_API_KEY, RESEND_EMAIL};
 use crate::authn::corepasskey::CorePasskey;
 use axum::extract::Extension;
 use axum::extract::Form;
@@ -12,7 +12,6 @@ use maud::Markup;
 use maud::PreEscaped;
 use maud::html;
 use serde::Deserialize;
-use std::collections::HashMap;
 use std::sync::Arc;
 use webauthn_rs::prelude::PasskeyRegistration;
 use webauthn_rs::prelude::RegisterPublicKeyCredential;
@@ -30,7 +29,7 @@ use crate::time_provider::{DefaultTimeProvider, TimeProvider};
 
 #[derive(Deserialize)]
 pub struct SignupQuery {
-    error: Option<String>,
+    err: Option<String>,
     next: Option<String>,
 }
 
@@ -38,14 +37,12 @@ pub async fn signup_get(
     Extension(webauthn_url): Extension<String>,
     query: Query<SignupQuery>,
 ) -> Markup {
-    let error_message = match query.error.as_deref() {
-        Some("email_taken") => {
-            Some("Email is already registered. Please use another email address.")
-        }
-        Some("invalid_email") => Some("Invalid email format. Please enter a valid email address."),
-        Some("session_expired") => Some("Your sign up session has expired. Please try again."),
-        Some("registration_failed") => Some("Sign up failed. Please try again."),
-        _ => None,
+    let email_verification_required = RESEND_API_KEY.is_some() && RESEND_EMAIL.is_some();
+
+    let next_action = if email_verification_required {
+        "signup/verify"
+    } else {
+        "signup"
     };
 
     theme_with_head(
@@ -63,7 +60,7 @@ pub async fn signup_get(
                     }
 
                     div class="mt-10 sm:mx-auto sm:w-full sm:max-w-sm" {
-                        form method="POST" action="signup" class="space-y-6" {
+                        form method="POST" action=(next_action) class="space-y-6" {
                             div {
                                 label
                                 for="email"
@@ -103,7 +100,7 @@ pub async fn signup_get(
                             }
                         }
 
-                        @if let Some(error_str) = error_message {
+                        @if let Some(error_str) = query.err.as_deref() {
                             div class="mt-6" {
                                 p class="text-center text-sm/6 text-red-500" {
                                     (MonkestoError::decode(error_str))
@@ -116,28 +113,126 @@ pub async fn signup_get(
     )
 }
 
+#[derive(Deserialize)]
+pub struct SignupEmailVerificationQuery {
+    email: String,
+}
+
+pub async fn signup_email_verification_get(
+    Extension(webauthn_url): Extension<String>,
+    Query(query): Query<SignupEmailVerificationQuery>,
+) -> impl IntoResponse {
+    let email_verification_required = RESEND_API_KEY.is_some() && RESEND_EMAIL.is_some();
+
+    if !email_verification_required {
+        return Redirect::to("/signup").into_response();
+    }
+
+    theme_with_head(
+        Some("Sign up"),
+        html! {
+            meta name="webauthn_url" content=(webauthn_url);
+        },
+        html! {
+            div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
+                    div class="sm:mx-auto sm:w-full sm:max-w-sm" {
+                        img src="/logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto";
+                        h2 class="mt-10 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white" {
+                            "Verify Email"
+                        }
+                    }
+
+                    div class="mt-10 sm:mx-auto sm:w-full sm:max-w-sm" {
+                        p {
+                            "We sent a 6-digit verification code to " (query.email)". Please enter it below."
+                        }
+
+                        br;
+
+                        form method="POST" action="/signup" class="space-y-6" {
+                            div {
+                                label
+                                for="verification_code"
+                                class="block text-sm/6 font-medium text-gray-900 dark:text-gray-100" {
+                                    "Verification Code"
+                                }
+                                div class="mt-2" {
+                                    input
+                                    id="verification_code"
+                                    name="verification_code"
+                                    required
+                                    class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500";
+                                }
+                            }
+
+                             input
+                                id="email"
+                                name="email"
+                                type="hidden"
+                                value=(query.email);
+
+                            div {
+                                button
+                                type="submit"
+                                class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500" {
+                                    "Continue"
+                                }
+                            }
+                        }
+                    }
+                }
+        },
+    ).into_response()
+}
+
+#[derive(Deserialize)]
+pub struct EmailVerificationForm {
+    email: Email,
+}
+
+pub async fn signup_email_verification_post(
+    Extension(authn_service): Extension<AuthnService>,
+    Form(form): Form<EmailVerificationForm>,
+) -> Result<Redirect, Redirect> {
+    let email_verification_required = RESEND_API_KEY.is_some() && RESEND_EMAIL.is_some();
+
+    if email_verification_required {
+        authn_service
+            .send_user_verification_code(&form.email)
+            .await
+            .or_redirect("/signup")?;
+        return Ok(Redirect::to(
+            format!("/signup/verify?email={}", form.email).as_str(),
+        ));
+    }
+
+    Ok(Redirect::to("/signup"))
+}
+
+#[derive(Deserialize)]
+pub struct SignupForm {
+    email: Option<Email>,
+    next: Option<String>,
+    credential: Option<String>,
+    verification_code: Option<String>,
+}
+
 pub async fn signup_post(
     Extension(webauthn): Extension<Arc<Webauthn>>,
     Extension(authn_service): Extension<AuthnService>,
     Extension(webauthn_url): Extension<String>,
     mut auth_session: AuthSession,
-    form: Form<HashMap<String, String>>,
+    Form(form): Form<SignupForm>,
 ) -> Result<Response, Redirect> {
-    let next = form.get("next").cloned();
     const CALLBACK_URL: &str = "/signup";
 
-    if let Some(_credential_json) = form.get("credential") {
+    if let Some(credential_json) = form.credential {
         // handle credential submission
 
-        let credential_json = form
-            .get("credential")
-            .map(|s| s.as_str())
-            .ok_or(UserError::InvalidInput)
-            .or_redirect(CALLBACK_URL)?;
-
-        let credential: RegisterPublicKeyCredential = serde_json::from_str(credential_json)
-            .map_err(UserError::from)
-            .or_redirect(CALLBACK_URL)?;
+        let credential: RegisterPublicKeyCredential =
+            serde_json::from_str(credential_json.as_str())
+                .map_err(UserError::from)
+                .or_redirect(CALLBACK_URL)?;
 
         // Get registration state from session
         let session = &auth_session.session;
@@ -149,18 +244,15 @@ pub async fn signup_post(
             .ok_or(UserError::SessionNotFound)
             .or_redirect(CALLBACK_URL)?;
 
-        let next = next.or(stored_next);
+        let next = form.next.or(stored_next);
 
         // Verify the registration
         match webauthn.finish_passkey_registration(&credential, &reg_state) {
             Ok(passkey) => {
-                // Clear the registration state
                 _ = session.remove_value("reg_state").await;
 
-                // Generate a PasskeyId for this passkey
                 let passkey_id = PasskeyId::new();
 
-                // Store the new user and their passkey
                 let email_validated = Email::try_new(&email).or_redirect(CALLBACK_URL)?;
 
                 authn_service
@@ -203,16 +295,33 @@ pub async fn signup_post(
                 Ok(Redirect::to(redirect_to).into_response())
             }
             Err(_) => {
-                // Clear the registration state on failure
                 _ = session.remove_value("reg_state").await;
 
                 Err(Redirect::to("/signup?error=registration_failed"))
             }
         }
-    } else if let Some(email_str) = form.get("email") {
-        // handle email submission
-        let email = Email::try_new(email_str).or_redirect("/signup")?;
+    } else if let Some(email) = &form.email {
+        let email_verification_required = RESEND_API_KEY.is_some() && RESEND_EMAIL.is_some();
 
+        if email_verification_required {
+            let verification_code: i32 = form
+                .verification_code
+                .ok_or(UserError::InvalidInput)
+                .or_redirect(CALLBACK_URL)?
+                .parse()
+                .map_err(|_| UserError::InvalidInput)
+                .or_redirect(CALLBACK_URL)?;
+
+            if !authn_service
+                .verify_user_code(verification_code, email)
+                .await
+                .or_redirect(CALLBACK_URL)?
+            {
+                Err(UserError::InvalidVerificationCode).or_redirect(CALLBACK_URL)?
+            }
+        }
+
+        // handle email submission
         let exclude_credentials = None;
 
         let user_id = UserId::new();
@@ -243,11 +352,11 @@ pub async fn signup_post(
                     .insert(
                         "reg_state",
                         (
-                            email.clone(),
+                            email.as_ref(),
                             user_id,
                             webauthn_uuid,
                             reg_state,
-                            next.clone(),
+                            &form.next,
                         ),
                     )
                     .await
@@ -291,7 +400,7 @@ pub async fn signup_post(
                         form id="registration-form" method="POST" action="signup" style="display: none;" {
                             input type="hidden" name="email" value=(email);
                             input type="hidden" id="credential-field" name="credential" value="";
-                            @if let Some(next) = next {
+                            @if let Some(next) = form.next {
                                 input type="hidden" name="next" value=(next);
                             }
                         }
