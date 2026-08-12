@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            CREATE TABLE IF NOT EXISTS files (\n                id TEXT PRIMARY KEY,\n                journal_id TEXT NOT NULL,\n                hash BYTEA NOT NULL,\n                name TEXT NOT NULL\n            )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "28015cf74e26ecef7086f096d48e31e4ac3af0e2d2e5d003d3d78313044f3eda"
+}

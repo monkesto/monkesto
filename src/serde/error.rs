@@ -204,6 +204,10 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
                         JournalError::TransactionValidation(validation_error)
                     }
                     JournalErrorType::ProtoDecode(e) => JournalError::ProtoDecode(e.try_into()?),
+                    JournalErrorType::FileIdCollision(id) => {
+                        JournalError::FileIdCollision(id.try_into()?)
+                    }
+                    JournalErrorType::InvalidS3Credentials(_) => JournalError::InvalidS3Credentials,
                 };
 
                 MonkestoError::Journal(journal_error)
@@ -359,6 +363,12 @@ impl From<MonkestoError> for ProtoMonkestoError {
                     JournalError::PermissionDecode(e) => JournalErrorType::PermissionDecode(e.0),
                     JournalError::EventDecode(s) => JournalErrorType::EventDecode(s),
                     JournalError::ProtoDecode(e) => JournalErrorType::ProtoDecode(e.into()),
+                    JournalError::FileIdCollision(id) => {
+                        JournalErrorType::FileIdCollision(id.into())
+                    }
+                    JournalError::InvalidS3Credentials => {
+                        JournalErrorType::InvalidS3Credentials(())
+                    }
                 };
 
                 MonkestoErrorType::Journal(ProtoJournalError {

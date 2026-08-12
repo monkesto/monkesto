@@ -52,6 +52,13 @@ CREATE TABLE IF NOT EXISTS transactions (
     entries BYTEA NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS files (
+    id TEXT PRIMARY KEY,
+    journal_id TEXT NOT NULL,
+    hash BYTEA NOT NULL,
+    name TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS verification_codes (
   email TEXT NOT NULL,
   code int4 NOT NULL,

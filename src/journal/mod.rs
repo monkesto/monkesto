@@ -1,6 +1,8 @@
 pub mod account;
 pub mod commands;
 pub mod domain;
+#[expect(unused)]
+mod file;
 pub mod layout;
 pub mod member;
 pub mod person;
@@ -29,6 +31,9 @@ pub enum JournalError {
 
     #[error("a transaction already exists with the id {0}")]
     TransactionIdCollision(TransactionId),
+
+    #[error("a file already exists with the id {0}")]
+    FileIdCollision(FileId),
 
     #[error("invalid journal: {0}")]
     InvalidJournal(JournalId),
@@ -65,6 +70,9 @@ pub enum JournalError {
 
     #[error("failed to decode a proto type: {0}")]
     ProtoDecode(#[from] ProtoError),
+
+    #[error("the server-side S3 credentials are invalid")]
+    InvalidS3Credentials,
 }
 
 impl From<sqlx::Error> for JournalError {
@@ -116,6 +124,7 @@ use crate::id::IdentError;
 use crate::journal::JournalError::InvalidJournal;
 use crate::journal::account::AccountId;
 use crate::journal::domain::JournalDomainEvent;
+use crate::journal::file::FileId;
 use crate::journal::member::JournalMember;
 use crate::journal::transaction::{TransactionId, TransactionValidationError};
 use crate::name::Name;

@@ -1,6 +1,7 @@
 use crate::authn::UserId;
 use crate::authority::Authority;
 use crate::journal::account::AccountId;
+use crate::journal::file::FileId;
 use crate::journal::store::JournalEventStore;
 use crate::journal::transaction::{TransactionEntries, TransactionId};
 use crate::journal::{JournalId, JournalService, Permissions};
@@ -20,6 +21,7 @@ use std::time::Duration;
 #[stream(MemberEvent, [MemberAdded, MemberPermissionsUpdated, MemberRemoved])]
 #[stream(AccountEvent, [AccountCreated, AccountRenamed, AccountDeleted])]
 #[stream(TransactionEvent, [TransactionCreated, TransactionDeleted])]
+#[stream(FileEvent, [FileUploaded])]
 pub enum JournalDomainEvent {
     JournalCreated {
         #[id]
@@ -95,6 +97,16 @@ pub enum JournalDomainEvent {
     TransactionDeleted {
         #[id]
         transaction_id: TransactionId,
+        authority: Authority,
+        timestamp: Timestamp,
+    },
+    FileUploaded {
+        #[id]
+        file_id: FileId,
+        #[id]
+        journal_id: JournalId,
+        hash: [u8; 16],
+        file_name: String,
         authority: Authority,
         timestamp: Timestamp,
     },

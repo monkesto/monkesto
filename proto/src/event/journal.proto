@@ -82,6 +82,15 @@ message ProtoJournalDomainEvent {
     timestamp.ProtoTimestamp timestamp = 3;
   }
 
+  message ProtoFileUploaded {
+      ident.ProtoIdent file_id = 1;
+      ident.ProtoIdent journal_id = 2;
+      bytes hash = 3;
+      string file_name = 4;
+      authority.ProtoAuthority authority = 5;
+      timestamp.ProtoTimestamp timestamp = 6;
+  }
+
   oneof journal_domain_event_type {
     ProtoJournalCreated journal_created = 1;
     ProtoJournalDeleted journal_deleted = 2;
@@ -93,5 +102,6 @@ message ProtoJournalDomainEvent {
     ProtoAccountDeleted account_deleted = 8;
     ProtoTransactionCreated transaction_created = 9;
     ProtoTransactionDeleted transaction_deleted = 10;
+    ProtoFileUploaded file_uploaded = 11;
   }
 }

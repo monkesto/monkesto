@@ -52,6 +52,8 @@ message ProtoJournalError {
     int32 permission_decode = 13;
     ProtoTransactionValidationError transaction_validation = 14;
     ProtoDecodeError proto_decode = 15;
+    ident.ProtoIdent file_id_collision = 16;
+    google.protobuf.Empty invalid_S3_credentials = 17;
   }
 }
 

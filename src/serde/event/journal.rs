@@ -6,8 +6,9 @@ use crate::serde::error::ProtoError::FieldRequired;
 use proto::event::journal::ProtoJournalDomainEvent;
 use proto::event::journal::proto_journal_domain_event::{
     JournalDomainEventType, ProtoAccountCreated, ProtoAccountDeleted, ProtoAccountRenamed,
-    ProtoJournalCreated, ProtoJournalDeleted, ProtoMemberAdded, ProtoMemberPermissionsUpdated,
-    ProtoMemberRemoved, ProtoTransactionCreated, ProtoTransactionDeleted,
+    ProtoFileUploaded, ProtoJournalCreated, ProtoJournalDeleted, ProtoMemberAdded,
+    ProtoMemberPermissionsUpdated, ProtoMemberRemoved, ProtoTransactionCreated,
+    ProtoTransactionDeleted,
 };
 
 impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
@@ -127,6 +128,21 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 authority: Some(authority.into()),
                 timestamp: Some(timestamp.into()),
             }),
+            JournalDomainEvent::FileUploaded {
+                file_id,
+                journal_id,
+                hash,
+                file_name,
+                authority,
+                timestamp,
+            } => JournalDomainEventType::FileUploaded(ProtoFileUploaded {
+                file_id: Some(file_id.into()),
+                journal_id: Some(journal_id.into()),
+                hash: hash.into(),
+                file_name,
+                authority: Some(authority.into()),
+                timestamp: Some(timestamp.into()),
+            }),
         };
 
         ProtoJournalDomainEvent {
@@ -210,6 +226,14 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                     timestamp: ev.timestamp.try_into()?,
                 }
             }
+            JournalDomainEventType::FileUploaded(ev) => JournalDomainEvent::FileUploaded {
+                file_id: ev.file_id.try_into()?,
+                journal_id: ev.journal_id.try_into()?,
+                hash: ev.hash.try_into().map_err(|_| ProtoError::Deserialize)?,
+                file_name: ev.file_name,
+                authority: ev.authority.try_into()?,
+                timestamp: ev.timestamp.try_into()?,
+            },
         };
 
         Ok(event)

@@ -8,6 +8,7 @@ use crate::journal::PermissionDecodeError;
 use crate::journal::Permissions;
 use crate::journal::account::{AccountId, CreateAccount};
 use crate::journal::domain::JournalDomainEvent;
+use crate::journal::file::FileId;
 use crate::journal::member::{AddJournalMember, RemoveJournalMember, UpdateJournalMember};
 use crate::journal::store::JournalEventStore;
 use crate::journal::transaction::{
@@ -134,6 +135,19 @@ impl JournalService {
                 id TEXT PRIMARY KEY,
                 journal_id TEXT NOT NULL,
                 entries BYTEA NOT NULL
+            )
+        "#
+        )
+        .execute(&pool)
+        .await?;
+
+        sqlx::query!(
+            r#"
+            CREATE TABLE IF NOT EXISTS files (
+                id TEXT PRIMARY KEY,
+                journal_id TEXT NOT NULL,
+                hash BYTEA NOT NULL,
+                name TEXT NOT NULL
             )
         "#
         )
@@ -768,6 +782,25 @@ impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
                     .await?;
                 }
                 tx.commit().await?;
+            }
+            JournalDomainEvent::FileUploaded {
+                file_id,
+                journal_id,
+                hash,
+                file_name,
+                ..
+            } => {
+                sqlx::query!(
+                    r#"
+                    INSERT INTO files (id, journal_id, hash, name) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
+                    "#,
+                    file_id as FileId,
+                    journal_id as JournalId,
+                    hash.as_slice() as &[u8],
+                    file_name
+                )
+                .execute(&self.projection_pool)
+                .await?;
             }
         }
 
