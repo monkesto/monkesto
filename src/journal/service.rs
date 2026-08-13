@@ -8,7 +8,7 @@ use crate::journal::PermissionDecodeError;
 use crate::journal::Permissions;
 use crate::journal::account::{AccountId, CreateAccount};
 use crate::journal::domain::JournalDomainEvent;
-use crate::journal::file::FileId;
+use crate::journal::file::{FileId, UploadFile};
 use crate::journal::member::{AddJournalMember, RemoveJournalMember, UpdateJournalMember};
 use crate::journal::store::JournalEventStore;
 use crate::journal::transaction::{
@@ -55,6 +55,15 @@ pub struct TransactionState {
     pub entries: Vec<BalanceUpdate>,
 }
 
+pub struct FileState {
+    pub id: FileId,
+    #[expect(unused)]
+    journal_id: JournalId,
+    #[expect(unused)]
+    pub hash: [u8; 16],
+    pub name: String,
+}
+
 #[derive(FromRow)]
 struct JournalStateWithPayload {
     id: JournalId,
@@ -76,6 +85,16 @@ struct TransactionStateWithPayload {
     id: TransactionId,
     journal_id: JournalId,
     entries: TransactionEntries,
+    payload: Vec<u8>,
+}
+
+#[derive(FromRow)]
+struct FileStateWithPayload {
+    id: FileId,
+    #[expect(unused)]
+    journal_id: JournalId,
+    hash: Vec<u8>,
+    name: String,
     payload: Vec<u8>,
 }
 
@@ -281,6 +300,24 @@ impl JournalService {
                 entries,
                 authority,
                 timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    pub async fn upload_file(
+        &self,
+        file_id: FileId,
+        journal_id: JournalId,
+        hash: [u8; 16],
+        file_name: String,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(UploadFile::new(
+                file_id, journal_id, hash, file_name, authority, timestamp,
             ))
             .await?
             .event_id())
@@ -510,6 +547,68 @@ impl JournalService {
         }
 
         Ok(transactions_with_meta)
+    }
+
+    pub async fn list_journal_files(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<Vec<(FileState, Authority, Timestamp)>> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(JournalError::InvalidJournal(journal_id));
+        }
+
+        let files = sqlx::query_as!(
+            FileStateWithPayload,
+            r#"
+            SELECT f.id as "id: FileId", f.journal_id as "journal_id: JournalId", f.hash, f.name, e.payload as "payload!"
+            FROM files f
+            INNER JOIN event e
+                ON e.file_id = f.id AND e.event_type = 'FileUploaded'
+            WHERE f.journal_id = $1
+            "#,
+            journal_id as JournalId
+        )
+            .fetch_all(&self.projection_pool)
+            .await?;
+
+        let mut files_with_meta = Vec::with_capacity(files.len());
+
+        for file in files {
+            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
+                file.payload.as_slice(),
+            )?)?;
+            let hash = *file.hash.as_array::<16>().ok_or_else(|| {
+                JournalError::EventDecode(format!(
+                    "expected 16 byte file hash, got {}",
+                    file.hash.len()
+                ))
+            })?;
+
+            match payload {
+                JournalDomainEvent::FileUploaded {
+                    authority,
+                    timestamp,
+                    ..
+                } => files_with_meta.push((
+                    FileState {
+                        id: file.id,
+                        journal_id,
+                        hash,
+                        name: file.name,
+                    },
+                    authority,
+                    timestamp,
+                )),
+                _ => unreachable!("FileUploaded events are filtered by the sql query"),
+            }
+        }
+
+        Ok(files_with_meta)
     }
 
     pub async fn list_journal_transactions(

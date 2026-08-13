@@ -54,6 +54,7 @@ message ProtoJournalError {
     ProtoDecodeError proto_decode = 15;
     ident.ProtoIdent file_id_collision = 16;
     google.protobuf.Empty invalid_S3_credentials = 17;
+    string s3 = 18;
   }
 }
 

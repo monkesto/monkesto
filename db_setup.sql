@@ -74,5 +74,6 @@ CREATE TABLE IF NOT EXISTS event (
     journal_id TEXT,
     user_id TEXT,
     account_id TEXT,
-    transaction_id TEXT
+    transaction_id TEXT,
+    file_id TEXT
                                  );

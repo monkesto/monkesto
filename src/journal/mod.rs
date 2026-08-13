@@ -16,7 +16,7 @@ pub use service::JournalService;
 use std::cmp::PartialEq;
 
 use axum::Router;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum_login::login_required;
 
 id!(JournalId, Ident::new16());
@@ -73,6 +73,9 @@ pub enum JournalError {
 
     #[error("the server-side S3 credentials are invalid")]
     InvalidS3Credentials,
+
+    #[error("an S3 transaction failed: {0}")]
+    S3(String),
 }
 
 impl From<sqlx::Error> for JournalError {
@@ -87,32 +90,41 @@ impl From<prost::DecodeError> for JournalError {
     }
 }
 
+impl<E, R> From<SdkError<E, R>> for JournalError {
+    fn from(value: SdkError<E, R>) -> Self {
+        Self::S3(value.to_string())
+    }
+}
+
 pub type JournalResult<T> = Result<T, JournalError>;
 
 pub fn router() -> Router<crate::StateType> {
     Router::new()
         .route("/journal", get(views::journal_list))
-        .route(
-            "/createjournal",
-            axum::routing::post(commands::create_journal),
-        )
+        .route("/createjournal", post(commands::create_journal))
         .route("/journal/{id}", get(views::journal_detail))
-        .route("/journal/{id}/person", get(person::people_list_page))
+        .route("/journal/{id}/file", get(file::views::file_list_page))
         .route(
-            "/journal/{id}/invite",
-            axum::routing::post(commands::invite_member),
+            "/journal/{id}/file/upload",
+            post(file::commands::upload_file),
         )
+        .route(
+            "/journal/{id}/file/recordupload",
+            post(file::commands::record_file_upload),
+        )
+        .route("/journal/{id}/person", get(person::people_list_page))
+        .route("/journal/{id}/invite", post(commands::invite_member))
         .route(
             "/journal/{id}/person/{person_id}",
             get(person::person_detail_page),
         )
         .route(
             "/journal/{id}/person/{person_id}/update",
-            axum::routing::post(commands::update_permissions),
+            post(commands::update_permissions),
         )
         .route(
             "/journal/{id}/person/{person_id}/remove",
-            axum::routing::post(commands::remove_member),
+            post(commands::remove_member),
         )
         .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
 }
@@ -131,6 +143,7 @@ use crate::name::Name;
 use crate::serde::error::ProtoError;
 use crate::status::Status;
 use crate::time_provider::Timestamp;
+use aws_sdk_s3::error::SdkError;
 use bitflags::bitflags;
 use disintegrate::{Decision, StateMutate, StateQuery};
 use domain::JournalEvent;
@@ -291,9 +304,10 @@ bitflags! {
     pub struct Permissions: i32 {
         const READ = 1 << 0;
         const ADD_ACCOUNT = 1 << 1;
-        const APPEND_TRANSACTION = 1 << 2;
-        const INVITE = 1 << 3;
-        const OWNER = 1 << 4;
+        const UPLOAD_FILE = 1 << 2;
+        const APPEND_TRANSACTION = 1 << 3;
+        const INVITE = 1 << 4;
+        const OWNER = 1 << 5;
     }
 }
 

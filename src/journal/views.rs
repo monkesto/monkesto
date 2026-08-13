@@ -128,6 +128,13 @@ pub async fn journal_detail(
         Err(e) => Err(e.into()),
     };
 
+    let pages = [
+        ("Transactions", "transaction"),
+        ("Accounts", "account"),
+        ("People", "person"),
+        ("Files", "file"),
+    ];
+
     let content = if let Ok(journal_id) = JournalId::from_str(&id) {
         let journal_state_res = state
             .journal_service
@@ -138,27 +145,13 @@ pub async fn journal_detail(
                 @match &journal_state_res {
                     Ok((_journal, journal_creator, journal_creation_timestamp)) => {
                         div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" {
-                            a
-                            href=(format!("/journal/{}/transaction", &id))
-                            class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                    "Transactions"
-                                }
-                            }
-
-                            a
-                            href=(format!("/journal/{}/account", &id))
-                            class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                    "Accounts"
-                                }
-                            }
-
-                            a
-                            href=(format!("/journal/{}/person", &id))
-                            class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                    "People"
+                            @for (title, path) in pages {
+                                a
+                                href=(format!("/journal/{}/{}", &id, path))
+                                class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                                    h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                        (title)
+                                    }
                                 }
                             }
                         }

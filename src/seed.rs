@@ -93,7 +93,10 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
         .add_member(
             maple_ridge_academy_id,
             wedgwood_id,
-            Permissions::READ | Permissions::ADD_ACCOUNT | Permissions::APPEND_TRANSACTION,
+            Permissions::READ
+                | Permissions::ADD_ACCOUNT
+                | Permissions::UPLOAD_FILE
+                | Permissions::APPEND_TRANSACTION,
             pacioli_authority,
             time_provider.get_time(),
         )
