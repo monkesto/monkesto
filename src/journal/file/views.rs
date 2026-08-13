@@ -157,7 +157,7 @@ pub async fn download_file(
             .get_object()
             .bucket("monkesto")
             .key(&file_key)
-            .response_content_disposition(format!("attachment; filename=\"{}\"", file.name))
+            .response_content_disposition(format!("filename=\"{}\"", file.name))
             .presigned(presigning_config)
             .await
             .map_err(JournalError::from)
