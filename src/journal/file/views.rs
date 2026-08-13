@@ -1,14 +1,17 @@
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
-use crate::journal::JournalId;
+use crate::journal::file::{FileId, S3_CLIENT};
 use crate::journal::layout::layout;
-use crate::monkesto_error::{MonkestoError, UrlError};
+use crate::journal::{JournalError, JournalId};
+use crate::monkesto_error::{MonkestoError, OrRedirect, UrlError};
 use crate::{BackendType, StateType};
+use aws_sdk_s3::presigning::PresigningConfig;
 use axum::extract::{Path, Query, State};
 use axum::response::Redirect;
 use axum_login::AuthSession;
 use maud::{Markup, PreEscaped, html};
 use std::str::FromStr;
+use std::time::Duration;
 
 pub async fn file_list_page(
     State(state): State<StateType>,
@@ -124,4 +127,42 @@ pub async fn file_list_page(
         Some(&id),
         wrapped_content,
     ))
+}
+
+pub async fn download_file(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
+    Path((journal_id, file_id)): Path<(String, String)>,
+) -> Result<Redirect, Redirect> {
+    let callback_url = &format!("/journal/{}/file", journal_id);
+    if let Some(s3_client) = S3_CLIENT.clone() {
+        let user = get_user(session)?;
+        let user_authority = Authority::Direct(Actor::User(user.id));
+        let journal_id = JournalId::from_str(&journal_id).or_redirect(callback_url)?;
+        let file_id = FileId::from_str(&file_id).or_redirect(callback_url)?;
+
+        let file = state
+            .journal_service
+            .get_file(file_id, journal_id, user_authority)
+            .await
+            .or_redirect(callback_url)?;
+
+        let file_key = format!("{}/{}-{}", journal_id, file_id, file.name);
+
+        let presign_ttl = Duration::from_secs(30);
+        let presigning_config =
+            PresigningConfig::expires_in(presign_ttl).expect("valid presign ttl");
+
+        let presigned_req = s3_client
+            .get_object()
+            .bucket("monkesto")
+            .key(&file_key)
+            .presigned(presigning_config)
+            .await
+            .map_err(JournalError::from)
+            .or_redirect(callback_url)?;
+        return Ok(Redirect::temporary(presigned_req.uri()));
+    }
+
+    Err(JournalError::InvalidS3Credentials).or_redirect(callback_url)
 }

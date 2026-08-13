@@ -76,6 +76,9 @@ pub enum JournalError {
 
     #[error("an S3 transaction failed: {0}")]
     S3(String),
+
+    #[error("invalid file: {0}")]
+    InvalidFile(FileId),
 }
 
 impl From<sqlx::Error> for JournalError {
@@ -111,6 +114,10 @@ pub fn router() -> Router<crate::StateType> {
         .route(
             "/journal/{id}/file/recordupload",
             post(file::commands::record_file_upload),
+        )
+        .route(
+            "/journal/{id}/file/{file_id}",
+            get(file::views::download_file),
         )
         .route("/journal/{id}/person", get(person::people_list_page))
         .route("/journal/{id}/invite", post(commands::invite_member))

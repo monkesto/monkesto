@@ -98,6 +98,14 @@ struct FileStateWithPayload {
     payload: Vec<u8>,
 }
 
+#[derive(FromRow)]
+struct FileStateWithVecHash {
+    id: FileId,
+    journal_id: JournalId,
+    hash: Vec<u8>,
+    name: String,
+}
+
 #[derive(Clone)]
 pub struct JournalService {
     query: StreamQuery<PgEventId, JournalDomainEvent>,
@@ -609,6 +617,52 @@ impl JournalService {
         }
 
         Ok(files_with_meta)
+    }
+
+    pub async fn get_file(
+        &self,
+        file_id: FileId,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<FileState> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(JournalError::InvalidJournal(journal_id));
+        }
+
+        let file = sqlx::query_as!(
+            FileStateWithVecHash,
+            r#"
+            SELECT f.id as "id: FileId", f.journal_id as "journal_id: JournalId", f.hash, f.name
+            FROM files f
+            WHERE f.journal_id = $1 AND f.id = $2
+            "#,
+            journal_id as JournalId,
+            file_id as FileId,
+        )
+        .fetch_optional(&self.projection_pool)
+        .await?;
+
+        if let Some(file) = file {
+            let hash = *file.hash.as_array::<16>().ok_or_else(|| {
+                JournalError::EventDecode(format!(
+                    "expected 16 byte file hash, got {}",
+                    file.hash.len()
+                ))
+            })?;
+
+            return Ok(FileState {
+                id: file.id,
+                journal_id: file.journal_id,
+                hash,
+                name: file.name,
+            });
+        }
+
+        Err(JournalError::InvalidFile(file_id))
     }
 
     pub async fn list_journal_transactions(

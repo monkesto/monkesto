@@ -209,6 +209,7 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
                     }
                     JournalErrorType::InvalidS3Credentials(_) => JournalError::InvalidS3Credentials,
                     JournalErrorType::S3(s) => JournalError::S3(s),
+                    JournalErrorType::InvalidFile(id) => JournalError::InvalidFile(id.try_into()?),
                 };
 
                 MonkestoError::Journal(journal_error)
@@ -371,6 +372,7 @@ impl From<MonkestoError> for ProtoMonkestoError {
                         JournalErrorType::InvalidS3Credentials(())
                     }
                     JournalError::S3(s) => JournalErrorType::S3(s),
+                    JournalError::InvalidFile(id) => JournalErrorType::InvalidFile(id.into()),
                 };
 
                 MonkestoErrorType::Journal(ProtoJournalError {

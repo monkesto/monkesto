@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT f.id as \"id: FileId\", f.journal_id as \"journal_id: JournalId\", f.hash, f.name\n            FROM files f\n            WHERE f.journal_id = $1 AND f.id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: FileId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "hash",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9a1ec5b897669543113dc9d7a26f46a812c44a0e2440f4e11c7ed6ed7e9776da"
+}
