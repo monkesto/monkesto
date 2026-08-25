@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT id as \"id: EntryId\", journal_id as \"journal_id: JournalId\", amount, entry_side as \"entry_side: EntrySide\", entry_kind as \"entry_kind: EntryKind\" from transaction_entries WHERE journal_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: EntryId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "amount",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "entry_side: EntrySide",
+        "type_info": "Int2"
+      },
+      {
+        "ordinal": 4,
+        "name": "entry_kind: EntryKind",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b9de330cac3df9baff681f087920c4da94908e382848a8dc94e107f721935582"
+}

@@ -29,8 +29,58 @@ use crate::time_provider::Timestamp;
 use disintegrate::{Decision, StateMutate, StateQuery};
 use serde::Deserialize;
 use serde::Serialize;
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::{Database, Decode, Encode, Postgres, Type};
+use thiserror::Error;
 
 id!(AccountId, Ident::new16());
+
+#[repr(i8)]
+#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum AccountType {
+    #[default]
+    Asset = 1,
+    Liability = 2,
+}
+
+#[derive(Debug, Error, PartialEq)]
+#[error("{0}")]
+pub struct AccountTypeFromIntError(pub i8);
+
+impl TryFrom<i8> for AccountType {
+    type Error = AccountTypeFromIntError;
+
+    fn try_from(value: i8) -> Result<Self, Self::Error> {
+        match value {
+            x if x == AccountType::Asset as i8 => Ok(AccountType::Asset),
+            x if x == AccountType::Liability as i8 => Ok(AccountType::Liability),
+            _ => Err(AccountTypeFromIntError(value)),
+        }
+    }
+}
+
+impl Type<Postgres> for AccountType {
+    fn type_info() -> <Postgres as Database>::TypeInfo {
+        <&i16 as Type<Postgres>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for AccountType {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        <i16 as Encode<Postgres>>::encode(*self as i16, buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for AccountType {
+    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
+        let int16 = <i16 as Decode<Postgres>>::decode(value)?;
+        Ok(Self::try_from(int16 as i8)?)
+    }
+}
 
 #[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
 #[state_query(AccountEvent)]
@@ -39,6 +89,7 @@ pub struct Account {
     account_id: AccountId,
     journal_id: JournalId,
     name: Name,
+    account_type: AccountType,
     status: Status,
 }
 
@@ -75,6 +126,7 @@ pub struct CreateAccount {
     account_id: AccountId,
     journal_id: JournalId,
     name: Name,
+    account_type: AccountType,
     authority: Authority,
     timestamp: Timestamp,
 }
@@ -84,6 +136,7 @@ impl CreateAccount {
         account_id: AccountId,
         journal_id: JournalId,
         name: Name,
+        account_type: AccountType,
         authority: Authority,
         timestamp: Timestamp,
     ) -> Self {
@@ -91,6 +144,7 @@ impl CreateAccount {
             account_id,
             journal_id,
             name,
+            account_type,
             authority,
             timestamp,
         }
@@ -138,6 +192,7 @@ impl Decision for CreateAccount {
             account_id: self.account_id,
             journal_id: self.journal_id,
             name: self.name.clone(),
+            account_type: self.account_type,
             authority: self.authority,
             timestamp: self.timestamp,
         }])
@@ -205,6 +260,7 @@ impl Decision for RenameAccount {
 
         Ok(vec![JournalDomainEvent::AccountRenamed {
             account_id: self.account_id,
+            journal_id: self.journal_id,
             new_name: self.name.clone(),
             authority: self.authority,
             timestamp: self.timestamp,
@@ -270,6 +326,7 @@ impl Decision for DeleteAccount {
 
         Ok(vec![JournalDomainEvent::AccountDeleted {
             account_id: self.account_id,
+            journal_id: self.journal_id,
             authority: self.authority,
             timestamp: self.timestamp,
         }])

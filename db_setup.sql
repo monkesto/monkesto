@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     id TEXT PRIMARY KEY,
     journal_id TEXT NOT NULL,
     name TEXT NOT NULL,
+    account_type int2 NOT NULL,
     balance BIGINT NOT NULL
 );
 
@@ -57,6 +58,29 @@ CREATE TABLE IF NOT EXISTS files (
     journal_id TEXT NOT NULL,
     hash BYTEA NOT NULL,
     name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS activities (
+    id TEXT NOT NULL,
+    journal_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    activity_type int2 NOT NULL,
+    balance BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS funds (
+    id TEXT NOT NULL,
+    journal_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    balance BIGINT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS transaction_entries (
+    id TEXT NOT NULL,
+    journal_id TEXT NOT NULL,
+    amount BIGINT NOT NULL,
+    entry_side int2 NOT NULL,
+    entry_kind BYTEA NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS verification_codes (

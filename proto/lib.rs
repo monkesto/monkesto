@@ -1,5 +1,5 @@
-pub mod balance_update {
-    include!(concat!(env!("OUT_DIR"), "/proto.balance_update.rs"));
+pub mod transaction_entry {
+    include!(concat!(env!("OUT_DIR"), "/proto.transaction_entry.rs"));
 }
 
 pub mod error {

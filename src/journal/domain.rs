@@ -1,25 +1,33 @@
 use crate::authn::UserId;
 use crate::authority::Authority;
-use crate::journal::account::AccountId;
+use crate::journal::account::{AccountId, AccountType};
+use crate::journal::activity::{ActivityId, ActivityType};
+use crate::journal::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::file::FileId;
+use crate::journal::fund::FundId;
 use crate::journal::store::JournalEventStore;
-use crate::journal::transaction::{TransactionEntries, TransactionId};
+use crate::journal::transaction::{FinancialPeriod, TransactionEntryIds, TransactionId};
 use crate::journal::{JournalId, JournalService, Permissions};
 use crate::name::Name;
 use crate::shutdown;
 use crate::time_provider::Timestamp;
 use axum_login::tracing;
-use axum_test::expect_json::__private::serde_trampoline::{Deserialize, Serialize};
 use disintegrate::Event;
 use disintegrate_postgres::{
     PgEventListener, PgEventListenerConfig, PgEventListenerError, RetryAction,
 };
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Event, Serialize, Deserialize)]
 #[stream(JournalEvent, [JournalCreated, JournalDeleted])]
 #[stream(MemberEvent, [MemberAdded, MemberPermissionsUpdated, MemberRemoved])]
 #[stream(AccountEvent, [AccountCreated, AccountRenamed, AccountDeleted])]
+#[stream(FundEvent, [FundCreated])]
+#[stream(ActivityEvent, [ActivityCreated])]
+// unified stream for account, fund, and activity creation and deletion events
+#[stream(AFTEvent, [AccountCreated, AccountDeleted, FundCreated, ActivityCreated])]
+#[stream(EntryEvent, [EntryCreated])]
 #[stream(TransactionEvent, [TransactionCreated, TransactionDeleted])]
 #[stream(FileEvent, [FileUploaded])]
 pub enum JournalDomainEvent {
@@ -69,12 +77,15 @@ pub enum JournalDomainEvent {
         #[id]
         journal_id: JournalId,
         name: Name,
+        account_type: AccountType,
         authority: Authority,
         timestamp: Timestamp,
     },
     AccountRenamed {
         #[id]
         account_id: AccountId,
+        #[id]
+        journal_id: JournalId,
         new_name: Name,
         authority: Authority,
         timestamp: Timestamp,
@@ -82,6 +93,41 @@ pub enum JournalDomainEvent {
     AccountDeleted {
         #[id]
         account_id: AccountId,
+        #[id]
+        journal_id: JournalId,
+        authority: Authority,
+        timestamp: Timestamp,
+    },
+
+    FundCreated {
+        #[id]
+        fund_id: FundId,
+        #[id]
+        journal_id: JournalId,
+        fund_name: Name,
+        authority: Authority,
+        timestamp: Timestamp,
+    },
+
+    ActivityCreated {
+        #[id]
+        activity_id: ActivityId,
+        #[id]
+        journal_id: JournalId,
+        activity_name: Name,
+        activity_type: ActivityType,
+        authority: Authority,
+        timestamp: Timestamp,
+    },
+
+    EntryCreated {
+        #[id]
+        entry_id: EntryId,
+        #[id]
+        journal_id: JournalId,
+        amount: u64,
+        entry_side: EntrySide,
+        entry_kind: EntryKind,
         authority: Authority,
         timestamp: Timestamp,
     },
@@ -90,13 +136,8 @@ pub enum JournalDomainEvent {
         transaction_id: TransactionId,
         #[id]
         journal_id: JournalId,
-        balance_updates: TransactionEntries,
-        authority: Authority,
-        timestamp: Timestamp,
-    },
-    TransactionDeleted {
-        #[id]
-        transaction_id: TransactionId,
+        entries: TransactionEntryIds,
+        financial_period: FinancialPeriod,
         authority: Authority,
         timestamp: Timestamp,
     },

@@ -4,7 +4,7 @@ use crate::authn::get_user;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::journal::JournalId;
-use crate::journal::account::AccountId;
+use crate::journal::account::{AccountId, AccountType};
 use crate::monkesto_error::OrRedirect;
 use crate::name::Name;
 use crate::time_provider::{DefaultTimeProvider, TimeProvider};
@@ -41,6 +41,8 @@ pub async fn create_account(
             AccountId::new(),
             journal_id,
             name,
+            // TODO(Ryan): extract this from a form
+            AccountType::Asset,
             Authority::Direct(Actor::User(user.id)),
             DefaultTimeProvider.get_time(),
         )

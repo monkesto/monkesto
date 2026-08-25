@@ -1,4 +1,5 @@
 use crate::journal::Permissions;
+use crate::journal::activity::ActivityType;
 use crate::journal::domain::JournalDomainEvent;
 use crate::name::Name;
 use crate::serde::error::ProtoError;
@@ -6,9 +7,9 @@ use crate::serde::error::ProtoError::FieldRequired;
 use proto::event::journal::ProtoJournalDomainEvent;
 use proto::event::journal::proto_journal_domain_event::{
     JournalDomainEventType, ProtoAccountCreated, ProtoAccountDeleted, ProtoAccountRenamed,
-    ProtoFileUploaded, ProtoJournalCreated, ProtoJournalDeleted, ProtoMemberAdded,
-    ProtoMemberPermissionsUpdated, ProtoMemberRemoved, ProtoTransactionCreated,
-    ProtoTransactionDeleted,
+    ProtoActivityCreated, ProtoEntryCreated, ProtoFileUploaded, ProtoFundCreated,
+    ProtoJournalCreated, ProtoJournalDeleted, ProtoMemberAdded, ProtoMemberPermissionsUpdated,
+    ProtoMemberRemoved, ProtoTransactionCreated,
 };
 
 impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
@@ -78,53 +79,65 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 journal_id,
                 name,
                 authority,
+                account_type,
                 timestamp,
             } => JournalDomainEventType::AccountCreated(ProtoAccountCreated {
                 account_id: Some(account_id.into()),
                 journal_id: Some(journal_id.into()),
                 name: name.to_string(),
+                account_type: account_type as i32,
                 authority: Some(authority.into()),
                 timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::AccountRenamed {
                 account_id,
+                journal_id,
                 new_name,
                 authority,
                 timestamp,
             } => JournalDomainEventType::AccountRenamed(ProtoAccountRenamed {
                 account_id: Some(account_id.into()),
+                journal_id: Some(journal_id.into()),
                 new_name: new_name.to_string(),
                 authority: Some(authority.into()),
                 timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::AccountDeleted {
                 account_id,
+                journal_id,
                 authority,
                 timestamp,
             } => JournalDomainEventType::AccountDeleted(ProtoAccountDeleted {
                 account_id: Some(account_id.into()),
+                journal_id: Some(journal_id.into()),
+                authority: Some(authority.into()),
+                timestamp: Some(timestamp.into()),
+            }),
+            JournalDomainEvent::FundCreated {
+                fund_id,
+                journal_id,
+                fund_name,
+                authority,
+                timestamp,
+            } => JournalDomainEventType::FundCreated(ProtoFundCreated {
+                fund_id: Some(fund_id.into()),
+                journal_id: Some(journal_id.into()),
+                fund_name: fund_name.to_string(),
                 authority: Some(authority.into()),
                 timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::TransactionCreated {
                 transaction_id,
                 journal_id,
-                balance_updates,
+                entries,
+                financial_period,
                 authority,
                 timestamp,
             } => JournalDomainEventType::TransactionCreated(ProtoTransactionCreated {
                 transaction_id: Some(transaction_id.into()),
                 journal_id: Some(journal_id.into()),
-                entries: Some(balance_updates.into()),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
-            }),
-            JournalDomainEvent::TransactionDeleted {
-                transaction_id,
-                authority,
-                timestamp,
-            } => JournalDomainEventType::TransactionDeleted(ProtoTransactionDeleted {
-                transaction_id: Some(transaction_id.into()),
+                entries: Some(entries.into()),
+                financial_period: financial_period as i32,
                 authority: Some(authority.into()),
                 timestamp: Some(timestamp.into()),
             }),
@@ -140,6 +153,38 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 journal_id: Some(journal_id.into()),
                 hash: hash.into(),
                 file_name,
+                authority: Some(authority.into()),
+                timestamp: Some(timestamp.into()),
+            }),
+            JournalDomainEvent::ActivityCreated {
+                activity_id,
+                journal_id,
+                activity_name,
+                activity_type,
+                authority,
+                timestamp,
+            } => JournalDomainEventType::ActivityCreated(ProtoActivityCreated {
+                activity_id: Some(activity_id.into()),
+                journal_id: Some(journal_id.into()),
+                activity_name: activity_name.to_string(),
+                activity_type: activity_type as i32,
+                authority: Some(authority.into()),
+                timestamp: Some(timestamp.into()),
+            }),
+            JournalDomainEvent::EntryCreated {
+                entry_id,
+                journal_id,
+                amount,
+                entry_side,
+                entry_kind,
+                authority,
+                timestamp,
+            } => JournalDomainEventType::EntryCreated(ProtoEntryCreated {
+                entry_id: Some(entry_id.into()),
+                journal_id: Some(journal_id.into()),
+                entry_kind: Some(entry_kind.into()),
+                amount,
+                entry_side: entry_side as i32,
                 authority: Some(authority.into()),
                 timestamp: Some(timestamp.into()),
             }),
@@ -196,17 +241,27 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                 account_id: ev.account_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
                 name: Name::try_new(ev.name)?,
+                account_type: (ev.account_type as i8).try_into()?,
                 authority: ev.authority.try_into()?,
                 timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::AccountRenamed(ev) => JournalDomainEvent::AccountRenamed {
                 account_id: ev.account_id.try_into()?,
+                journal_id: ev.journal_id.try_into()?,
                 new_name: Name::try_new(ev.new_name)?,
                 authority: ev.authority.try_into()?,
                 timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::AccountDeleted(ev) => JournalDomainEvent::AccountDeleted {
                 account_id: ev.account_id.try_into()?,
+                journal_id: ev.journal_id.try_into()?,
+                authority: ev.authority.try_into()?,
+                timestamp: ev.timestamp.try_into()?,
+            },
+            JournalDomainEventType::FundCreated(ev) => JournalDomainEvent::FundCreated {
+                fund_id: ev.fund_id.try_into()?,
+                journal_id: ev.journal_id.try_into()?,
+                fund_name: Name::try_new(ev.fund_name)?,
                 authority: ev.authority.try_into()?,
                 timestamp: ev.timestamp.try_into()?,
             },
@@ -214,14 +269,8 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                 JournalDomainEvent::TransactionCreated {
                     transaction_id: ev.transaction_id.try_into()?,
                     journal_id: ev.journal_id.try_into()?,
-                    balance_updates: ev.entries.ok_or(FieldRequired)?.try_into()?,
-                    authority: ev.authority.try_into()?,
-                    timestamp: ev.timestamp.try_into()?,
-                }
-            }
-            JournalDomainEventType::TransactionDeleted(ev) => {
-                JournalDomainEvent::TransactionDeleted {
-                    transaction_id: ev.transaction_id.try_into()?,
+                    entries: ev.entries.ok_or(FieldRequired)?.try_into()?,
+                    financial_period: (ev.financial_period as i8).try_into()?,
                     authority: ev.authority.try_into()?,
                     timestamp: ev.timestamp.try_into()?,
                 }
@@ -231,6 +280,23 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                 journal_id: ev.journal_id.try_into()?,
                 hash: ev.hash.try_into().map_err(|_| ProtoError::Deserialize)?,
                 file_name: ev.file_name,
+                authority: ev.authority.try_into()?,
+                timestamp: ev.timestamp.try_into()?,
+            },
+            JournalDomainEventType::ActivityCreated(ev) => JournalDomainEvent::ActivityCreated {
+                activity_id: ev.activity_id.try_into()?,
+                journal_id: ev.journal_id.try_into()?,
+                activity_name: Name::try_new(ev.activity_name)?,
+                activity_type: ActivityType::try_from(ev.activity_type as i8)?,
+                authority: ev.authority.try_into()?,
+                timestamp: ev.timestamp.try_into()?,
+            },
+            JournalDomainEventType::EntryCreated(ev) => JournalDomainEvent::EntryCreated {
+                entry_id: ev.entry_id.try_into()?,
+                journal_id: ev.journal_id.try_into()?,
+                amount: ev.amount,
+                entry_side: (ev.entry_side as i8).try_into()?,
+                entry_kind: ev.entry_kind.try_into()?,
                 authority: ev.authority.try_into()?,
                 timestamp: ev.timestamp.try_into()?,
             },

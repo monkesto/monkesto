@@ -2,11 +2,11 @@ pub mod commands;
 pub mod views;
 
 use crate::id::Ident;
-use crate::journal::domain::{AccountEvent, JournalDomainEvent, TransactionEvent};
+use crate::journal::domain::{AFTEvent, JournalDomainEvent, TransactionEvent};
 use axum::Router;
 use axum::routing::{get, post};
 use axum_login::login_required;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 id!(TransactionId, Ident::new16());
 
@@ -22,7 +22,10 @@ pub fn router() -> Router<crate::StateType> {
 
 use crate::authority::Authority;
 use crate::id;
-use crate::journal::account::AccountId;
+use crate::journal::account::{AccountId, AccountType};
+use crate::journal::activity::{ActivityId, ActivityType};
+use crate::journal::entry::{EntryId, EntryKind, EntrySide};
+use crate::journal::fund::FundId;
 use crate::journal::member::JournalMember;
 use crate::journal::{Journal, Permissions, validate_permissions};
 use crate::journal::{JournalError, JournalId};
@@ -30,15 +33,13 @@ use crate::status::Status;
 use crate::time_provider::Timestamp;
 use disintegrate::{Decision, StateMutate, StateQuery};
 use prost::Message;
-use proto::balance_update::RepeatedBalanceUpdates;
+use proto::transaction_entry::ProtoRepeatedTransactionEntryIds;
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::fmt::Debug;
-use std::fmt::Display;
-use std::str::FromStr;
 use thiserror::Error;
 
 #[derive(Error, Debug, PartialEq)]
@@ -63,18 +64,90 @@ pub enum TransactionValidationError {
     NegativeEntryAmount(String),
     #[error("Imbalanced transaction: {:?}", 0)]
     ImbalancedTransaction(TransactionEntries),
+    #[error(
+        "attempted a transfer involving activity {0}, but it doesn't have a 'transfer' activity type"
+    )]
+    TransferViolation(ActivityId),
+}
+
+#[repr(i8)]
+#[derive(Copy, Clone, Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum FinancialPeriod {
+    #[default]
+    January = 1,
+    February,
+    March,
+    April,
+    May,
+    June,
+    July,
+    August,
+    September,
+    October,
+    November,
+    December,
+}
+
+#[derive(Debug, Error, PartialEq)]
+#[error("{0}")]
+pub struct FinancialPeriodFromIntError(pub i8);
+
+impl TryFrom<i8> for FinancialPeriod {
+    type Error = FinancialPeriodFromIntError;
+
+    fn try_from(value: i8) -> Result<Self, Self::Error> {
+        match value {
+            x if x == FinancialPeriod::January as i8 => Ok(FinancialPeriod::January),
+            x if x == FinancialPeriod::February as i8 => Ok(FinancialPeriod::February),
+            x if x == FinancialPeriod::March as i8 => Ok(FinancialPeriod::March),
+            x if x == FinancialPeriod::April as i8 => Ok(FinancialPeriod::April),
+            x if x == FinancialPeriod::May as i8 => Ok(FinancialPeriod::May),
+            x if x == FinancialPeriod::June as i8 => Ok(FinancialPeriod::June),
+            x if x == FinancialPeriod::July as i8 => Ok(FinancialPeriod::July),
+            x if x == FinancialPeriod::August as i8 => Ok(FinancialPeriod::August),
+            x if x == FinancialPeriod::September as i8 => Ok(FinancialPeriod::September),
+            x if x == FinancialPeriod::October as i8 => Ok(FinancialPeriod::October),
+            x if x == FinancialPeriod::November as i8 => Ok(FinancialPeriod::November),
+            x if x == FinancialPeriod::December as i8 => Ok(FinancialPeriod::December),
+            _ => Err(FinancialPeriodFromIntError(value)),
+        }
+    }
+}
+
+impl Type<Postgres> for FinancialPeriod {
+    fn type_info() -> <Postgres as Database>::TypeInfo {
+        <&i16 as Type<Postgres>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for FinancialPeriod {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        <i16 as Encode<Postgres>>::encode(*self as i16, buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for FinancialPeriod {
+    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
+        let int16 = <i16 as Decode<Postgres>>::decode(value)?;
+        Ok(Self::try_from(int16 as i8)?)
+    }
 }
 
 // TODO(gabriel) there's probably a more efficient way to validate that the applicable accounts exist
 #[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
-#[state_query(AccountEvent)]
-pub struct AllJournalAccounts {
+#[state_query(AFTEvent)]
+pub struct JournalAFTs {
     #[id]
     journal_id: JournalId,
-    accounts: HashSet<AccountId>,
+    accounts: HashMap<AccountId, AccountType>,
+    funds: HashSet<FundId>,
+    activities: HashMap<ActivityId, ActivityType>,
 }
 
-impl AllJournalAccounts {
+impl JournalAFTs {
     pub fn new(journal_id: JournalId) -> Self {
         Self {
             journal_id,
@@ -83,16 +156,30 @@ impl AllJournalAccounts {
     }
 }
 
-impl StateMutate for AllJournalAccounts {
+impl StateMutate for JournalAFTs {
     fn mutate(&mut self, event: Self::Event) {
         match event {
-            AccountEvent::AccountCreated { account_id, .. } => _ = self.accounts.insert(account_id),
-            AccountEvent::AccountRenamed { .. } => {}
-            AccountEvent::AccountDeleted { account_id, .. } => {
-                _ = self.accounts.remove(&account_id)
-            }
+            AFTEvent::AccountCreated {
+                account_id,
+                account_type,
+                ..
+            } => _ = self.accounts.insert(account_id, account_type),
+            AFTEvent::AccountDeleted { account_id, .. } => _ = self.accounts.remove(&account_id),
+            AFTEvent::FundCreated { fund_id, .. } => _ = self.funds.insert(fund_id),
+            AFTEvent::ActivityCreated {
+                activity_id,
+                activity_type,
+                ..
+            } => _ = self.activities.insert(activity_id, activity_type),
         }
     }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct TransactionEntry {
+    pub amount: u64,
+    pub entry_side: EntrySide,
+    pub entry_kind: EntryKind,
 }
 
 #[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
@@ -100,8 +187,9 @@ impl StateMutate for AllJournalAccounts {
 pub struct Transaction {
     #[id]
     transaction_id: TransactionId,
+    #[id]
     journal_id: JournalId,
-    entries: TransactionEntries,
+    entries: TransactionEntryIds,
     status: Status,
 }
 
@@ -118,15 +206,14 @@ impl StateMutate for Transaction {
     fn mutate(&mut self, event: Self::Event) {
         match event {
             TransactionEvent::TransactionCreated {
-                balance_updates,
+                entries,
                 journal_id,
                 ..
             } => {
                 self.journal_id = journal_id;
-                self.entries = balance_updates;
+                self.entries = entries;
                 self.status = Status::Valid;
             }
-            TransactionEvent::TransactionDeleted { .. } => self.status = Status::Deleted,
         }
     }
 }
@@ -135,6 +222,7 @@ pub struct CreateTransaction {
     transaction_id: TransactionId,
     journal_id: JournalId,
     entries: TransactionEntries,
+    period: FinancialPeriod,
     authority: Authority,
     timestamp: Timestamp,
 }
@@ -144,6 +232,7 @@ impl CreateTransaction {
         transaction_id: TransactionId,
         journal_id: JournalId,
         entries: TransactionEntries,
+        period: FinancialPeriod,
         authority: Authority,
         timestamp: Timestamp,
     ) -> Self {
@@ -151,6 +240,7 @@ impl CreateTransaction {
             transaction_id,
             journal_id,
             entries,
+            period,
             authority,
             timestamp,
         }
@@ -159,13 +249,13 @@ impl CreateTransaction {
 
 impl Decision for CreateTransaction {
     type Event = JournalDomainEvent;
-    type StateQuery = (Transaction, AllJournalAccounts, Journal, JournalMember);
+    type StateQuery = (Transaction, JournalAFTs, Journal, JournalMember);
     type Error = JournalError;
 
     fn state_query(&self) -> Self::StateQuery {
         (
             Transaction::new(self.transaction_id),
-            AllJournalAccounts::new(self.journal_id),
+            JournalAFTs::new(self.journal_id),
             Journal::new(self.journal_id),
             JournalMember::new(
                 self.journal_id,
@@ -176,7 +266,7 @@ impl Decision for CreateTransaction {
 
     fn process(
         &self,
-        (transaction, accounts, journal, actor): &Self::StateQuery,
+        (transaction, afts, journal, actor): &Self::StateQuery,
     ) -> Result<Vec<Self::Event>, Self::Error> {
         if transaction.status.found() {
             return Err(JournalError::TransactionIdCollision(self.transaction_id));
@@ -184,27 +274,6 @@ impl Decision for CreateTransaction {
 
         if !journal.status.valid() {
             return Err(JournalError::InvalidJournal(self.journal_id));
-        }
-
-        let mut balance = 0;
-
-        for update in self.entries.0.iter() {
-            if !accounts.accounts.contains(&update.account_id) {
-                return Err(JournalError::InvalidAccount(update.account_id));
-            }
-
-            match update.entry_type {
-                EntryType::Credit => balance += update.amount as i64,
-                EntryType::Debit => balance -= update.amount as i64,
-            }
-        }
-
-        if balance != 0 {
-            return Err(JournalError::TransactionValidation(
-                TransactionValidationError::ImbalancedTransaction(TransactionEntries(
-                    self.entries.0.clone(),
-                )),
-            ));
         }
 
         if !validate_permissions(
@@ -216,139 +285,109 @@ impl Decision for CreateTransaction {
             return Err(JournalError::Permissions(Permissions::APPEND_TRANSACTION));
         }
 
-        Ok(vec![JournalDomainEvent::TransactionCreated {
+        let mut overall_balance = 0;
+        let mut transfer_balance = 0;
+        let mut entry_ids = Vec::with_capacity(self.entries.0.len());
+        let mut events = Vec::with_capacity(self.entries.0.len() + 1);
+
+        for entry in self.entries.0.iter() {
+            let entry_change = match entry.entry_side {
+                EntrySide::Credit => entry.amount as i64,
+                EntrySide::Debit => -(entry.amount as i64),
+            };
+
+            overall_balance += entry_change;
+
+            match entry.entry_kind {
+                EntryKind::Account { account_id } => {
+                    if !afts.accounts.contains_key(&account_id) {
+                        return Err(JournalError::InvalidAccount(account_id));
+                    }
+                }
+                EntryKind::Activity {
+                    activity_id,
+                    fund_id,
+                    transfer,
+                } => {
+                    if !afts.funds.contains(&fund_id) {
+                        return Err(JournalError::InvalidActivity(activity_id));
+                    }
+
+                    if let Some(activity_type) = afts.activities.get(&activity_id) {
+                        if transfer {
+                            if *activity_type != ActivityType::Transfer {
+                                return Err(JournalError::TransactionValidation(
+                                    TransactionValidationError::TransferViolation(activity_id),
+                                ));
+                            }
+                            transfer_balance += entry_change;
+                        }
+                    } else {
+                        return Err(JournalError::InvalidActivity(activity_id));
+                    }
+                }
+            }
+
+            // TODO(Gabriel): Check for entry id collisions
+            let entry_id = EntryId::new();
+            entry_ids.push(entry_id);
+            events.push(JournalDomainEvent::EntryCreated {
+                entry_id,
+                journal_id: self.journal_id,
+                amount: entry.amount,
+                entry_side: entry.entry_side,
+                entry_kind: entry.entry_kind,
+                authority: self.authority,
+                timestamp: self.timestamp,
+            })
+        }
+
+        if transfer_balance != 0 || overall_balance != 0 {
+            return Err(JournalError::TransactionValidation(
+                TransactionValidationError::ImbalancedTransaction(self.entries.clone()),
+            ));
+        }
+
+        events.push(JournalDomainEvent::TransactionCreated {
             transaction_id: self.transaction_id,
             journal_id: self.journal_id,
-            balance_updates: self.entries.clone(),
+            entries: TransactionEntryIds(entry_ids),
+            financial_period: self.period,
             authority: self.authority,
             timestamp: self.timestamp,
-        }])
+        });
+
+        Ok(events)
     }
-}
-
-pub struct DeleteTransaction {
-    transaction_id: TransactionId,
-    journal_id: JournalId,
-    authority: Authority,
-    timestamp: Timestamp,
-}
-
-#[expect(unused)]
-impl DeleteTransaction {
-    pub fn new(
-        transaction_id: TransactionId,
-        journal_id: JournalId,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> Self {
-        Self {
-            transaction_id,
-            journal_id,
-            authority,
-            timestamp,
-        }
-    }
-}
-
-impl Decision for DeleteTransaction {
-    type Event = JournalDomainEvent;
-    type StateQuery = (Transaction, Journal, JournalMember);
-    type Error = JournalError;
-
-    fn state_query(&self) -> Self::StateQuery {
-        (
-            Transaction::new(self.transaction_id),
-            Journal::new(self.journal_id),
-            JournalMember::new(
-                self.journal_id,
-                self.authority.user_id().unwrap_or_default(),
-            ),
-        )
-    }
-
-    fn process(
-        &self,
-        (transaction, journal, actor): &Self::StateQuery,
-    ) -> Result<Vec<Self::Event>, Self::Error> {
-        if !transaction.status.valid() || transaction.journal_id != self.journal_id {
-            return Err(JournalError::InvalidTransaction(self.transaction_id));
-        }
-
-        if !journal.status.valid() {
-            return Err(JournalError::InvalidJournal(self.journal_id));
-        }
-
-        if !validate_permissions(actor, self.authority, journal.owner, Permissions::OWNER) {
-            return Err(JournalError::Permissions(Permissions::OWNER));
-        }
-
-        Ok(vec![JournalDomainEvent::TransactionDeleted {
-            transaction_id: self.transaction_id,
-            authority: self.authority,
-            timestamp: self.timestamp,
-        }])
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Copy, Eq)]
-pub enum EntryType {
-    Debit,
-    Credit,
-}
-
-impl Display for EntryType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Debit => write!(f, "Dr"),
-            Self::Credit => write!(f, "Cr"),
-        }
-    }
-}
-
-impl FromStr for EntryType {
-    type Err = JournalError;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Dr" => Ok(Self::Debit),
-            "Cr" => Ok(Self::Credit),
-            _ => Err(JournalError::TransactionValidation(
-                TransactionValidationError::InvalidEntryType(s.to_string()),
-            )),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq)]
-pub struct BalanceUpdate {
-    pub account_id: AccountId,
-    pub amount: u64,
-    pub entry_type: EntryType,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
-pub struct TransactionEntries(pub Vec<BalanceUpdate>);
+pub struct TransactionEntries(pub Vec<TransactionEntry>);
 
-impl Type<Postgres> for TransactionEntries {
+#[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
+pub struct TransactionEntryIds(pub Vec<EntryId>);
+
+impl Type<Postgres> for TransactionEntryIds {
     fn type_info() -> <Postgres as Database>::TypeInfo {
         <&[u8] as Type<Postgres>>::type_info()
     }
 }
 
-impl<'q> Encode<'q, Postgres> for TransactionEntries {
+impl<'q> Encode<'q, Postgres> for TransactionEntryIds {
     fn encode_by_ref(
         &self,
         buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
     ) -> Result<IsNull, BoxDynError> {
-        let bytes =
-            RepeatedBalanceUpdates::from(TransactionEntries(self.0.clone())).encode_to_vec();
+        let bytes = ProtoRepeatedTransactionEntryIds::from(TransactionEntryIds(self.0.clone()))
+            .encode_to_vec();
         <Vec<u8> as Encode<Postgres>>::encode(bytes, buf)
     }
 }
 
-impl<'r> Decode<'r, Postgres> for TransactionEntries {
+impl<'r> Decode<'r, Postgres> for TransactionEntryIds {
     fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
         let bytes = <&[u8] as Decode<Postgres>>::decode(value)?;
-        let prost_entries = RepeatedBalanceUpdates::decode(bytes)?;
+        let prost_entries = ProtoRepeatedTransactionEntryIds::decode(bytes)?;
         Ok(prost_entries.try_into()?)
     }
 }

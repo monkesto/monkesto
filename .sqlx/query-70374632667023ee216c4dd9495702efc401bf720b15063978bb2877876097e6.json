@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                            UPDATE funds SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;\n                            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "70374632667023ee216c4dd9495702efc401bf720b15063978bb2877876097e6"
+}

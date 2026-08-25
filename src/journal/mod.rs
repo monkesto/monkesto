@@ -1,8 +1,11 @@
 pub mod account;
+pub mod activity;
 pub mod commands;
 pub mod domain;
+pub mod entry;
 #[expect(unused)]
 mod file;
+pub mod fund;
 pub mod layout;
 pub mod member;
 pub mod person;
@@ -29,6 +32,15 @@ pub enum JournalError {
     #[error("an account already exists with the id {0}")]
     AccountIdCollision(AccountId),
 
+    #[error("an activity already exists with the id {0}")]
+    ActivityIdCollision(ActivityId),
+
+    #[error("a fund already exists with the id {0}")]
+    FundIdCollision(FundId),
+
+    #[error("an entry already exists with the id {0}")]
+    EntryIdCollision(EntryId),
+
     #[error("a transaction already exists with the id {0}")]
     TransactionIdCollision(TransactionId),
 
@@ -40,6 +52,15 @@ pub enum JournalError {
 
     #[error("invalid account: {0}")]
     InvalidAccount(AccountId),
+
+    #[error("invalid activity: {0}")]
+    InvalidActivity(ActivityId),
+
+    #[error("invalid fund: {0}")]
+    InvalidFund(FundId),
+
+    #[error("invalid entry: {0}")]
+    InvalidEntry(EntryId),
 
     #[error("invalid transaction: {0}")]
     InvalidTransaction(TransactionId),
@@ -142,8 +163,11 @@ use crate::id;
 use crate::id::IdentError;
 use crate::journal::JournalError::InvalidJournal;
 use crate::journal::account::AccountId;
+use crate::journal::activity::ActivityId;
 use crate::journal::domain::JournalDomainEvent;
+use crate::journal::entry::EntryId;
 use crate::journal::file::FileId;
+use crate::journal::fund::FundId;
 use crate::journal::member::JournalMember;
 use crate::journal::transaction::{TransactionId, TransactionValidationError};
 use crate::name::Name;
@@ -176,9 +200,11 @@ pub fn validate_permissions(
         return true;
     }
 
-    if (member.status.valid() && member.permissions.contains(permissions))
-        || matches!(authority.actor(), Actor::System)
-    {
+    if member.status.valid() && member.permissions.contains(permissions) {
+        return true;
+    }
+
+    if matches!(authority.actor(), Actor::System) {
         return true;
     }
 
@@ -257,13 +283,23 @@ impl Decision for CreateJournal {
             return Err(JournalError::IdCollision(self.journal_id));
         }
 
-        Ok(vec![JournalDomainEvent::JournalCreated {
-            journal_id: self.journal_id,
-            owner: self.owner,
-            name: self.name.clone(),
-            authority: self.authority,
-            timestamp: self.timestamp,
-        }])
+        Ok(vec![
+            JournalDomainEvent::JournalCreated {
+                journal_id: self.journal_id,
+                owner: self.owner,
+                name: self.name.clone(),
+                authority: self.authority,
+                timestamp: self.timestamp,
+            },
+            // seed the general fund when the journal is created
+            JournalDomainEvent::FundCreated {
+                fund_id: FundId::new(),
+                journal_id: self.journal_id,
+                fund_name: Name::try_new("General".to_string()).expect("valid fund name"),
+                authority: Authority::Direct(Actor::System),
+                timestamp: self.timestamp,
+            },
+        ])
     }
 }
 
@@ -311,10 +347,12 @@ bitflags! {
     pub struct Permissions: i32 {
         const READ = 1 << 0;
         const ADD_ACCOUNT = 1 << 1;
-        const UPLOAD_FILE = 1 << 2;
-        const APPEND_TRANSACTION = 1 << 3;
-        const INVITE = 1 << 4;
-        const OWNER = 1 << 5;
+        const CREATE_ACTIVITY = 1 << 2;
+        const CREATE_FUND = 1 << 3;
+        const UPLOAD_FILE = 1 << 4;
+        const APPEND_TRANSACTION = 1 << 5;
+        const INVITE = 1 << 6;
+        const OWNER = 1 << 7;
     }
 }
 

@@ -1,3 +1,3 @@
-mod balance_update;
 pub mod error;
 mod event;
+mod transaction_entry;

@@ -1,7 +1,7 @@
 fn main() {
     prost_build::compile_protos(
         &[
-            "src/balance_update.proto",
+            "src/transaction_entry.proto",
             "src/error.proto",
             "src/ident.proto",
             "src/event/authn.proto",

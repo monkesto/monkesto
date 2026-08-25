@@ -4,7 +4,7 @@ package proto.error;
 
 import "google/protobuf/empty.proto";
 import "ident.proto";
-import "balance_update.proto";
+import "transaction_entry.proto";
 
 message ProtoIdentError {
   oneof ident_error_type {
@@ -22,7 +22,6 @@ message ProtoNameError {
 
 message ProtoJournalError {
   message ProtoTransactionValidationError {
-
     oneof transaction_validation_error_type {
       string invalid_entry_type = 1;
       google.protobuf.Empty no_transaction_entries = 2;
@@ -32,7 +31,8 @@ message ProtoJournalError {
       string partial_cent_value = 6;
       string out_of_range = 7;
       string negative_entry_amount = 8;
-      balance_update.RepeatedBalanceUpdates imbalanced_transaction = 9;
+      transaction_entry.ProtoRepeatedTransactionEntries imbalanced_transaction = 9;
+      ident.ProtoIdent transfer_violation = 10;
     }
   }
 
@@ -56,6 +56,12 @@ message ProtoJournalError {
     google.protobuf.Empty invalid_S3_credentials = 17;
     string s3 = 18;
     ident.ProtoIdent invalid_file = 19;
+    ident.ProtoIdent fund_id_collision = 20;
+    ident.ProtoIdent invalid_fund = 21;
+    ident.ProtoIdent activity_id_collision = 22;
+    ident.ProtoIdent invalid_activity = 23;
+    ident.ProtoIdent invalid_transaction_entry = 24;
+    ident.ProtoIdent transaction_entry_id_collision = 25;
   }
 }
 
@@ -102,6 +108,10 @@ message ProtoDecodeError {
     ProtoIdentError ident = 5;
     string uuid = 6;
     ProtoNameError name = 7;
+    int32 account_type_from_int = 8;
+    int32 financial_period_from_int = 9;
+    int32 entry_side_from_int = 10;
+    int32 activity_type_from_int = 11;
   }
 }
 

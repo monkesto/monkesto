@@ -6,7 +6,7 @@ import "google/protobuf/empty.proto";
 import "event/authority.proto";
 import "ident.proto";
 import "event/timestamp.proto";
-import "balance_update.proto";
+import "transaction_entry.proto";
 
 
 message ProtoJournalDomainEvent {
@@ -51,35 +51,43 @@ message ProtoJournalDomainEvent {
     ident.ProtoIdent account_id = 1;
     ident.ProtoIdent journal_id = 2;
     string name = 3;
-    authority.ProtoAuthority authority = 4;
-    timestamp.ProtoTimestamp timestamp = 5;
+    int32 account_type = 4;
+    authority.ProtoAuthority authority = 5;
+    timestamp.ProtoTimestamp timestamp = 6;
   }
 
   message ProtoAccountRenamed {
     proto.ident.ProtoIdent account_id = 1;
-    string new_name = 2;
-    authority.ProtoAuthority authority = 3;
-    timestamp.ProtoTimestamp timestamp = 4;
+    proto.ident.ProtoIdent journal_id = 2;
+    string new_name = 3;
+    authority.ProtoAuthority authority = 4;
+    timestamp.ProtoTimestamp timestamp = 5;
   }
 
   message ProtoAccountDeleted {
     ident.ProtoIdent account_id = 1;
-    authority.ProtoAuthority authority = 2;
-    timestamp.ProtoTimestamp timestamp = 3;
+    ident.ProtoIdent journal_id = 2;
+    authority.ProtoAuthority authority = 3;
+    timestamp.ProtoTimestamp timestamp = 4;
+  }
+  
+  message ProtoEntryCreated {
+    ident.ProtoIdent entry_id = 1;
+    ident.ProtoIdent journal_id = 2;
+    transaction_entry.ProtoEntryKind entry_kind = 3;
+    uint64 amount = 4;
+    int32 entry_side = 5;
+    authority.ProtoAuthority authority = 6;
+    timestamp.ProtoTimestamp timestamp = 7;
   }
 
   message ProtoTransactionCreated {
     ident.ProtoIdent transaction_id = 1;
     ident.ProtoIdent journal_id = 2;
-    balance_update.RepeatedBalanceUpdates entries = 3;
-    authority.ProtoAuthority authority = 4;
-    timestamp.ProtoTimestamp timestamp = 5;
-  }
-
-  message ProtoTransactionDeleted {
-    ident.ProtoIdent transaction_id = 1;
-    authority.ProtoAuthority authority = 2;
-    timestamp.ProtoTimestamp timestamp = 3;
+    transaction_entry.ProtoRepeatedTransactionEntryIds entries = 3;
+    int32 financial_period = 4;
+    authority.ProtoAuthority authority = 5;
+    timestamp.ProtoTimestamp timestamp = 6;
   }
 
   message ProtoFileUploaded {
@@ -89,6 +97,23 @@ message ProtoJournalDomainEvent {
       string file_name = 4;
       authority.ProtoAuthority authority = 5;
       timestamp.ProtoTimestamp timestamp = 6;
+  }
+
+  message ProtoActivityCreated {
+    ident.ProtoIdent activity_id = 1;
+    ident.ProtoIdent journal_id = 2;
+    string activity_name = 3;
+    int32 activity_type = 4;
+    authority.ProtoAuthority authority = 5;
+    timestamp.ProtoTimestamp timestamp = 6;
+  }
+
+  message ProtoFundCreated {
+    ident.ProtoIdent fund_id = 1;
+    ident.ProtoIdent journal_id = 2;
+    string fund_name = 3;
+    authority.ProtoAuthority authority = 4;
+    timestamp.ProtoTimestamp timestamp = 5;
   }
 
   oneof journal_domain_event_type {
@@ -101,7 +126,9 @@ message ProtoJournalDomainEvent {
     ProtoAccountRenamed account_renamed = 7;
     ProtoAccountDeleted account_deleted = 8;
     ProtoTransactionCreated transaction_created = 9;
-    ProtoTransactionDeleted transaction_deleted = 10;
     ProtoFileUploaded file_uploaded = 11;
+    ProtoActivityCreated activity_created = 12;
+    ProtoFundCreated fund_created = 13;
+    ProtoEntryCreated entry_created = 14;
   }
 }

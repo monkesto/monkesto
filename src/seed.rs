@@ -3,9 +3,9 @@ use crate::authn::user::{DEV_USERS, UserError};
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::authority::UserId;
-use crate::journal::account::AccountId;
-use crate::journal::transaction::{BalanceUpdate, TransactionId};
-use crate::journal::transaction::{EntryType, TransactionEntries};
+use crate::journal::account::{AccountId, AccountType};
+use crate::journal::entry::{EntryKind, EntrySide};
+use crate::journal::transaction::{FinancialPeriod, TransactionEntry, TransactionId};
 use crate::journal::{JournalError, JournalId, Permissions};
 use crate::monkesto_error::MonkestoResult;
 use crate::name::Name;
@@ -108,26 +108,41 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
     }
 
     let accounts = [
-        (assets_id, Name::try_new("Assets".to_string())?),
+        (
+            assets_id,
+            Name::try_new("Assets".to_string())?,
+            AccountType::Asset,
+        ),
         (
             AccountId::from_str("ac2liabili")?,
             Name::try_new("Liabilities".to_string())?,
+            AccountType::Liability,
         ),
         (
             AccountId::from_str("ac3equity0")?,
             Name::try_new("Equity".to_string())?,
+            AccountType::Asset,
         ),
-        (revenue_id, Name::try_new("Revenue".to_string())?),
-        (expenses_id, Name::try_new("Expenses".to_string())?),
+        (
+            revenue_id,
+            Name::try_new("Revenue".to_string())?,
+            AccountType::Asset,
+        ),
+        (
+            expenses_id,
+            Name::try_new("Expenses".to_string())?,
+            AccountType::Liability,
+        ),
     ];
 
-    for (id, name) in accounts {
+    for (id, name, account_type) in accounts {
         match state
             .journal_service
             .create_account(
                 id,
                 maple_ridge_academy_id,
                 name,
+                account_type,
                 pacioli_authority,
                 time_provider.get_time(),
             )
@@ -143,79 +158,102 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
         (
             TransactionId::from_str("t1tuition0000001")?,
             vec![
-                BalanceUpdate {
-                    account_id: assets_id,
+                TransactionEntry {
+                    entry_kind: EntryKind::Account {
+                        account_id: assets_id,
+                    },
                     amount: 500000,
-                    entry_type: EntryType::Debit,
+                    entry_side: EntrySide::Debit,
                 },
-                BalanceUpdate {
-                    account_id: revenue_id,
+                TransactionEntry {
+                    entry_kind: EntryKind::Account {
+                        account_id: revenue_id,
+                    },
                     amount: 500000,
-                    entry_type: EntryType::Credit,
+                    entry_side: EntrySide::Credit,
                 },
             ],
         ),
         (
             TransactionId::from_str("t2salary00000002")?,
             vec![
-                BalanceUpdate {
-                    account_id: expenses_id,
+                TransactionEntry {
+                    entry_kind: EntryKind::Account {
+                        account_id: expenses_id,
+                    },
                     amount: 320000,
-                    entry_type: EntryType::Debit,
+                    entry_side: EntrySide::Debit,
                 },
-                BalanceUpdate {
-                    account_id: assets_id,
+                TransactionEntry {
+                    entry_kind: EntryKind::Account {
+                        account_id: assets_id,
+                    },
                     amount: 320000,
-                    entry_type: EntryType::Credit,
+                    entry_side: EntrySide::Credit,
                 },
             ],
         ),
         (
             TransactionId::from_str("t3textbooks00003")?,
             vec![
-                BalanceUpdate {
-                    account_id: expenses_id,
+                TransactionEntry {
+                    entry_kind: EntryKind::Account {
+                        account_id: expenses_id,
+                    },
                     amount: 85000,
-                    entry_type: EntryType::Debit,
+                    entry_side: EntrySide::Debit,
                 },
-                BalanceUpdate {
-                    account_id: assets_id,
+                TransactionEntry {
+                    entry_kind: EntryKind::Account {
+                        account_id: assets_id,
+                    },
                     amount: 85000,
-                    entry_type: EntryType::Credit,
+                    entry_side: EntrySide::Credit,
                 },
             ],
         ),
         (
             TransactionId::from_str("t4tuition0000004")?,
             vec![
-                BalanceUpdate {
-                    account_id: assets_id,
+                TransactionEntry {
+                    entry_kind: EntryKind::Account {
+                        account_id: assets_id,
+                    },
                     amount: 450000,
-                    entry_type: EntryType::Debit,
+                    entry_side: EntrySide::Debit,
                 },
-                BalanceUpdate {
-                    account_id: revenue_id,
+                TransactionEntry {
+                    entry_kind: EntryKind::Account {
+                        account_id: revenue_id,
+                    },
                     amount: 450000,
-                    entry_type: EntryType::Credit,
+                    entry_side: EntrySide::Credit,
                 },
             ],
         ),
         (
             TransactionId::from_str("t6chkdeposit0005")?,
             vec![
-                BalanceUpdate {
-                    account_id: expenses_id,
+                TransactionEntry {
+                    entry_kind: EntryKind::Account {
+                        account_id: expenses_id,
+                    },
                     amount: 64000,
-                    entry_type: EntryType::Debit,
+                    entry_side: EntrySide::Debit,
                 },
-                BalanceUpdate {
-                    account_id: assets_id,
+                TransactionEntry {
+                    entry_kind: EntryKind::Account {
+                        account_id: assets_id,
+                    },
                     amount: 64000,
-                    entry_type: EntryType::Credit,
+                    entry_side: EntrySide::Credit,
                 },
             ],
         ),
     ];
+
+    // unix epoch in utc
+    let period = FinancialPeriod::January;
 
     for (id, entries) in transactions {
         match state
@@ -223,7 +261,8 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
             .create_transaction(
                 id,
                 maple_ridge_academy_id,
-                TransactionEntries(entries),
+                entries,
+                period,
                 pacioli_authority,
                 time_provider.get_time(),
             )

@@ -1,7 +1,6 @@
 syntax = "proto3";
 
 package proto.event.authn;
-import "google/protobuf/empty.proto";
 import "event/authority.proto";
 import "ident.proto";
 import "event/timestamp.proto";

@@ -71,6 +71,9 @@ static VALID_CUSTOM_IDENTS: phf::Set<&'static str> = phf_set! {
     "annie",
     "isaac",
     "sarah",
+    // general fund builtin
+    "gfund",
+    // uninitialized (default) id
     "uinit"
 };
 

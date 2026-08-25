@@ -7,9 +7,9 @@ use crate::authority::Authority;
 use crate::email::Email;
 use crate::journal::JournalId;
 use crate::journal::account::AccountId;
+use crate::journal::entry::{EntryKind, EntrySide};
 use crate::journal::layout;
 use crate::journal::service::{AccountState, TransactionState};
-use crate::journal::transaction::EntryType;
 use crate::monkesto_error::UrlError;
 use crate::monkesto_error::{MonkestoError, MonkestoResult};
 use crate::time_provider::Timestamp;
@@ -80,135 +80,150 @@ pub async fn transaction_list_page(
     let mut nonmember_cache: HashMap<UserId, Email> = HashMap::new();
 
     let content = html! {
-        @if let Ok(ref transactions) = transactions_res {
-            @for (tx, tx_authority, _) in transactions {
-                a
-                href=(format!("/journal/{}/transaction/{}", id, tx.id))
-                class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                    div class="space-y-3" {
-                        div class="space-y-2" {
-                            @for entry in tx.entries.iter() {
-                                @let entry_amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
+          @match transactions_res {
+            Ok(ref transactions) => {
+                @for (tx, tx_authority, _) in transactions {
+                    a
+                    href=(format!("/journal/{}/transaction/{}", id, tx.id))
+                    class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                        div class="space-y-3" {
+                            div class="space-y-2" {
+                                @for entry in tx.entries.iter() {
+                                    @match entry.entry_kind {
+                                        EntryKind::Account {
+                                            account_id
+                                        } => {
+                                            @let entry_amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
 
-                                div class="flex justify-between items-center" {
-                                    span class="text-base font-medium text-gray-900 dark:text-white" {
-                                        @match &accounts_res {
-                                            Ok(accounts) => (accounts.get(&entry.account_id).map(|acct| acct.name.as_ref()).unwrap_or("Unknown Account")),
-                                            Err(e) => {"encountered an error while fetching accounts: " (e)}
-                                        }
-                                    }
-
-                                    span class="text-base text-gray-700 dark:text-gray-300" {
-                                        (entry_amount) " " (entry.entry_type)
-                                    }
-                                }
-                            }
-
-                            div class="text-xs text-gray-400 dark:text-gray-500" {
-                                @match tx_authority.actor() {
-                                    Actor::User(id) => {
-                                        @match &members_res {
-                                            Ok(members) => {
-                                                @if let Some(email) = members.get(id).map(|m| m.email.clone()) {
-                                                    (email.to_string())
-                                                } @else if let Some(email) = nonmember_cache.get(id)  {
-                                                    (email.to_string())
-                                                } @else {
-                                                    // the user may be the owner or somebody who left the journal after creating the transaction
-                                                    @match state.authn_service.fetch_user(*id).await {
-                                                        Ok(user) => {
-                                                            // maud assumes that you never want to call functions for
-                                                            // side effects and makes you assign a value to the result
-                                                            @let _ = nonmember_cache.insert(user.id, user.email.clone());
-                                                            (user.email.to_string())
-                                                        },
-                                                        Err(e) => {"failed to fetch user: " (e)}
+                                            div class="flex justify-between items-center" {
+                                                span class="text-base font-medium text-gray-900 dark:text-white" {
+                                                    @match &accounts_res {
+                                                        Ok(accounts) => (accounts.get(&account_id).map(|acct| acct.name.as_ref()).unwrap_or("Unknown Account")),
+                                                        Err(e) => {"encountered an error while fetching accounts: " (e)}
                                                     }
                                                 }
-                                            },
-                                            Err(e) => {"failed to fetch users: " (e)}
+
+                                                span class="text-base text-gray-700 dark:text-gray-300" {
+                                                    (entry_amount) " " (entry.entry_side)
+                                                }
+
+                                            }
+                                        },
+                                        EntryKind::Activity {..} => {
+                                            // TODO(Ryan): handle activity entries
                                         }
-                                    },
-                                    Actor::System => {"system"},
-                                    Actor::Anonymous => {"anonymous"}
+                                    }
+                                }
+
+                                div class="text-xs text-gray-400 dark:text-gray-500" {
+                                    @match tx_authority.actor() {
+                                        Actor::User(id) => {
+                                            @match &members_res {
+                                                Ok(members) => {
+                                                    @if let Some(email) = members.get(id).map(|m| m.email.clone()) {
+                                                        (email.to_string())
+                                                    } @else if let Some(email) = nonmember_cache.get(id)  {
+                                                        (email.to_string())
+                                                    } @else {
+                                                        // the user may be the owner or somebody who left the journal after creating the transaction
+                                                        @match state.authn_service.fetch_user(*id).await {
+                                                            Ok(user) => {
+                                                                // maud assumes that you never want to call functions for
+                                                                // side effects and makes you assign a value to the result
+                                                                @let _ = nonmember_cache.insert(user.id, user.email.clone());
+                                                                (user.email.to_string())
+                                                            },
+                                                            Err(e) => {"failed to fetch user: " (e)}
+                                                        }
+                                                    }
+                                                },
+                                                Err(e) => {"failed to fetch users: " (e)}
+                                            }
+                                        },
+                                        Actor::System => {"system"},
+                                        Actor::Anonymous => {"anonymous"}
+                                    }
                                 }
                             }
                         }
                     }
                 }
-            }
-            hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600";
+                hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600";
 
-            div class="mt-10" {
-                div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6" {
-                    h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6" {
-                        "Create New Transaction"
-                    }
+                div class="mt-10" {
+                    div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6" {
+                        h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6" {
+                            "Create New Transaction"
+                        }
 
-                    form method="post" action=(format!("/journal/{}/transaction", id)) class="space-y-6" {
-                        @for i in 0..4 {
-                            div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg" {
-                                div class="space-y-3 md:space-y-0 md:grid md:grid-cols-12 md:gap-3" {
-                                    div class="md:col-span-6" {
-                                        label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                            (if i < 2 {"Account"} else {"Account (Optional)"})
-                                        }
-                                        select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
-                                        name="account" {
-                                            option value="" { "Select account..." }
-                                            @if let Ok(accounts) = &accounts_res {
-                                                @for (acc_id, acc_state) in accounts {
-                                                    option value=(acc_id) { (acc_state.name)}
-                                                }
-                                            } @else {
-                                                option value=("invalid account") { "failed to fetch accounts" }
-                                            }
-                                        }
-                                    }
-                                    div class="grid grid-cols-4 gap-3 md:col-span-6 md:grid-cols-6" {
-                                        div class="col-span-3 md:col-span-4" {
+                        form method="post" action=(format!("/journal/{}/transaction", id)) class="space-y-6" {
+                            @for i in 0..4 {
+                                div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg" {
+                                    div class="space-y-3 md:space-y-0 md:grid md:grid-cols-12 md:gap-3" {
+                                        div class="md:col-span-6" {
                                             label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                                "Amount"
-                                            }
-                                            input class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-                                            type="number"
-                                            step="0.01" min="0"
-                                            placeholder="0.00"
-                                            required[i < 2]
-                                            name="amount";
-                                        }
-                                        div class="col-span-1 md:col-span-2" {
-                                            label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                                "Type"
+                                                (if i < 2 {"Account"} else {"Account (Optional)"})
                                             }
                                             select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
-                                            name="entry_type" {
-                                                option value=(EntryType::Debit) { "Dr" }
-                                                option value=(EntryType::Credit) { "Cr" }
+                                            name="account" {
+                                                option value="" { "Select account..." }
+                                                @if let Ok(accounts) = &accounts_res {
+                                                    @for (acc_id, acc_state) in accounts {
+                                                        option value=(acc_id) { (acc_state.name)}
+                                                    }
+                                                } @else {
+                                                    option value=("invalid account") { "failed to fetch accounts" }
+                                                }
+                                            }
+                                        }
+                                        div class="grid grid-cols-4 gap-3 md:col-span-6 md:grid-cols-6" {
+                                            div class="col-span-3 md:col-span-4" {
+                                                label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                                    "Amount"
+                                                }
+                                                input class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
+                                                type="number"
+                                                step="0.01" min="0"
+                                                placeholder="0.00"
+                                                required[i < 2]
+                                                name="amount";
+                                            }
+                                            div class="col-span-1 md:col-span-2" {
+                                                label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
+                                                    "Type"
+                                                }
+                                                select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
+                                                name="entry_type" {
+                                                    option value=(EntrySide::Debit as i8) { "Dr" }
+                                                    option value=(EntrySide::Credit as i8) { "Cr" }
+                                                }
                                             }
                                         }
                                     }
                                 }
                             }
-                        }
 
-                        div class="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-600" {
-                            div class="text-sm text-gray-500 dark:text-gray-400" {
-                                "Debits must equal credits"
-                            }
-                            button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
-                                "Create Transaction"
+                            div class="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-600" {
+                                div class="text-sm text-gray-500 dark:text-gray-400" {
+                                    "Debits must equal credits"
+                                }
+                                button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
+                                    "Create Transaction"
+                                }
                             }
                         }
                     }
-                }
-                @if let Some(e) = err.err {
-                    p {
-                        (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
+                    @if let Some(e) = err.err {
+                        p {
+                            (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
+                        }
                     }
                 }
+            },
+            Err(e) => {
+                "Error fetching transactions" (e)
             }
-        }
+          }
     };
 
     let wrapped_content = html! {

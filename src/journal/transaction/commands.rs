@@ -4,16 +4,19 @@ use crate::authn::get_user;
 use crate::authority::Actor;
 use crate::authority::Authority;
 use crate::journal::account::AccountId;
-use crate::journal::transaction::{BalanceUpdate, TransactionEntries, TransactionId};
-use crate::journal::transaction::{EntryType, TransactionValidationError};
+use crate::journal::entry::{EntryKind, EntrySide};
+use crate::journal::transaction::TransactionValidationError;
+use crate::journal::transaction::{FinancialPeriod, TransactionEntry, TransactionId};
 use crate::journal::{JournalError, JournalId};
 use crate::monkesto_error::OrRedirect;
+use crate::serde::error::ProtoError;
 use crate::time_provider::{DefaultTimeProvider, TimeProvider};
 use axum::extract::Path;
 use axum::extract::State;
 use axum::response::Redirect;
 use axum_extra::extract::Form;
 use axum_login::AuthSession;
+use chrono::Datelike;
 use rust_decimal::dec;
 use rust_decimal::prelude::*;
 use serde::Deserialize;
@@ -23,7 +26,7 @@ use std::str::FromStr;
 pub struct TransactForm {
     account: Vec<String>,
     amount: Vec<String>,
-    entry_type: Vec<String>,
+    entry_type: Vec<i32>,
 }
 
 pub async fn transact(
@@ -39,7 +42,7 @@ pub async fn transact(
     let user = get_user(session)?;
     let user_authority = Authority::Direct(Actor::User(user.id));
 
-    let mut updates = Vec::new();
+    let mut entries = Vec::new();
 
     if form.account.is_empty() {
         return Err(JournalError::TransactionValidation(
@@ -94,31 +97,38 @@ pub async fn transact(
                     .or_redirect(callback_url);
                 }
 
-                let entry_type = EntryType::from_str(
-                    form.entry_type
+                let entry_side = EntrySide::try_from(
+                    *form
+                        .entry_type
                         .get(idx)
                         .ok_or(JournalError::TransactionValidation(
                             TransactionValidationError::MissingEntryType,
                         ))
-                        .or_redirect(callback_url)?,
+                        .or_redirect(callback_url)? as i8,
                 )
+                .map_err(ProtoError::from)
                 .or_redirect(callback_url)?;
 
-                updates.push(BalanceUpdate {
-                    account_id: acc_id,
+                entries.push(TransactionEntry {
+                    // TODO(Ryan) add parsing for activity entries
+                    entry_kind: EntryKind::Account { account_id: acc_id },
                     amount: amt as u64,
-                    entry_type,
+                    entry_side,
                 });
             }
         }
     }
+
+    let timestamp = DefaultTimeProvider.get_time();
 
     let event_id = state
         .journal_service
         .create_transaction(
             TransactionId::new(),
             journal_id,
-            TransactionEntries(updates),
+            entries,
+            // TODO(Ryan): assuming the period matches the timestamp's month for now
+            FinancialPeriod::try_from(timestamp.month() as i8).expect("valid month"),
             user_authority,
             DefaultTimeProvider.get_time(),
         )

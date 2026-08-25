@@ -21,13 +21,24 @@ pub enum ProtoError {
     Ident(#[from] IdentError),
     #[error("invalid webauthn-uuid: {0}")]
     ParseUuid(String),
+    #[error("failed to parse an AccountType from the int {0}")]
+    AccountTypeFromInt(#[from] AccountTypeFromIntError),
+    #[error("failed to parse a FinancialPeriod from the int {0}")]
+    FinancialPeriodFromInt(#[from] FinancialPeriodFromIntError),
+    #[error("failed to parse an EntrySide from the int {0}")]
+    EntrySideFromInt(#[from] EntrySideFromIntError),
+    #[error("failed to parse an ActivityType from the int {0}")]
+    ActivityTypeFromInt(#[from] ActivityTypeFromIntError),
 }
 
 use crate::authn::passkey::PasskeyError;
 use crate::authn::user::UserError;
 use crate::email::{Email, EmailError};
 use crate::id::IdentError;
-use crate::journal::transaction::TransactionValidationError;
+use crate::journal::account::AccountTypeFromIntError;
+use crate::journal::activity::ActivityTypeFromIntError;
+use crate::journal::entry::EntrySideFromIntError;
+use crate::journal::transaction::{FinancialPeriodFromIntError, TransactionValidationError};
 use crate::journal::{JournalError, PermissionDecodeError, Permissions};
 use crate::name::NameError;
 use ProtoError::*;
@@ -68,6 +79,10 @@ impl From<ProtoError> for ProtoDecodeError {
                     name_error_type: Some(e),
                 })
             }
+            AccountTypeFromInt(i) => ProtoErrorType::AccountTypeFromInt(i.0 as i32),
+            FinancialPeriodFromInt(i) => ProtoErrorType::AccountTypeFromInt(i.0 as i32),
+            EntrySideFromInt(i) => ProtoErrorType::EntrySideFromInt(i.0 as i32),
+            ActivityTypeFromInt(i) => ProtoErrorType::ActivityTypeFromInt(i.0 as i32),
         };
 
         ProtoDecodeError {
@@ -97,6 +112,12 @@ impl TryFrom<ProtoDecodeError> for ProtoError {
                 };
                 ParseName(e)
             }
+            ProtoErrorType::AccountTypeFromInt(i) => AccountTypeFromIntError(i as i8).into(),
+            ProtoErrorType::FinancialPeriodFromInt(i) => {
+                FinancialPeriodFromIntError(i as i8).into()
+            }
+            ProtoErrorType::EntrySideFromInt(i) => EntrySideFromIntError(i as i8).into(),
+            ProtoErrorType::ActivityTypeFromInt(i) => ActivityTypeFromIntError(i as i8).into(),
         };
 
         Ok(proto_error)
@@ -194,10 +215,13 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
                                 TransactionValidationErrorType::NegativeEntryAmount(s) => {
                                     TransactionValidationError::NegativeEntryAmount(s)
                                 }
-                                TransactionValidationErrorType::ImbalancedTransaction(updates) => {
+                                TransactionValidationErrorType::ImbalancedTransaction(entries) => {
                                     TransactionValidationError::ImbalancedTransaction(
-                                        updates.try_into()?,
+                                        entries.try_into()?,
                                     )
+                                }
+                                TransactionValidationErrorType::TransferViolation(id) => {
+                                    TransactionValidationError::TransferViolation(id.try_into()?)
                                 }
                             };
 
@@ -210,6 +234,22 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
                     JournalErrorType::InvalidS3Credentials(_) => JournalError::InvalidS3Credentials,
                     JournalErrorType::S3(s) => JournalError::S3(s),
                     JournalErrorType::InvalidFile(id) => JournalError::InvalidFile(id.try_into()?),
+                    JournalErrorType::FundIdCollision(id) => {
+                        JournalError::FundIdCollision(id.try_into()?)
+                    }
+                    JournalErrorType::InvalidFund(id) => JournalError::InvalidFund(id.try_into()?),
+                    JournalErrorType::ActivityIdCollision(id) => {
+                        JournalError::ActivityIdCollision(id.try_into()?)
+                    }
+                    JournalErrorType::InvalidActivity(id) => {
+                        JournalError::InvalidActivity(id.try_into()?)
+                    }
+                    JournalErrorType::InvalidTransactionEntry(id) => {
+                        JournalError::InvalidEntry(id.try_into()?)
+                    }
+                    JournalErrorType::TransactionEntryIdCollision(id) => {
+                        JournalError::EntryIdCollision(id.try_into()?)
+                    }
                 };
 
                 MonkestoError::Journal(journal_error)
@@ -339,6 +379,9 @@ impl From<MonkestoError> for ProtoMonkestoError {
                                     updates.into(),
                                 )
                             }
+                            TransactionValidationError::TransferViolation(id) => {
+                                TransactionValidationErrorType::TransferViolation(id.into())
+                            }
                         };
                         JournalErrorType::TransactionValidation(ProtoTransactionValidationError {
                             transaction_validation_error_type: Some(t_val),
@@ -373,6 +416,22 @@ impl From<MonkestoError> for ProtoMonkestoError {
                     }
                     JournalError::S3(s) => JournalErrorType::S3(s),
                     JournalError::InvalidFile(id) => JournalErrorType::InvalidFile(id.into()),
+                    JournalError::FundIdCollision(id) => {
+                        JournalErrorType::FileIdCollision(id.into())
+                    }
+                    JournalError::InvalidFund(id) => JournalErrorType::InvalidFund(id.into()),
+                    JournalError::ActivityIdCollision(id) => {
+                        JournalErrorType::ActivityIdCollision(id.into())
+                    }
+                    JournalError::InvalidActivity(id) => {
+                        JournalErrorType::InvalidActivity(id.into())
+                    }
+                    JournalError::EntryIdCollision(id) => {
+                        JournalErrorType::TransactionEntryIdCollision(id.into())
+                    }
+                    JournalError::InvalidEntry(id) => {
+                        JournalErrorType::InvalidTransactionEntry(id.into())
+                    }
                 };
 
                 MonkestoErrorType::Journal(ProtoJournalError {

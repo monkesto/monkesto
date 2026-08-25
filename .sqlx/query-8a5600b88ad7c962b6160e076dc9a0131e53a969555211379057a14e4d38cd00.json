@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    UPDATE accounts SET name = $1 WHERE id = $2 AND journal_id = $3\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8a5600b88ad7c962b6160e076dc9a0131e53a969555211379057a14e4d38cd00"
+}

@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package proto.transaction_entry;
+import "ident.proto";
+
+message ProtoRepeatedTransactionEntryIds {
+  repeated ident.ProtoIdent entries = 1;
+}
+
+message ProtoEntryKind {
+  message ProtoActivityEntryKind {
+    ident.ProtoIdent activity_id = 1;
+    ident.ProtoIdent fund_id = 2;
+    bool transfer = 3;
+  }
+
+  oneof proto_entry_kind_variant {
+    ident.ProtoIdent account = 1;
+    ProtoActivityEntryKind activity = 2;
+  }
+}
+
+message ProtoTransactionEntry {
+  uint64 amount = 1;
+  int32 entry_side = 2;
+  ProtoEntryKind entry_kind = 3;
+}
+
+message ProtoRepeatedTransactionEntries {
+  repeated ProtoTransactionEntry entries = 1;
+}
