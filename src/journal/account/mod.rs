@@ -17,21 +17,25 @@ pub fn router() -> Router<crate::StateType> {
 }
 
 use crate::authority::Authority;
+use crate::event_id::GetEventId;
 use crate::id;
 use crate::id::Ident;
 use crate::journal::domain::{AccountEvent, JournalDomainEvent};
 use crate::journal::member::JournalMember;
-use crate::journal::{Journal, Permissions, validate_permissions};
+use crate::journal::{Journal, JournalResult, JournalService, Permissions, validate_permissions};
 use crate::journal::{JournalError, JournalId};
 use crate::name::Name;
 use crate::status::Status;
 use crate::time_provider::Timestamp;
-use disintegrate::{Decision, StateMutate, StateQuery};
+use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
+use disintegrate_postgres::PgEventId;
+use prost::Message;
+use proto::event::journal::ProtoJournalDomainEvent;
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
-use sqlx::{Database, Decode, Encode, Postgres, Type};
+use sqlx::{Database, Decode, Encode, FromRow, Postgres, Type};
 use thiserror::Error;
 
 id!(AccountId, Ident::new16());
@@ -330,5 +334,109 @@ impl Decision for DeleteAccount {
             authority: self.authority,
             timestamp: self.timestamp,
         }])
+    }
+}
+
+pub struct AccountState {
+    pub id: AccountId,
+    #[expect(unused)]
+    pub journal_id: JournalId,
+    #[expect(unused)]
+    pub account_type: AccountType,
+    pub name: Name,
+    pub balance: i64,
+}
+
+#[derive(FromRow)]
+struct AccountStateWithPayload {
+    id: AccountId,
+    #[expect(unused)]
+    journal_id: JournalId,
+    name: Name,
+    account_type: AccountType,
+    balance: i64,
+    payload: Vec<u8>,
+}
+
+impl JournalService {
+    pub async fn create_account(
+        &self,
+        account_id: AccountId,
+        journal_id: JournalId,
+        name: Name,
+        account_type: AccountType,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(CreateAccount::new(
+                account_id,
+                journal_id,
+                name,
+                account_type,
+                authority,
+                timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    pub async fn list_journal_accounts(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<Vec<(AccountState, Authority, Timestamp)>> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(JournalError::InvalidJournal(journal_id));
+        }
+
+        let accounts = sqlx::query_as!(
+            AccountStateWithPayload,
+            r#"
+            SELECT a.id as "id: AccountId", a.journal_id as "journal_id: JournalId", a.balance, a.name as "name: Name", a.account_type as "account_type: AccountType", e.payload as "payload!"
+            FROM accounts a
+            INNER JOIN event e
+                ON e.account_id = a.id AND e.event_type = 'AccountCreated'
+            WHERE a.journal_id = $1
+            "#,
+            journal_id as JournalId)
+            .fetch_all(&self.projection_pool)
+            .await?;
+
+        let mut accounts_with_meta = Vec::with_capacity(accounts.len());
+
+        for account in accounts {
+            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
+                account.payload.as_slice(),
+            )?)?;
+
+            match payload {
+                JournalDomainEvent::AccountCreated {
+                    authority,
+                    timestamp,
+                    ..
+                } => {
+                    accounts_with_meta.push((
+                        AccountState {
+                            id: account.id,
+                            journal_id,
+                            name: account.name,
+                            balance: account.balance,
+                            account_type: account.account_type,
+                        },
+                        authority,
+                        timestamp,
+                    ));
+                }
+                _ => unreachable!("AccountCreated events are filtered by the sql query"),
+            }
+        }
+
+        Ok(accounts_with_meta)
     }
 }

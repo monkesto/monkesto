@@ -1,17 +1,24 @@
 use crate::authority::Authority;
+use crate::event_id::GetEventId;
 use crate::id;
 use crate::id::Ident;
 use crate::journal::domain::{ActivityEvent, JournalDomainEvent};
 use crate::journal::member::JournalMember;
-use crate::journal::{Journal, JournalError, JournalId, Permissions, validate_permissions};
+use crate::journal::{
+    Journal, JournalError, JournalId, JournalResult, JournalService, Permissions,
+    validate_permissions,
+};
 use crate::name::Name;
 use crate::status::Status;
 use crate::time_provider::Timestamp;
 use axum_test::expect_json::__private::serde_trampoline::{Deserialize, Serialize};
-use disintegrate::{Decision, StateMutate, StateQuery};
+use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
+use disintegrate_postgres::PgEventId;
+use prost::Message;
+use proto::event::journal::ProtoJournalDomainEvent;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
-use sqlx::{Database, Decode, Encode, Postgres, Type};
+use sqlx::{Database, Decode, Encode, FromRow, Postgres, Type};
 use thiserror::Error;
 
 id!(ActivityId, Ident::new16());
@@ -178,5 +185,110 @@ impl Decision for CreateActivity {
             authority: self.authority,
             timestamp: self.timestamp,
         }])
+    }
+}
+
+#[expect(unused)]
+pub struct ActivityState {
+    pub id: ActivityId,
+    pub journal_id: JournalId,
+    pub name: Name,
+    pub activity_type: ActivityType,
+    pub balance: i64,
+}
+
+#[derive(FromRow)]
+pub struct ActivityStateWithPayload {
+    id: ActivityId,
+    #[expect(unused)]
+    journal_id: JournalId,
+    name: Name,
+    activity_type: ActivityType,
+    balance: i64,
+    payload: Vec<u8>,
+}
+
+impl JournalService {
+    #[expect(unused)]
+    pub async fn create_activity(
+        &self,
+        activity_id: ActivityId,
+        journal_id: JournalId,
+        name: Name,
+        activity_type: ActivityType,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(CreateActivity::new(
+                activity_id,
+                journal_id,
+                name,
+                activity_type,
+                authority,
+                timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    #[expect(unused)]
+    pub async fn list_journal_activities(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<Vec<(ActivityState, Authority, Timestamp)>> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(JournalError::InvalidJournal(journal_id));
+        }
+
+        let activities = sqlx::query_as!(
+            ActivityStateWithPayload,
+            r#"
+            SELECT a.id as "id: ActivityId", a.journal_id as "journal_id: JournalId", a.name as "name: Name", a.activity_type as "activity_type: ActivityType", a.balance, e.payload as "payload!"
+            FROM activities a
+            INNER JOIN event e
+                ON e.account_id = a.id AND e.event_type = 'ActivityCreated'
+            WHERE e.journal_id = $1
+            "#,
+            journal_id as JournalId)
+            .fetch_all(&self.projection_pool)
+            .await?;
+
+        let mut activities_with_meta = Vec::with_capacity(activities.len());
+
+        for activity in activities {
+            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
+                activity.payload.as_slice(),
+            )?)?;
+
+            match payload {
+                JournalDomainEvent::ActivityCreated {
+                    authority,
+                    timestamp,
+                    ..
+                } => {
+                    activities_with_meta.push((
+                        ActivityState {
+                            id: activity.id,
+                            journal_id,
+                            name: activity.name,
+                            activity_type: activity.activity_type,
+                            balance: activity.balance,
+                        },
+                        authority,
+                        timestamp,
+                    ));
+                }
+                _ => unreachable!("ActivityCreated events are filtered by the sql query"),
+            }
+        }
+
+        Ok(activities_with_meta)
     }
 }

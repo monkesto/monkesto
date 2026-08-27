@@ -1,3 +1,4 @@
+use super::TransactionState;
 use crate::BackendType;
 use crate::StateType;
 use crate::authn::user::UserState;
@@ -7,9 +8,9 @@ use crate::authority::Authority;
 use crate::email::Email;
 use crate::journal::JournalId;
 use crate::journal::account::AccountId;
+use crate::journal::account::AccountState;
 use crate::journal::entry::{EntryKind, EntrySide};
 use crate::journal::layout;
-use crate::journal::service::{AccountState, TransactionState};
 use crate::monkesto_error::UrlError;
 use crate::monkesto_error::{MonkestoError, MonkestoResult};
 use crate::time_provider::Timestamp;

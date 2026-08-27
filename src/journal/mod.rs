@@ -6,6 +6,7 @@ pub mod entry;
 #[expect(unused)]
 mod file;
 pub mod fund;
+mod jewel;
 pub mod layout;
 pub mod member;
 pub mod person;
@@ -159,6 +160,7 @@ pub fn router() -> Router<crate::StateType> {
 
 use crate::authn::user::UserId;
 use crate::authority::{Actor, Authority};
+use crate::event_id::GetEventId;
 use crate::id;
 use crate::id::IdentError;
 use crate::journal::JournalError::InvalidJournal;
@@ -168,7 +170,9 @@ use crate::journal::domain::JournalDomainEvent;
 use crate::journal::entry::EntryId;
 use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
-use crate::journal::member::JournalMember;
+use crate::journal::member::{
+    AddJournalMember, JournalMember, RemoveJournalMember, UpdateJournalMember,
+};
 use crate::journal::transaction::{TransactionId, TransactionValidationError};
 use crate::name::Name;
 use crate::serde::error::ProtoError;
@@ -176,13 +180,16 @@ use crate::status::Status;
 use crate::time_provider::Timestamp;
 use aws_sdk_s3::error::SdkError;
 use bitflags::bitflags;
-use disintegrate::{Decision, StateMutate, StateQuery};
+use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
+use disintegrate_postgres::PgEventId;
 use domain::JournalEvent;
+use prost::Message;
+use proto::event::journal::ProtoJournalDomainEvent;
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
-use sqlx::{Database, Decode, Encode, Error, Postgres, Type};
+use sqlx::{Database, Decode, Encode, Error, FromRow, Postgres, Type};
 use std::fmt::Display;
 use std::fmt::Formatter;
 use thiserror::Error;
@@ -388,5 +395,224 @@ impl Display for PermissionDecodeError {
             "an unknown bit was set in the permission value: {}",
             self.0
         )
+    }
+}
+
+pub struct JournalState {
+    pub id: JournalId,
+    pub owner_id: UserId,
+    pub name: Name,
+}
+
+#[derive(FromRow)]
+struct JournalStateWithPayload {
+    id: JournalId,
+    owner_id: UserId,
+    name: Name,
+    payload: Vec<u8>,
+}
+
+impl JournalService {
+    pub async fn create_journal(
+        &self,
+        journal_id: JournalId,
+        owner: UserId,
+        name: Name,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(CreateJournal::new(
+                journal_id, owner, name, authority, timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    pub async fn add_member(
+        &self,
+        journal_id: JournalId,
+        member_id: UserId,
+        permissions: Permissions,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(AddJournalMember::new(
+                journal_id,
+                member_id,
+                permissions,
+                authority,
+                timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    pub async fn update_member(
+        &self,
+        journal_id: JournalId,
+        member_id: UserId,
+        permissions: Permissions,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(UpdateJournalMember::new(
+                journal_id,
+                member_id,
+                permissions,
+                authority,
+                timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    pub async fn remove_member(
+        &self,
+        journal_id: JournalId,
+        member_id: UserId,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(RemoveJournalMember::new(
+                journal_id, member_id, authority, timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    pub async fn get_journal(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<(JournalState, Authority, Timestamp)> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(JournalError::InvalidJournal(journal_id));
+        }
+
+        let journal = sqlx::query_as!(
+            JournalStateWithPayload,
+            r#"
+            SELECT j.id as "id: JournalId", j.owner_id as "owner_id: UserId", j.name as "name: Name", e.payload as "payload!"
+            FROM journals j
+            INNER JOIN event e
+                ON e.journal_id = $1 AND e.event_type = 'JournalCreated'
+            WHERE j.id = $1
+            "#,
+            journal_id as JournalId)
+            .fetch_optional(&self.projection_pool)
+            .await?;
+
+        if let Some(journal) = journal {
+            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
+                journal.payload.as_slice(),
+            )?)?;
+
+            match payload {
+                JournalDomainEvent::JournalCreated {
+                    authority,
+                    timestamp,
+                    ..
+                } => Ok((
+                    JournalState {
+                        id: journal.id,
+                        owner_id: journal.owner_id,
+                        name: journal.name,
+                    },
+                    authority,
+                    timestamp,
+                )),
+                _ => unreachable!("JournalCreated events are filtered by the sql query"),
+            }
+        } else {
+            Err(InvalidJournal(journal_id))
+        }
+    }
+
+    /// returns the current state, creation authority, and creation timestamp of every accessible journal
+    pub async fn list_accessible_journals(
+        &self,
+        user: UserId,
+    ) -> JournalResult<Vec<(JournalState, Authority, Timestamp)>> {
+        // NOTE(gabriel): a user must not be both a member and the owner, or this query will return duplicate journals
+
+        let journals = sqlx::query_as!(
+            JournalStateWithPayload,
+            r#"
+            SELECT j.id as "id: JournalId", j.owner_id as "owner_id: UserId", j.name as "name: Name", e.payload as "payload!"
+            FROM journals j
+            INNER JOIN event e
+                ON e.journal_id = j.id AND e.event_type = 'JournalCreated'
+            LEFT JOIN journal_members jm ON jm.journal_id = j.id AND (jm.permissions & $1) = $1
+            WHERE j.owner_id = $2 OR jm.user_id = $2
+            "#,
+            Permissions::READ.bits(),
+            user as UserId)
+            .fetch_all(&self.projection_pool)
+            .await?;
+
+        // TODO(gabriel) would .map() be more efficient here?
+        let mut journals_with_meta = Vec::with_capacity(journals.len());
+
+        for journal in journals {
+            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
+                journal.payload.as_slice(),
+            )?)?;
+
+            match payload {
+                JournalDomainEvent::JournalCreated {
+                    authority,
+                    timestamp,
+                    ..
+                } => {
+                    journals_with_meta.push((
+                        JournalState {
+                            id: journal.id,
+                            owner_id: journal.owner_id,
+                            name: journal.name,
+                        },
+                        authority,
+                        timestamp,
+                    ));
+                }
+                _ => unreachable!("JournalCreated events are filtered by the sql query"),
+            }
+        }
+
+        Ok(journals_with_meta)
+    }
+
+    pub async fn list_journal_members(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<Vec<UserId>> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(InvalidJournal(journal_id));
+        }
+
+        Ok(sqlx::query_scalar!(
+            r#"
+            SELECT user_id as "user_id: UserId" FROM journal_members WHERE journal_id = $1
+            "#,
+            journal_id as JournalId
+        )
+        .fetch_all(&self.projection_pool)
+        .await?)
     }
 }

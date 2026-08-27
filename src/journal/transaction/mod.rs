@@ -21,24 +21,27 @@ pub fn router() -> Router<crate::StateType> {
 }
 
 use crate::authority::Authority;
+use crate::event_id::GetEventId;
 use crate::id;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::{ActivityId, ActivityType};
 use crate::journal::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::fund::FundId;
 use crate::journal::member::JournalMember;
-use crate::journal::{Journal, Permissions, validate_permissions};
+use crate::journal::{Journal, JournalResult, JournalService, Permissions, validate_permissions};
 use crate::journal::{JournalError, JournalId};
 use crate::status::Status;
 use crate::time_provider::Timestamp;
-use disintegrate::{Decision, StateMutate, StateQuery};
+use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
+use disintegrate_postgres::PgEventId;
 use prost::Message;
+use proto::event::journal::ProtoJournalDomainEvent;
 use proto::transaction_entry::ProtoRepeatedTransactionEntryIds;
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
-use sqlx::{Database, Decode, Encode, Postgres, Type};
+use sqlx::{Database, Decode, Encode, FromRow, Postgres, Type};
 use std::fmt::Debug;
 use thiserror::Error;
 
@@ -389,5 +392,134 @@ impl<'r> Decode<'r, Postgres> for TransactionEntryIds {
         let bytes = <&[u8] as Decode<Postgres>>::decode(value)?;
         let prost_entries = ProtoRepeatedTransactionEntryIds::decode(bytes)?;
         Ok(prost_entries.try_into()?)
+    }
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, FromRow)]
+pub struct StoredTransactionEntry {
+    pub id: EntryId,
+    pub journal_id: JournalId,
+    pub amount: i64,
+    pub entry_side: EntrySide,
+    pub entry_kind: EntryKind,
+}
+
+pub struct TransactionState {
+    pub id: TransactionId,
+    #[expect(unused)]
+    pub journal_id: JournalId,
+    pub entries: Vec<StoredTransactionEntry>,
+}
+
+#[derive(FromRow)]
+struct TransactionStateWithPayload {
+    id: TransactionId,
+    #[expect(unused)]
+    journal_id: JournalId,
+    entries: TransactionEntryIds,
+    payload: Vec<u8>,
+}
+
+impl JournalService {
+    pub async fn create_transaction(
+        &self,
+        transaction_id: TransactionId,
+        journal_id: JournalId,
+        entries: Vec<TransactionEntry>,
+        period: FinancialPeriod,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(CreateTransaction::new(
+                transaction_id,
+                journal_id,
+                TransactionEntries(entries),
+                period,
+                authority,
+                timestamp,
+            ))
+            .await?
+            .event_id())
+    }
+
+    pub async fn list_journal_transactions(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<Vec<(TransactionState, Authority, Timestamp)>> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(JournalError::Permissions(Permissions::READ));
+        }
+
+        let transactions = sqlx::query_as!(
+            TransactionStateWithPayload,
+            r#"
+            SELECT t.id as "id: TransactionId", t.journal_id as "journal_id: JournalId", t.entries as "entries: TransactionEntryIds", e.payload as "payload!"
+            FROM transactions t
+            INNER JOIN event e
+                ON e.transaction_id = t.id AND e.event_type = 'TransactionCreated'
+            WHERE t.journal_id = $1
+            "#,
+            journal_id as JournalId)
+            .fetch_all(&self.projection_pool)
+            .await?;
+
+        let mut transactions_with_meta = Vec::with_capacity(transactions.len());
+
+        // TODO(Gabriel) bundling all journal entries for now, probably will want to load them lazily at some point
+        let entries: HashMap<EntryId, StoredTransactionEntry> = sqlx::query_as!(
+            StoredTransactionEntry,
+            r#"
+            SELECT id as "id: EntryId", journal_id as "journal_id: JournalId", amount, entry_side as "entry_side: EntrySide", entry_kind as "entry_kind: EntryKind" from transaction_entries WHERE journal_id = $1
+            "#,
+            journal_id as JournalId
+        ).fetch_all(&self.projection_pool)
+            .await?
+            .into_iter()
+            .map(|e| (e.id, e))
+            .collect();
+
+        for transaction in transactions {
+            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
+                transaction.payload.as_slice(),
+            )?)?;
+
+            let mut tx_entries = Vec::new();
+
+            for entry_id in transaction.entries.0 {
+                if let Some(entry) = entries.get(&entry_id) {
+                    tx_entries.push(*entry)
+                } else {
+                    return Err(JournalError::InvalidEntry(entry_id));
+                }
+            }
+
+            match payload {
+                JournalDomainEvent::TransactionCreated {
+                    authority,
+                    timestamp,
+                    ..
+                } => {
+                    transactions_with_meta.push((
+                        TransactionState {
+                            id: transaction.id,
+                            journal_id,
+                            entries: tx_entries,
+                        },
+                        authority,
+                        timestamp,
+                    ));
+                }
+                _ => unreachable!("TransactionCreated events are filtered by the sql query"),
+            }
+        }
+
+        Ok(transactions_with_meta)
     }
 }
