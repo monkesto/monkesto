@@ -87,6 +87,10 @@ impl JournalService {
                     .map_err(|e| JewelImportError::Write(e.to_string()))?;
             }
 
+            mdb_file
+                .flush()
+                .map_err(|e| JewelImportError::Write(e.to_string()))?;
+
             let schema = Command::new("mdb-schema")
                 .args([mdb_file_path.as_ref(), "sqlite"])
                 .output()
@@ -111,6 +115,11 @@ impl JournalService {
                     .await
                     .map_err(|e| JewelImportError::Write(e.to_string()))?;
             }
+
+            sqlite_process
+                .wait()
+                .await
+                .map_err(|e| JewelImportError::Io(e.to_string()))?;
 
             let tables = Command::new("mdb-tables")
                 .args(["-1", mdb_file_path.as_ref()])
@@ -151,6 +160,11 @@ impl JournalService {
                         .await
                         .map_err(|e| JewelImportError::Write(e.to_string()))?;
                 }
+
+                insert_cmd
+                    .wait()
+                    .await
+                    .map_err(|e| JewelImportError::Io(e.to_string()))?;
             }
 
             // we no longer need the mdb file
