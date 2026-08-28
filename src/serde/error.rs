@@ -38,14 +38,18 @@ use crate::id::IdentError;
 use crate::journal::account::AccountTypeFromIntError;
 use crate::journal::activity::ActivityTypeFromIntError;
 use crate::journal::entry::EntrySideFromIntError;
+use crate::journal::jewel::JewelImportError;
 use crate::journal::transaction::{FinancialPeriodFromIntError, TransactionValidationError};
 use crate::journal::{JournalError, PermissionDecodeError, Permissions};
 use crate::name::NameError;
 use ProtoError::*;
 use proto::error::proto_decode_error::ProtoErrorType;
 use proto::error::proto_ident_error::IdentErrorType;
+use proto::error::proto_journal_error::proto_jewel_import_error::JewelImportErrorType;
 use proto::error::proto_journal_error::proto_transaction_validation_error::TransactionValidationErrorType;
-use proto::error::proto_journal_error::{JournalErrorType, ProtoTransactionValidationError};
+use proto::error::proto_journal_error::{
+    JournalErrorType, ProtoJewelImportError, ProtoTransactionValidationError,
+};
 use proto::error::proto_monkesto_error::MonkestoErrorType;
 use proto::error::proto_name_error::NameErrorType;
 use proto::error::proto_passkey_error::PasskeyErrorType;
@@ -250,6 +254,22 @@ impl TryFrom<ProtoMonkestoError> for MonkestoError {
                     JournalErrorType::TransactionEntryIdCollision(id) => {
                         JournalError::EntryIdCollision(id.try_into()?)
                     }
+                    JournalErrorType::JewelImport(e) => {
+                        let import_error = match e.jewel_import_error_type.ok_or(FieldRequired)? {
+                            JewelImportErrorType::Io(s) => JewelImportError::Io(s),
+                            JewelImportErrorType::StartChildProcess(s) => {
+                                JewelImportError::StartChildProcess(s)
+                            }
+                            JewelImportErrorType::Write(s) => JewelImportError::Write(s),
+                            JewelImportErrorType::ChildProcessExitFailure(s) => {
+                                JewelImportError::ChildProcessExitFailure(s)
+                            }
+                            JewelImportErrorType::OutdatedJewelVersion(s) => {
+                                JewelImportError::OutdatedJewelVersion(s as f64)
+                            }
+                        };
+                        JournalError::JewelImport(import_error)
+                    }
                 };
 
                 MonkestoError::Journal(journal_error)
@@ -431,6 +451,25 @@ impl From<MonkestoError> for ProtoMonkestoError {
                     }
                     JournalError::InvalidEntry(id) => {
                         JournalErrorType::InvalidTransactionEntry(id.into())
+                    }
+                    JournalError::JewelImport(e) => {
+                        let import_error = match e {
+                            JewelImportError::Io(s) => JewelImportErrorType::Io(s),
+                            JewelImportError::StartChildProcess(s) => {
+                                JewelImportErrorType::StartChildProcess(s)
+                            }
+                            JewelImportError::Write(s) => JewelImportErrorType::Write(s),
+                            JewelImportError::ChildProcessExitFailure(s) => {
+                                JewelImportErrorType::ChildProcessExitFailure(s)
+                            }
+                            JewelImportError::OutdatedJewelVersion(f) => {
+                                JewelImportErrorType::OutdatedJewelVersion(f as f32)
+                            }
+                        };
+
+                        JournalErrorType::JewelImport(ProtoJewelImportError {
+                            jewel_import_error_type: Some(import_error),
+                        })
                     }
                 };
 

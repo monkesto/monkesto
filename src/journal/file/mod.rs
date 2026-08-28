@@ -26,7 +26,7 @@ use tokio::runtime::Handle;
 
 id!(FileId, Ident::new16());
 
-static S3_CLIENT: LazyLock<Option<S3Client>> = LazyLock::new(|| {
+pub(crate) static S3_CLIENT: LazyLock<Option<S3Client>> = LazyLock::new(|| {
     if let Some(endpoint) = env::var("S3_ENDPOINT").ok()
         && let Some(access_key_id) = env::var("S3_ACCESS_KEY_ID").ok()
         && let Some(secret_access_key) = env::var("S3_SECRET_ACCESS_KEY").ok()
@@ -167,7 +167,6 @@ impl Decision for UploadFile {
 
 pub struct FileState {
     pub id: FileId,
-    #[expect(unused)]
     journal_id: JournalId,
     #[expect(unused)]
     pub hash: [u8; 16],
@@ -190,6 +189,12 @@ struct FileStateWithVecHash {
     journal_id: JournalId,
     hash: Vec<u8>,
     name: String,
+}
+
+impl FileState {
+    pub fn key(&self) -> String {
+        format!("{}/{}-{}", self.journal_id, self.id, self.name)
+    }
 }
 
 impl JournalService {

@@ -6,7 +6,7 @@ pub mod entry;
 #[expect(unused)]
 mod file;
 pub mod fund;
-mod jewel;
+pub mod jewel;
 pub mod layout;
 pub mod member;
 pub mod person;
@@ -101,6 +101,9 @@ pub enum JournalError {
 
     #[error("invalid file: {0}")]
     InvalidFile(FileId),
+
+    #[error("failed to import from a jewel database: {0}")]
+    JewelImport(#[from] JewelImportError),
 }
 
 impl From<sqlx::Error> for JournalError {
@@ -141,6 +144,7 @@ pub fn router() -> Router<crate::StateType> {
             "/journal/{id}/file/{file_id}",
             get(file::views::download_file),
         )
+        .route("/journal/{id}/file/{file_id}/jewel", get(jewel::view_db))
         .route("/journal/{id}/person", get(person::people_list_page))
         .route("/journal/{id}/invite", post(commands::invite_member))
         .route(
@@ -170,6 +174,7 @@ use crate::journal::domain::JournalDomainEvent;
 use crate::journal::entry::EntryId;
 use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
+use crate::journal::jewel::JewelImportError;
 use crate::journal::member::{
     AddJournalMember, JournalMember, RemoveJournalMember, UpdateJournalMember,
 };

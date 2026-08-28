@@ -23,6 +23,8 @@ cargo install sqlx-cli
 npm install
 ```
 
+`mdbtools` and `sqlite3` are required for importing Jewel databases
+
 ### linker
 
 Monkesto uses the [mold](https://github.com/rui314/mold) linker on linux. It must be installed and in your $PATH for the

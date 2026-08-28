@@ -147,7 +147,7 @@ pub async fn download_file(
             .await
             .or_redirect(callback_url)?;
 
-        let file_key = format!("{}/{}-{}", journal_id, file_id, file.name);
+        let file_key = file.key();
 
         let presign_ttl = Duration::from_secs(30);
         let presigning_config =

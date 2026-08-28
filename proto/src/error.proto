@@ -36,6 +36,16 @@ message ProtoJournalError {
     }
   }
 
+  message ProtoJewelImportError {
+    oneof jewel_import_error_type {
+      string IO = 1;
+      string start_child_process = 2;
+      string write = 3;
+      string child_process_exit_failure = 4;
+      float outdated_jewel_version = 5;
+    }
+  }
+
   oneof journal_error_type {
     ident.ProtoIdent id_collision = 1;
     ident.ProtoIdent account_id_collision = 2;
@@ -62,6 +72,7 @@ message ProtoJournalError {
     ident.ProtoIdent invalid_activity = 23;
     ident.ProtoIdent invalid_transaction_entry = 24;
     ident.ProtoIdent transaction_entry_id_collision = 25;
+    ProtoJewelImportError jewel_import = 26;
   }
 }
 
