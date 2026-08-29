@@ -25,10 +25,14 @@ npm install
 
 `mdbtools` and `sqlite3` are required for importing Jewel databases
 
+---
+
 ### linker
 
 Monkesto uses the [mold](https://github.com/rui314/mold) linker on linux. It must be installed and in your $PATH for the
 build to succeed.
+
+---
 
 ## Configure the environment:
 
@@ -39,6 +43,8 @@ Monkesto requires PostgreSQL at build and runtime. Run db_setup.sql against your
 DATABASE_URL=postgres://monkesto:monkesto@localhost:5432/monkesto
 ```
 
+---
+
 ### base url
 Webauthn requires the base url of the deployed site. This is defined with the `RAILWAY_PULBIC_DOMAIN` environment arg. 
 
@@ -46,13 +52,24 @@ If it is not present, `localhost:3000` will be assumed.
 
 If the base url is incorrect, passkey creation and login will not work.
 
+---
+
 ### email
 Monkesto uses [Resend](https://resend.com/) for email verification and sending authentication codes.
 
-- `RESEND_EMAIL` is the address to send the email from ("Monkesto <noreply@monkesto.com>", for example).
+- `RESEND_EMAIL` is the address to send the email from ('Monkesto <noreply@monkesto.com>', for example).
 - `RESEND_API_KEY` is the api key used to send said emails.
 
-If either of these variables are missing, email verification will be skipped and account recovery via email will be unavailable. 
+If either of these values are missing or invalid, the application will panic at startup. 
+
+
+To explicitly opt out of emailing authentication codes:
+- `RESEND_EMAIL=LOG` to log verification codes at the `INFO` level
+- `RESEND_EMAIL=NONE` to skip verification entirely
+
+`RESEND_API_KEY` can be omitted when using `NONE` or `LOG`
+
+---
 
 ### object storage
 Monkesto uses the S3 api to store uploaded files such as images. 

@@ -1,6 +1,6 @@
 use super::passkey::PasskeyId;
 use super::user::{UserError, UserId};
-use super::{AuthSession, AuthnService, RESEND_API_KEY, RESEND_EMAIL};
+use super::{AuthSession, AuthnService};
 use crate::authn::corepasskey::CorePasskey;
 use axum::extract::Extension;
 use axum::extract::Form;
@@ -34,12 +34,11 @@ pub struct SignupQuery {
 }
 
 pub async fn signup_get(
+    Extension(authn_service): Extension<AuthnService>,
     Extension(webauthn_url): Extension<String>,
     query: Query<SignupQuery>,
 ) -> Markup {
-    let email_verification_required = RESEND_API_KEY.is_some() && RESEND_EMAIL.is_some();
-
-    let next_action = if email_verification_required {
+    let next_action = if authn_service.email_verifier.verification_required() {
         "signup/verify"
     } else {
         "signup"
@@ -119,12 +118,11 @@ pub struct SignupEmailVerificationQuery {
 }
 
 pub async fn signup_email_verification_get(
+    Extension(authn_service): Extension<AuthnService>,
     Extension(webauthn_url): Extension<String>,
     Query(query): Query<SignupEmailVerificationQuery>,
 ) -> impl IntoResponse {
-    let email_verification_required = RESEND_API_KEY.is_some() && RESEND_EMAIL.is_some();
-
-    if !email_verification_required {
+    if !authn_service.email_verifier.verification_required() {
         return Redirect::to("/signup").into_response();
     }
 
@@ -194,11 +192,9 @@ pub async fn signup_email_verification_post(
     Extension(authn_service): Extension<AuthnService>,
     Form(form): Form<EmailVerificationForm>,
 ) -> Result<Redirect, Redirect> {
-    let email_verification_required = RESEND_API_KEY.is_some() && RESEND_EMAIL.is_some();
-
-    if email_verification_required {
+    if authn_service.email_verifier.verification_required() {
         authn_service
-            .send_user_verification_code(&form.email)
+            .send_user_verification_code(&form.email, &authn_service.email_verifier)
             .await
             .or_redirect("/signup")?;
         return Ok(Redirect::to(
@@ -301,9 +297,7 @@ pub async fn signup_post(
             }
         }
     } else if let Some(email) = &form.email {
-        let email_verification_required = RESEND_API_KEY.is_some() && RESEND_EMAIL.is_some();
-
-        if email_verification_required {
+        if authn_service.email_verifier.verification_required() {
             let verification_code: i32 = form
                 .verification_code
                 .ok_or(UserError::InvalidInput)

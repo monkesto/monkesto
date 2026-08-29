@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgHasArrayType;
 use sqlx::{Database, PgPool, Postgres, Type};
 use std::env;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 use std::time::Duration;
 pub use store::AuthnEventStore;
 use thiserror::Error;
@@ -53,10 +53,43 @@ use webauthn_rs::prelude::{CredentialID, Url, Uuid};
 
 pub type AuthSession = axum_login::AuthSession<AuthnService>;
 
-pub static RESEND_API_KEY: LazyLock<Option<String>> =
-    LazyLock::new(|| env::var("RESEND_API_KEY").ok());
+#[derive(Clone)]
+pub enum EmailVerifier {
+    Email {
+        resend_client: Resend,
+        resend_email: String,
+    },
+    Log,
+    None,
+}
 
-pub static RESEND_EMAIL: LazyLock<Option<String>> = LazyLock::new(|| env::var("RESEND_EMAIL").ok());
+impl EmailVerifier {
+    pub fn new() -> EmailVerifier {
+        let resend_email = env::var("RESEND_EMAIL").expect(
+            "Monkesto requires the RESEND_EMAIL var to be set. See the README for further info",
+        );
+
+        if resend_email == "LOG" {
+            return EmailVerifier::Log;
+        } else if resend_email == "NONE" {
+            return EmailVerifier::None;
+        }
+
+        let api_key = env::var("RESEND_API_KEY").expect(
+            "The RESEND_API_KEY environment variable must be set. See the README for further info",
+        );
+        let resend_client = Resend::new(api_key.as_str());
+
+        EmailVerifier::Email {
+            resend_client,
+            resend_email,
+        }
+    }
+
+    pub fn verification_required(&self) -> bool {
+        !matches!(self, EmailVerifier::None)
+    }
+}
 
 /// Errors that occur during WebAuthn router initialization/configuration.
 /// These are startup-time errors, not request-handling errors.
@@ -125,6 +158,7 @@ pub struct AuthnService {
     projection_pool: PgPool,
     decision_maker: PgAuthnDecisionMaker,
     current_event: watch::Sender<PgEventId>,
+    email_verifier: EmailVerifier,
 }
 
 impl PgHasArrayType for UserId {
@@ -192,53 +226,70 @@ impl AuthnService {
             projection_pool: pool,
             decision_maker,
             current_event: sender,
+            email_verifier: EmailVerifier::new(),
         })
     }
 
-    pub async fn send_user_verification_code(&self, email: &Email) -> Result<(), UserError> {
-        let resend = Resend::new(
-            RESEND_API_KEY
-                .as_deref()
-                .ok_or(UserError::MissingResendApiKey)?,
-        );
-
-        let from = RESEND_EMAIL
-            .as_deref()
-            .ok_or(UserError::MissingResendApiKey)?;
-        let to = [email.as_ref()];
-        let subject = "Monkesto: Your sign-in code";
+    pub async fn send_user_verification_code(
+        &self,
+        email: &Email,
+        email_verifier: &EmailVerifier,
+    ) -> Result<(), UserError> {
+        if matches!(email_verifier, EmailVerifier::None) {
+            log!(
+                Level::Warn,
+                "send_user_verification_code called with no email verifier"
+            );
+            return Ok(());
+        }
 
         let code = rand::rng().random_range(100_000..999_999);
-
-        let email_html = format!(
-            r#"
-            <!DOCTYPE html>
-            <html>
-            <head><meta charset="UTF-8"></head>
-            <body style="font-family: sans-serif; padding: 2rem;">
-                <h2>Monkesto verification code</h2>
-                <p style="font-size: 1.2rem;">Your code is: <strong style="font-size: 1.5rem; letter-spacing: 0.25rem;">{code}</strong></p>
-                <p>This code expires in <strong>15 minutes</strong>.</p>
-                <hr>
-                <p style="color: #666;">If you didn't request this code, you can ignore this email.</p>
-            </body>
-            </html>
-            "#
-        );
-
         sqlx::query!(
-            r#"
-            INSERT INTO verification_codes (email, code) VALUES ($1, $2)
-            ON CONFLICT(email) DO UPDATE SET code = EXCLUDED.code, timestamp = EXCLUDED.timestamp
-            "#,
-            email as &Email,
-            code
-        )
-        .execute(&self.projection_pool)
-        .await?;
+                r#"
+                INSERT INTO verification_codes (email, code) VALUES ($1, $2)
+                ON CONFLICT(email) DO UPDATE SET code = EXCLUDED.code, timestamp = EXCLUDED.timestamp
+                "#,
+                email as &Email,
+                code
+            )
+            .execute(&self.projection_pool)
+            .await?;
 
-        let email = CreateEmailBaseOptions::new(from, to, subject).with_html(email_html.as_str());
-        resend.emails.send(email).await?;
+        match email_verifier {
+            EmailVerifier::Email {
+                resend_client,
+                resend_email,
+            } => {
+                let to = [email.as_ref()];
+                let subject = "Monkesto: Your sign-in code";
+
+                let email_html = format!(
+                    r#"
+                    <!DOCTYPE html>
+                    <html>
+                    <head><meta charset="UTF-8"></head>
+                    <body style="font-family: sans-serif; padding: 2rem;">
+                        <h2>Monkesto verification code</h2>
+                        <p style="font-size: 1.2rem;">Your code is: <strong style="font-size: 1.5rem; letter-spacing: 0.25rem;">{code}</strong></p>
+                        <p>This code expires in <strong>15 minutes</strong>.</p>
+                        <hr>
+                        <p style="color: #666;">If you didn't request this code, you can ignore this email.</p>
+                    </body>
+                    </html>
+                    "#
+                );
+
+                let email = CreateEmailBaseOptions::new(resend_email, to, subject)
+                    .with_html(email_html.as_str());
+                resend_client.emails.send(email).await?;
+            }
+            EmailVerifier::Log => {
+                log!(Level::Info, "verification code for {}: {}", email, code);
+            }
+            EmailVerifier::None => {
+                // unreachable
+            }
+        }
 
         Ok(())
     }

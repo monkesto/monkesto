@@ -27,7 +27,8 @@ use axum::http::{Response, StatusCode};
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::routing::get;
-use axum_login::tracing::{Level, Span};
+use axum_login::tracing::Span;
+use axum_login::tracing::log::{Level, log};
 use axum_login::{AuthManagerLayerBuilder, tracing};
 use dotenvy::dotenv;
 use journal::{account, transaction};
@@ -94,7 +95,7 @@ async fn main() {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
         .with(tracing_subscriber::filter::LevelFilter::from_level(
-            Level::DEBUG,
+            axum_login::tracing::Level::DEBUG,
         ))
         .init();
 
@@ -253,7 +254,7 @@ async fn main() {
     let app = app.with_state(state);
 
     // run our app with hyper
-    println!("listening on http://{}", addr);
+    log!(Level::Info, "listening on http://{}", addr);
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .expect("failed to bind the tcp address");

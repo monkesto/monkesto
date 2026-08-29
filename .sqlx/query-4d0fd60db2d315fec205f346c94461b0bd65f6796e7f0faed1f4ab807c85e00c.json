@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO verification_codes (email, code) VALUES ($1, $2)\n                ON CONFLICT(email) DO UPDATE SET code = EXCLUDED.code, timestamp = EXCLUDED.timestamp\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4d0fd60db2d315fec205f346c94461b0bd65f6796e7f0faed1f4ab807c85e00c"
+}

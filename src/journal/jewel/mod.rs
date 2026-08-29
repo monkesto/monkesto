@@ -229,6 +229,8 @@ impl JournalService {
     }
 }
 
+// NOTE: Production implementations should call get_jewel_db as a secondary web request because it has to download a file from the internet and transform it with cli tools
+// a latency of 500ms or more is expected from this endpoint
 pub async fn view_db(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
