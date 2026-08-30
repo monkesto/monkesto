@@ -15,6 +15,7 @@ use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::types::{CorsConfiguration, CorsRule};
 use aws_types::region::Region;
+use axum_login::tracing::log::{Level, log};
 use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
 use disintegrate_postgres::PgEventId;
 use prost::Message;
@@ -74,6 +75,7 @@ impl ObjectStore {
             .allowed_methods("PUT")
             .allowed_headers("*")
             .expose_headers("ETag")
+            .expose_headers("Content-Length")
             .max_age_seconds(3600)
             .build()
             .expect("failed to build cors rule");
@@ -89,7 +91,6 @@ impl ObjectStore {
             .credentials_provider(credentials)
             .load()
             .await;
-
         let s3_client = S3Client::new(&config);
 
         s3_client
@@ -98,7 +99,7 @@ impl ObjectStore {
             .cors_configuration(cors_config)
             .send()
             .await
-            .expect("failed to put cors configuration");
+            .expect("failed to set the cors configuration, does the API key have permission to run PutBucketCors?");
 
         ObjectStore::S3 {
             s3_client,
