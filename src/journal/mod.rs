@@ -138,7 +138,8 @@ pub fn router() -> Router<crate::StateType> {
         )
         .route(
             "/journal/{id}/file/localupload",
-            put(file::commands::localstore_file_handler).layer(DefaultBodyLimit::disable()),
+            put(file::commands::localstore_file_handler)
+                .layer(DefaultBodyLimit::max(50 * 1024 * 1024)),
         )
         .route(
             "/journal/{id}/file/recordupload",

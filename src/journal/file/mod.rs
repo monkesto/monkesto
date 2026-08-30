@@ -13,7 +13,9 @@ use crate::status::Status;
 use crate::time_provider::Timestamp;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::config::Credentials;
+use aws_sdk_s3::types::{CorsConfiguration, CorsRule};
 use aws_types::region::Region;
+use axum_login::tracing::log::{Level, log};
 use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
 use disintegrate_postgres::PgEventId;
 use prost::Message;
@@ -67,15 +69,40 @@ impl ObjectStore {
 
         let credentials = Credentials::new(access_key_id, secret_access_key, None, None, "custom");
 
+        let cors_rule = CorsRule::builder()
+            .allowed_origins("*")
+            .allowed_methods("GET")
+            .allowed_methods("PUT")
+            .allowed_headers("*")
+            .expose_headers("ETag")
+            .expose_headers("Content-Length")
+            .max_age_seconds(3600)
+            .build()
+            .expect("failed to build cors rule");
+
+        let cors_config = CorsConfiguration::builder()
+            .cors_rules(cors_rule)
+            .build()
+            .expect("failed to build cors configuration");
+
         let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
             .endpoint_url(endpoint_url)
             .region(Region::new(region))
             .credentials_provider(credentials)
             .load()
             .await;
+        let s3_client = S3Client::new(&config);
+
+        s3_client
+            .put_bucket_cors()
+            .bucket(&bucket_name)
+            .cors_configuration(cors_config)
+            .send()
+            .await
+            .expect("failed to set the cors configuration, does the API key have permission to run PutBucketCors?");
 
         ObjectStore::S3 {
-            s3_client: S3Client::new(&config),
+            s3_client,
             bucket_name,
         }
     }
