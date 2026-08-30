@@ -20,7 +20,7 @@ pub use service::JournalService;
 use std::cmp::PartialEq;
 
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum_login::login_required;
 
 id!(JournalId, Ident::new16());
@@ -137,6 +137,10 @@ pub fn router() -> Router<crate::StateType> {
             post(file::commands::upload_file),
         )
         .route(
+            "/journal/{id}/file/localupload",
+            put(file::commands::localstore_file_handler).layer(DefaultBodyLimit::disable()),
+        )
+        .route(
             "/journal/{id}/file/recordupload",
             post(file::commands::record_file_upload),
         )
@@ -184,6 +188,7 @@ use crate::serde::error::ProtoError;
 use crate::status::Status;
 use crate::time_provider::Timestamp;
 use aws_sdk_s3::error::SdkError;
+use axum::extract::DefaultBodyLimit;
 use bitflags::bitflags;
 use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
 use disintegrate_postgres::PgEventId;

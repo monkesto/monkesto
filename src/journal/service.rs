@@ -10,7 +10,7 @@ use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::ActivityId;
 use crate::journal::domain::JournalDomainEvent;
 use crate::journal::entry::{EntryId, EntryKind, EntrySide};
-use crate::journal::file::FileId;
+use crate::journal::file::{FileId, ObjectStore};
 use crate::journal::fund::FundId;
 use crate::journal::store::JournalEventStore;
 use crate::journal::transaction::{TransactionEntryIds, TransactionId};
@@ -37,6 +37,7 @@ pub struct JournalService {
     pub(crate) projection_pool: PgPool,
     pub(crate) decision_maker: PgJournalDecisionMaker,
     current_event: watch::Sender<PgEventId>,
+    pub(crate) object_store: ObjectStore,
 }
 
 impl JournalService {
@@ -164,6 +165,7 @@ impl JournalService {
             projection_pool: pool,
             decision_maker,
             current_event: sender,
+            object_store: ObjectStore::new().await,
         })
     }
 

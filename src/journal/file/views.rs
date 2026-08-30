@@ -1,17 +1,21 @@
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
-use crate::journal::file::{FileId, S3_CLIENT};
+use crate::journal::file::{FileId, ObjectStore};
 use crate::journal::layout::layout;
 use crate::journal::{JournalError, JournalId};
 use crate::monkesto_error::{MonkestoError, OrRedirect, UrlError};
 use crate::{BackendType, StateType};
 use aws_sdk_s3::presigning::PresigningConfig;
+use axum::body::Body;
 use axum::extract::{Path, Query, State};
-use axum::response::Redirect;
+use axum::http::{HeaderMap, header};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum_login::AuthSession;
 use maud::{Markup, PreEscaped, html};
 use std::str::FromStr;
 use std::time::Duration;
+use tokio::fs::File;
+use tokio_util::io::ReaderStream;
 
 pub async fn file_list_page(
     State(state): State<StateType>,
@@ -133,37 +137,68 @@ pub async fn download_file(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path((journal_id, file_id)): Path<(String, String)>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Response, Redirect> {
     let callback_url = &format!("/journal/{}/file", journal_id);
-    if let Some(s3_client) = S3_CLIENT.clone() {
-        let user = get_user(session)?;
-        let user_authority = Authority::Direct(Actor::User(user.id));
-        let journal_id = JournalId::from_str(&journal_id).or_redirect(callback_url)?;
-        let file_id = FileId::from_str(&file_id).or_redirect(callback_url)?;
 
-        let file = state
-            .journal_service
-            .get_file(file_id, journal_id, user_authority)
-            .await
-            .or_redirect(callback_url)?;
+    let user = get_user(session)?;
+    let user_authority = Authority::Direct(Actor::User(user.id));
+    let journal_id = JournalId::from_str(&journal_id).or_redirect(callback_url)?;
+    let file_id = FileId::from_str(&file_id).or_redirect(callback_url)?;
 
-        let file_key = file.key();
+    let file = state
+        .journal_service
+        .get_file(file_id, journal_id, user_authority)
+        .await
+        .or_redirect(callback_url)?;
 
-        let presign_ttl = Duration::from_secs(30);
-        let presigning_config =
-            PresigningConfig::expires_in(presign_ttl).expect("valid presign ttl");
+    let file_key = file.key();
 
-        let presigned_req = s3_client
-            .get_object()
-            .bucket("monkesto")
-            .key(&file_key)
-            .response_content_disposition(format!("filename=\"{}\"", file.name))
-            .presigned(presigning_config)
-            .await
-            .map_err(JournalError::from)
-            .or_redirect(callback_url)?;
-        return Ok(Redirect::temporary(presigned_req.uri()));
+    match state.journal_service.object_store {
+        ObjectStore::S3 {
+            s3_client,
+            bucket_name,
+        } => {
+            let presign_ttl = Duration::from_secs(30);
+            let presigning_config =
+                PresigningConfig::expires_in(presign_ttl).expect("valid presign ttl");
+
+            let presigned_req = s3_client
+                .get_object()
+                .bucket(bucket_name)
+                .key(&file_key)
+                .response_content_disposition(format!("filename=\"{}\"", file.name))
+                .presigned(presigning_config)
+                .await
+                .map_err(JournalError::from)
+                .or_redirect(callback_url)?;
+
+            Ok(Redirect::temporary(presigned_req.uri()).into_response())
+        }
+        ObjectStore::Local { storage_directory } => {
+            let disk_file = File::open(storage_directory.join(file_key))
+                .await
+                .map_err(|e| JournalError::S3(e.to_string()))
+                .or_redirect(callback_url)?;
+
+            let stream = ReaderStream::new(disk_file);
+
+            let body = Body::from_stream(stream);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                header::CONTENT_TYPE,
+                "application/octet-stream"
+                    .parse()
+                    .expect("valid header value"),
+            );
+            headers.insert(
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{}\"", file.name)
+                    .parse()
+                    .expect("valid header value"),
+            );
+
+            Ok((headers, body).into_response())
+        }
     }
-
-    Err(JournalError::InvalidS3Credentials).or_redirect(callback_url)
 }

@@ -62,7 +62,6 @@ Monkesto uses [Resend](https://resend.com/) for email verification and sending a
 
 If either of these values are missing or invalid, the application will panic at startup. 
 
-
 To explicitly opt out of emailing authentication codes:
 - `RESEND_EMAIL=LOG` to log verification codes at the `INFO` level
 - `RESEND_EMAIL=NONE` to skip verification entirely
@@ -75,11 +74,18 @@ To explicitly opt out of emailing authentication codes:
 Monkesto uses the S3 api to store uploaded files such as images. 
 The following variables are needed from an S3-compatible service:
 
-- `S3_ENDPOINT`
-- `S3_ACCESS_KEY_ID`
-- `S3_SECRET_ACCESS_KEY`
+- `AWS_DEFAULT_REGION`
+- `AWS_ENDPOINT_URL`
+- `AWS_S3_BUCKET_NAME`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
 
-If any of these variables are missing, file storage and retrevial will be unavailable.
+If any of these variables are missing, the application will panic at startup.
+
+Setting `AWS_DEFAULT_LOCATION` to `'localstore'` will allow the application to use the local file system for object storage.
+The local store may not be secure and should only be used in dev environments.
+
+---
 
 ## Start the server:
 

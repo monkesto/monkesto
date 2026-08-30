@@ -1,8 +1,8 @@
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
-use crate::journal::file::{FileId, S3_CLIENT};
+use crate::journal::file::{FileId, ObjectStore};
 use crate::journal::layout::layout;
-use crate::journal::{JournalError, JournalId, JournalResult, JournalService};
+use crate::journal::{JournalId, JournalResult, JournalService};
 use crate::{BackendType, StateType};
 use axum::extract::{Path, State};
 use axum::response::Redirect;
@@ -10,6 +10,8 @@ use axum_login::AuthSession;
 use maud::{Markup, html};
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{ConnectOptions, FromRow};
+use std::fs::File;
+use std::io;
 use std::io::Write;
 use std::process::Stdio;
 use std::str::FromStr;
@@ -61,143 +63,186 @@ impl JournalService {
     ) -> JournalResult<JewelData> {
         let file_key = self.get_file(file_id, journal_id, authority).await?.key();
 
-        if let Some(s3_client) = S3_CLIENT.clone() {
-            let mut response = s3_client
-                .get_object()
-                .bucket("monkesto")
-                .key(file_key)
-                .send()
-                .await?;
-            let mut mdb_file =
-                NamedTempFile::new().map_err(|e| JewelImportError::Io(e.to_string()))?;
-            let sqlite_file =
-                NamedTempFile::new().map_err(|e| JewelImportError::Io(e.to_string()))?;
+        let (mdb_file, mdb_file_path) = match &self.object_store {
+            ObjectStore::S3 {
+                s3_client,
+                bucket_name,
+            } => {
+                let mut response = s3_client
+                    .get_object()
+                    .bucket(bucket_name)
+                    .key(file_key)
+                    .send()
+                    .await?;
 
-            let mdb_file_path = mdb_file.path().to_string_lossy().to_string();
-            let sqlite_file_path = sqlite_file.path().to_string_lossy();
+                let mut mdb_file =
+                    NamedTempFile::new().map_err(|e| JewelImportError::Io(e.to_string()))?;
 
-            while let Some(bytes) = response
-                .body
-                .try_next()
-                .await
-                .map_err(|e| JewelImportError::Io(e.to_string()))?
-            {
+                while let Some(bytes) = response
+                    .body
+                    .try_next()
+                    .await
+                    .map_err(|e| JewelImportError::Io(e.to_string()))?
+                {
+                    mdb_file
+                        .write_all(bytes.as_ref())
+                        .map_err(|e| JewelImportError::Write(e.to_string()))?;
+                }
+
                 mdb_file
-                    .write_all(bytes.as_ref())
+                    .flush()
                     .map_err(|e| JewelImportError::Write(e.to_string()))?;
+
+                let file_path = mdb_file.path().to_string_lossy().to_string();
+
+                (mdb_file, file_path)
             }
+            ObjectStore::Local { storage_directory } => {
+                let stored_file_path = storage_directory.join(file_key);
+                let mut stored_file = File::open(&stored_file_path)
+                    .map_err(|e| JewelImportError::Io(e.to_string()))?;
+                let mut mdb_file =
+                    NamedTempFile::new().map_err(|e| JewelImportError::Io(e.to_string()))?;
 
-            mdb_file
-                .flush()
+                io::copy(&mut stored_file, &mut mdb_file)
+                    .map_err(|e| JewelImportError::Io(e.to_string()))?;
+
+                let file_path = mdb_file.path().to_string_lossy().to_string();
+
+                (mdb_file, file_path)
+            }
+        };
+
+        let sqlite_file = NamedTempFile::new().map_err(|e| JewelImportError::Io(e.to_string()))?;
+
+        let sqlite_file_path = sqlite_file.path().to_string_lossy();
+
+        let schema = Command::new("mdb-schema")
+            .arg(&mdb_file_path)
+            .arg("sqlite")
+            .output()
+            .await
+            .map_err(|e| JewelImportError::StartChildProcess(e.to_string()))?;
+
+        if !schema.status.success() {
+            Err(JewelImportError::ChildProcessExitFailure(
+                String::from_utf8_lossy(schema.stderr.as_slice()).to_string(),
+            ))?;
+        }
+
+        let mut sqlite_process = Command::new("sqlite3")
+            .arg(sqlite_file_path.as_ref())
+            .stdin(Stdio::piped())
+            .spawn()
+            .map_err(|e| JewelImportError::StartChildProcess(e.to_string()))?;
+
+        if let Some(mut stdin) = sqlite_process.stdin.take() {
+            stdin
+                .write_all(&schema.stdout)
+                .await
                 .map_err(|e| JewelImportError::Write(e.to_string()))?;
+        }
 
-            let schema = Command::new("mdb-schema")
-                .args([mdb_file_path.as_ref(), "sqlite"])
+        sqlite_process
+            .wait()
+            .await
+            .map_err(|e| JewelImportError::Io(e.to_string()))?;
+
+        let tables = Command::new("mdb-tables")
+            .arg("-1")
+            .arg(&mdb_file_path)
+            .output()
+            .await
+            .map_err(|e| JewelImportError::StartChildProcess(e.to_string()))?;
+
+        if !tables.status.success() {
+            Err(JewelImportError::ChildProcessExitFailure(
+                String::from_utf8_lossy(tables.stderr.as_slice()).to_string(),
+            ))?;
+        }
+
+        let tables_str = String::from_utf8_lossy(&tables.stdout);
+
+        for table in tables_str.lines() {
+            let export_output = Command::new("mdb-export")
+                .arg("-I")
+                .arg("sqlite")
+                .arg("-q")
+                .arg("'")
+                .arg(&mdb_file_path)
+                .arg(table)
                 .output()
                 .await
                 .map_err(|e| JewelImportError::StartChildProcess(e.to_string()))?;
 
-            if !schema.status.success() {
+            if !export_output.status.success() {
                 Err(JewelImportError::ChildProcessExitFailure(
-                    String::from_utf8_lossy(schema.stderr.as_slice()).to_string(),
+                    String::from_utf8_lossy(export_output.stderr.as_slice()).to_string(),
                 ))?;
             }
 
-            let mut sqlite_process = Command::new("sqlite3")
+            let mut insert_cmd = Command::new("sqlite3")
                 .arg(sqlite_file_path.as_ref())
                 .stdin(Stdio::piped())
                 .spawn()
                 .map_err(|e| JewelImportError::StartChildProcess(e.to_string()))?;
 
-            if let Some(mut stdin) = sqlite_process.stdin.take() {
+            if let Some(mut stdin) = insert_cmd.stdin.take() {
                 stdin
-                    .write_all(&schema.stdout)
+                    .write_all(&export_output.stdout)
                     .await
                     .map_err(|e| JewelImportError::Write(e.to_string()))?;
             }
 
-            sqlite_process
+            insert_cmd
                 .wait()
                 .await
                 .map_err(|e| JewelImportError::Io(e.to_string()))?;
+        }
 
-            let tables = Command::new("mdb-tables")
-                .args(["-1", mdb_file_path.as_ref()])
-                .output()
-                .await
-                .map_err(|e| JewelImportError::StartChildProcess(e.to_string()))?;
+        // we no longer need the mdb file
+        drop(mdb_file);
 
-            if !tables.status.success() {
-                Err(JewelImportError::ChildProcessExitFailure(
-                    String::from_utf8_lossy(tables.stderr.as_slice()).to_string(),
-                ))?;
-            }
-
-            let tables_str = String::from_utf8_lossy(&tables.stdout);
-
-            for table in tables_str.lines() {
-                let export_output = Command::new("mdb-export")
-                    .args(["-I", "sqlite", "-q", "'", mdb_file_path.as_ref(), table])
-                    .output()
-                    .await
-                    .map_err(|e| JewelImportError::StartChildProcess(e.to_string()))?;
-
-                if !export_output.status.success() {
-                    Err(JewelImportError::ChildProcessExitFailure(
-                        String::from_utf8_lossy(export_output.stderr.as_slice()).to_string(),
-                    ))?;
-                }
-
-                let mut insert_cmd = Command::new("sqlite3")
-                    .arg(sqlite_file_path.as_ref())
-                    .stdin(Stdio::piped())
-                    .spawn()
-                    .map_err(|e| JewelImportError::StartChildProcess(e.to_string()))?;
-
-                if let Some(mut stdin) = insert_cmd.stdin.take() {
-                    stdin
-                        .write_all(&export_output.stdout)
-                        .await
-                        .map_err(|e| JewelImportError::Write(e.to_string()))?;
-                }
-
-                insert_cmd
-                    .wait()
-                    .await
-                    .map_err(|e| JewelImportError::Io(e.to_string()))?;
-            }
-
-            // we no longer need the mdb file
-            drop(mdb_file);
-
-            let mut conn = SqliteConnectOptions::new()
-                .filename(sqlite_file_path.as_ref())
-                .connect()
-                .await?;
-
-            // old versions of jewel stored the database version as an int
-            let version: f64 = sqlx::query_scalar(
-                r#"
-                SELECT CAST(DBVersion AS REAL) as DBVersion FROM GeneralInfo;
-            "#,
-            )
-            .fetch_one(&mut conn)
+        let mut conn = SqliteConnectOptions::new()
+            .filename(sqlite_file_path.as_ref())
+            .connect()
             .await?;
 
-            if version < 9.0 {
-                Err(JewelImportError::OutdatedJewelVersion(version))?;
-            }
+        // old versions of jewel stored the database version as an int
+        let version: f64 = sqlx::query_scalar(
+            r#"
+                SELECT CAST(DBVersion AS REAL) as DBVersion FROM GeneralInfo;
+            "#,
+        )
+        .fetch_one(&mut conn)
+        .await?;
 
-            #[allow(clippy::type_complexity)]
+        if version < 9.0 {
+            Err(JewelImportError::OutdatedJewelVersion(version))?;
+        }
+
+        #[allow(clippy::type_complexity)]
             let raw_accounts: Vec<(i64, i64, String, Option<i64>, bool, bool, bool, bool, bool)> = sqlx::query_as(
                 r#"
                     select AccountID, AccountType, Name, ParentAccountID, TaxDeductible, LocalIncome, LocalExpense, Permanent, Active FROM Accounts
                     "#
             ).fetch_all(&mut conn).await?;
 
-            let mut accounts = Vec::with_capacity(raw_accounts.len());
+        let mut accounts = Vec::with_capacity(raw_accounts.len());
 
-            for (
+        for (
+            account_id,
+            account_type,
+            name,
+            parent_id,
+            tax_deductible,
+            local_income,
+            local_expense,
+            permanent,
+            active,
+        ) in raw_accounts
+        {
+            accounts.push(JewelAccount {
                 account_id,
                 account_type,
                 name,
@@ -207,25 +252,10 @@ impl JournalService {
                 local_expense,
                 permanent,
                 active,
-            ) in raw_accounts
-            {
-                accounts.push(JewelAccount {
-                    account_id,
-                    account_type,
-                    name,
-                    parent_id,
-                    tax_deductible,
-                    local_income,
-                    local_expense,
-                    permanent,
-                    active,
-                })
-            }
-
-            Ok(JewelData { accounts })
-        } else {
-            Err(JournalError::InvalidS3Credentials)
+            })
         }
+
+        Ok(JewelData { accounts })
     }
 }
 

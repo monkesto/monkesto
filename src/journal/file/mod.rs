@@ -21,32 +21,65 @@ use proto::event::journal::ProtoJournalDomainEvent;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::env;
+use std::fs::create_dir;
+use std::io::ErrorKind;
+use std::path::PathBuf;
 use std::sync::LazyLock;
+use tokio::fs::create_dir_all;
 use tokio::runtime::Handle;
 
 id!(FileId, Ident::new16());
 
-pub(crate) static S3_CLIENT: LazyLock<Option<S3Client>> = LazyLock::new(|| {
-    if let Some(endpoint) = env::var("S3_ENDPOINT").ok()
-        && let Some(access_key_id) = env::var("S3_ACCESS_KEY_ID").ok()
-        && let Some(secret_access_key) = env::var("S3_SECRET_ACCESS_KEY").ok()
-    {
+#[derive(Clone)]
+pub enum ObjectStore {
+    S3 {
+        s3_client: S3Client,
+        bucket_name: String,
+    },
+    Local {
+        storage_directory: PathBuf,
+    },
+}
+
+impl ObjectStore {
+    pub async fn new() -> ObjectStore {
+        let region = env::var("AWS_DEFAULT_REGION").expect("AWS_DEFAULT_REGION is a required environment variable, see the README for further information");
+
+        if region == "localstore" {
+            let storage_directory = env::current_dir()
+                .expect("Failed to get current working directory")
+                .join("object_storage");
+            create_dir_all(&storage_directory)
+                .await
+                .expect("Failed to create object storage directory");
+
+            return ObjectStore::Local { storage_directory };
+        }
+
+        let endpoint_url =
+            env::var("AWS_ENDPOINT_URL").expect("AWS_ENDPOINT_URL is missing, see README");
+        let bucket_name =
+            env::var("AWS_S3_BUCKET_NAME").expect("AWS_S3_BUCKET_NAME is missing, see README");
+        let access_key_id =
+            env::var("AWS_ACCESS_KEY_ID").expect("AWS_ACCESS_KEY_ID is missing, see README");
+        let secret_access_key = env::var("AWS_SECRET_ACCESS_KEY")
+            .expect("AWS_SECRET_ACCESS_KEY is missing, see README");
+
         let credentials = Credentials::new(access_key_id, secret_access_key, None, None, "custom");
 
-        let config = tokio::task::block_in_place(|| {
-            Handle::current().block_on(async move {
-                aws_config::defaults(aws_config::BehaviorVersion::latest())
-                    .endpoint_url(endpoint)
-                    .region(Region::from_static("auto"))
-                    .credentials_provider(credentials)
-                    .load()
-                    .await
-            })
-        });
-        return Some(S3Client::new(&config));
+        let config = aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .endpoint_url(endpoint_url)
+            .region(Region::new(region))
+            .credentials_provider(credentials)
+            .load()
+            .await;
+
+        ObjectStore::S3 {
+            s3_client: S3Client::new(&config),
+            bucket_name,
+        }
     }
-    None
-});
+}
 
 #[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
 #[state_query(FileEvent)]
@@ -131,22 +164,7 @@ impl Decision for UploadFile {
         &self,
         (upload_state, journal_state): &Self::StateQuery,
     ) -> Result<Vec<Self::Event>, Self::Error> {
-        let file_path = format!("{}/{}-{}", self.journal_id, self.file_id, self.file_name);
-
         if upload_state.status.found() {
-            // attempt to delete the uploaded file and make the user try again
-
-            if let Some(s3_client) = S3_CLIENT.clone() {
-                tokio::spawn(async move {
-                    _ = s3_client
-                        .delete_object()
-                        .bucket("monkesto")
-                        .key(&file_path)
-                        .send()
-                        .await
-                });
-            }
-
             return Err(JournalError::FileIdCollision(upload_state.file_id));
         };
 
