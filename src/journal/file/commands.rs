@@ -66,7 +66,7 @@ pub async fn upload_file(
                 .put_object()
                 .bucket(bucket_name)
                 .key(&file_key)
-                .content_length(form.file_size)
+                //.content_length(form.file_size)
                 .presigned(presign_config)
                 .await
                 .map_err(JournalError::from)
