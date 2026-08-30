@@ -28,7 +28,6 @@ async function upload() {
 
             const xhr = new XMLHttpRequest();
             xhr.open('PUT', upload_url, true);
-            xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
 
             progressContainer.classList.remove('hidden');
 
