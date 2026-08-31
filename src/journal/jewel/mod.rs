@@ -7,9 +7,10 @@ use crate::{BackendType, StateType};
 use axum::extract::{Path, State};
 use axum::response::Redirect;
 use axum_login::AuthSession;
+use jewel_extractor::{JewelData, jewel_extract};
 use maud::{Markup, html};
+use sqlx::ConnectOptions;
 use sqlx::sqlite::SqliteConnectOptions;
-use sqlx::{ConnectOptions, FromRow};
 use std::fs::File;
 use std::io;
 use std::io::Write;
@@ -33,28 +34,8 @@ pub enum JewelImportError {
     #[error("the database uses an outdated version of jewel: {0}; jewel 9.0 or newer is required")]
     OutdatedJewelVersion(f64),
 }
-#[derive(FromRow, Debug)]
-#[expect(unused)]
-pub struct JewelAccount {
-    account_id: i64,
-    /// mystery int
-    account_type: i64,
-    name: String,
-    parent_id: Option<i64>,
-    tax_deductible: bool,
-    // allow_posting?
-    local_income: bool,
-    local_expense: bool,
-    permanent: bool,
-    active: bool,
-}
-
-pub struct JewelData {
-    accounts: Vec<JewelAccount>,
-}
 
 impl JournalService {
-    #[allow(clippy::disallowed_methods)]
     pub async fn get_jewel_db(
         &self,
         journal_id: JournalId,
@@ -209,6 +190,7 @@ impl JournalService {
             .await?;
 
         // old versions of jewel stored the database version as an int
+        #[allow(clippy::disallowed_methods)]
         let version: f64 = sqlx::query_scalar(
             r#"
                 SELECT CAST(DBVersion AS REAL) as DBVersion FROM GeneralInfo;
@@ -221,41 +203,7 @@ impl JournalService {
             Err(JewelImportError::OutdatedJewelVersion(version))?;
         }
 
-        #[allow(clippy::type_complexity)]
-            let raw_accounts: Vec<(i64, i64, String, Option<i64>, bool, bool, bool, bool, bool)> = sqlx::query_as(
-                r#"
-                    select AccountID, AccountType, Name, ParentAccountID, TaxDeductible, LocalIncome, LocalExpense, Permanent, Active FROM Accounts
-                    "#
-            ).fetch_all(&mut conn).await?;
-
-        let mut accounts = Vec::with_capacity(raw_accounts.len());
-
-        for (
-            account_id,
-            account_type,
-            name,
-            parent_id,
-            tax_deductible,
-            local_income,
-            local_expense,
-            permanent,
-            active,
-        ) in raw_accounts
-        {
-            accounts.push(JewelAccount {
-                account_id,
-                account_type,
-                name,
-                parent_id,
-                tax_deductible,
-                local_income,
-                local_expense,
-                permanent,
-                active,
-            })
-        }
-
-        Ok(JewelData { accounts })
+        Ok(jewel_extract(&mut conn).await?)
     }
 }
 
@@ -277,12 +225,26 @@ pub async fn view_db(
         html! {
             @match state.journal_service.get_jewel_db(journal_id, file_id, user_authority).await {
                 Ok(data) => ul {
+                    h1 {
+                        "accounts"
+                    }
+
                     @for account in data.accounts {
                         p {
                             (format!("{:?}", account))
                         }
 
                         br;
+                    }
+
+                    h1 {
+                        "names"
+                    }
+
+                    @for name in data.names {
+                        p {
+                            (format!("{:?}", name))
+                        }
                     }
                 },
                 Err(e) => p {(e.to_string())}

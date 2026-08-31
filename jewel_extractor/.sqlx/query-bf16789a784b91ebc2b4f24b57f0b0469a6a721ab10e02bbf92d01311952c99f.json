@@ -1,0 +1,68 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        select AccountID as account_id,\n               AccountType as account_type,\n               Name as name,\n               ParentAccountID as parent_id,\n               TaxDeductible as \"tax_deductible: bool\",\n               LocalIncome as \"local_income: bool\",\n               LocalExpense as \"local_expense: bool\",\n               Permanent as \"permanent: bool\",\n               Active as \"active: bool\"\n        FROM Accounts\n    ",
+  "describe": {
+    "columns": [
+      {
+        "name": "account_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "account_type",
+        "ordinal": 1,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "parent_id",
+        "ordinal": 3,
+        "type_info": "Integer"
+      },
+      {
+        "name": "tax_deductible: bool",
+        "ordinal": 4,
+        "type_info": "Integer"
+      },
+      {
+        "name": "local_income: bool",
+        "ordinal": 5,
+        "type_info": "Integer"
+      },
+      {
+        "name": "local_expense: bool",
+        "ordinal": 6,
+        "type_info": "Integer"
+      },
+      {
+        "name": "permanent: bool",
+        "ordinal": 7,
+        "type_info": "Integer"
+      },
+      {
+        "name": "active: bool",
+        "ordinal": 8,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "bf16789a784b91ebc2b4f24b57f0b0469a6a721ab10e02bbf92d01311952c99f"
+}

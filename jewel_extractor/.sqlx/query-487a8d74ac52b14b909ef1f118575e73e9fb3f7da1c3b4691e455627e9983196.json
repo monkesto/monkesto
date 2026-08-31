@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        select NameID as name_id,\n               Name as \"name!\",\n               LastName as \"last_name!\",\n               FirstName as first_name,\n               Address as address,\n               CellPhone as cell_phone,\n               HomePhone as home_phone,\n               WorkPhone as work_phone,\n               EmailAddress as email_address,\n               GetReceipt as \"get_receipt: bool\",\n               Donor as \"donor: bool\",\n               Active as \"active: bool\"\n       FROM Names\n    ",
+  "describe": {
+    "columns": [
+      {
+        "name": "name_id",
+        "ordinal": 0,
+        "type_info": "Integer"
+      },
+      {
+        "name": "name!",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "last_name!",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "first_name",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "address",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "cell_phone",
+        "ordinal": 5,
+        "type_info": "Text"
+      },
+      {
+        "name": "home_phone",
+        "ordinal": 6,
+        "type_info": "Text"
+      },
+      {
+        "name": "work_phone",
+        "ordinal": 7,
+        "type_info": "Text"
+      },
+      {
+        "name": "email_address",
+        "ordinal": 8,
+        "type_info": "Text"
+      },
+      {
+        "name": "get_receipt: bool",
+        "ordinal": 9,
+        "type_info": "Integer"
+      },
+      {
+        "name": "donor: bool",
+        "ordinal": 10,
+        "type_info": "Integer"
+      },
+      {
+        "name": "active: bool",
+        "ordinal": 11,
+        "type_info": "Integer"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "487a8d74ac52b14b909ef1f118575e73e9fb3f7da1c3b4691e455627e9983196"
+}
