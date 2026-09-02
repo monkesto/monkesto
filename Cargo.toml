@@ -54,7 +54,6 @@ tempfile = "3.27.0"
 futures-util = "0.3.34"
 md5 = "0.8.1"
 tokio-util = "0.7.19"
-jewel_extractor = { path = "jewel_extractor" }
 
 
 [lints.clippy]

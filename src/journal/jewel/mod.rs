@@ -1,13 +1,15 @@
+mod extract;
+
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
 use crate::journal::file::{FileId, ObjectStore};
+use crate::journal::jewel::extract::{JewelData, jewel_extract};
 use crate::journal::layout::layout;
 use crate::journal::{JournalId, JournalResult, JournalService};
 use crate::{BackendType, StateType};
 use axum::extract::{Path, State};
 use axum::response::Redirect;
 use axum_login::AuthSession;
-use jewel_extractor::{JewelData, jewel_extract};
 use maud::{Markup, html};
 use sqlx::ConnectOptions;
 use sqlx::sqlite::SqliteConnectOptions;
@@ -224,12 +226,18 @@ pub async fn view_db(
     {
         html! {
             @match state.journal_service.get_jewel_db(journal_id, file_id, user_authority).await {
-                Ok(data) => ul {
-                    h1 {
-                        "accounts"
+                Ok(data) => div {
+                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
+                        "Currency: " (format!("{:?}", data.currency))
                     }
 
-                    @for account in data.accounts {
+                    br;
+
+                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
+                        "Accounts"
+                    }
+
+                    @for (_account_id, account) in data.accounts.iter() {
                         p {
                             (format!("{:?}", account))
                         }
@@ -237,14 +245,113 @@ pub async fn view_db(
                         br;
                     }
 
-                    h1 {
-                        "names"
+                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
+                        "Names"
                     }
 
-                    @for name in data.names {
+                    @for (_name_id, name) in data.names.iter() {
                         p {
                             (format!("{:?}", name))
                         }
+
+                        br;
+                    }
+
+                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
+                        "Offerings"
+                    }
+
+                    @for offering in data.offerings {
+                        p {
+                            (format!("{:?}", offering))
+                        }
+
+                        br;
+                    }
+
+                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
+                        "Contributions"
+                    }
+
+                    @for (_contribution_id, contribution) in data.contributions {
+                        @let envelope_name = data.names.get(
+                            &data.envelopes.get(
+                                &contribution.envelope_id
+                            ).expect("valid envelope").name_id
+                        ).expect("valid name").name.as_str();
+
+                        @let account_name = data.accounts.get(&contribution.account_id).expect("valid account").name.as_str();
+
+                        p {
+                            (format!("{:?}", contribution))
+                            ul {
+                                li {
+                                    "Envelope Name: " (envelope_name)
+                                }
+
+                                li {
+                                    "Account Name: " (account_name)
+                                }
+                            }
+                        }
+
+                        br;
+                    }
+
+                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
+                        "Envelopes"
+                    }
+
+                    @for (_envelope_id, envelope) in data.envelopes {
+                        @let envelope_name = data.names.get(&envelope.name_id).expect("valid envelope").name.as_str();
+
+                        p {
+                            (format!("{:?}", envelope))
+                            ul {
+                                li {
+                                    "Envelope Name: " (envelope_name)
+                                }
+                            }
+                        }
+
+                        br;
+                    }
+
+                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
+                        "Journals"
+                    }
+
+                    @for (_journal_id, journal) in data.journals.iter() {
+                        p {
+                            (format!("{:?}", journal))
+                        }
+
+                        br;
+                    }
+
+                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
+                        "Journal Items"
+                    }
+
+                    @for journal_item in data.journal_items {
+                        @let account_name = data.accounts.get(&journal_item.account_id).expect("valid account").name.as_str();
+                        @let journal_memo = data.journals.get(&journal_item.journal_id).expect("valid journal").memo.as_str();
+
+                        p {
+                            (format!("{:?}", journal_item))
+
+                            ul {
+                                li {
+                                    "Account Name: " (account_name)
+                                }
+
+                                li {
+                                    "Journal Memo: " (journal_memo)
+                                }
+                            }
+                        }
+
+                        br;
                     }
                 },
                 Err(e) => p {(e.to_string())}

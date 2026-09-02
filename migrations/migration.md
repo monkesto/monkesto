@@ -1,1 +1,0 @@
-We're not actually using sqlx migrations, but sqlx requires a migrations folder to recognize a valid database config.
