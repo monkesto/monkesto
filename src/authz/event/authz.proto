@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package proto.authz.event.authz;
+
+import "authority/authority.proto";
+import "id/ident.proto";
+import "time/timestamp.proto";
+
+message ProtoAuthzEvent {
+  message ProtoRoleCreated {
+    id.ident.ProtoIdent role_id = 1;
+    string name = 2;
+    authority.authority.ProtoAuthority authority = 3;
+    time.timestamp.ProtoTimestamp timestamp = 4;
+  }
+
+  message ProtoRoleActorAdded {
+    id.ident.ProtoIdent role_id = 1;
+    authority.authority.ProtoActor actor = 2;
+    authority.authority.ProtoAuthority authority = 3;
+    time.timestamp.ProtoTimestamp timestamp = 4;
+  }
+
+  message ProtoRoleActorRemoved {
+    id.ident.ProtoIdent role_id = 1;
+    authority.authority.ProtoActor actor = 2;
+    authority.authority.ProtoAuthority authority = 3;
+    time.timestamp.ProtoTimestamp timestamp = 4;
+  }
+
+  message ProtoGrantCreated {
+    id.ident.ProtoIdent grant_id = 1;
+    id.ident.ProtoIdent role_id = 2;
+    authority.authority.ProtoAuthority authority = 3;
+    time.timestamp.ProtoTimestamp timestamp = 4;
+  }
+
+  message ProtoGrantRevoked {
+    id.ident.ProtoIdent grant_id = 1;
+    authority.authority.ProtoAuthority authority = 2;
+    time.timestamp.ProtoTimestamp timestamp = 3;
+  }
+
+  oneof authz_event_type {
+    ProtoRoleCreated role_created = 1;
+    ProtoRoleActorAdded role_actor_added = 2;
+    ProtoRoleActorRemoved role_actor_removed = 3;
+    ProtoGrantCreated grant_created = 4;
+    ProtoGrantRevoked grant_revoked = 5;
+  }
+}

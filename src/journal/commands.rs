@@ -1,14 +1,12 @@
 use crate::BackendType;
 use crate::StateType;
-use crate::authn::get_user;
-use crate::authn::user::UserId;
-use crate::authority::Actor;
-use crate::authority::Authority;
+use crate::authn::{UserId, get_user};
+use crate::authority::{Actor, Authority};
 use crate::email::Email;
+use crate::error::monkesto_error::OrRedirect;
 use crate::journal::{JournalId, Permissions};
-use crate::monkesto_error::OrRedirect;
 use crate::name::Name;
-use crate::time_provider::{DefaultTimeProvider, TimeProvider};
+use crate::time::{DefaultTimeProvider, TimeProvider};
 use axum::extract::Path;
 use axum::extract::State;
 use axum::response::Redirect;

@@ -1,4 +1,4 @@
-use crate::monkesto_error::MonkestoError;
+use crate::error::monkesto_error::MonkestoError;
 use url::Url;
 
 pub trait GetLocation {

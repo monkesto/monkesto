@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package proto.error.decode_error;
+
+import "google/protobuf/empty.proto";
+import "id/ident_error.proto";
+import "name/name_error.proto";
+
+message ProtoDecodeError {
+  oneof proto_error_type {
+    google.protobuf.Empty deserialize = 1;
+    google.protobuf.Empty field_required = 2;
+    int32 permission_decode = 3;
+    string parse_email = 4;
+    id.ident_error.ProtoIdentError ident = 5;
+    string uuid = 6;
+    name.name_error.ProtoNameError name = 7;
+    int32 account_type_from_int = 8;
+    int32 financial_period_from_int = 9;
+    int32 entry_side_from_int = 10;
+    int32 activity_type_from_int = 11;
+  }
+}

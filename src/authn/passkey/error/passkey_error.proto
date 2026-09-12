@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package proto.authn.passkey.error.passkey_error;
+
+import "google/protobuf/empty.proto";
+import "id/ident.proto";
+
+message ProtoPasskeyError {
+  oneof passkey_error_type {
+    google.protobuf.Empty session_expired = 1;
+    google.protobuf.Empty invalid_input = 2;
+    string session_error = 3;
+    id.ident.ProtoIdent id_conflict = 4;
+    id.ident.ProtoIdent passkey_doesnt_exist = 5;
+    id.ident.ProtoIdent user_doesnt_exist = 6;
+    string json = 7;
+    string sqlx = 8;
+  }
+}

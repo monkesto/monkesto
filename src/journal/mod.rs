@@ -1,8 +1,9 @@
 pub mod account;
 pub mod activity;
 pub mod commands;
-pub mod domain;
 pub mod entry;
+pub mod error;
+pub mod event;
 #[expect(unused)]
 mod file;
 pub mod fund;
@@ -16,6 +17,7 @@ pub mod transaction;
 pub mod views;
 
 use crate::id::Ident;
+use crate::journal::event::{JournalDomainEvent, JournalEvent};
 pub use service::JournalService;
 use std::cmp::PartialEq;
 
@@ -24,107 +26,6 @@ use axum::routing::{get, post, put};
 use axum_login::login_required;
 
 id!(JournalId, Ident::new16());
-
-#[derive(Error, Debug, PartialEq)]
-pub enum JournalError {
-    #[error("a journal already exists with the id {0}")]
-    IdCollision(JournalId),
-
-    #[error("an account already exists with the id {0}")]
-    AccountIdCollision(AccountId),
-
-    #[error("an activity already exists with the id {0}")]
-    ActivityIdCollision(ActivityId),
-
-    #[error("a fund already exists with the id {0}")]
-    FundIdCollision(FundId),
-
-    #[error("an entry already exists with the id {0}")]
-    EntryIdCollision(EntryId),
-
-    #[error("a transaction already exists with the id {0}")]
-    TransactionIdCollision(TransactionId),
-
-    #[error("a file already exists with the id {0}")]
-    FileIdCollision(FileId),
-
-    #[error("invalid journal: {0}")]
-    InvalidJournal(JournalId),
-
-    #[error("invalid account: {0}")]
-    InvalidAccount(AccountId),
-
-    #[error("invalid activity: {0}")]
-    InvalidActivity(ActivityId),
-
-    #[error("invalid fund: {0}")]
-    InvalidFund(FundId),
-
-    #[error("invalid entry: {0}")]
-    InvalidEntry(EntryId),
-
-    #[error("invalid transaction: {0}")]
-    InvalidTransaction(TransactionId),
-
-    #[error("failed to validate a transaction: {0}")]
-    TransactionValidation(#[from] TransactionValidationError),
-
-    #[error("The user doesn't have the {:?} permission", .0)]
-    Permissions(Permissions),
-
-    #[error("The user {0} already has access to this journal")]
-    UserAlreadyHasAccess(UserId),
-
-    #[error("The user {0} doesn't have access to this journal")]
-    UserDoesntHaveAccess(UserId),
-
-    #[error("Failed to create an Ident: {0}")]
-    IdentCreation(#[from] IdentError),
-
-    #[error("sqlx returned an error: {0}")]
-    Sqlx(String),
-
-    #[error("failed to construct permissions from an integer: {0}")]
-    PermissionDecode(#[from] PermissionDecodeError),
-
-    #[error("failed to decode an event: {0}")]
-    EventDecode(String),
-
-    #[error("failed to decode a proto type: {0}")]
-    ProtoDecode(#[from] ProtoError),
-
-    #[error("the server-side S3 credentials are invalid")]
-    InvalidS3Credentials,
-
-    #[error("an S3 transaction failed: {0}")]
-    S3(String),
-
-    #[error("invalid file: {0}")]
-    InvalidFile(FileId),
-
-    #[error("failed to import from a jewel database: {0}")]
-    JewelImport(#[from] JewelImportError),
-}
-
-impl From<sqlx::Error> for JournalError {
-    fn from(value: Error) -> Self {
-        Self::Sqlx(value.to_string())
-    }
-}
-
-impl From<prost::DecodeError> for JournalError {
-    fn from(value: prost::DecodeError) -> Self {
-        Self::EventDecode(value.to_string())
-    }
-}
-
-impl<E, R> From<SdkError<E, R>> for JournalError {
-    fn from(value: SdkError<E, R>) -> Self {
-        Self::S3(value.to_string())
-    }
-}
-
-pub type JournalResult<T> = Result<T, JournalError>;
 
 pub fn router() -> Router<crate::StateType> {
     Router::new()
@@ -167,40 +68,30 @@ pub fn router() -> Router<crate::StateType> {
         .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
 }
 
-use crate::authn::user::UserId;
+use crate::authn::UserId;
 use crate::authority::{Actor, Authority};
 use crate::event_id::GetEventId;
 use crate::id;
-use crate::id::IdentError;
-use crate::journal::JournalError::InvalidJournal;
-use crate::journal::account::AccountId;
-use crate::journal::activity::ActivityId;
-use crate::journal::domain::JournalDomainEvent;
-use crate::journal::entry::EntryId;
-use crate::journal::file::FileId;
+use crate::journal::error::JournalError::InvalidJournal;
+use crate::journal::error::{JournalError, JournalResult};
 use crate::journal::fund::FundId;
-use crate::journal::jewel::JewelImportError;
 use crate::journal::member::{
     AddJournalMember, JournalMember, RemoveJournalMember, UpdateJournalMember,
 };
-use crate::journal::transaction::{TransactionId, TransactionValidationError};
 use crate::name::Name;
-use crate::serde::error::ProtoError;
+use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::status::Status;
-use crate::time_provider::Timestamp;
-use aws_sdk_s3::error::SdkError;
+use crate::time::Timestamp;
 use axum::extract::DefaultBodyLimit;
 use bitflags::bitflags;
 use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
 use disintegrate_postgres::PgEventId;
-use domain::JournalEvent;
 use prost::Message;
-use proto::event::journal::ProtoJournalDomainEvent;
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
-use sqlx::{Database, Decode, Encode, Error, FromRow, Postgres, Type};
+use sqlx::{Database, Decode, Encode, FromRow, Postgres, Type};
 use std::fmt::Display;
 use std::fmt::Formatter;
 use thiserror::Error;
@@ -509,7 +400,7 @@ impl JournalService {
             .await?
             .contains(Permissions::READ)
         {
-            return Err(JournalError::InvalidJournal(journal_id));
+            return Err(InvalidJournal(journal_id));
         }
 
         let journal = sqlx::query_as!(

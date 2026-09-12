@@ -5,30 +5,24 @@ use crate::authority::Authority;
 use crate::event_id::GetEventId;
 use crate::id;
 use crate::id::Ident;
-use crate::journal::domain::{FileEvent, JournalDomainEvent, JournalEvent};
-use crate::journal::{
-    Journal, JournalError, JournalId, JournalResult, JournalService, Permissions,
-};
+use crate::journal::error::{JournalError, JournalResult};
+use crate::journal::event::{FileEvent, JournalDomainEvent};
+use crate::journal::{Journal, JournalId, JournalService, Permissions};
+use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::status::Status;
-use crate::time_provider::Timestamp;
+use crate::time::Timestamp;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::types::{CorsConfiguration, CorsRule};
 use aws_types::region::Region;
-use axum_login::tracing::log::{Level, log};
 use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
 use disintegrate_postgres::PgEventId;
 use prost::Message;
-use proto::event::journal::ProtoJournalDomainEvent;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use std::env;
-use std::fs::create_dir;
-use std::io::ErrorKind;
 use std::path::PathBuf;
-use std::sync::LazyLock;
 use tokio::fs::create_dir_all;
-use tokio::runtime::Handle;
 
 id!(FileId, Ident::new16());
 

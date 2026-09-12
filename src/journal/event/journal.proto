@@ -1,0 +1,133 @@
+syntax = "proto3";
+
+package proto.journal.event.journal;
+
+import "authority/authority.proto";
+import "id/ident.proto";
+import "time/timestamp.proto";
+import "journal/entry/entry.proto";
+
+
+message ProtoJournalDomainEvent {
+  message ProtoJournalCreated {
+    id.ident.ProtoIdent journal_id = 1;
+    id.ident.ProtoIdent owner_id = 2;
+    string name = 3;
+    authority.authority.ProtoAuthority authority = 4;
+    time.timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  message ProtoJournalDeleted {
+    id.ident.ProtoIdent journal_id = 1;
+    authority.authority.ProtoAuthority authority = 2;
+    time.timestamp.ProtoTimestamp timestamp = 3;
+  }
+
+  message ProtoMemberAdded {
+    id.ident.ProtoIdent journal_id = 1;
+    id.ident.ProtoIdent user_id = 2;
+    int32 permissions = 3;
+    authority.authority.ProtoAuthority authority = 4;
+    time.timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  message ProtoMemberPermissionsUpdated {
+    id.ident.ProtoIdent journal_id = 1;
+    id.ident.ProtoIdent user_id = 2;
+    int32 permissions = 3;
+    authority.authority.ProtoAuthority authority = 4;
+    time.timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  message ProtoMemberRemoved {
+    id.ident.ProtoIdent journal_id = 1;
+    id.ident.ProtoIdent user_id = 2;
+    authority.authority.ProtoAuthority authority = 3;
+    time.timestamp.ProtoTimestamp timestamp = 4;
+  }
+
+  message ProtoAccountCreated {
+    id.ident.ProtoIdent account_id = 1;
+    id.ident.ProtoIdent journal_id = 2;
+    string name = 3;
+    int32 account_type = 4;
+    authority.authority.ProtoAuthority authority = 5;
+    time.timestamp.ProtoTimestamp timestamp = 6;
+  }
+
+  message ProtoAccountRenamed {
+    id.ident.ProtoIdent account_id = 1;
+    id.ident.ProtoIdent journal_id = 2;
+    string new_name = 3;
+    authority.authority.ProtoAuthority authority = 4;
+    time.timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  message ProtoAccountDeleted {
+    id.ident.ProtoIdent account_id = 1;
+    id.ident.ProtoIdent journal_id = 2;
+    authority.authority.ProtoAuthority authority = 3;
+    time.timestamp.ProtoTimestamp timestamp = 4;
+  }
+  
+  message ProtoEntryCreated {
+    id.ident.ProtoIdent entry_id = 1;
+    id.ident.ProtoIdent journal_id = 2;
+    proto.journal.entry.entry.ProtoEntryKind entry_kind = 3;
+    uint64 amount = 4;
+    int32 entry_side = 5;
+    authority.authority.ProtoAuthority authority = 6;
+    time.timestamp.ProtoTimestamp timestamp = 7;
+  }
+
+  message ProtoTransactionCreated {
+    id.ident.ProtoIdent transaction_id = 1;
+    id.ident.ProtoIdent journal_id = 2;
+    proto.journal.entry.entry.ProtoRepeatedTransactionEntryIds entries = 3;
+    int32 financial_period = 4;
+    authority.authority.ProtoAuthority authority = 5;
+    time.timestamp.ProtoTimestamp timestamp = 6;
+  }
+
+  message ProtoFileUploaded {
+    id.ident.ProtoIdent file_id = 1;
+    id.ident.ProtoIdent journal_id = 2;
+    bytes hash = 3;
+    string file_name = 4;
+    authority.authority.ProtoAuthority authority = 5;
+    time.timestamp.ProtoTimestamp timestamp = 6;
+  }
+
+  message ProtoActivityCreated {
+    id.ident.ProtoIdent activity_id = 1;
+    id.ident.ProtoIdent journal_id = 2;
+    string activity_name = 3;
+    int32 activity_type = 4;
+    authority.authority.ProtoAuthority authority = 5;
+    time.timestamp.ProtoTimestamp timestamp = 6;
+  }
+
+  message ProtoFundCreated {
+    id.ident.ProtoIdent fund_id = 1;
+    id.ident.ProtoIdent journal_id = 2;
+    string fund_name = 3;
+    authority.authority.ProtoAuthority authority = 4;
+    time.timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  oneof journal_domain_event_type {
+    ProtoJournalCreated journal_created = 1;
+    ProtoJournalDeleted journal_deleted = 2;
+    ProtoMemberAdded member_added = 3;
+    ProtoMemberPermissionsUpdated member_permissions_updated = 4;
+    ProtoMemberRemoved member_removed = 5;
+    ProtoAccountCreated account_created = 6;
+    ProtoAccountRenamed account_renamed = 7;
+    ProtoAccountDeleted account_deleted = 8;
+    ProtoTransactionCreated transaction_created = 9;
+    ProtoFileUploaded file_uploaded = 11;
+    ProtoActivityCreated activity_created = 12;
+    ProtoFundCreated fund_created = 13;
+    ProtoEntryCreated entry_created = 14;
+  }
+}

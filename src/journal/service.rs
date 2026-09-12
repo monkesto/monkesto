@@ -1,5 +1,4 @@
-use crate::authn::AuthConnectError;
-use crate::authn::user::UserId;
+use crate::authn::{AuthConnectError, UserId};
 use crate::authority::{Actor, Authority};
 use crate::journal::JournalError;
 use crate::journal::JournalId;
@@ -8,20 +7,20 @@ use crate::journal::PermissionDecodeError;
 use crate::journal::Permissions;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::ActivityId;
-use crate::journal::domain::JournalDomainEvent;
 use crate::journal::entry::{EntryId, EntryKind, EntrySide};
+use crate::journal::event::JournalDomainEvent;
 use crate::journal::file::{FileId, ObjectStore};
 use crate::journal::fund::FundId;
 use crate::journal::store::JournalEventStore;
 use crate::journal::transaction::{TransactionEntryIds, TransactionId};
 use crate::name::Name;
+use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use async_trait::async_trait;
 use disintegrate::serde::prost::Prost;
 use disintegrate::{EventListener, PersistedEvent, StreamQuery, query};
 use disintegrate_postgres::{
     PgDecisionMaker, PgEventId, PgSnapshotter, WithPgSnapshot, decision_maker,
 };
-use proto::event::journal::ProtoJournalDomainEvent;
 use sqlx::PgPool;
 use tokio::sync::watch;
 

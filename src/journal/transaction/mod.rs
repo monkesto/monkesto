@@ -2,7 +2,7 @@ pub mod commands;
 pub mod views;
 
 use crate::id::Ident;
-use crate::journal::domain::{AFTEvent, JournalDomainEvent, TransactionEvent};
+use crate::journal::event::{AFTEvent, JournalDomainEvent, TransactionEvent};
 use axum::Router;
 use axum::routing::{get, post};
 use axum_login::login_required;
@@ -26,17 +26,17 @@ use crate::id;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::{ActivityId, ActivityType};
 use crate::journal::entry::{EntryId, EntryKind, EntrySide};
+use crate::journal::error::{JournalError, JournalResult, TransactionValidationError};
 use crate::journal::fund::FundId;
 use crate::journal::member::JournalMember;
-use crate::journal::{Journal, JournalResult, JournalService, Permissions, validate_permissions};
-use crate::journal::{JournalError, JournalId};
+use crate::journal::{Journal, JournalId, JournalService, Permissions, validate_permissions};
+use crate::proto::journal::entry::entry::ProtoRepeatedTransactionEntryIds;
+use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::status::Status;
-use crate::time_provider::Timestamp;
+use crate::time::Timestamp;
 use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
 use disintegrate_postgres::PgEventId;
 use prost::Message;
-use proto::event::journal::ProtoJournalDomainEvent;
-use proto::transaction_entry::ProtoRepeatedTransactionEntryIds;
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::encode::IsNull;
@@ -44,34 +44,6 @@ use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, FromRow, Postgres, Type};
 use std::fmt::Debug;
 use thiserror::Error;
-
-#[derive(Error, Debug, PartialEq)]
-pub enum TransactionValidationError {
-    #[error("Received an invalid entry type. Expected Dr or Cr, found {0}")]
-    InvalidEntryType(String),
-    #[error("Did not receive any transaction entries")]
-    NoTransactionEntries,
-    #[error("Did not receive a corresponding amount for an entry")]
-    MissingEntryAmount,
-    #[error("Did not receive a corresponding entry type for an entry")]
-    MissingEntryType,
-    #[error("Invalid entry amount: {0}")]
-    ParseDecimal(String),
-    #[error("Received an entry with a partial cent value: {0}")]
-    PartialCentValue(String),
-    #[error("Received an entry with a value greater than 9 quintillion")]
-    OutOfRange(String),
-    #[error(
-        "Received an entry with a negative amount: {0}. Please use the debit/credit selector instead."
-    )]
-    NegativeEntryAmount(String),
-    #[error("Imbalanced transaction: {:?}", 0)]
-    ImbalancedTransaction(TransactionEntries),
-    #[error(
-        "attempted a transfer involving activity {0}, but it doesn't have a 'transfer' activity type"
-    )]
-    TransferViolation(ActivityId),
-}
 
 #[repr(i8)]
 #[derive(Copy, Clone, Default, Serialize, Deserialize, Debug, PartialEq, Eq)]

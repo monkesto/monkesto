@@ -31,7 +31,7 @@ mod tests {
     use super::*;
     use crate::authority::{Actor, Authority};
     use crate::authz::GrantId;
-    use crate::time_provider::Timestamp;
+    use crate::time::Timestamp;
     use chrono::Utc;
 
     fn authority() -> Authority {

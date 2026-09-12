@@ -2,20 +2,18 @@ use crate::authority::Authority;
 use crate::event_id::GetEventId;
 use crate::id;
 use crate::id::Ident;
-use crate::journal::domain::{ActivityEvent, JournalDomainEvent};
+use crate::journal::error::{JournalError, JournalResult};
+use crate::journal::event::{ActivityEvent, JournalDomainEvent};
 use crate::journal::member::JournalMember;
-use crate::journal::{
-    Journal, JournalError, JournalId, JournalResult, JournalService, Permissions,
-    validate_permissions,
-};
+use crate::journal::{Journal, JournalId, JournalService, Permissions, validate_permissions};
 use crate::name::Name;
+use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::status::Status;
-use crate::time_provider::Timestamp;
+use crate::time::Timestamp;
 use axum_test::expect_json::__private::serde_trampoline::{Deserialize, Serialize};
 use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
 use disintegrate_postgres::PgEventId;
 use prost::Message;
-use proto::event::journal::ProtoJournalDomainEvent;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, FromRow, Postgres, Type};

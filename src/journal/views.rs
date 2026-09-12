@@ -1,13 +1,11 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::authn::get_user;
-use crate::authority::Actor;
-use crate::authority::Authority;
+use crate::authority::{Actor, Authority};
+use crate::error::monkesto_error::{MonkestoError, UrlError};
 use crate::id::Ident;
 use crate::journal::JournalId;
 use crate::journal::layout::layout;
-use crate::monkesto_error::MonkestoError;
-use crate::monkesto_error::UrlError;
 use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;

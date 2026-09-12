@@ -1,9 +1,9 @@
 use crate::authn::UserId;
 use crate::authority::Authority;
-use crate::journal::domain::{JournalDomainEvent, MemberEvent};
+use crate::journal::event::{JournalDomainEvent, MemberEvent};
 use crate::journal::{Journal, JournalError, JournalId, Permissions, validate_permissions};
 use crate::status::Status;
-use crate::time_provider::Timestamp;
+use crate::time::Timestamp;
 use axum_test::expect_json::__private::serde_trampoline::{Deserialize, Serialize};
 use disintegrate::{Decision, StateMutate, StateQuery};
 use std::collections::HashMap;

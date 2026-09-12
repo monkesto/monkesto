@@ -1,0 +1,10 @@
+syntax = "proto3";
+
+package proto.name.name_error;
+
+message ProtoNameError {
+  oneof name_error_type {
+    string too_short = 1;
+    string too_long = 2;
+  }
+}

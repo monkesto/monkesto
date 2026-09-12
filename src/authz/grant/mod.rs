@@ -6,7 +6,7 @@ use super::event::GrantEvent;
 use crate::authority::Authority;
 use crate::id;
 use crate::id::Ident;
-use crate::time_provider::Timestamp;
+use crate::time::Timestamp;
 use disintegrate::{StateMutate, StateQuery};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

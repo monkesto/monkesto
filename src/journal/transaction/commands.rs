@@ -1,16 +1,16 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::authn::get_user;
-use crate::authority::Actor;
-use crate::authority::Authority;
+use crate::authority::{Actor, Authority};
+use crate::error::DecodeError;
+use crate::error::monkesto_error::OrRedirect;
+use crate::journal::JournalId;
 use crate::journal::account::AccountId;
 use crate::journal::entry::{EntryKind, EntrySide};
+use crate::journal::error::JournalError;
 use crate::journal::transaction::TransactionValidationError;
 use crate::journal::transaction::{FinancialPeriod, TransactionEntry, TransactionId};
-use crate::journal::{JournalError, JournalId};
-use crate::monkesto_error::OrRedirect;
-use crate::serde::error::ProtoError;
-use crate::time_provider::{DefaultTimeProvider, TimeProvider};
+use crate::time::{DefaultTimeProvider, TimeProvider};
 use axum::extract::Path;
 use axum::extract::State;
 use axum::response::Redirect;
@@ -106,7 +106,7 @@ pub async fn transact(
                         ))
                         .or_redirect(callback_url)? as i8,
                 )
-                .map_err(ProtoError::from)
+                .map_err(DecodeError::from)
                 .or_redirect(callback_url)?;
 
                 entries.push(TransactionEntry {

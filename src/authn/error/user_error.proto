@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package proto.authn.error.user_error;
+
+import "google/protobuf/empty.proto";
+import "id/ident.proto";
+
+message ProtoUserError {
+  oneof user_error_type {
+    string email_conflict = 1;
+    string email_doesnt_exist = 2;
+    id.ident.ProtoIdent id_collision = 3;
+    id.ident.ProtoIdent user_doesnt_exist = 4;
+    string passkey_decode = 5;
+    google.protobuf.Empty session_not_found = 6;
+    string sqlx = 7;
+    string seed_failure = 8;
+    google.protobuf.Empty invalid_input = 9;
+    string serde_json = 10;
+    string session = 11;
+    google.protobuf.Empty authentication_failed = 12;
+    google.protobuf.Empty missing_resend_api_key = 13;
+    string resend = 14;
+    google.protobuf.Empty invalid_verification_code = 15;
+  }
+}

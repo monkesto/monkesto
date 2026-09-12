@@ -1,0 +1,9 @@
+syntax = "proto3";
+package proto.id.ident_error;
+
+message ProtoIdentError {
+  oneof ident_error_type {
+    string parse = 1;
+    string invalid_id = 2;
+  }
+}

@@ -1,7 +1,8 @@
 use super::user::DEV_USERS;
-use super::user::{UserError, UserId};
-use super::{AuthSession, AuthnService};
-use crate::monkesto_error::{MonkestoError, OrRedirect};
+use super::{AuthSession, AuthnService, UserId};
+use crate::authn::error::UserError;
+use crate::error::MonkestoError;
+use crate::error::monkesto_error::OrRedirect;
 use crate::theme::theme_with_head;
 use axum::extract::Extension;
 use axum::extract::Form;

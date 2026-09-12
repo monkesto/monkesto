@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package proto.error.monkesto_error;
+
+import "google/protobuf/empty.proto";
+import "id/ident.proto";
+import "id/ident_error.proto";
+import "journal/entry/entry.proto";
+import "journal/error/journal_error.proto";
+import "error/proto_decode_error.proto";
+import "name/name_error.proto";
+import "authn/error/user_error.proto";
+import "authn/passkey/error/passkey_error.proto";
+
+message ProtoMonkestoError {
+  oneof monkesto_error_type {
+    decode_error.ProtoDecodeError error_decode = 1;
+    name.name_error.ProtoNameError name_creation = 2;
+    id.ident_error.ProtoIdentError ident_creation = 3;
+    string email_creation = 4;
+    journal.error.journal_error.ProtoJournalError journal = 5;
+    authn.error.user_error.ProtoUserError user = 6;
+    string disintegrate_event = 7;
+    string disintegrate_state = 8;
+    authn.passkey.error.passkey_error.ProtoPasskeyError passkey = 9;
+  }
+}
+
+
+

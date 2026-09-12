@@ -3,17 +3,17 @@ mod authority;
 mod authz;
 mod email;
 mod entitlement;
+pub mod error;
 mod event_id;
 mod id;
 mod journal;
-mod monkesto_error;
 pub mod name;
 mod notfoundpage;
+pub mod proto;
 mod seed;
-mod serde;
 mod status;
 mod theme;
-mod time_provider;
+mod time;
 pub mod util;
 
 use crate::authn::{AuthnEventStore, AuthnService};
@@ -178,7 +178,7 @@ async fn main() {
             .await
             .expect("failed to create a journal service");
 
-    tokio::spawn(journal::domain::event_listener(
+    tokio::spawn(journal::event::event_listener(
         journal_event_store,
         journal_service.clone(),
     ));

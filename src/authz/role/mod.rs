@@ -11,8 +11,9 @@ use crate::authority::{Actor, Authority};
 use crate::authz::event::AuthzEvent;
 use crate::id;
 use crate::id::Ident;
+use crate::id::ident_error::IdentError;
 use crate::name::Name;
-use crate::time_provider::Timestamp;
+use crate::time::Timestamp;
 use disintegrate::{PersistedEvent, StateMutate, StateQuery};
 use disintegrate_postgres::PgEventId;
 use serde::{Deserialize, Serialize};
@@ -123,7 +124,7 @@ pub enum RoleIndexError {
     #[error(transparent)]
     Postcard(#[from] postcard::Error),
     #[error(transparent)]
-    Ident(#[from] id::IdentError),
+    Ident(#[from] IdentError),
 }
 
 impl RoleIndex {

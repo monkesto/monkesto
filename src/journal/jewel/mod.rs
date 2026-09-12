@@ -2,10 +2,11 @@ mod extract;
 
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
+use crate::journal::error::JournalResult;
 use crate::journal::file::{FileId, ObjectStore};
 use crate::journal::jewel::extract::{JewelData, jewel_extract};
 use crate::journal::layout::layout;
-use crate::journal::{JournalId, JournalResult, JournalService};
+use crate::journal::{JournalId, JournalService};
 use crate::{BackendType, StateType};
 use axum::extract::{Path, State};
 use axum::response::Redirect;

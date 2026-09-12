@@ -1,4 +1,5 @@
-mod corepasskey;
+pub mod error;
+mod event;
 mod layout;
 mod me;
 pub mod passkey;
@@ -10,14 +11,17 @@ pub mod user;
 
 use crate::id::Ident;
 
-use crate::authn::corepasskey::CorePasskey;
-use crate::authn::passkey::{CreatePasskey, DeletePasskey, PasskeyError, PasskeyState};
-use crate::authn::user::{CreateUser, DEV_USERS, UserError, UserResult, UserState};
+use crate::authn::error::{UserError, UserResult};
+use crate::authn::event::AuthnEvent;
+use crate::authn::passkey::error::PasskeyError;
+use crate::authn::passkey::{CreatePasskey, DeletePasskey, PasskeyState};
+use crate::authn::user::{CreateUser, DEV_USERS, UserState};
 use crate::authority::Authority;
 use crate::email::Email;
+use crate::error::monkesto_error::OrRedirect;
 use crate::event_id::GetEventId;
-use crate::monkesto_error::OrRedirect;
-use crate::time_provider::Timestamp;
+use crate::proto::authn::event::authn::ProtoAuthnEvent;
+use crate::time::Timestamp;
 use crate::{id, shutdown};
 use async_trait::async_trait;
 use axum::Router;
@@ -28,17 +32,16 @@ use axum::routing::post;
 use axum_login::tracing::log::{Level, log};
 use axum_login::{AuthnBackend, login_required, tracing};
 use disintegrate::serde::prost::Prost;
-use disintegrate::{DecisionError, Event, EventListener, PersistedEvent, StreamQuery, query};
+use disintegrate::{DecisionError, EventListener, PersistedEvent, StreamQuery, query};
 use disintegrate_postgres::{
     PgDecisionMaker, PgEventId, PgEventListener, PgEventListenerConfig, PgEventListenerError,
     PgSnapshotter, RetryAction, WithPgSnapshot, decision_maker,
 };
 pub use layout::layout;
-use proto::event::authn::ProtoAuthnEvent;
+use passkey::corepasskey::CorePasskey;
 use rand::RngExt;
 use resend_rs::Resend;
 use resend_rs::types::CreateEmailBaseOptions;
-use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgHasArrayType;
 use sqlx::{Database, PgPool, Postgres, Type};
 use std::env;
@@ -116,41 +119,6 @@ id!(PasskeyId, Ident::new16());
 
 type PgAuthnDecisionMaker =
     PgDecisionMaker<AuthnEvent, Prost<AuthnEvent, ProtoAuthnEvent>, WithPgSnapshot>;
-
-#[derive(Debug, Clone, PartialEq, Event, Serialize, Deserialize)]
-#[stream(UserEvent, [UserCreated, UserDeleted])]
-#[stream(PasskeyEvent, [PasskeyCreated, PasskeyDeleted])]
-pub enum AuthnEvent {
-    UserCreated {
-        #[id]
-        user_id: UserId,
-        #[id]
-        email: Email,
-        webauthn_uuid: Uuid,
-        authority: Authority,
-        timestamp: Timestamp,
-    },
-    UserDeleted {
-        #[id]
-        user_id: UserId,
-        authority: Authority,
-        timestamp: Timestamp,
-    },
-    PasskeyCreated {
-        #[id]
-        passkey_id: PasskeyId,
-        user_id: UserId,
-        passkey: Box<CorePasskey>,
-        authority: Authority,
-        timestamp: Timestamp,
-    },
-    PasskeyDeleted {
-        #[id]
-        passkey_id: PasskeyId,
-        authority: Authority,
-        timestamp: Timestamp,
-    },
-}
 
 #[derive(Clone)]
 pub struct AuthnService {

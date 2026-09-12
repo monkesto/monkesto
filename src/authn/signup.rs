@@ -1,7 +1,12 @@
-use super::passkey::PasskeyId;
-use super::user::{UserError, UserId};
-use super::{AuthSession, AuthnService};
-use crate::authn::corepasskey::CorePasskey;
+use super::{AuthSession, AuthnService, PasskeyId, UserId};
+use crate::authn::error::UserError;
+use crate::authn::passkey::corepasskey::CorePasskey;
+use crate::authority::{Actor, Authority};
+use crate::email::Email;
+use crate::error::MonkestoError;
+use crate::error::monkesto_error::OrRedirect;
+use crate::theme::theme_with_head;
+use crate::time::{DefaultTimeProvider, TimeProvider};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Query;
@@ -19,13 +24,6 @@ use webauthn_rs::prelude::Uuid;
 use webauthn_rs::prelude::Webauthn;
 use webauthn_rs_proto::AuthenticatorSelectionCriteria;
 use webauthn_rs_proto::ResidentKeyRequirement;
-
-use crate::authority::Actor;
-use crate::authority::Authority;
-use crate::email::Email;
-use crate::monkesto_error::{MonkestoError, OrRedirect};
-use crate::theme::theme_with_head;
-use crate::time_provider::{DefaultTimeProvider, TimeProvider};
 
 #[derive(Deserialize)]
 pub struct SignupQuery {

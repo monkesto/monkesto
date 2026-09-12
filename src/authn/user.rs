@@ -1,7 +1,4 @@
-pub(crate) use super::{AuthnEvent, UserEvent, UserId};
-use crate::authority::Authority;
 use crate::email::Email;
-use crate::time_provider::Timestamp;
 use disintegrate::{Decision, StateMutate, StateQuery};
 use serde::Deserialize;
 use serde::Serialize;
@@ -29,78 +26,6 @@ impl axum_login::AuthUser for UserState {
         &[]
     }
 }
-
-#[derive(Debug, thiserror::Error, PartialEq)]
-pub enum UserError {
-    #[error("the email {0} already exists")]
-    EmailConflict(Email),
-    #[error("a user with the email: {0} doesn't exist")]
-    EmailDoesntExist(Email),
-    #[error("a user with the id {0} already exists")]
-    IdCollision(UserId),
-    #[error("no user exists with the provided id: {0}")]
-    UserDoesntExist(UserId),
-    #[error("there isn't any user associated with the current session")]
-    SessionNotFound,
-    #[error("sqlx returned an error: {0}")]
-    Sqlx(String),
-    #[error("failed to seed a dev user with the email {0}")]
-    SeedFailure(Email),
-    #[error("failed to decode a passkey: {0}")]
-    PasskeyDecode(String),
-    #[error("invalid input")]
-    InvalidInput,
-    #[error("failed to encode or decode a value with serde-json")]
-    SerdeJson(String),
-    #[error("failed to insert or retrieve a session credential: {0}")]
-    Session(String),
-    #[error("authentication failed")]
-    AuthenticationFailed,
-    #[error("failed to send an email, could not fine the resend API key")]
-    MissingResendApiKey,
-    #[error("failed to send an email with resend: {0}")]
-    Resend(String),
-    #[error("incorrect verification code")]
-    InvalidVerificationCode,
-}
-
-impl From<sqlx::Error> for UserError {
-    fn from(value: sqlx::Error) -> Self {
-        Self::Sqlx(value.to_string())
-    }
-}
-
-impl From<serde_json::Error> for UserError {
-    fn from(value: serde_json::Error) -> Self {
-        Self::SerdeJson(value.to_string())
-    }
-}
-
-impl From<axum_login::Error<AuthnService>> for UserError {
-    fn from(value: axum_login::Error<AuthnService>) -> Self {
-        match value {
-            axum_login::Error::Session(e) => Self::Session(e.to_string()),
-            axum_login::Error::Backend(e) => e,
-        }
-    }
-}
-
-impl From<tower_sessions::session::Error> for UserError {
-    fn from(value: tower_sessions::session::Error) -> Self {
-        match value {
-            tower_sessions::session::Error::SerdeJson(s) => UserError::SerdeJson(s.to_string()),
-            tower_sessions::session::Error::Store(s) => UserError::Session(s.to_string()),
-        }
-    }
-}
-
-impl From<resend_rs::Error> for UserError {
-    fn from(value: resend_rs::Error) -> Self {
-        UserError::Resend(value.to_string())
-    }
-}
-
-pub type UserResult<T> = Result<T, UserError>;
 
 #[derive(Debug, StateQuery, Clone, Serialize, Deserialize, Default)]
 #[state_query(UserEvent)]
@@ -272,8 +197,12 @@ impl Decision for DeleteUser {
     }
 }
 
-use crate::authn::AuthnService;
+use crate::authn::UserId;
+pub(crate) use crate::authn::error::UserError;
+use crate::authn::event::{AuthnEvent, UserEvent};
+use crate::authority::Authority;
 use crate::status::Status;
+use crate::time::Timestamp;
 use webauthn_rs::prelude::Uuid;
 
 /// The list of dev user emails (stable across restarts).

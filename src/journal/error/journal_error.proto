@@ -1,0 +1,66 @@
+syntax = "proto3";
+
+package proto.journal.error.journal_error;
+
+import "google/protobuf/empty.proto";
+import "id/ident.proto";
+import "journal/entry/entry.proto";
+import "id/ident_error.proto";
+import "error/proto_decode_error.proto";
+
+
+message ProtoJournalError {
+  message ProtoTransactionValidationError {
+    oneof transaction_validation_error_type {
+      string invalid_entry_type = 1;
+      google.protobuf.Empty no_transaction_entries = 2;
+      google.protobuf.Empty missing_entry_amount = 3;
+      google.protobuf.Empty missing_entry_type = 4;
+      string parse_decimal = 5;
+      string partial_cent_value = 6;
+      string out_of_range = 7;
+      string negative_entry_amount = 8;
+      proto.journal.entry.entry.ProtoRepeatedTransactionEntries imbalanced_transaction = 9;
+      id.ident.ProtoIdent transfer_violation = 10;
+    }
+  }
+
+  message ProtoJewelImportError {
+    oneof jewel_import_error_type {
+      string IO = 1;
+      string start_child_process = 2;
+      string write = 3;
+      string child_process_exit_failure = 4;
+      float outdated_jewel_version = 5;
+    }
+  }
+
+  oneof journal_error_type {
+    id.ident.ProtoIdent id_collision = 1;
+    id.ident.ProtoIdent account_id_collision = 2;
+    id.ident.ProtoIdent transaction_id_collision = 3;
+    id.ident.ProtoIdent invalid_journal = 4;
+    id.ident.ProtoIdent invalid_account = 5;
+    id.ident.ProtoIdent invalid_transaction = 6;
+    int32 permissions = 7;
+    id.ident.ProtoIdent user_already_has_access = 8;
+    id.ident.ProtoIdent user_doesnt_have_access = 9;
+    id.ident_error.ProtoIdentError ident_creation = 10;
+    string event_decode = 11;
+    string sqlx = 12;
+    int32 permission_decode = 13;
+    ProtoTransactionValidationError transaction_validation = 14;
+    proto.error.decode_error.ProtoDecodeError proto_decode = 15;
+    id.ident.ProtoIdent file_id_collision = 16;
+    google.protobuf.Empty invalid_S3_credentials = 17;
+    string s3 = 18;
+    id.ident.ProtoIdent invalid_file = 19;
+    id.ident.ProtoIdent fund_id_collision = 20;
+    id.ident.ProtoIdent invalid_fund = 21;
+    id.ident.ProtoIdent activity_id_collision = 22;
+    id.ident.ProtoIdent invalid_activity = 23;
+    id.ident.ProtoIdent invalid_transaction_entry = 24;
+    id.ident.ProtoIdent transaction_entry_id_collision = 25;
+    ProtoJewelImportError jewel_import = 26;
+  }
+}

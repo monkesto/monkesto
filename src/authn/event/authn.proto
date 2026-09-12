@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package proto.authn.event.authn;
+import "authority/authority.proto";
+import "id/ident.proto";
+import "time/timestamp.proto";
+
+message ProtoAuthnEvent {
+  message ProtoUserCreated {
+    id.ident.ProtoIdent user_id = 1;
+    string email = 2;
+    bytes webauthn_uuid = 3;
+    authority.authority.ProtoAuthority authority = 4;
+    time.timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  message ProtoUserDeleted {
+    id.ident.ProtoIdent user_id = 1;
+    authority.authority.ProtoAuthority authority = 2;
+    time.timestamp.ProtoTimestamp timestamp = 3;
+  }
+
+  message ProtoPasskeyCreated {
+    id.ident.ProtoIdent passkey_id = 1;
+    id.ident.ProtoIdent user_id = 2;
+    bytes passkey = 3;
+    authority.authority.ProtoAuthority authority = 4;
+    time.timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  message ProtoPasskeyDeleted {
+    id.ident.ProtoIdent passkey_id = 1;
+    authority.authority.ProtoAuthority authority = 2;
+    time.timestamp.ProtoTimestamp timestamp = 3;
+  }
+
+  oneof authn_event_type {
+    ProtoUserCreated user_created = 1;
+    ProtoUserDeleted user_deleted = 2;
+    ProtoPasskeyCreated passkey_created = 3;
+    ProtoPasskeyDeleted passkey_deleted = 4;
+  }
+}

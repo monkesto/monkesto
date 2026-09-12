@@ -9,7 +9,7 @@ use super::role::{
 use super::store::AuthzEventStore;
 use crate::authority::{Actor, Authority};
 use crate::name::Name;
-use crate::time_provider::Timestamp;
+use crate::time::Timestamp;
 use chrono::Utc;
 use disintegrate::{DecisionError, PersistedEvent};
 use disintegrate_postgres::PgEventId;

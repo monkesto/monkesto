@@ -30,7 +30,7 @@ mod tests {
     use crate::authority::{Actor, Authority};
     use crate::authz::RoleId;
     use crate::name::Name;
-    use crate::time_provider::Timestamp;
+    use crate::time::Timestamp;
     use chrono::Utc;
 
     #[test]
