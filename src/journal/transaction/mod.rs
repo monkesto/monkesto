@@ -162,7 +162,6 @@ pub struct TransactionEntry {
 pub struct Transaction {
     #[id]
     transaction_id: TransactionId,
-    #[id]
     journal_id: JournalId,
     entries: TransactionEntryIds,
     status: Status,

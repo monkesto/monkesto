@@ -7,7 +7,7 @@ args = ["tailwindcss", "-i", "./style/input.css", "-o", "./target/site/pkg/monke
 
 [tasks.watch-server]
 command = "cargo"
-args = ["watch", "-x", "run"]
+args = ["watch", "-x", "run", "-i", "object_storage"]
 
 [tasks.dev]
 run_task = { name = ["watch-css", "watch-server"], parallel = true }

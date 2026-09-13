@@ -14,7 +14,7 @@ use crate::name::Name;
 use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::proto::journal::event::journal_event::proto_journal_domain_event::{
     JournalDomainEventType, ProtoAccountCreated, ProtoAccountDeleted, ProtoAccountRenamed,
-    ProtoActivityCreated, ProtoEntryCreated, ProtoFileUploaded, ProtoFundCreated,
+    ProtoActivityCreated, ProtoEntryCreated, ProtoFileDeleted, ProtoFileUploaded, ProtoFundCreated,
     ProtoJournalCreated, ProtoJournalDeleted, ProtoMemberAdded, ProtoMemberPermissionsUpdated,
     ProtoMemberRemoved, ProtoTransactionCreated,
 };
@@ -38,7 +38,7 @@ use std::time::Duration;
 #[stream(AFTEvent, [AccountCreated, AccountDeleted, FundCreated, ActivityCreated])]
 #[stream(EntryEvent, [EntryCreated])]
 #[stream(TransactionEvent, [TransactionCreated, TransactionDeleted])]
-#[stream(FileEvent, [FileUploaded])]
+#[stream(FileEvent, [FileUploaded, FileDeleted])]
 pub enum JournalDomainEvent {
     JournalCreated {
         #[id]
@@ -157,6 +157,14 @@ pub enum JournalDomainEvent {
         journal_id: JournalId,
         hash: [u8; 16],
         file_name: String,
+        authority: Authority,
+        timestamp: Timestamp,
+    },
+    FileDeleted {
+        #[id]
+        file_id: FileId,
+        #[id]
+        journal_id: JournalId,
         authority: Authority,
         timestamp: Timestamp,
     },
@@ -360,6 +368,17 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 authority: Some(authority.into()),
                 timestamp: Some(timestamp.into()),
             }),
+            JournalDomainEvent::FileDeleted {
+                file_id,
+                journal_id,
+                authority,
+                timestamp,
+            } => JournalDomainEventType::FileDeleted(ProtoFileDeleted {
+                file_id: Some(file_id.into()),
+                journal_id: Some(journal_id.into()),
+                authority: Some(authority.into()),
+                timestamp: Some(timestamp.into()),
+            }),
         };
 
         ProtoJournalDomainEvent {
@@ -469,6 +488,12 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                 amount: ev.amount,
                 entry_side: (ev.entry_side as i8).try_into()?,
                 entry_kind: ev.entry_kind.try_into()?,
+                authority: ev.authority.try_into()?,
+                timestamp: ev.timestamp.try_into()?,
+            },
+            JournalDomainEventType::FileDeleted(ev) => JournalDomainEvent::FileDeleted {
+                file_id: ev.file_id.try_into()?,
+                journal_id: ev.journal_id.try_into()?,
                 authority: ev.authority.try_into()?,
                 timestamp: ev.timestamp.try_into()?,
             },

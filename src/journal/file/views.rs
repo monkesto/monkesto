@@ -50,8 +50,7 @@ pub async fn file_list_page(
                 @match state.journal_service.list_journal_files(journal_id, user_authority).await {
                     Ok(files) => {
                         @for (file, uploader, upload_timestamp) in files {
-                            a
-                            href=(format! ("/journal/{}/file/{}", journal_id, file.id))
+                            div
                             class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
                                 h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
                                     (file.name)
@@ -77,6 +76,37 @@ pub async fn file_list_page(
                                     (upload_timestamp.with_timezone(&chrono_tz::America::Chicago).format("%Y-%m-%d %H:%M:%S %Z"))
 
                                 }
+
+                                a href=(format! ("/journal/{}/file/{}", journal_id, file.id)) class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
+                                    "Download"
+                                }
+
+                                div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
+                                    form method = "get" action=(format! ("/journal/{}/file/{}", journal_id, file.id)) class="space-y-6" {
+                                        button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
+                                            "Download"
+                                        }
+                                    }
+                                }
+
+                                div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
+                                    form method = "post" action=(format!("/journal/{}/file/{}/delete", id, file.id)) class="space-y-6" {
+                                        button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
+                                            "Delete"
+                                        }
+                                    }
+                                }
+
+                                @if file.name.ends_with(".mdb") {
+                                    div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
+                                    form method = "get" action=(format! ("/journal/{}/file/{}/jewel", journal_id, file.id)) class="space-y-6" {
+                                        button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
+                                            "View Jewel Database"
+                                        }
+                                    }
+                                }
+                                }
+
                             }
                         }
                     }
@@ -108,7 +138,6 @@ pub async fn file_list_page(
                 (MonkestoError::decode(&error_str))
             }
     };
-
     let wrapped_content = html! {
         div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
             (content)

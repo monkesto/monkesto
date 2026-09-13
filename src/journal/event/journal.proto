@@ -98,6 +98,13 @@ message ProtoJournalDomainEvent {
     time.timestamp.ProtoTimestamp timestamp = 6;
   }
 
+  message ProtoFileDeleted {
+    id.ident.ProtoIdent file_id = 1;
+    id.ident.ProtoIdent journal_id = 2;
+    authority.authority.ProtoAuthority authority = 3;
+    time.timestamp.ProtoTimestamp timestamp = 4;
+  }
+
   message ProtoActivityCreated {
     id.ident.ProtoIdent activity_id = 1;
     id.ident.ProtoIdent journal_id = 2;
@@ -126,8 +133,9 @@ message ProtoJournalDomainEvent {
     ProtoAccountDeleted account_deleted = 8;
     ProtoTransactionCreated transaction_created = 9;
     ProtoFileUploaded file_uploaded = 11;
-    ProtoActivityCreated activity_created = 12;
-    ProtoFundCreated fund_created = 13;
-    ProtoEntryCreated entry_created = 14;
+    ProtoFileDeleted file_deleted = 12;
+    ProtoActivityCreated activity_created = 13;
+    ProtoFundCreated fund_created = 14;
+    ProtoEntryCreated entry_created = 15;
   }
 }

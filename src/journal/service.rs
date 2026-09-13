@@ -399,6 +399,21 @@ impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
                 .execute(&self.projection_pool)
                 .await?;
             }
+            JournalDomainEvent::FileDeleted {
+                file_id,
+                journal_id,
+                ..
+            } => {
+                sqlx::query!(
+                    r#"
+                    DELETE FROM files where id = $1 AND journal_id = $2
+                    "#,
+                    file_id as FileId,
+                    journal_id as JournalId,
+                )
+                .execute(&self.projection_pool)
+                .await?;
+            }
             JournalDomainEvent::FundCreated {
                 fund_id,
                 journal_id,

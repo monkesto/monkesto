@@ -107,7 +107,6 @@ impl ObjectStore {
 pub struct FileUpload {
     #[id]
     pub file_id: FileId,
-    #[id]
     pub journal_id: JournalId,
     pub hash: [u8; 16],
     file_name: String,
@@ -128,6 +127,10 @@ impl StateMutate for FileUpload {
                 self.journal_id = journal_id;
                 self.hash = hash;
                 self.file_name = file_name;
+                self.status = Status::Valid
+            }
+            FileEvent::FileDeleted { .. } => {
+                self.status = Status::Deleted;
             }
         }
     }
@@ -198,6 +201,60 @@ impl Decision for UploadFile {
             journal_id: self.journal_id,
             hash: self.hash,
             file_name: self.file_name.clone(),
+            authority: self.authority,
+            timestamp: self.timestamp,
+        }])
+    }
+}
+
+// The user should verify that an uploaded file exists with a matching hash before sending this event
+pub struct DeleteFile {
+    file_id: FileId,
+    journal_id: JournalId,
+    authority: Authority,
+    timestamp: Timestamp,
+}
+
+impl DeleteFile {
+    pub fn new(
+        file_id: FileId,
+        journal_id: JournalId,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Self {
+        Self {
+            file_id,
+            journal_id,
+            authority,
+            timestamp,
+        }
+    }
+}
+
+impl Decision for DeleteFile {
+    type Event = JournalDomainEvent;
+    type StateQuery = (FileUpload, Journal);
+    type Error = JournalError;
+
+    fn state_query(&self) -> Self::StateQuery {
+        (FileUpload::new(self.file_id), Journal::new(self.journal_id))
+    }
+
+    fn process(
+        &self,
+        (upload_state, journal_state): &Self::StateQuery,
+    ) -> Result<Vec<Self::Event>, Self::Error> {
+        if !upload_state.status.valid() {
+            return Err(JournalError::InvalidFile(upload_state.file_id));
+        };
+
+        if !journal_state.status.valid() {
+            return Err(JournalError::InvalidJournal(journal_state.journal_id));
+        }
+
+        Ok(vec![JournalDomainEvent::FileDeleted {
+            file_id: self.file_id,
+            journal_id: self.journal_id,
             authority: self.authority,
             timestamp: self.timestamp,
         }])
@@ -361,5 +418,19 @@ impl JournalService {
         }
 
         Ok(files_with_meta)
+    }
+
+    pub async fn delete_file(
+        &self,
+        file_id: FileId,
+        journal_id: JournalId,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> Result<PgEventId, DecisionError<JournalError>> {
+        Ok(self
+            .decision_maker
+            .make(DeleteFile::new(file_id, journal_id, authority, timestamp))
+            .await?
+            .event_id())
     }
 }

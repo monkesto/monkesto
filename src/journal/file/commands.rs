@@ -13,13 +13,11 @@ use axum::extract::{Path, Query, State};
 use axum::http::{Request, StatusCode};
 use axum::response::Redirect;
 use axum_login::AuthSession;
-use axum_test::expect_json::__private::serde_trampoline::Deserialize;
 use futures_util::stream::StreamExt;
-use serde::Serialize;
-use std::io::Read;
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use std::time::Duration;
-use tokio::fs::{File, create_dir_all};
+use tokio::fs::{File, create_dir_all, remove_file};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[derive(Deserialize)]
@@ -253,4 +251,71 @@ pub async fn record_file_upload(
     state.journal_service.wait_for(event_id).await;
 
     Ok(Redirect::to(callback_url))
+}
+
+pub async fn delete_file(
+    State(state): State<StateType>,
+    session: AuthSession<BackendType>,
+    Path((journal_id, file_id)): Path<(String, String)>,
+) -> Result<Redirect, Redirect> {
+    let callback_url = &format!("/journal/{}/file", journal_id);
+
+    let journal_id = JournalId::from_str(&journal_id).or_redirect(callback_url)?;
+    let file_id = FileId::from_str(&file_id).or_redirect(callback_url)?;
+    let user = get_user(session)?;
+    let user_authority = Authority::Direct(Actor::User(user.id));
+
+    let file_key = state
+        .journal_service
+        .get_file(file_id, journal_id, user_authority)
+        .await
+        .or_redirect(callback_url)?
+        .key();
+
+    if state
+        .journal_service
+        .get_effective_permissions(journal_id, user_authority)
+        .await
+        .or_redirect(callback_url)?
+        .contains(Permissions::UPLOAD_FILE)
+    {
+        let event_id = state
+            .journal_service
+            .delete_file(
+                file_id,
+                journal_id,
+                user_authority,
+                DefaultTimeProvider.get_time(),
+            )
+            .await
+            .or_redirect(callback_url)?;
+
+        match state.journal_service.object_store.clone() {
+            ObjectStore::S3 {
+                s3_client,
+                bucket_name,
+            } => {
+                s3_client
+                    .delete_object()
+                    .bucket(bucket_name)
+                    .key(&file_key)
+                    .send()
+                    .await
+                    .map_err(|e| JournalError::S3(e.to_string()))
+                    .or_redirect(callback_url)?;
+            }
+            ObjectStore::Local { storage_directory } => {
+                remove_file(storage_directory.join(&file_key))
+                    .await
+                    .map_err(|e| JournalError::S3(e.to_string()))
+                    .or_redirect(callback_url)?;
+            }
+        }
+
+        state.journal_service.wait_for(event_id).await;
+
+        Ok(Redirect::to(callback_url))
+    } else {
+        Err(JournalError::Permissions(Permissions::UPLOAD_FILE)).or_redirect(callback_url)?
+    }
 }

@@ -51,6 +51,10 @@ pub fn router() -> Router<crate::StateType> {
             get(file::views::download_file),
         )
         .route("/journal/{id}/file/{file_id}/jewel", get(jewel::view_db))
+        .route(
+            "/journal/{journal_id}/file/{file_id}/delete",
+            post(delete_file),
+        )
         .route("/journal/{id}/person", get(person::people_list_page))
         .route("/journal/{id}/invite", post(commands::invite_member))
         .route(
@@ -74,6 +78,7 @@ use crate::event_id::GetEventId;
 use crate::id;
 use crate::journal::error::JournalError::InvalidJournal;
 use crate::journal::error::{JournalError, JournalResult};
+use crate::journal::file::commands::delete_file;
 use crate::journal::fund::FundId;
 use crate::journal::member::{
     AddJournalMember, JournalMember, RemoveJournalMember, UpdateJournalMember,
