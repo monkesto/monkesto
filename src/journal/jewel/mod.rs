@@ -11,6 +11,7 @@ use crate::{BackendType, StateType};
 use axum::extract::{Path, State};
 use axum::response::Redirect;
 use axum_login::AuthSession;
+use chrono::{Datelike, NaiveDate, Utc};
 use maud::{Markup, html};
 use sqlx::ConnectOptions;
 use sqlx::sqlite::SqliteConnectOptions;
@@ -44,6 +45,8 @@ impl JournalService {
         journal_id: JournalId,
         file_id: FileId,
         authority: Authority,
+        history_length_months: u32,
+        top_expense_list_size: usize,
     ) -> JournalResult<JewelData> {
         let file_key = self.get_file(file_id, journal_id, authority).await?.key();
 
@@ -206,12 +209,13 @@ impl JournalService {
             Err(JewelImportError::OutdatedJewelVersion(version))?;
         }
 
-        Ok(jewel_extract(&mut conn).await?)
+        Ok(jewel_extract(&mut conn, history_length_months, top_expense_list_size).await?)
     }
 }
 
 // NOTE: Production implementations should call get_jewel_db as a secondary web request because it has to download a file from the internet and transform it with cli tools
 // a latency of 500ms or more is expected from this endpoint
+#[expect(clippy::let_unit_value)]
 pub async fn view_db(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
@@ -222,137 +226,84 @@ pub async fn view_db(
     let journal_id_res = JournalId::from_str(&journal_id);
     let file_id_res = FileId::from_str(&file_id);
 
+    // Note(Ryan): history and number of top expenses can be configured here
+    const NUM_MONTHS: usize = 36;
+    const TOP_EXPENSE_LIST_SIZE: usize = 10;
+
     let markup = if let Ok(journal_id) = journal_id_res
         && let Ok(file_id) = file_id_res
     {
         html! {
-            @match state.journal_service.get_jewel_db(journal_id, file_id, user_authority).await {
-                Ok(data) => div {
-                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
-                        "Currency: " (format!("{:?}", data.currency))
-                    }
 
-                    br;
+            @match state.journal_service.get_jewel_db(journal_id, file_id, user_authority, NUM_MONTHS as u32, TOP_EXPENSE_LIST_SIZE).await {
+                Ok(JewelData {standard_stats, ..}) => div {
+                    @let current_date = Utc::now();
 
-                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
-                        "Accounts"
-                    }
+                    @let mut curr_year = current_date.year();
+                    @let mut curr_month = current_date.month();
 
-                    @for (_account_id, account) in data.accounts.iter() {
+
+                    @for month in 0..NUM_MONTHS {
+                        @let _ = dbg!(&curr_year, &curr_month);
+
+                        @let timestamp = NaiveDate::from_ymd_opt(curr_year, curr_month, 1).expect("valid date");
+
+                        h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
+                            (timestamp.format("%B %C%y"))
+                        }
+
+                        @let budget_giving = standard_stats.monthly_budget_giving[month];
+
                         p {
-                            (format!("{:?}", account))
+                            "budget giving: " (format!("${}.{:02}", budget_giving / 100 , budget_giving % 100))
+                        }
+
+                        @let tithe_giving = standard_stats.monthly_tithe[month];
+
+                        p {
+                            "tithe giving: " (format!("${}.{:02}", tithe_giving / 100 , tithe_giving % 100))
                         }
 
                         br;
-                    }
 
-                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
-                        "Names"
-                    }
+                        @let (online_giving, inhouse_giving, unknown_giving) = standard_stats.monthly_online_vs_offline_giving[month];
 
-                    @for (_name_id, name) in data.names.iter() {
+
                         p {
-                            (format!("{:?}", name))
+                            "received " (format!("${}.{:02}", online_giving / 100 , online_giving % 100)) " online"
                         }
 
-                        br;
-                    }
-
-                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
-                        "Offerings"
-                    }
-
-                    @for offering in data.offerings {
                         p {
-                            (format!("{:?}", offering))
+                            "received " (format!("${}.{:02}", inhouse_giving / 100 , inhouse_giving % 100)) " in person"
                         }
 
-                        br;
-                    }
-
-                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
-                        "Contributions"
-                    }
-
-                    @for (_contribution_id, contribution) in data.contributions {
-                        @let envelope_name = data.names.get(
-                            &data.envelopes.get(
-                                &contribution.envelope_id
-                            ).expect("valid envelope").name_id
-                        ).expect("valid name").name.as_str();
-
-                        @let account_name = data.accounts.get(&contribution.account_id).expect("valid account").name.as_str();
-
                         p {
-                            (format!("{:?}", contribution))
-                            ul {
-                                li {
-                                    "Envelope Name: " (envelope_name)
-                                }
+                            "received " (format!("${}.{:02}", unknown_giving / 100 , unknown_giving % 100)) " from an unknown source"
+                        }
 
-                                li {
-                                    "Account Name: " (account_name)
-                                }
+                        @let top_expenses = standard_stats.monthly_top_expenses[month].clone();
+
+                        br;
+
+                        h3 class="text-2xl/7 font-bold text-white sm:truncate sm:text-xl sm:tracking-tight" {
+                            "top " (TOP_EXPENSE_LIST_SIZE) " expenses"
+                        }
+
+                        ul {
+                            @for (cost, name) in top_expenses {
+                                (name) ": " (format!("${}.{:02}", cost / 100, cost % 100))
+                                br;
                             }
                         }
 
                         br;
-                    }
 
-                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
-                        "Envelopes"
-                    }
-
-                    @for (_envelope_id, envelope) in data.envelopes {
-                        @let envelope_name = data.names.get(&envelope.name_id).expect("valid envelope").name.as_str();
-
-                        p {
-                            (format!("{:?}", envelope))
-                            ul {
-                                li {
-                                    "Envelope Name: " (envelope_name)
-                                }
-                            }
+                        @if curr_month > 1 {
+                            @let _ = curr_month -= 1;
+                        } @else {
+                            @let _ = curr_year -= 1;
+                            @let _ = curr_month = 12;
                         }
-
-                        br;
-                    }
-
-                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
-                        "Journals"
-                    }
-
-                    @for (_journal_id, journal) in data.journals.iter() {
-                        p {
-                            (format!("{:?}", journal))
-                        }
-
-                        br;
-                    }
-
-                    h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {
-                        "Journal Items"
-                    }
-
-                    @for journal_item in data.journal_items {
-                        @let account_name = data.accounts.get(&journal_item.account_id).expect("valid account").name.as_str();
-                        @let journal_memo = data.journals.get(&journal_item.journal_id).expect("valid journal").memo.as_str();
-
-                        p {
-                            (format!("{:?}", journal_item))
-
-                            ul {
-                                li {
-                                    "Account Name: " (account_name)
-                                }
-
-                                li {
-                                    "Journal Memo: " (journal_memo)
-                                }
-                            }
-                        }
-
-                        br;
                     }
                 },
                 Err(e) => p {(e.to_string())}
