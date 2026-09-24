@@ -7,6 +7,7 @@ import "id/ident.proto";
 import "journal/entry/entry.proto";
 import "id/ident_error.proto";
 import "error/proto_decode_error.proto";
+import "journal/transaction/memo/memo_error.proto";
 
 
 message ProtoJournalError {
@@ -62,5 +63,6 @@ message ProtoJournalError {
     id.ident.ProtoIdent invalid_transaction_entry = 24;
     id.ident.ProtoIdent transaction_entry_id_collision = 25;
     ProtoJewelImportError jewel_import = 26;
+    transaction.memo.memo_error.ProtoMemoError memo = 27;
   }
 }

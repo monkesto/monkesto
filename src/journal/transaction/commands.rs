@@ -9,6 +9,7 @@ use crate::journal::account::AccountId;
 use crate::journal::entry::{EntryKind, EntrySide};
 use crate::journal::error::JournalError;
 use crate::journal::transaction::TransactionValidationError;
+use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{FinancialPeriod, TransactionEntry, TransactionId};
 use crate::time::{DefaultTimeProvider, TimeProvider};
 use axum::extract::Path;
@@ -27,6 +28,7 @@ pub struct TransactForm {
     account: Vec<String>,
     amount: Vec<String>,
     entry_type: Vec<i32>,
+    memo: Option<String>,
 }
 
 pub async fn transact(
@@ -121,6 +123,12 @@ pub async fn transact(
 
     let timestamp = DefaultTimeProvider.get_time();
 
+    let memo = form
+        .memo
+        .map(|m| Memo::try_new(m).map_err(DecodeError::ParseMemo))
+        .transpose()
+        .or_redirect(callback_url)?;
+
     let event_id = state
         .journal_service
         .create_transaction(
@@ -129,6 +137,7 @@ pub async fn transact(
             entries,
             // TODO(Ryan): assuming the period matches the timestamp's month for now
             FinancialPeriod::try_from(timestamp.month() as i8).expect("valid month"),
+            memo,
             user_authority,
             DefaultTimeProvider.get_time(),
         )

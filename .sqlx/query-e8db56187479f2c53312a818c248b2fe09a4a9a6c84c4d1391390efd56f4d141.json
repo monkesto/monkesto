@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT t.id as \"id: TransactionId\", t.journal_id as \"journal_id: JournalId\", t.entries as \"entries: TransactionEntryIds\", e.payload as \"payload!\"\n            FROM transactions t\n            INNER JOIN event e\n                ON e.transaction_id = t.id AND e.event_type = 'TransactionCreated'\n            WHERE t.journal_id = $1\n            ",
+  "query": "\n            SELECT t.id as \"id: TransactionId\", t.journal_id as \"journal_id: JournalId\", t.entries as \"entries: TransactionEntryIds\", t.memo as \"memo: Memo\", e.payload as \"payload!\"\n            FROM transactions t\n            INNER JOIN event e\n                ON e.transaction_id = t.id AND e.event_type = 'TransactionCreated'\n            WHERE t.journal_id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -20,6 +20,11 @@
       },
       {
         "ordinal": 3,
+        "name": "memo: Memo",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
         "name": "payload!",
         "type_info": "Bytea"
       }
@@ -33,8 +38,9 @@
       false,
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "b25ffc699fc7a3f0e3795f1d72047f4463a805d74383ec75abbafd51fdff8567"
+  "hash": "e8db56187479f2c53312a818c248b2fe09a4a9a6c84c4d1391390efd56f4d141"
 }

@@ -40,6 +40,24 @@ pub mod journal {
             include!(concat!(env!("OUT_DIR"), "/proto.journal.entry.entry.rs"));
         }
     }
+
+    pub mod transaction {
+        pub mod memo {
+            pub mod memo {
+                include!(concat!(
+                    env!("OUT_DIR"),
+                    "/proto.journal.transaction.memo.memo.rs"
+                ));
+            }
+
+            pub mod memo_error {
+                include!(concat!(
+                    env!("OUT_DIR"),
+                    "/proto.journal.transaction.memo.memo_error.rs"
+                ));
+            }
+        }
+    }
 }
 
 pub mod authn {

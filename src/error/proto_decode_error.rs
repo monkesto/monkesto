@@ -1,13 +1,14 @@
 use crate::email::EmailError;
 use crate::error::DecodeError::{
     AccountTypeFromInt, ActivityTypeFromInt, Deserialize, EntrySideFromInt, FieldRequired,
-    FinancialPeriodFromInt, Ident, ParseEmail, ParseName, ParseUuid, PermissionDecode,
+    FinancialPeriodFromInt, Ident, ParseEmail, ParseMemo, ParseName, ParseUuid, PermissionDecode,
 };
 use crate::id::ident_error::IdentError;
 use crate::journal::account::AccountTypeFromIntError;
 use crate::journal::activity::ActivityTypeFromIntError;
 use crate::journal::entry::EntrySideFromIntError;
 use crate::journal::transaction::FinancialPeriodFromIntError;
+use crate::journal::transaction::memo::memo_error::MemoError;
 use crate::name::name_error::NameError;
 use crate::proto::error::decode_error::ProtoDecodeError;
 use crate::proto::error::decode_error::proto_decode_error::ProtoErrorType;
@@ -25,6 +26,8 @@ pub enum DecodeError {
     ParseEmail(#[from] EmailError),
     #[error("Failed to parse a name: {0}")]
     ParseName(#[from] NameError),
+    #[error("Failed to parse a memo: {0}")]
+    ParseMemo(#[from] MemoError),
     #[error("Invalid ident: {0}")]
     Ident(#[from] IdentError),
     #[error("invalid webauthn-uuid: {0}")]
@@ -55,6 +58,7 @@ impl From<DecodeError> for ProtoDecodeError {
             FinancialPeriodFromInt(i) => ProtoErrorType::AccountTypeFromInt(i.0 as i32),
             EntrySideFromInt(i) => ProtoErrorType::EntrySideFromInt(i.0 as i32),
             ActivityTypeFromInt(i) => ProtoErrorType::ActivityTypeFromInt(i.0 as i32),
+            ParseMemo(e) => ProtoErrorType::Memo(e.into()),
         };
 
         ProtoDecodeError {
@@ -81,6 +85,7 @@ impl TryFrom<ProtoDecodeError> for DecodeError {
             }
             ProtoErrorType::EntrySideFromInt(i) => EntrySideFromIntError(i as i8).into(),
             ProtoErrorType::ActivityTypeFromInt(i) => ActivityTypeFromIntError(i as i8).into(),
+            ProtoErrorType::Memo(e) => ParseMemo(e.into()),
         };
 
         Ok(proto_error)

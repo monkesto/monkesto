@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod memo;
 pub mod views;
 
 use crate::id::Ident;
@@ -29,6 +30,7 @@ use crate::journal::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::error::{JournalError, JournalResult, TransactionValidationError};
 use crate::journal::fund::FundId;
 use crate::journal::member::JournalMember;
+use crate::journal::transaction::memo::Memo;
 use crate::journal::{Journal, JournalId, JournalService, Permissions, validate_permissions};
 use crate::proto::journal::entry::entry::ProtoRepeatedTransactionEntryIds;
 use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
@@ -164,6 +166,7 @@ pub struct Transaction {
     transaction_id: TransactionId,
     journal_id: JournalId,
     entries: TransactionEntryIds,
+    memo: Memo,
     status: Status,
 }
 
@@ -197,6 +200,7 @@ pub struct CreateTransaction {
     journal_id: JournalId,
     entries: TransactionEntries,
     period: FinancialPeriod,
+    memo: Option<Memo>,
     authority: Authority,
     timestamp: Timestamp,
 }
@@ -207,6 +211,7 @@ impl CreateTransaction {
         journal_id: JournalId,
         entries: TransactionEntries,
         period: FinancialPeriod,
+        memo: Option<Memo>,
         authority: Authority,
         timestamp: Timestamp,
     ) -> Self {
@@ -215,6 +220,7 @@ impl CreateTransaction {
             journal_id,
             entries,
             period,
+            memo,
             authority,
             timestamp,
         }
@@ -327,6 +333,7 @@ impl Decision for CreateTransaction {
             journal_id: self.journal_id,
             entries: TransactionEntryIds(entry_ids),
             financial_period: self.period,
+            memo: self.memo.clone(),
             authority: self.authority,
             timestamp: self.timestamp,
         });
@@ -379,6 +386,7 @@ pub struct TransactionState {
     pub id: TransactionId,
     #[expect(unused)]
     pub journal_id: JournalId,
+    pub memo: Option<Memo>,
     pub entries: Vec<StoredTransactionEntry>,
 }
 
@@ -388,16 +396,19 @@ struct TransactionStateWithPayload {
     #[expect(unused)]
     journal_id: JournalId,
     entries: TransactionEntryIds,
+    memo: Option<Memo>,
     payload: Vec<u8>,
 }
 
 impl JournalService {
+    #[allow(clippy::too_many_arguments)]
     pub async fn create_transaction(
         &self,
         transaction_id: TransactionId,
         journal_id: JournalId,
         entries: Vec<TransactionEntry>,
         period: FinancialPeriod,
+        memo: Option<Memo>,
         authority: Authority,
         timestamp: Timestamp,
     ) -> Result<PgEventId, DecisionError<JournalError>> {
@@ -408,6 +419,7 @@ impl JournalService {
                 journal_id,
                 TransactionEntries(entries),
                 period,
+                memo,
                 authority,
                 timestamp,
             ))
@@ -431,7 +443,7 @@ impl JournalService {
         let transactions = sqlx::query_as!(
             TransactionStateWithPayload,
             r#"
-            SELECT t.id as "id: TransactionId", t.journal_id as "journal_id: JournalId", t.entries as "entries: TransactionEntryIds", e.payload as "payload!"
+            SELECT t.id as "id: TransactionId", t.journal_id as "journal_id: JournalId", t.entries as "entries: TransactionEntryIds", t.memo as "memo: Memo", e.payload as "payload!"
             FROM transactions t
             INNER JOIN event e
                 ON e.transaction_id = t.id AND e.event_type = 'TransactionCreated'
@@ -481,6 +493,7 @@ impl JournalService {
                         TransactionState {
                             id: transaction.id,
                             journal_id,
+                            memo: transaction.memo,
                             entries: tx_entries,
                         },
                         authority,

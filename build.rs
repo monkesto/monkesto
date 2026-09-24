@@ -16,6 +16,8 @@ fn main() {
             "src/journal/error/journal_error.proto",
             "src/authn/error/user_error.proto",
             "src/authn/passkey/error/passkey_error.proto",
+            "src/journal/transaction/memo/memo.proto",
+            "src/journal/transaction/memo/memo_error.proto",
         ],
         &["src"],
     )

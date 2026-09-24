@@ -244,8 +244,6 @@ pub async fn view_db(
 
 
                     @for month in 0..NUM_MONTHS {
-                        @let _ = dbg!(&curr_year, &curr_month);
-
                         @let timestamp = NaiveDate::from_ymd_opt(curr_year, curr_month, 1).expect("valid date");
 
                         h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {

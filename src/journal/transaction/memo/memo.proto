@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package proto.journal.transaction.memo.memo;
+
+message ProtoMemo {
+  string memo = 1;
+}

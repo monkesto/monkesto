@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS accounts (
 CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
     journal_id TEXT NOT NULL,
-    entries BYTEA NOT NULL
+    entries BYTEA NOT NULL,
+    memo TEXT
 );
 
 CREATE TABLE IF NOT EXISTS files (

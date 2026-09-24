@@ -6,6 +6,7 @@ import "authority/authority.proto";
 import "id/ident.proto";
 import "time/timestamp.proto";
 import "journal/entry/entry.proto";
+import "journal/transaction/memo/memo.proto";
 
 
 message ProtoJournalDomainEvent {
@@ -85,6 +86,7 @@ message ProtoJournalDomainEvent {
     id.ident.ProtoIdent journal_id = 2;
     proto.journal.entry.entry.ProtoRepeatedTransactionEntryIds entries = 3;
     int32 financial_period = 4;
+    transaction.memo.memo.ProtoMemo memo = 7;
     authority.authority.ProtoAuthority authority = 5;
     time.timestamp.ProtoTimestamp timestamp = 6;
   }

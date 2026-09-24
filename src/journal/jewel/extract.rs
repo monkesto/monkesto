@@ -251,7 +251,7 @@ pub async fn jewel_extract(
     .fetch_one(&mut *conn)
     .await?;
 
-    let accounts: BTreeMap<i64, JewelAccount> = sqlx::query_as(
+    let mut accounts: BTreeMap<i64, JewelAccount> = sqlx::query_as(
         r#"
         SELECT AccountID,
                AccountType,
@@ -320,7 +320,13 @@ pub async fn jewel_extract(
     .fetch_all(&mut *conn)
     .await?
     .into_iter()
-    .map(|contribution: JewelContribution| (contribution.contribution_id, contribution))
+    // ensure that all affected accounts are set as active
+    .map(|contribution: JewelContribution| {
+        if let Some(account) = accounts.get_mut(&contribution.account_id) {
+            account.active = true;
+        }
+        (contribution.contribution_id, contribution)
+    })
     .collect();
 
     let envelopes = sqlx::query_as(
@@ -360,7 +366,7 @@ pub async fn jewel_extract(
     .map(|journal: JewelJournal| (journal.journal_id, journal))
     .collect();
 
-    let journal_items = sqlx::query_as(
+    let journal_items: Vec<JewelJournalItem> = sqlx::query_as(
         r#"
             SELECT JournalItemID,
                    JournalID,
@@ -371,6 +377,13 @@ pub async fn jewel_extract(
     )
     .fetch_all(&mut *conn)
     .await?;
+
+    // ensure that all affected accounts are set as active
+    for entry in journal_items.iter() {
+        if let Some(account) = accounts.get_mut(&entry.account_id) {
+            account.active = true;
+        }
+    }
 
     // statistics
 

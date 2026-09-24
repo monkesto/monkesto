@@ -8,6 +8,7 @@ use crate::journal::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
 use crate::journal::store::JournalEventStore;
+use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{FinancialPeriod, TransactionEntryIds, TransactionId};
 use crate::journal::{JournalId, JournalService, Permissions};
 use crate::name::Name;
@@ -147,6 +148,7 @@ pub enum JournalDomainEvent {
         journal_id: JournalId,
         entries: TransactionEntryIds,
         financial_period: FinancialPeriod,
+        memo: Option<Memo>,
         authority: Authority,
         timestamp: Timestamp,
     },
@@ -311,6 +313,7 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 journal_id,
                 entries,
                 financial_period,
+                memo,
                 authority,
                 timestamp,
             } => JournalDomainEventType::TransactionCreated(ProtoTransactionCreated {
@@ -318,6 +321,7 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 journal_id: Some(journal_id.into()),
                 entries: Some(entries.into()),
                 financial_period: financial_period as i32,
+                memo: memo.map(|memo| memo.into()),
                 authority: Some(authority.into()),
                 timestamp: Some(timestamp.into()),
             }),
@@ -462,6 +466,7 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                     journal_id: ev.journal_id.try_into()?,
                     entries: ev.entries.ok_or(FieldRequired)?.try_into()?,
                     financial_period: (ev.financial_period as i8).try_into()?,
+                    memo: ev.memo.map(|m| m.try_into()).transpose()?,
                     authority: ev.authority.try_into()?,
                     timestamp: ev.timestamp.try_into()?,
                 }

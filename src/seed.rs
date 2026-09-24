@@ -6,6 +6,7 @@ use crate::error::monkesto_error::MonkestoResult;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::entry::{EntryKind, EntrySide};
 use crate::journal::error::JournalError;
+use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{FinancialPeriod, TransactionEntry, TransactionId};
 use crate::journal::{JournalId, Permissions};
 use crate::name::Name;
@@ -157,6 +158,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
     let transactions = [
         (
             TransactionId::from_str("t1tuition0000001")?,
+            Memo::try_new("Tuition Payment".to_string()).map_err(JournalError::from)?,
             vec![
                 TransactionEntry {
                     entry_kind: EntryKind::Account {
@@ -176,6 +178,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
         ),
         (
             TransactionId::from_str("t2salary00000002")?,
+            Memo::try_new("Salary".to_string()).map_err(JournalError::from)?,
             vec![
                 TransactionEntry {
                     entry_kind: EntryKind::Account {
@@ -195,6 +198,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
         ),
         (
             TransactionId::from_str("t3textbooks00003")?,
+            Memo::try_new("Textbooks".to_string()).map_err(JournalError::from)?,
             vec![
                 TransactionEntry {
                     entry_kind: EntryKind::Account {
@@ -214,6 +218,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
         ),
         (
             TransactionId::from_str("t4tuition0000004")?,
+            Memo::try_new("Tuition Payment".to_string()).map_err(JournalError::from)?,
             vec![
                 TransactionEntry {
                     entry_kind: EntryKind::Account {
@@ -233,6 +238,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
         ),
         (
             TransactionId::from_str("t6chkdeposit0005")?,
+            Memo::try_new("Check Deposit".to_string()).map_err(JournalError::from)?,
             vec![
                 TransactionEntry {
                     entry_kind: EntryKind::Account {
@@ -255,7 +261,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
     // unix epoch in utc
     let period = FinancialPeriod::January;
 
-    for (id, entries) in transactions {
+    for (id, memo, entries) in transactions {
         match state
             .journal_service
             .create_transaction(
@@ -263,6 +269,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
                 maple_ridge_academy_id,
                 entries,
                 period,
+                Some(memo),
                 pacioli_authority,
                 time_provider.get_time(),
             )

@@ -5,6 +5,7 @@ package proto.error.decode_error;
 import "google/protobuf/empty.proto";
 import "id/ident_error.proto";
 import "name/name_error.proto";
+import "journal/transaction/memo/memo_error.proto";
 
 message ProtoDecodeError {
   oneof proto_error_type {
@@ -19,5 +20,6 @@ message ProtoDecodeError {
     int32 financial_period_from_int = 9;
     int32 entry_side_from_int = 10;
     int32 activity_type_from_int = 11;
+    journal.transaction.memo.memo_error.ProtoMemoError memo = 12;
   }
 }

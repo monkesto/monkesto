@@ -13,6 +13,7 @@ use crate::journal::fund::FundId;
 use crate::journal::{JournalId, PermissionDecodeError, Permissions};
 use crate::journal::error::transaction_validation_error::TransactionValidationError;
 use crate::journal::jewel::JewelImportError;
+use crate::journal::transaction::memo::memo_error::MemoError;
 use crate::journal::transaction::TransactionId;
 use crate::proto::journal::error::journal_error::proto_journal_error::{JournalErrorType, ProtoJewelImportError, ProtoTransactionValidationError};
 use crate::proto::journal::error::journal_error::proto_journal_error::proto_jewel_import_error::JewelImportErrorType;
@@ -98,6 +99,9 @@ pub enum JournalError {
 
     #[error("failed to import from a jewel database: {0}")]
     JewelImport(#[from] JewelImportError),
+
+    #[error("failed to create a memo: {0}")]
+    Memo(#[from] MemoError),
 }
 
 impl From<sqlx::Error> for JournalError {
@@ -223,6 +227,7 @@ impl TryFrom<ProtoJournalError> for JournalError {
                 };
                 JournalError::JewelImport(import_error)
             }
+            JournalErrorType::Memo(e) => JournalError::Memo(e.into()),
         };
 
         Ok(journal_error)
@@ -322,6 +327,7 @@ impl From<JournalError> for ProtoJournalError {
                     jewel_import_error_type: Some(import_error),
                 })
             }
+            JournalError::Memo(e) => JournalErrorType::Memo(e.into()),
         };
 
         Self {

@@ -86,6 +86,12 @@ pub async fn transaction_list_page(
                     a
                     href=(format!("/journal/{}/transaction/{}", id, tx.id))
                     class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
+                        @if let Some(ref memo) = tx.memo {
+                            span class="font-medium text-gray-900 dark:text-white grid text-center place-items-center" {
+                                (memo)
+                            }
+
+                        }
                         div class="space-y-3" {
                             div class="space-y-2" {
                                 @for entry in tx.entries.iter() {
@@ -144,6 +150,9 @@ pub async fn transaction_list_page(
                                         Actor::Anonymous => {"anonymous"}
                                     }
                                 }
+
+
+
                             }
                         }
                     }

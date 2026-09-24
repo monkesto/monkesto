@@ -12,6 +12,7 @@ use crate::journal::event::JournalDomainEvent;
 use crate::journal::file::{FileId, ObjectStore};
 use crate::journal::fund::FundId;
 use crate::journal::store::JournalEventStore;
+use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{TransactionEntryIds, TransactionId};
 use crate::name::Name;
 use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
@@ -87,6 +88,7 @@ impl JournalService {
             CREATE TABLE IF NOT EXISTS transactions (
                 id TEXT PRIMARY KEY,
                 journal_id TEXT NOT NULL,
+                memo TEXT,
                 entries BYTEA NOT NULL
             )
         "#
@@ -367,15 +369,17 @@ impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
                 transaction_id,
                 journal_id,
                 entries,
+                memo,
                 ..
             } => {
                 sqlx::query!(
                     r#"
-                    INSERT INTO transactions (id, journal_id, entries) VALUES($1, $2, $3) ON CONFLICT DO NOTHING
+                    INSERT INTO transactions (id, journal_id, entries, memo) VALUES($1, $2, $3, $4) ON CONFLICT DO NOTHING
                     "#,
                     transaction_id as TransactionId,
                     journal_id as JournalId,
-                    entries.clone() as TransactionEntryIds
+                    entries.clone() as TransactionEntryIds,
+                    memo as Option<Memo>
                 )
                 .execute(&self.projection_pool)
                 .await?;
