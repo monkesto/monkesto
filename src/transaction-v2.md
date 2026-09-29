@@ -29,10 +29,7 @@ enum EntryKind {
     Activity {
         activity: ActivityId,
         fund: Fund,
-    },
-    Transfer {
-        activity: ActivityId,
-        fund: Fund,
+        kind: ActivityKind,
     },
 }
 
@@ -69,7 +66,7 @@ and reading reports for a small local church.
 
 A fund is a designated purpose, similar to how an equity account may be used in
 nonprofit accounting. Revenue, expenses, and donations are activities. A fund
-is referenced through an activity or transfer, and every activity is associated
+is referenced through an activity entry, and every activity entry is associated
 with a fund.
 
 Accounts represent the asset and liability side. An account entry does not need
@@ -78,6 +75,10 @@ without involving a fund or activity.
 
 Every activity entry has a fund. The general fund is the default when no named,
 designated fund applies; it is a fund value rather than the absence of one.
+Each activity entry also has a kind, one of Income, Expense, or Transfer.
+When entries of kind Transfer exist in a transaction,
+the total credits and debits of transfer entries must balance.
+The kind is used in activity reporting.
 
 References to journals, accounts, and activities do not include `id` in the
 field name. Their types identify them as IDs.
