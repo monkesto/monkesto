@@ -30,6 +30,7 @@ enum EntryKind {
         activity: ActivityId,
         fund: Fund,
         kind: ActivityKind,
+        scope: ActivityScope,
     },
 }
 
@@ -46,7 +47,11 @@ enum AccountKind {
 enum ActivityKind {
     Income,
     Expense,
-    Transfer,
+}
+
+enum ActivityScope {
+    Internal,
+    External,
 }
 ```
 
@@ -55,9 +60,10 @@ enum ActivityKind {
 The date and period do not need to match. They generally should, but they may
 diverge when necessary.
 
-The term "account" is often overloaded in accounting. It may refer to where value is
-held or owed, such as a bank account or credit card; to revenue or expense
-activity; or to equity reserved for a particular nonprofit purpose. These do not
+The term "account" is often overloaded in accounting. It may refer to where value
+is held or owed, such as a bank account or credit card. It may also refer to
+revenue or expense activity. Another use is equity reserved for a particular
+nonprofit purpose. These do not
 form one interchangeable set. They may be separate dimensions of the same entry,
 so they should not be modeled as mutually exclusive accounts.
 
@@ -74,11 +80,20 @@ an additional dimension, and a transaction may transfer value between accounts
 without involving a fund or activity.
 
 Every activity entry has a fund. The general fund is the default when no named,
-designated fund applies; it is a fund value rather than the absence of one.
-Each activity entry also has a kind, one of Income, Expense, or Transfer.
-When entries of kind Transfer exist in a transaction,
-the total credits and debits of transfer entries must balance.
-The kind is used in activity reporting.
+designated fund applies. It is a fund value rather than the absence of one.
+
+Each activity entry also has a kind, either Income or Expense, and a scope,
+either Internal or External. Internal entries represent allocations between
+funds. External entries represent activity involving the outside world.
+Kind and scope belong to the entry. The same activity can be used for income,
+expenses, and internal allocations. Kind and scope are independent of the
+entry's debit or credit side.
+
+Within each transaction, total debits and credits must balance. Internal
+activity entries must also balance among themselves.
+
+Kind and scope are used in activity reporting. Reports can show internal income
+and expenses separately or combine them as net transfers.
 
 References to journals, accounts, and activities do not include `id` in the
 field name. Their types identify them as IDs.
