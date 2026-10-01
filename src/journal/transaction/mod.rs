@@ -3,7 +3,7 @@ pub mod memo;
 pub mod views;
 
 use crate::id::Ident;
-use crate::journal::event::{AFTEvent, JournalDomainEvent, TransactionEvent};
+use crate::journal::event::{AFTEvent, EntryEvent, JournalDomainEvent, TransactionEvent};
 use axum::Router;
 use axum::routing::{get, post};
 use axum_login::login_required;
@@ -36,6 +36,7 @@ use crate::proto::journal::entry::entry::ProtoRepeatedTransactionEntryIds;
 use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::status::Status;
 use crate::time::Timestamp;
+use chrono::{DateTime, Datelike, Utc};
 use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
 use disintegrate_postgres::PgEventId;
 use prost::Message;
@@ -68,6 +69,13 @@ pub enum FinancialPeriod {
 #[derive(Debug, Error, PartialEq)]
 #[error("{0}")]
 pub struct FinancialPeriodFromIntError(pub i8);
+
+impl From<DateTime<Utc>> for FinancialPeriod {
+    fn from(timestamp: DateTime<Utc>) -> Self {
+        Self::try_from(timestamp.month() as i8)
+            .expect("chrono timestamps should always have a valid month")
+    }
+}
 
 impl TryFrom<i8> for FinancialPeriod {
     type Error = FinancialPeriodFromIntError;
@@ -157,6 +165,33 @@ pub struct TransactionEntry {
     pub amount: u64,
     pub entry_side: EntrySide,
     pub entry_kind: EntryKind,
+}
+
+#[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
+#[state_query(EntryEvent)]
+pub struct AllJournalEntries {
+    #[id]
+    journal_id: JournalId,
+    entries: HashSet<EntryId>,
+}
+
+impl AllJournalEntries {
+    pub fn new(journal_id: JournalId) -> Self {
+        Self {
+            journal_id,
+            ..Default::default()
+        }
+    }
+}
+
+impl StateMutate for AllJournalEntries {
+    fn mutate(&mut self, event: Self::Event) {
+        match event {
+            EntryEvent::EntryCreated { entry_id, .. } => {
+                self.entries.insert(entry_id);
+            }
+        }
+    }
 }
 
 #[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
@@ -308,8 +343,8 @@ impl Decision for CreateTransaction {
                 }
             }
 
-            // TODO(Gabriel): Check for entry id collisions
             let entry_id = EntryId::new();
+
             entry_ids.push(entry_id);
             events.push(JournalDomainEvent::EntryCreated {
                 entry_id,

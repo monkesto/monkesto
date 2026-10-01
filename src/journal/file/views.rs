@@ -95,12 +95,18 @@ pub async fn file_list_page(
 
                                 @if file.name.ends_with(".mdb") {
                                     div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
-                                    form method = "get" action=(format! ("/journal/{}/file/{}/jewel", journal_id, file.id)) class="space-y-6" {
-                                        button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
-                                            "View Jewel Database"
+                                        form method = "get" action=(format! ("/journal/{}/file/{}/jewel", journal_id, file.id)) class="space-y-6" {
+                                            button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
+                                                "View Jewel Database"
+                                            }
+                                        }
+
+                                        form method = "get" action=(format! ("/journal/{}/file/{}/import_jewel", journal_id, file.id)) class="space-y-6" {
+                                            button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
+                                                "Import Jewel Database"
+                                            }
                                         }
                                     }
-                                }
                                 }
 
                             }

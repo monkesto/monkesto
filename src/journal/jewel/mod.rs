@@ -1,11 +1,13 @@
+pub mod commands;
 mod extract;
-
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
+use crate::dollars::Dollars;
 use crate::journal::error::JournalResult;
 use crate::journal::file::{FileId, ObjectStore};
 use crate::journal::jewel::extract::{JewelData, jewel_extract};
 use crate::journal::layout::layout;
+use crate::journal::transaction::FinancialPeriod;
 use crate::journal::{JournalId, JournalService};
 use crate::{BackendType, StateType};
 use axum::extract::{Path, State};
@@ -37,6 +39,10 @@ pub enum JewelImportError {
     ChildProcessExitFailure(String),
     #[error("the database uses an outdated version of jewel: {0}; jewel 9.0 or newer is required")]
     OutdatedJewelVersion(f64),
+    #[error("missing entries for journal {0}")]
+    MissingJournalEntries(i64),
+    #[error("missing account with id {0}")]
+    MissingAccount(i64),
 }
 
 impl JournalService {
@@ -209,7 +215,13 @@ impl JournalService {
             Err(JewelImportError::OutdatedJewelVersion(version))?;
         }
 
-        Ok(jewel_extract(&mut conn, history_length_months, top_expense_list_size).await?)
+        Ok(jewel_extract(
+            &mut conn,
+            FinancialPeriod::July,
+            history_length_months,
+            top_expense_list_size,
+        )
+        .await?)
     }
 }
 
@@ -234,9 +246,8 @@ pub async fn view_db(
         && let Ok(file_id) = file_id_res
     {
         html! {
-
             @match state.journal_service.get_jewel_db(journal_id, file_id, user_authority, NUM_MONTHS as u32, TOP_EXPENSE_LIST_SIZE).await {
-                Ok(JewelData {standard_stats, ..}) => div {
+                Ok(JewelData {standard_stats, accounts, ..}) => div {
                     @let current_date = Utc::now();
 
                     @let mut curr_year = current_date.year();
@@ -253,13 +264,13 @@ pub async fn view_db(
                         @let budget_giving = standard_stats.monthly_budget_giving[month];
 
                         p {
-                            "budget giving: " (format!("${}.{:02}", budget_giving / 100 , budget_giving % 100))
+                            "budget giving: " (Dollars(budget_giving))
                         }
 
                         @let tithe_giving = standard_stats.monthly_tithe[month];
 
                         p {
-                            "tithe giving: " (format!("${}.{:02}", tithe_giving / 100 , tithe_giving % 100))
+                            "tithe giving: " (Dollars(tithe_giving))
                         }
 
                         br;
@@ -268,28 +279,98 @@ pub async fn view_db(
 
 
                         p {
-                            "received " (format!("${}.{:02}", online_giving / 100 , online_giving % 100)) " online"
+                            "received " (Dollars(online_giving)) " online"
                         }
 
                         p {
-                            "received " (format!("${}.{:02}", inhouse_giving / 100 , inhouse_giving % 100)) " in person"
+                            "received " (Dollars(inhouse_giving)) " in person"
                         }
 
                         p {
-                            "received " (format!("${}.{:02}", unknown_giving / 100 , unknown_giving % 100)) " from an unknown source"
+                            "received " (Dollars(unknown_giving)) " from an unknown source"
                         }
-
-                        @let top_expenses = standard_stats.monthly_top_expenses[month].clone();
 
                         br;
+
+                        @let budget_allocations = standard_stats.monthly_budget_allocations[month].clone();
+
+                        table class="w-full text-left table-auto min-w-max" {
+                            caption class="caption-top" {
+                                "budget allocations"
+                            }
+
+                            thread {
+                                tr {
+                                    th {
+                                        "Account"
+                                    }
+                                    th {
+                                        "Month Spent"
+                                    }
+                                    th {
+                                        "Month Budgeted"
+                                    }
+                                    th {
+                                        "Month Difference"
+                                    }
+                                    th {
+                                        "YTD Spent"
+                                    }
+                                    th {
+                                        "YTD Budgeted"
+                                    }
+                                    th {
+                                        "YTD Difference"
+                                    }
+                                }
+                            }
+
+                            tbody {
+                                 @for (account_id, (month_budgeted, month_spent, year_budgeted, year_spent)) in budget_allocations {
+                                    tr {
+                                        td {
+                                            (accounts.get(&account_id).map(|acc| acc.name.as_str()).unwrap_or("unknown account"))
+                                        }
+                                        td {
+                                            (Dollars(month_spent))
+                                        }
+                                        td {
+                                            (Dollars(month_budgeted))
+                                        }
+
+                                        @let month_difference = month_spent - month_budgeted;
+                                        td {
+                                            (Dollars(month_difference))
+                                        }
+
+                                        td {
+                                            (Dollars(year_spent))
+                                        }
+                                        td {
+                                            (Dollars(year_budgeted))
+                                        }
+
+                                        @let year_difference = year_spent - year_budgeted;
+                                        td {
+                                            (Dollars(year_difference))
+                                        }
+                                    }
+
+                                }
+                            }
+                        }
+
+                        br;
+
+                        @let top_expenses = standard_stats.monthly_top_expenses[month].clone();
 
                         h3 class="text-2xl/7 font-bold text-white sm:truncate sm:text-xl sm:tracking-tight" {
                             "top " (TOP_EXPENSE_LIST_SIZE) " expenses"
                         }
 
                         ul {
-                            @for (cost, name) in top_expenses {
-                                (name) ": " (format!("${}.{:02}", cost / 100, cost % 100))
+                            @for (account_id, cost) in top_expenses {
+                                (accounts.get(&account_id).map(|acc| acc.name.as_str()).unwrap_or("unknown account")) ": " (Dollars(cost))
                                 br;
                             }
                         }

@@ -18,17 +18,15 @@ use crate::name::Name;
 use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use async_trait::async_trait;
 use disintegrate::serde::prost::Prost;
-use disintegrate::{EventListener, PersistedEvent, StreamQuery, query};
-use disintegrate_postgres::{
-    PgDecisionMaker, PgEventId, PgSnapshotter, WithPgSnapshot, decision_maker,
-};
+use disintegrate::{EventListener, NoSnapshot, PersistedEvent, StreamQuery, query};
+use disintegrate_postgres::{PgDecisionMaker, PgEventId, decision_maker};
 use sqlx::PgPool;
 use tokio::sync::watch;
 
 type PgJournalDecisionMaker = PgDecisionMaker<
     JournalDomainEvent,
     Prost<JournalDomainEvent, ProtoJournalDomainEvent>,
-    WithPgSnapshot,
+    NoSnapshot,
 >;
 
 #[derive(Clone)]
@@ -150,12 +148,11 @@ impl JournalService {
         .execute(&pool)
         .await?;
 
-        let snapshotter = PgSnapshotter::try_new(pool.clone(), 10)
-            .await
-            .expect("failed to create a snapshotter for the journal service");
+        // let snapshotter = PgSnapshotter::try_new(pool.clone(), 10)
+        //     .await
+        //     .expect("failed to create a snapshotter for the journal service");
 
-        let decision_maker =
-            decision_maker(event_store.event_store, WithPgSnapshot::new(snapshotter));
+        let decision_maker = decision_maker(event_store.event_store, NoSnapshot);
 
         let (sender, receiver) = watch::channel(0);
 

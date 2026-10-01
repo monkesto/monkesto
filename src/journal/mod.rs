@@ -52,6 +52,10 @@ pub fn router() -> Router<crate::StateType> {
         )
         .route("/journal/{id}/file/{file_id}/jewel", get(jewel::view_db))
         .route(
+            "/journal/{id}/file/{file_id}/import_jewel",
+            get(jewel::commands::import_jewel_db),
+        )
+        .route(
             "/journal/{journal_id}/file/{file_id}/delete",
             post(delete_file),
         )

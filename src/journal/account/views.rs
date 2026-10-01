@@ -2,6 +2,7 @@ use crate::BackendType;
 use crate::StateType;
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
+use crate::dollars::Dollars;
 use crate::error::MonkestoError;
 use crate::error::monkesto_error::UrlError;
 use crate::id::Ident;
@@ -46,7 +47,7 @@ pub async fn account_list_page(
                                 @let balance = acc.balance.abs();
                                 div class="text-right" {
                                     div class="text-lg font-medium text-gray-900 dark:text-white" {
-                                        (format!("${}.{:02} {}", balance / 100, balance % 100, if acc.balance < 0 { "Dr" } else { "Cr" }))
+                                        (Dollars(balance)) " " (if acc.balance < 0 { "Dr" } else { "Cr" })
                                     }
                                 }
                             }

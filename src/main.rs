@@ -1,6 +1,7 @@
 mod authn;
 mod authority;
 mod authz;
+mod dollars;
 mod email;
 mod entitlement;
 pub mod error;
@@ -95,7 +96,7 @@ async fn main() {
     tracing_subscriber::registry()
         .with(tracing_subscriber::fmt::layer())
         .with(tracing_subscriber::filter::LevelFilter::from_level(
-            axum_login::tracing::Level::DEBUG,
+            axum_login::tracing::Level::INFO,
         ))
         .init();
 

@@ -224,6 +224,12 @@ impl TryFrom<ProtoJournalError> for JournalError {
                     JewelImportErrorType::OutdatedJewelVersion(s) => {
                         JewelImportError::OutdatedJewelVersion(s as f64)
                     }
+                    JewelImportErrorType::MissingJournalEntries(id) => {
+                        JewelImportError::MissingJournalEntries(id)
+                    }
+                    JewelImportErrorType::MissingAccount(id) => {
+                        JewelImportError::MissingAccount(id)
+                    }
                 };
                 JournalError::JewelImport(import_error)
             }
@@ -320,6 +326,12 @@ impl From<JournalError> for ProtoJournalError {
                     }
                     JewelImportError::OutdatedJewelVersion(f) => {
                         JewelImportErrorType::OutdatedJewelVersion(f as f32)
+                    }
+                    JewelImportError::MissingJournalEntries(id) => {
+                        JewelImportErrorType::MissingJournalEntries(id)
+                    }
+                    JewelImportError::MissingAccount(id) => {
+                        JewelImportErrorType::MissingAccount(id)
                     }
                 };
 

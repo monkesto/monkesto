@@ -4,6 +4,7 @@ use crate::StateType;
 use crate::authn::user::UserState;
 use crate::authn::{UserId, get_user};
 use crate::authority::{Actor, Authority};
+use crate::dollars::Dollars;
 use crate::email::Email;
 use crate::error::MonkestoError;
 use crate::error::monkesto_error::{MonkestoResult, UrlError};
@@ -99,8 +100,6 @@ pub async fn transaction_list_page(
                                         EntryKind::Account {
                                             account_id
                                         } => {
-                                            @let entry_amount = format!("${}.{:02}", entry.amount / 100, entry.amount % 100);
-
                                             div class="flex justify-between items-center" {
                                                 span class="text-base font-medium text-gray-900 dark:text-white" {
                                                     @match &accounts_res {
@@ -110,7 +109,7 @@ pub async fn transaction_list_page(
                                                 }
 
                                                 span class="text-base text-gray-700 dark:text-gray-300" {
-                                                    (entry_amount) " " (entry.entry_side)
+                                                    (Dollars(entry.amount)) " " (entry.entry_side)
                                                 }
 
                                             }

@@ -1,7 +1,8 @@
 // allow regular sqlx functions as the macros are more trouble than they're worth here
 #![allow(clippy::disallowed_methods)]
 
-use chrono::{DateTime, Datelike, NaiveDate, Utc};
+use crate::journal::transaction::FinancialPeriod;
+use chrono::{DateTime, Datelike, Months, NaiveDate, Utc};
 use sqlx::error::BoxDynError;
 use sqlx::types::time::OffsetDateTime;
 use sqlx::{Database, Decode, FromRow, SqliteConnection, Type};
@@ -40,27 +41,33 @@ where
     }
 }
 
-#[derive(Debug, FromRow)]
+#[derive(Clone, Debug, FromRow)]
 #[expect(unused)]
 #[sqlx(rename_all = "PascalCase")]
 pub struct JewelAccount {
     #[sqlx(rename = "AccountID")]
-    account_id: i64,
-    /// mystery int
-    account_type: i64,
+    pub account_id: i64,
+    /// 0 -> beginning balance
+    ///
+    /// 1 -> asset (bank account, petty cash fund, etc)
+    ///
+    /// 2 -> asset (program-specific funds)
+    ///
+    /// 3 -> liability
+    pub account_type: i64,
     pub name: String,
     #[sqlx(rename = "ParentAccountID")]
-    parent_id: Option<i64>,
-    tax_deductible: bool,
+    pub parent_id: Option<i64>,
+    pub tax_deductible: bool,
     // allow_posting?
-    local_income: bool,
-    local_expense: bool,
-    permanent: bool,
-    active: bool,
+    pub local_income: bool,
+    pub local_expense: bool,
+    pub permanent: bool,
+    pub active: bool,
 }
 
 #[expect(unused)]
-#[derive(Debug, FromRow)]
+#[derive(Clone, Debug, FromRow)]
 #[sqlx(rename_all = "PascalCase")]
 pub struct JewelName {
     #[sqlx(rename = "NameID")]
@@ -79,7 +86,7 @@ pub struct JewelName {
 }
 
 #[expect(unused)]
-#[derive(Debug, FromRow)]
+#[derive(Copy, Clone, Debug, FromRow)]
 #[sqlx(rename_all = "PascalCase")]
 pub struct JewelOffering {
     #[sqlx(rename = "OfferingID")]
@@ -97,7 +104,7 @@ pub struct JewelOffering {
 }
 
 #[expect(unused)]
-#[derive(Debug, FromRow)]
+#[derive(Copy, Clone, Debug, FromRow)]
 #[sqlx(rename_all = "PascalCase")]
 pub struct JewelContribution {
     #[sqlx(rename = "ContribID")]
@@ -114,7 +121,7 @@ pub struct JewelContribution {
 }
 
 #[expect(unused)]
-#[derive(Debug, FromRow)]
+#[derive(Clone, Debug, FromRow)]
 #[sqlx(rename_all = "PascalCase")]
 pub struct JewelEnvelope {
     #[sqlx(rename = "EnvID")]
@@ -143,31 +150,49 @@ pub struct JewelEnvelope {
 }
 
 #[expect(unused)]
-#[derive(Debug, FromRow)]
+#[derive(Clone, Debug, FromRow)]
 #[sqlx(rename_all = "PascalCase")]
 pub struct JewelJournal {
     #[sqlx(rename = "JournalID")]
-    journal_id: i64,
-    accounting_date: OffsetDateTime,
+    pub journal_id: i64,
+    pub accounting_date: DateTime<Utc>,
 
-    /// mystery int
+    /// 0 -> initial balances
+    ///
+    /// 1 -> not found
+    ///
+    /// 2 -> income or check reversal
+    ///
+    /// 3 -> not found
+    ///
+    /// 4 -> expense
     #[sqlx(rename = "JournalTypeID")]
-    journal_type_id: i64,
+    pub journal_type_id: i64,
 
     #[sqlx(rename = "SeqNum")]
-    sequence_number: i64,
-    date: OffsetDateTime,
+    pub sequence_number: i64,
+    pub date: DateTime<Utc>,
 
     #[sqlx(rename = "VendorID")]
-    vendor_id: Option<i64>,
+    pub vendor_id: Option<i64>,
     pub memo: String,
 
     #[sqlx(rename = "zSingleAccountID")]
-    z_single_account_id: i64,
+    pub z_single_account_id: i64,
 }
 
 #[expect(unused)]
-#[derive(Debug, FromRow)]
+#[derive(Clone, Debug, FromRow)]
+#[sqlx(rename_all = "PascalCase")]
+pub struct JewelAllocation {
+    #[sqlx(rename = "AccountID")]
+    account_id: i64,
+    year: i64,
+    amount: i64,
+}
+
+#[expect(unused)]
+#[derive(Copy, Clone, Debug, FromRow)]
 #[sqlx(rename_all = "PascalCase")]
 pub struct JewelJournalItem {
     #[sqlx(rename = "JournalItemID")]
@@ -180,7 +205,7 @@ pub struct JewelJournalItem {
     pub account_id: i64,
 
     /// yes, floating point money
-    amount: f64,
+    pub amount: f64,
 }
 
 pub struct StandardJewelStats {
@@ -190,11 +215,15 @@ pub struct StandardJewelStats {
     /// monthly tithe received in the last x months (inclusive), ordered most to least recent
     pub monthly_tithe: Vec<i64>,
 
-    /// amount and name of the top x expenses in the last x months, ordered most to least recent
-    pub monthly_top_expenses: Vec<Vec<(i64, String)>>,
+    /// id and amount of the top x expenses in the last x months, ordered most to least recent
+    pub monthly_top_expenses: Vec<Vec<(i64, i64)>>,
 
     /// (online, in_house, unknown) giving combined tithe and budget for the last x months, ordered most to least recent
     pub monthly_online_vs_offline_giving: Vec<(i64, i64, i64)>,
+
+    /// (account_id, (budgeted_month, spent_month, budgeted_year, spent_year) for the last x months, ordered most to least recent
+    #[allow(clippy::type_complexity)]
+    pub monthly_budget_allocations: Vec<Vec<(i64, (i64, i64, i64, i64))>>,
 }
 
 pub enum OfferingSource {
@@ -237,11 +266,15 @@ pub struct JewelData {
     pub contributions: BTreeMap<i64, JewelContribution>,
     pub envelopes: BTreeMap<i64, JewelEnvelope>,
     pub journals: BTreeMap<i64, JewelJournal>,
-    pub journal_items: Vec<JewelJournalItem>,
+    /// (journal_id, journal_items)
+    pub journal_entries: BTreeMap<i64, Vec<JewelJournalItem>>,
+    /// (account_id, allocation)
+    pub allocations: BTreeMap<i64, JewelAllocation>,
     pub standard_stats: StandardJewelStats,
 }
 pub async fn jewel_extract(
     conn: &mut SqliteConnection,
+    fiscal_year_starting_month: FinancialPeriod,
     num_months: u32,
     num_top_expenses: usize,
 ) -> Result<JewelData, sqlx::Error> {
@@ -366,6 +399,8 @@ pub async fn jewel_extract(
     .map(|journal: JewelJournal| (journal.journal_id, journal))
     .collect();
 
+    let mut journal_entries: BTreeMap<i64, Vec<JewelJournalItem>> = BTreeMap::new();
+
     let journal_items: Vec<JewelJournalItem> = sqlx::query_as(
         r#"
             SELECT JournalItemID,
@@ -383,7 +418,29 @@ pub async fn jewel_extract(
         if let Some(account) = accounts.get_mut(&entry.account_id) {
             account.active = true;
         }
+
+        if let Some(entry_list) = journal_entries.get_mut(&entry.journal_id) {
+            entry_list.push(*entry)
+        } else {
+            journal_entries.insert(entry.journal_id, vec![*entry]);
+        }
     }
+
+    // Note(Gabriel): ignoring allocations with a NULL AccountID for now
+    let allocations = sqlx::query_as(
+        r#"
+            SELECT AccountID,
+                   Year,
+                   Amount
+            FROM Allocations
+            WHERE AccountID != NULL
+            "#,
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    .into_iter()
+    .map(|allocation: JewelAllocation| (allocation.account_id, allocation))
+    .collect();
 
     // statistics
 
@@ -538,7 +595,7 @@ pub async fn jewel_extract(
         ));
     }
 
-    // (journal_id, zsingle_account_id (bank account id?), date)
+    // (journal_id, zsingle_account_id, date)
     let expense_journals_last_x_months: Vec<(i64, i64, DateTime<Utc>)> = sqlx::query_as(
         r#"
             SELECT JournalID, zSingleAccountId, AccountingDate FROM Journal
@@ -617,20 +674,158 @@ pub async fn jewel_extract(
             }
         }
 
-        let mut top_expenses: Vec<(i64, String)> = Vec::with_capacity(num_top_expenses);
+        let top_expenses: Vec<(i64, i64)> = heap
+            .into_iter()
+            .map(|(Reverse(amount), account_id)| (account_id, amount))
+            .collect();
 
-        for (Reverse(amount), account_id) in heap.into_iter() {
-            top_expenses.push((
-                amount,
-                accounts
-                    .get(&account_id)
-                    .map(|account| account.name.clone())
-                    .unwrap_or("unknown account".to_string()),
+        monthly_top_expenses.push(top_expenses);
+    }
+
+    let mut monthly_budget_allocations = Vec::new();
+
+    for i in 0..num_months {
+        let current_date = Utc::now();
+
+        let offset_date = current_date - Months::new(i);
+
+        let month_start = NaiveDate::from_ymd_opt(offset_date.year(), offset_date.month(), 1)
+            .expect("valid date");
+        let month_end = NaiveDate::from_ymd_opt(
+            offset_date.year(),
+            offset_date.month(),
+            offset_date.num_days_in_month() as u32,
+        )
+        .expect("valid date");
+
+        let fiscal_year = if offset_date.month() >= fiscal_year_starting_month as u32 {
+            offset_date.year() + 1
+        } else {
+            offset_date.year()
+        };
+
+        let fiscal_year_start_calendar_year =
+            if offset_date.month() > fiscal_year_starting_month as u32 {
+                offset_date.year()
+            } else {
+                offset_date.year() - 1
+            };
+        let fiscal_year_start = NaiveDate::from_ymd_opt(
+            fiscal_year_start_calendar_year,
+            fiscal_year_starting_month as u32,
+            1,
+        )
+        .expect("valid date");
+
+        let num_months_since_fiscal_year_start =
+            if offset_date.month() > fiscal_year_starting_month as u32 {
+                offset_date.month() - fiscal_year_starting_month as u32
+            } else {
+                12 - fiscal_year_starting_month as u32 + offset_date.month()
+            };
+
+        // yes, jewel stores the amount as a string
+        let fiscal_year_allocations: Vec<(i64, String)> = sqlx::query_as(
+            r#"
+                    SELECT AccountID,
+                           Amount
+                    FROM Allocations
+                    WHERE Year <= ?
+                    ORDER BY Year DESC
+                    "#,
+        )
+        .bind(fiscal_year)
+        .fetch_all(&mut *conn)
+        .await?;
+
+        // (account_id, (budgeted_month, spent_month, budgeted_year, spent_year))
+        let mut allocations_map = HashMap::new();
+
+        for (account_id, amount) in fiscal_year_allocations {
+            // numbers >= 1000 are stored with commas, which aren't parsable by the standard library
+            let amount_float = f64::from_str(amount.replace(",", "").as_str())
+                .expect("jewel amounts should always be valid numbers");
+            let amount_cents = (amount_float * 100.0).round() as i64;
+
+            // allocations are sorted (desc) by year, and new allocations over the same account take precedent
+            //
+            // insert if the entry doesn't exist, leave existing entries alone
+            allocations_map.entry(account_id).or_insert((
+                amount_cents,
+                0,
+                amount_cents * num_months_since_fiscal_year_start as i64,
+                0,
             ));
         }
 
-        top_expenses.sort_unstable_by_key(|a| Reverse(a.0));
-        monthly_top_expenses.push(top_expenses);
+        let month_spending: Vec<(i64, f64)> = sqlx::query_as(
+            r#"
+                SELECT AccountID,
+                       Amount
+                FROM JournalItems
+                WHERE JournalID IN (
+                    SELECT JournalID
+                    From Journal
+                    WHERE AccountingDate >= ? AND AccountingDate <= ?
+                )
+                AND AccountID IN (
+                    SELECT AccountID
+                    FROM Allocations
+                    WHERE Year <= ?
+                )
+                "#,
+        )
+        .bind(month_start)
+        .bind(month_end)
+        .bind(fiscal_year)
+        .fetch_all(&mut *conn)
+        .await?;
+
+        for (account_id, amount) in month_spending {
+            let amount_cents = (amount * 100.0).round() as i64;
+
+            allocations_map.entry(account_id).and_modify(
+                |(_budgeted, spent_month, _budgeted_year, _spent_year)| {
+                    *spent_month -= amount_cents
+                },
+            );
+        }
+
+        let year_spending: Vec<(i64, f64)> = sqlx::query_as(
+            r#"
+                SELECT AccountID,
+                       Amount
+                FROM JournalItems
+                WHERE JournalID IN (
+                    SELECT JournalID
+                    From Journal
+                    WHERE AccountingDate >= ? AND AccountingDate <= ?
+                )
+                AND AccountID IN (
+                    SELECT AccountID
+                    FROM Allocations
+                    WHERE Year <= ?
+                )
+                "#,
+        )
+        .bind(fiscal_year_start)
+        .bind(month_end)
+        .bind(fiscal_year)
+        .fetch_all(&mut *conn)
+        .await?;
+
+        for (account_id, amount) in year_spending {
+            let amount_cents = (amount * 100.0).round() as i64;
+
+            allocations_map.entry(account_id).and_modify(
+                |(_budgeted, _spent_month, _budgeted_year, spent_year)| *spent_year -= amount_cents,
+            );
+        }
+
+        let mut allocations = allocations_map.into_iter().collect::<Vec<_>>();
+        allocations
+            .sort_by_key(|(_account_id, (budgeted_month, _, _, _))| Reverse(*budgeted_month));
+        monthly_budget_allocations.push(allocations);
     }
 
     let standard_stats = StandardJewelStats {
@@ -638,6 +833,7 @@ pub async fn jewel_extract(
         monthly_tithe,
         monthly_online_vs_offline_giving,
         monthly_top_expenses,
+        monthly_budget_allocations,
     };
 
     Ok(JewelData {
@@ -648,7 +844,8 @@ pub async fn jewel_extract(
         contributions,
         envelopes,
         journals,
-        journal_items,
+        journal_entries,
+        allocations,
         standard_stats,
     })
 }

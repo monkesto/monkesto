@@ -35,10 +35,11 @@ use std::time::Duration;
 #[stream(AccountEvent, [AccountCreated, AccountRenamed, AccountDeleted])]
 #[stream(FundEvent, [FundCreated])]
 #[stream(ActivityEvent, [ActivityCreated])]
-// unified stream for account, fund, and activity creation and deletion events
+/// unified stream for account, fund, and activity creation and deletion events
 #[stream(AFTEvent, [AccountCreated, AccountDeleted, FundCreated, ActivityCreated])]
 #[stream(EntryEvent, [EntryCreated])]
 #[stream(TransactionEvent, [TransactionCreated, TransactionDeleted])]
+#[stream(TransactionAndEntryCreationEvent, [TransactionCreated, EntryCreated])]
 #[stream(FileEvent, [FileUploaded, FileDeleted])]
 pub enum JournalDomainEvent {
     JournalCreated {
@@ -176,9 +177,9 @@ pub(crate) async fn event_listener(event_store: JournalEventStore, service: Jour
     PgEventListener::builder(event_store.event_store)
         .register_listener(
             service,
-            PgEventListenerConfig::poller(Duration::from_secs(60))
+            PgEventListenerConfig::poller(Duration::from_secs(5))
                 .with_notifier()
-                .fetch_size(100)
+                .fetch_size(1000)
                 .with_retry(handle_event_listener_retry),
         )
         .start_with_shutdown(shutdown())
