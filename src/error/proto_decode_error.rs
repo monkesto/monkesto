@@ -5,7 +5,8 @@ use crate::error::DecodeError::{
 };
 use crate::id::ident_error::IdentError;
 use crate::journal::account::AccountTypeFromIntError;
-use crate::journal::activity::ActivityTypeFromIntError;
+use crate::journal::activity::kind::ActivityKindFromIntError;
+use crate::journal::activity::scope::ActivityScopeFromIntError;
 use crate::journal::entry::EntrySideFromIntError;
 use crate::journal::transaction::FinancialPeriodFromIntError;
 use crate::journal::transaction::memo::memo_error::MemoError;
@@ -39,7 +40,9 @@ pub enum DecodeError {
     #[error("failed to parse an EntrySide from the int {0}")]
     EntrySideFromInt(#[from] EntrySideFromIntError),
     #[error("failed to parse an ActivityType from the int {0}")]
-    ActivityTypeFromInt(#[from] ActivityTypeFromIntError),
+    ActivityTypeFromInt(#[from] ActivityKindFromIntError),
+    #[error("failed to parse an ActivityScope from the int {0}")]
+    ActivityScopeFromInt(#[from] ActivityScopeFromIntError),
 }
 
 impl From<DecodeError> for ProtoDecodeError {
@@ -59,6 +62,9 @@ impl From<DecodeError> for ProtoDecodeError {
             EntrySideFromInt(i) => ProtoErrorType::EntrySideFromInt(i.0 as i32),
             ActivityTypeFromInt(i) => ProtoErrorType::ActivityTypeFromInt(i.0 as i32),
             ParseMemo(e) => ProtoErrorType::Memo(e.into()),
+            DecodeError::ActivityScopeFromInt(i) => {
+                ProtoErrorType::ActivityScopeFromInt(i.0 as i32)
+            }
         };
 
         ProtoDecodeError {
@@ -84,8 +90,9 @@ impl TryFrom<ProtoDecodeError> for DecodeError {
                 FinancialPeriodFromIntError(i as i8).into()
             }
             ProtoErrorType::EntrySideFromInt(i) => EntrySideFromIntError(i as i8).into(),
-            ProtoErrorType::ActivityTypeFromInt(i) => ActivityTypeFromIntError(i as i8).into(),
+            ProtoErrorType::ActivityTypeFromInt(i) => ActivityKindFromIntError(i as i8).into(),
             ProtoErrorType::Memo(e) => ParseMemo(e.into()),
+            ProtoErrorType::ActivityScopeFromInt(i) => ActivityScopeFromIntError(i as i8).into(),
         };
 
         Ok(proto_error)

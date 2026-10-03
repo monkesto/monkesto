@@ -4,6 +4,7 @@ use crate::id;
 use crate::id::Ident;
 use crate::journal::account::AccountId;
 use crate::journal::activity::ActivityId;
+use crate::journal::activity::scope::ActivityScope;
 use crate::journal::fund::FundId;
 use prost::Message;
 use serde::{Deserialize, Serialize};
@@ -79,7 +80,7 @@ pub enum EntryKind {
     Activity {
         activity_id: ActivityId,
         fund_id: FundId,
-        transfer: bool,
+        scope: ActivityScope,
     },
 }
 
@@ -129,11 +130,11 @@ impl From<EntryKind> for ProtoEntryKind {
             EntryKind::Activity {
                 activity_id,
                 fund_id,
-                transfer,
+                scope,
             } => ProtoEntryKindVariant::Activity(ProtoActivityEntryKind {
                 activity_id: Some(activity_id.into()),
                 fund_id: Some(fund_id.into()),
-                transfer,
+                scope: scope as i32,
             }),
         };
 
@@ -156,7 +157,7 @@ impl TryFrom<ProtoEntryKind> for EntryKind {
             ProtoEntryKindVariant::Activity(ek) => EntryKind::Activity {
                 activity_id: ek.activity_id.try_into()?,
                 fund_id: ek.fund_id.try_into()?,
-                transfer: ek.transfer,
+                scope: (ek.scope as i8).try_into()?,
             },
         };
 

@@ -11,7 +11,7 @@ message ProtoEntryKind {
   message ProtoActivityEntryKind {
     id.ident.ProtoIdent activity_id = 1;
     id.ident.ProtoIdent fund_id = 2;
-    bool transfer = 3;
+    int32 scope = 3;
   }
 
   oneof proto_entry_kind_variant {

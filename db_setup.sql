@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS activities (
     id TEXT NOT NULL,
     journal_id TEXT NOT NULL,
     name TEXT NOT NULL,
-    activity_type int2 NOT NULL,
+    activity_kind int2 NOT NULL,
     balance BIGINT NOT NULL
 );
 

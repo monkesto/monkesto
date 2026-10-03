@@ -3,7 +3,7 @@ use crate::authority::Authority;
 use crate::error::DecodeError;
 use crate::error::DecodeError::FieldRequired;
 use crate::journal::account::{AccountId, AccountType};
-use crate::journal::activity::{ActivityId, ActivityType};
+use crate::journal::activity::{ActivityId, ActivityKind};
 use crate::journal::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
@@ -126,7 +126,7 @@ pub enum JournalDomainEvent {
         #[id]
         journal_id: JournalId,
         activity_name: Name,
-        activity_type: ActivityType,
+        activity_kind: ActivityKind,
         authority: Authority,
         timestamp: Timestamp,
     },
@@ -345,14 +345,14 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 activity_id,
                 journal_id,
                 activity_name,
-                activity_type,
+                activity_kind,
                 authority,
                 timestamp,
             } => JournalDomainEventType::ActivityCreated(ProtoActivityCreated {
                 activity_id: Some(activity_id.into()),
                 journal_id: Some(journal_id.into()),
                 activity_name: activity_name.to_string(),
-                activity_type: activity_type as i32,
+                activity_kind: activity_kind as i32,
                 authority: Some(authority.into()),
                 timestamp: Some(timestamp.into()),
             }),
@@ -484,7 +484,7 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                 activity_id: ev.activity_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
                 activity_name: Name::try_new(ev.activity_name)?,
-                activity_type: ActivityType::try_from(ev.activity_type as i8)?,
+                activity_kind: ActivityKind::try_from(ev.activity_kind as i8)?,
                 authority: ev.authority.try_into()?,
                 timestamp: ev.timestamp.try_into()?,
             },

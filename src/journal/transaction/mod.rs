@@ -25,7 +25,7 @@ use crate::authority::Authority;
 use crate::event_id::GetEventId;
 use crate::id;
 use crate::journal::account::{AccountId, AccountType};
-use crate::journal::activity::{ActivityId, ActivityType};
+use crate::journal::activity::{ActivityId, ActivityKind};
 use crate::journal::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::error::{JournalError, JournalResult, TransactionValidationError};
 use crate::journal::fund::FundId;
@@ -129,7 +129,7 @@ pub struct JournalAFTs {
     journal_id: JournalId,
     accounts: HashMap<AccountId, AccountType>,
     funds: HashSet<FundId>,
-    activities: HashMap<ActivityId, ActivityType>,
+    activities: HashMap<ActivityId, ActivityKind>,
 }
 
 impl JournalAFTs {
@@ -153,9 +153,9 @@ impl StateMutate for JournalAFTs {
             AFTEvent::FundCreated { fund_id, .. } => _ = self.funds.insert(fund_id),
             AFTEvent::ActivityCreated {
                 activity_id,
-                activity_type,
+                activity_kind,
                 ..
-            } => _ = self.activities.insert(activity_id, activity_type),
+            } => _ = self.activities.insert(activity_id, activity_kind),
         }
     }
 }
@@ -301,7 +301,6 @@ impl Decision for CreateTransaction {
         }
 
         let mut overall_balance = 0;
-        let mut transfer_balance = 0;
         let mut entry_ids = Vec::with_capacity(self.entries.0.len());
         let mut events = Vec::with_capacity(self.entries.0.len() + 1);
 
@@ -322,22 +321,14 @@ impl Decision for CreateTransaction {
                 EntryKind::Activity {
                     activity_id,
                     fund_id,
-                    transfer,
+                    scope: _,
                 } => {
+                    // TODO(Gabriel): Where does scope fit in?
                     if !afts.funds.contains(&fund_id) {
                         return Err(JournalError::InvalidActivity(activity_id));
                     }
 
-                    if let Some(activity_type) = afts.activities.get(&activity_id) {
-                        if transfer {
-                            if *activity_type != ActivityType::Transfer {
-                                return Err(JournalError::TransactionValidation(
-                                    TransactionValidationError::TransferViolation(activity_id),
-                                ));
-                            }
-                            transfer_balance += entry_change;
-                        }
-                    } else {
+                    if !afts.activities.contains_key(&activity_id) {
                         return Err(JournalError::InvalidActivity(activity_id));
                     }
                 }
@@ -357,7 +348,7 @@ impl Decision for CreateTransaction {
             })
         }
 
-        if transfer_balance != 0 || overall_balance != 0 {
+        if overall_balance != 0 {
             return Err(JournalError::TransactionValidation(
                 TransactionValidationError::ImbalancedTransaction(self.entries.clone()),
             ));

@@ -113,7 +113,7 @@ impl JournalService {
             id TEXT NOT NULL,
             journal_id TEXT NOT NULL,
             name TEXT NOT NULL,
-            activity_type int2 NOT NULL,
+            activity_kind int2 NOT NULL,
             balance BIGINT NOT NULL
         )
         "#
@@ -474,7 +474,7 @@ impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
                     EntryKind::Activity {
                         activity_id,
                         fund_id,
-                        transfer: _,
+                        scope: _,
                     } => {
                         sqlx::query!(
                             r#"
@@ -500,12 +500,12 @@ impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
                 activity_id,
                 journal_id,
                 activity_name,
-                activity_type,
+                activity_kind: activity_type,
                 ..
             } => {
                 sqlx::query!(
                     r#"
-                    INSERT INTO activities (id, journal_id, name, balance, activity_type) VALUES ($1, $2, $3, 0, $4) ON CONFLICT DO NOTHING
+                    INSERT INTO activities (id, journal_id, name, balance, activity_kind) VALUES ($1, $2, $3, 0, $4) ON CONFLICT DO NOTHING
                     "#,
                     activity_id as ActivityId,
                     journal_id as JournalId,

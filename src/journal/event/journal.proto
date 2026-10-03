@@ -111,7 +111,7 @@ message ProtoJournalDomainEvent {
     id.ident.ProtoIdent activity_id = 1;
     id.ident.ProtoIdent journal_id = 2;
     string activity_name = 3;
-    int32 activity_type = 4;
+    int32 activity_kind = 4;
     authority.authority.ProtoAuthority authority = 5;
     time.timestamp.ProtoTimestamp timestamp = 6;
   }

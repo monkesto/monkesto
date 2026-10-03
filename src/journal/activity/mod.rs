@@ -1,7 +1,11 @@
+pub mod kind;
+pub mod scope;
+
 use crate::authority::Authority;
 use crate::event_id::GetEventId;
 use crate::id;
 use crate::id::Ident;
+pub(crate) use crate::journal::activity::kind::ActivityKind;
 use crate::journal::error::{JournalError, JournalResult};
 use crate::journal::event::{ActivityEvent, JournalDomainEvent};
 use crate::journal::member::JournalMember;
@@ -14,67 +18,16 @@ use axum_test::expect_json::__private::serde_trampoline::{Deserialize, Serialize
 use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
 use disintegrate_postgres::PgEventId;
 use prost::Message;
-use sqlx::encode::IsNull;
-use sqlx::error::BoxDynError;
-use sqlx::{Database, Decode, Encode, FromRow, Postgres, Type};
-use thiserror::Error;
+use sqlx::FromRow;
 
 id!(ActivityId, Ident::new16());
-
-#[derive(Debug, Default, Copy, Clone, PartialEq, Serialize, Deserialize, Eq)]
-#[repr(i8)]
-pub enum ActivityType {
-    #[default]
-    Income,
-    Expense,
-    Transfer,
-}
-
-#[derive(Debug, Error, PartialEq)]
-#[error("{0}")]
-pub struct ActivityTypeFromIntError(pub i8);
-
-impl TryFrom<i8> for ActivityType {
-    type Error = ActivityTypeFromIntError;
-
-    fn try_from(value: i8) -> Result<Self, Self::Error> {
-        match value {
-            x if x == ActivityType::Income as i8 => Ok(ActivityType::Income),
-            x if x == ActivityType::Expense as i8 => Ok(ActivityType::Expense),
-            x if x == ActivityType::Transfer as i8 => Ok(ActivityType::Transfer),
-            _ => Err(ActivityTypeFromIntError(value)),
-        }
-    }
-}
-
-impl Type<Postgres> for ActivityType {
-    fn type_info() -> <Postgres as Database>::TypeInfo {
-        <&i16 as Type<Postgres>>::type_info()
-    }
-}
-
-impl<'q> Encode<'q, Postgres> for ActivityType {
-    fn encode_by_ref(
-        &self,
-        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
-    ) -> Result<IsNull, BoxDynError> {
-        <i16 as Encode<Postgres>>::encode(*self as i16, buf)
-    }
-}
-
-impl<'r> Decode<'r, Postgres> for ActivityType {
-    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
-        let int16 = <i16 as Decode<Postgres>>::decode(value)?;
-        Ok(Self::try_from(int16 as i8)?)
-    }
-}
 
 #[derive(Debug, Default, Clone, StateQuery, Serialize, Deserialize)]
 #[state_query(ActivityEvent)]
 pub struct Activity {
     pub activity_id: ActivityId,
     pub journal_id: JournalId,
-    pub activity_type: ActivityType,
+    pub activity_kind: ActivityKind,
     pub name: Name,
     pub status: Status,
 }
@@ -96,13 +49,13 @@ impl StateMutate for Activity {
                 activity_id,
                 journal_id,
                 activity_name,
-                activity_type,
+                activity_kind,
                 ..
             } => {
                 self.activity_id = activity_id;
                 self.journal_id = journal_id;
                 self.name = activity_name;
-                self.activity_type = activity_type;
+                self.activity_kind = activity_kind;
                 self.status = Status::Valid;
             }
         }
@@ -113,7 +66,7 @@ pub struct CreateActivity {
     activity_id: ActivityId,
     journal_id: JournalId,
     activity_name: Name,
-    activity_type: ActivityType,
+    activity_kind: ActivityKind,
     authority: Authority,
     timestamp: Timestamp,
 }
@@ -123,7 +76,7 @@ impl CreateActivity {
         activity_id: ActivityId,
         journal_id: JournalId,
         activity_name: Name,
-        activity_type: ActivityType,
+        activity_kind: ActivityKind,
         authority: Authority,
         timestamp: Timestamp,
     ) -> Self {
@@ -131,7 +84,7 @@ impl CreateActivity {
             activity_id,
             journal_id,
             activity_name,
-            activity_type,
+            activity_kind,
             authority,
             timestamp,
         }
@@ -179,7 +132,7 @@ impl Decision for CreateActivity {
             activity_id: self.activity_id,
             journal_id: self.journal_id,
             activity_name: self.activity_name.clone(),
-            activity_type: self.activity_type,
+            activity_kind: self.activity_kind,
             authority: self.authority,
             timestamp: self.timestamp,
         }])
@@ -191,7 +144,7 @@ pub struct ActivityState {
     pub id: ActivityId,
     pub journal_id: JournalId,
     pub name: Name,
-    pub activity_type: ActivityType,
+    pub activity_type: ActivityKind,
     pub balance: i64,
 }
 
@@ -201,7 +154,7 @@ pub struct ActivityStateWithPayload {
     #[expect(unused)]
     journal_id: JournalId,
     name: Name,
-    activity_type: ActivityType,
+    activity_kind: ActivityKind,
     balance: i64,
     payload: Vec<u8>,
 }
@@ -213,7 +166,7 @@ impl JournalService {
         activity_id: ActivityId,
         journal_id: JournalId,
         name: Name,
-        activity_type: ActivityType,
+        activity_kind: ActivityKind,
         authority: Authority,
         timestamp: Timestamp,
     ) -> Result<PgEventId, DecisionError<JournalError>> {
@@ -223,7 +176,7 @@ impl JournalService {
                 activity_id,
                 journal_id,
                 name,
-                activity_type,
+                activity_kind,
                 authority,
                 timestamp,
             ))
@@ -248,7 +201,7 @@ impl JournalService {
         let activities = sqlx::query_as!(
             ActivityStateWithPayload,
             r#"
-            SELECT a.id as "id: ActivityId", a.journal_id as "journal_id: JournalId", a.name as "name: Name", a.activity_type as "activity_type: ActivityType", a.balance, e.payload as "payload!"
+            SELECT a.id as "id: ActivityId", a.journal_id as "journal_id: JournalId", a.name as "name: Name", a.activity_kind as "activity_kind: ActivityKind", a.balance, e.payload as "payload!"
             FROM activities a
             INNER JOIN event e
                 ON e.account_id = a.id AND e.event_type = 'ActivityCreated'
@@ -276,7 +229,7 @@ impl JournalService {
                             id: activity.id,
                             journal_id,
                             name: activity.name,
-                            activity_type: activity.activity_type,
+                            activity_type: activity.activity_kind,
                             balance: activity.balance,
                         },
                         authority,
