@@ -2,8 +2,6 @@ use crate::BackendType;
 use crate::StateType;
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
-use crate::error::DecodeError;
-use crate::error::monkesto_error::OrRedirect;
 use crate::journal::JournalId;
 use crate::journal::account::AccountId;
 use crate::journal::entry::{EntryKind, EntrySide};
@@ -36,10 +34,10 @@ pub async fn transact(
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
     Form(form): Form<TransactForm>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, JournalError> {
     let callback_url = &format!("/journal/{}/transaction", id);
 
-    let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
+    let journal_id = JournalId::from_str(&id)?;
 
     let user = get_user(session)?;
     let user_authority = Authority::Direct(Actor::User(user.id));
@@ -47,10 +45,7 @@ pub async fn transact(
     let mut entries = Vec::new();
 
     if form.account.is_empty() {
-        return Err(JournalError::TransactionValidation(
-            TransactionValidationError::NoTransactionEntries,
-        ))
-        .or_redirect(callback_url);
+        Err(TransactionValidationError::NoTransactionEntries)?
     }
 
     for (idx, acc_id_str) in form.account.iter().enumerate() {
@@ -59,57 +54,39 @@ pub async fn transact(
             let str_decimal_amt = form
                 .amount
                 .get(idx)
-                .ok_or(JournalError::TransactionValidation(
-                    TransactionValidationError::MissingEntryAmount,
-                ))
-                .or_redirect(callback_url)?;
+                .ok_or(TransactionValidationError::MissingEntryAmount)?;
 
-            let dec_amt = Decimal::from_str(str_decimal_amt)
-                .map_err(|_| {
-                    JournalError::TransactionValidation(TransactionValidationError::ParseDecimal(
-                        str_decimal_amt.to_string(),
-                    ))
-                })
-                .or_redirect(callback_url)?
-                * dec!(100);
+            let dec_amt = Decimal::from_str(str_decimal_amt).map_err(|_| {
+                TransactionValidationError::ParseDecimal(str_decimal_amt.to_string())
+            })? * dec!(100);
 
             // this will reject inputs with partial cent values
             // this should not be possible unless a user uses the
             //  inspector tool to change their HTML
             if !dec_amt.is_integer() {
-                return Err(JournalError::TransactionValidation(
-                    TransactionValidationError::PartialCentValue(str_decimal_amt.to_string()),
-                ))
-                .or_redirect(callback_url);
+                Err(TransactionValidationError::PartialCentValue(
+                    str_decimal_amt.to_string(),
+                ))?;
             } else {
-                let amt = dec_amt
-                    .to_i64()
-                    .ok_or_else(|| {
-                        JournalError::TransactionValidation(TransactionValidationError::OutOfRange(
-                            str_decimal_amt.to_string(),
-                        ))
-                    })
-                    .or_redirect(callback_url)?;
+                let amt = dec_amt.to_i64().ok_or_else(|| {
+                    TransactionValidationError::OutOfRange(str_decimal_amt.to_string())
+                })?;
 
                 // error when the amount is below zero to prevent confusion with the credit/debit selector
                 if amt <= 0 {
-                    return Err(JournalError::TransactionValidation(
+                    Err(JournalError::TransactionValidation(
                         TransactionValidationError::NegativeEntryAmount(dec_amt.to_string()),
-                    ))
-                    .or_redirect(callback_url);
+                    ))?;
                 }
 
                 let entry_side = EntrySide::try_from(
                     *form
                         .entry_type
                         .get(idx)
-                        .ok_or(JournalError::TransactionValidation(
-                            TransactionValidationError::MissingEntryType,
-                        ))
-                        .or_redirect(callback_url)? as i8,
+                        .ok_or(TransactionValidationError::MissingEntryType)?
+                        as i8,
                 )
-                .map_err(DecodeError::from)
-                .or_redirect(callback_url)?;
+                .map_err(TransactionValidationError::InvalidEntrySide)?;
 
                 entries.push(TransactionEntry {
                     // TODO(Ryan) add parsing for activity entries
@@ -125,9 +102,9 @@ pub async fn transact(
 
     let memo = form
         .memo
-        .map(|m| Memo::try_new(m).map_err(DecodeError::ParseMemo))
+        .map(Memo::try_new)
         .transpose()
-        .or_redirect(callback_url)?;
+        .map_err(TransactionValidationError::Memo)?;
 
     let event_id = state
         .journal_service
@@ -141,8 +118,7 @@ pub async fn transact(
             user_authority,
             DefaultTimeProvider.get_time(),
         )
-        .await
-        .or_redirect(callback_url)?;
+        .await?;
 
     state.journal_service.wait_for(event_id).await;
 

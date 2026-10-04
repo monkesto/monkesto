@@ -1,10 +1,11 @@
+#![feature(error_generic_member_access)]
+
 mod authn;
 mod authority;
 mod authz;
 mod dollars;
 mod email;
 mod entitlement;
-pub mod error;
 mod event_id;
 mod id;
 mod journal;
@@ -15,7 +16,6 @@ mod seed;
 mod status;
 mod theme;
 mod time;
-pub mod util;
 
 use crate::authn::{AuthnEventStore, AuthnService};
 use crate::authz::{AuthzEventStore, AuthzService, RoleIndex};

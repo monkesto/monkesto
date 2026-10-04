@@ -2,10 +2,9 @@ use crate::AppState;
 use crate::authn::UserId;
 use crate::authn::user::{DEV_USERS, UserError};
 use crate::authority::{Actor, Authority};
-use crate::error::monkesto_error::MonkestoResult;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::entry::{EntryKind, EntrySide};
-use crate::journal::error::JournalError;
+use crate::journal::error::{JournalError, JournalResult};
 use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{FinancialPeriod, TransactionEntry, TransactionId};
 use crate::journal::{JournalId, Permissions};
@@ -14,7 +13,7 @@ use crate::time::{IncrementalTimeProvider, TimeProvider};
 use disintegrate::DecisionError;
 use std::str::FromStr;
 
-pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
+pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
     let time_provider = IncrementalTimeProvider::new();
 
     let mut latest_user_event = 0;
@@ -34,9 +33,9 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
             Ok(ev_id) => latest_user_event = ev_id,
 
             // the user was already seeded
-            Err(DecisionError::Domain(UserError::IdCollision(_))) => {}
+            Err(UserError::IdCollision(_)) => {}
 
-            Err(_) => return Err(UserError::SeedFailure(email))?,
+            Err(e) => return Err(e)?,
         }
     }
 
@@ -84,8 +83,8 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> MonkestoResult<()> {
         {
             Ok(ev_id) => latest_journal_event = ev_id,
             // journal already exists, ignore
-            Err(DecisionError::Domain(JournalError::IdCollision(_))) => {}
-            Err(e) => return Err(e.into()),
+            Err(JournalError::IdCollision(_)) => {}
+            Err(e) => return Err(e),
         }
     }
 

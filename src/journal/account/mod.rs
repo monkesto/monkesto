@@ -26,6 +26,7 @@ use crate::journal::event::{AccountEvent, JournalDomainEvent};
 use crate::journal::member::JournalMember;
 use crate::journal::{Journal, JournalService, Permissions, validate_permissions};
 use crate::name::Name;
+use crate::proto::DecodeError;
 use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::status::Status;
 use crate::time::Timestamp;
@@ -412,9 +413,10 @@ impl JournalService {
         let mut accounts_with_meta = Vec::with_capacity(accounts.len());
 
         for account in accounts {
-            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
-                account.payload.as_slice(),
-            )?)?;
+            let payload = JournalDomainEvent::try_from(
+                ProtoJournalDomainEvent::decode(account.payload.as_slice())
+                    .map_err(DecodeError::InvalidMessage)?,
+            )?;
 
             match payload {
                 JournalDomainEvent::AccountCreated {

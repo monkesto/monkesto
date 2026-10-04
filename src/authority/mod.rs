@@ -70,8 +70,8 @@ impl TryFrom<&[u8]> for Authority {
 }
 
 use crate::authn::UserId;
-use crate::error::DecodeError;
-use crate::error::DecodeError::FieldRequired;
+use crate::proto::DecodeError;
+use crate::proto::DecodeError::FieldRequired;
 use crate::proto::authority::authority::proto_actor::ActorType;
 use crate::proto::authority::authority::proto_authority::{AuthorityType, ProtoDelegatedAuthority};
 use crate::proto::authority::authority::{ProtoActor, ProtoAuthority};

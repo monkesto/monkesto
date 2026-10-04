@@ -1,3 +1,6 @@
+// Disintegrate's event macro uses manual swaps
+#![allow(clippy::manual_swap)]
+
 use crate::authn::passkey::corepasskey::CorePasskey;
 use crate::authn::{PasskeyId, UserId};
 use crate::authority::Authority;
@@ -41,8 +44,8 @@ pub enum AuthnEvent {
 }
 
 use crate::email::Email;
-use crate::error::DecodeError;
-use crate::error::DecodeError::FieldRequired;
+use crate::proto::DecodeError;
+use crate::proto::DecodeError::FieldRequired;
 use crate::proto::authn::event::authn::ProtoAuthnEvent;
 use crate::proto::authn::event::authn::proto_authn_event::{
     AuthnEventType, ProtoPasskeyCreated, ProtoPasskeyDeleted, ProtoUserCreated, ProtoUserDeleted,

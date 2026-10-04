@@ -3,7 +3,7 @@ use crate::BackendType;
 use crate::StateType;
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
-use crate::error::monkesto_error::OrRedirect;
+use crate::authz::service::AuthzError;
 use crate::journal::layout::layout;
 use crate::name::Name;
 use axum::Router;
@@ -22,7 +22,7 @@ pub fn router() -> Router<StateType> {
 async fn roles_page(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
-) -> Result<Markup, Redirect> {
+) -> Result<Markup, AuthzError> {
     let _user = get_user(session)?;
 
     let roles = state.authz_service.all_roles().await.unwrap_or_default();
@@ -107,17 +107,16 @@ async fn create_role(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Form(form): Form<CreateRoleForm>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, AuthzError> {
     const CALLBACK_URL: &str = "/authz/roles";
 
     let user = get_user(session)?;
-    let name = Name::try_new(form.role_name).or_redirect(CALLBACK_URL)?;
+    let name = Name::try_new(form.role_name)?;
 
     state
         .authz_service
         .create_role(Authority::Direct(Actor::User(user.id)), name)
-        .await
-        .map_err(|_| Redirect::to(CALLBACK_URL))?;
+        .await?;
 
     Ok(Redirect::to(CALLBACK_URL))
 }

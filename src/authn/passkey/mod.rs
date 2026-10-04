@@ -16,10 +16,10 @@ use axum::http::StatusCode;
 use axum::http::header;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
-use axum::response::Response;
 use maud::PreEscaped;
 use maud::html;
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 use webauthn_rs::prelude::PasskeyRegistration;
 use webauthn_rs::prelude::RegisterPublicKeyCredential;
@@ -99,7 +99,7 @@ impl CreatePasskey {
 impl Decision for CreatePasskey {
     type Event = AuthnEvent;
     type StateQuery = (User, Passkey);
-    type Error = PasskeyError;
+    type Error = AuthnError;
 
     fn state_query(&self) -> Self::StateQuery {
         (
@@ -110,11 +110,11 @@ impl Decision for CreatePasskey {
 
     fn process(&self, (user, passkey): &Self::StateQuery) -> Result<Vec<Self::Event>, Self::Error> {
         if !user.status.valid() {
-            return Err(PasskeyError::UserDoesntExist(user.user_id));
+            Err(UserError::UserDoesntExist(user.user_id))?;
         }
 
         if passkey.passkey.is_some() {
-            return Err(PasskeyError::IdConflict(passkey.passkey_id));
+            Err(PasskeyError::IdConflict(passkey.passkey_id))?;
         }
 
         Ok(vec![AuthnEvent::PasskeyCreated {
@@ -153,7 +153,7 @@ impl DeletePasskey {
 impl Decision for DeletePasskey {
     type Event = AuthnEvent;
     type StateQuery = (User, Passkey);
-    type Error = PasskeyError;
+    type Error = AuthnError;
 
     fn state_query(&self) -> Self::StateQuery {
         (
@@ -164,11 +164,11 @@ impl Decision for DeletePasskey {
 
     fn process(&self, (user, passkey): &Self::StateQuery) -> Result<Vec<Self::Event>, Self::Error> {
         if !user.status.valid() {
-            return Err(PasskeyError::UserDoesntExist(user.user_id));
+            Err(UserError::UserDoesntExist(user.user_id))?;
         }
 
         if passkey.passkey.is_none() || passkey.deleted {
-            return Err(PasskeyError::PasskeyDoesntExist(passkey.passkey_id));
+            Err(PasskeyError::PasskeyDoesntExist(passkey.passkey_id))?;
         }
 
         Ok(vec![AuthnEvent::PasskeyDeleted {
@@ -179,41 +179,7 @@ impl Decision for DeletePasskey {
     }
 }
 
-impl IntoResponse for PasskeyError {
-    fn into_response(self) -> Response {
-        match self {
-            PasskeyError::SessionExpired => {
-                Redirect::to("/signin?error=session_expired").into_response()
-            }
-            PasskeyError::InvalidInput => {
-                (StatusCode::BAD_REQUEST, "Invalid input").into_response()
-            }
-            PasskeyError::SessionError(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Session error").into_response()
-            }
-            PasskeyError::IdConflict(_) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, "Id conflict").into_response()
-            }
-            PasskeyError::PasskeyDoesntExist(_) => {
-                (StatusCode::BAD_REQUEST, "Passkey doesnt exist").into_response()
-            }
-            PasskeyError::UserDoesntExist(_) => {
-                (StatusCode::BAD_REQUEST, "User doesnt exist").into_response()
-            }
-            PasskeyError::Json(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to encode/parse json",
-            )
-                .into_response(),
-            PasskeyError::Sqlx(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Failed to interact with the database",
-            )
-                .into_response(),
-        }
-    }
-}
-
+use crate::authn::error::{AuthnError, UserError};
 use crate::authn::passkey::corepasskey::CorePasskey;
 pub(crate) use crate::authn::passkey::error::PasskeyError;
 use disintegrate::{Decision, StateMutate, StateQuery};
@@ -224,35 +190,26 @@ pub async fn delete_passkey_post(
     Extension(service): Extension<AuthnService>,
     auth_session: AuthSession,
     Path(passkey_id_str): Path<String>,
-) -> Result<impl IntoResponse, PasskeyError> {
-    // Check if user is logged in
+) -> Result<Redirect, AuthnError> {
     let user_id = auth_session
         .user
         .as_ref()
         .map(|u| u.id)
         .ok_or(PasskeyError::SessionExpired)?;
 
-    // Parse the PasskeyId
-    let passkey_id = passkey_id_str
-        .parse::<PasskeyId>()
-        .map_err(|_| PasskeyError::InvalidInput)?;
+    let passkey_id = PasskeyId::from_str(passkey_id_str.as_str()).map_err(PasskeyError::Ident)?;
 
-    // Remove the passkey from the user's passkeys
-    if let Ok(ev_id) = service
+    let ev_id = service
         .delete_passkey(
             passkey_id,
             user_id,
             Authority::Direct(Actor::User(user_id)),
             DefaultTimeProvider.get_time(),
         )
-        .await
-    {
-        service.wait_for(ev_id).await;
-        // Redirect back to passkey page
-        return Ok(Redirect::to("/me").into_response());
-    }
+        .await?;
 
-    Ok(Redirect::to("/me?error=passkeydeletionfailure").into_response())
+    service.wait_for(ev_id).await;
+    Ok(Redirect::to("/me"))
 }
 
 pub async fn create_passkey_post(
@@ -273,8 +230,7 @@ pub async fn create_passkey_post(
     // Check if this is a credential submission or initial request
     if let Some(credential_json) = form.get("credential") {
         // This is credential submission - finish registration
-        let credential: RegisterPublicKeyCredential =
-            serde_json::from_str(credential_json).map_err(|_| PasskeyError::InvalidInput)?;
+        let credential: RegisterPublicKeyCredential = serde_json::from_str(credential_json)?;
 
         // Get registration state from session
         let reg_state = session
@@ -325,7 +281,7 @@ pub async fn create_passkey_post(
         let user = authn_service
             .fetch_user(user_id)
             .await
-            .map_err(|_| PasskeyError::UserDoesntExist(user_id))?;
+            .map_err(|_| PasskeyError::SessionExpired)?;
 
         let exclude_credentials: Vec<_> = existing_passkeys
             .iter()

@@ -1,15 +1,15 @@
 use super::{AuthSession, AuthnService, PasskeyId, UserId};
-use crate::authn::error::UserError;
+use crate::authn::error::{AuthnError, UserError};
+use crate::authn::passkey::PasskeyError;
 use crate::authn::passkey::corepasskey::CorePasskey;
 use crate::authority::{Actor, Authority};
 use crate::email::Email;
-use crate::error::MonkestoError;
-use crate::error::monkesto_error::OrRedirect;
 use crate::theme::theme_with_head;
 use crate::time::{DefaultTimeProvider, TimeProvider};
 use axum::extract::Extension;
 use axum::extract::Form;
 use axum::extract::Query;
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::response::Redirect;
 use axum::response::Response;
@@ -27,7 +27,6 @@ use webauthn_rs_proto::ResidentKeyRequirement;
 
 #[derive(Deserialize)]
 pub struct SignupQuery {
-    err: Option<String>,
     next: Option<String>,
 }
 
@@ -94,14 +93,6 @@ pub async fn signup_get(
                             href=(signin_url)
                             class="font-semibold text-indigo-600 hover:text-indigo-500 dark:text-indigo-400 dark:hover:text-indigo-300" {
                                 "Sign in here"
-                            }
-                        }
-
-                        @if let Some(error_str) = query.err.as_deref() {
-                            div class="mt-6" {
-                                p class="text-center text-sm/6 text-red-500" {
-                                    (MonkestoError::decode(error_str))
-                                }
                             }
                         }
                     }
@@ -189,12 +180,11 @@ pub struct EmailVerificationForm {
 pub async fn signup_email_verification_post(
     Extension(authn_service): Extension<AuthnService>,
     Form(form): Form<EmailVerificationForm>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, UserError> {
     if authn_service.email_verifier.verification_required() {
         authn_service
             .send_user_verification_code(&form.email, &authn_service.email_verifier)
-            .await
-            .or_redirect("/signup")?;
+            .await?;
         return Ok(Redirect::to(
             format!("/signup/verify?email={}", form.email).as_str(),
         ));
@@ -217,99 +207,78 @@ pub async fn signup_post(
     Extension(webauthn_url): Extension<String>,
     mut auth_session: AuthSession,
     Form(form): Form<SignupForm>,
-) -> Result<Response, Redirect> {
-    const CALLBACK_URL: &str = "/signup";
-
+) -> Result<Response, AuthnError> {
     if let Some(credential_json) = form.credential {
         // handle credential submission
 
         let credential: RegisterPublicKeyCredential =
-            serde_json::from_str(credential_json.as_str())
-                .map_err(UserError::from)
-                .or_redirect(CALLBACK_URL)?;
+            serde_json::from_str(credential_json.as_str()).map_err(PasskeyError::Json)?;
 
         // Get registration state from session
         let session = &auth_session.session;
         let (email, user_id, webauthn_uuid, reg_state, stored_next) = session
             .get::<(String, UserId, Uuid, PasskeyRegistration, Option<String>)>("reg_state")
             .await
-            .map_err(|e| UserError::Session(e.to_string()))
-            .or_redirect(CALLBACK_URL)?
-            .ok_or(UserError::SessionNotFound)
-            .or_redirect(CALLBACK_URL)?;
+            .map_err(UserError::from)?
+            .ok_or(UserError::SessionNotFound)?;
 
         let next = form.next.or(stored_next);
 
         // Verify the registration
-        match webauthn.finish_passkey_registration(&credential, &reg_state) {
-            Ok(passkey) => {
-                _ = session.remove_value("reg_state").await;
+        let passkey = webauthn
+            .finish_passkey_registration(&credential, &reg_state)
+            .map_err(PasskeyError::from)?;
+        _ = session.remove_value("reg_state").await;
 
-                let passkey_id = PasskeyId::new();
+        let passkey_id = PasskeyId::new();
 
-                let email_validated = Email::try_new(&email).or_redirect(CALLBACK_URL)?;
+        let email_validated = Email::try_new(&email).map_err(UserError::from)?;
 
-                authn_service
-                    .create_user(
-                        user_id,
-                        email_validated.clone(),
-                        webauthn_uuid,
-                        Authority::Direct(Actor::Anonymous),
-                        DefaultTimeProvider.get_time(),
-                    )
-                    .await
-                    .or_redirect(CALLBACK_URL)?;
+        authn_service
+            .create_user(
+                user_id,
+                email_validated.clone(),
+                webauthn_uuid,
+                Authority::Direct(Actor::Anonymous),
+                DefaultTimeProvider.get_time(),
+            )
+            .await?;
 
-                let ev_id = authn_service
-                    .create_passkey(
-                        passkey_id,
-                        user_id,
-                        CorePasskey(passkey),
-                        Authority::Direct(Actor::User(user_id)),
-                        DefaultTimeProvider.get_time(),
-                    )
-                    .await
-                    .or_redirect(CALLBACK_URL)?;
+        let ev_id = authn_service
+            .create_passkey(
+                passkey_id,
+                user_id,
+                CorePasskey(passkey),
+                Authority::Direct(Actor::User(user_id)),
+                DefaultTimeProvider.get_time(),
+            )
+            .await?;
 
-                // Log in the newly registered user via axum_login
-                let user = super::user::UserState {
-                    id: user_id,
-                    webauthn_uuid,
-                    email: email_validated,
-                };
-                auth_session
-                    .login(&user)
-                    .await
-                    .map_err(UserError::from)
-                    .or_redirect(CALLBACK_URL)?;
+        // Log in the newly registered user via axum_login
+        let user = super::user::UserState {
+            id: user_id,
+            webauthn_uuid,
+            email: email_validated,
+        };
+        auth_session.login(&user).await.map_err(UserError::from)?;
 
-                authn_service.wait_for(ev_id).await;
+        authn_service.wait_for(ev_id).await;
 
-                let redirect_to = next.as_deref().unwrap_or("/journal");
-                Ok(Redirect::to(redirect_to).into_response())
-            }
-            Err(_) => {
-                _ = session.remove_value("reg_state").await;
-
-                Err(Redirect::to("/signup?error=registration_failed"))
-            }
-        }
+        let redirect_to = next.as_deref().unwrap_or("/journal");
+        Ok(Redirect::to(redirect_to).into_response())
     } else if let Some(email) = &form.email {
         if authn_service.email_verifier.verification_required() {
             let verification_code: i32 = form
                 .verification_code
-                .ok_or(UserError::InvalidInput)
-                .or_redirect(CALLBACK_URL)?
+                .ok_or(UserError::MissingVerificationCode)?
                 .parse()
-                .map_err(|_| UserError::InvalidInput)
-                .or_redirect(CALLBACK_URL)?;
+                .map_err(|_| UserError::InvalidVerificationCode)?;
 
             if !authn_service
                 .verify_user_code(verification_code, email)
-                .await
-                .or_redirect(CALLBACK_URL)?
+                .await?
             {
-                Err(UserError::InvalidVerificationCode).or_redirect(CALLBACK_URL)?
+                Err(UserError::InvalidVerificationCode)?
             }
         }
 
@@ -325,94 +294,89 @@ pub async fn signup_post(
         _ = session.remove_value("reg_state").await;
 
         // Start passkey registration
-        match webauthn.start_passkey_registration(
-            webauthn_uuid,
-            email.as_ref(),
-            email.as_ref(),
-            exclude_credentials,
-        ) {
-            Ok((mut ccr, reg_state)) => {
-                ccr.public_key.authenticator_selection = Some(AuthenticatorSelectionCriteria {
-                    authenticator_attachment: None,
-                    resident_key: Some(ResidentKeyRequirement::Required),
-                    require_resident_key: true,
-                    user_verification: webauthn_rs_proto::UserVerificationPolicy::Required,
-                });
+        let (mut ccr, reg_state) = webauthn
+            .start_passkey_registration(
+                webauthn_uuid,
+                email.as_ref(),
+                email.as_ref(),
+                exclude_credentials,
+            )
+            .map_err(PasskeyError::from)?;
+        ccr.public_key.authenticator_selection = Some(AuthenticatorSelectionCriteria {
+            authenticator_attachment: None,
+            resident_key: Some(ResidentKeyRequirement::Required),
+            require_resident_key: true,
+            user_verification: webauthn_rs_proto::UserVerificationPolicy::Required,
+        });
 
-                // Store registration state in session (including next for the credential submission step)
-                session
-                    .insert(
-                        "reg_state",
-                        (
-                            email.as_ref(),
-                            user_id,
-                            webauthn_uuid,
-                            reg_state,
-                            &form.next,
-                        ),
-                    )
-                    .await
-                    .map_err(|e| UserError::SerdeJson(e.to_string()))
-                    .or_redirect(CALLBACK_URL)?;
+        // Store registration state in session (including next for the credential submission step)
+        session
+            .insert(
+                "reg_state",
+                (
+                    email.as_ref(),
+                    user_id,
+                    webauthn_uuid,
+                    reg_state,
+                    &form.next,
+                ),
+            )
+            .await
+            .map_err(UserError::from)?;
 
-                let challenge_json = serde_json::to_string(&ccr)
-                    .map_err(UserError::from)
-                    .or_redirect("/signup")?;
+        let challenge_json = serde_json::to_string(&ccr).map_err(UserError::from)?;
 
-                const SIGNUP_JS: &str = include_str!("signup.js");
+        const SIGNUP_JS: &str = include_str!("signup.js");
 
-                Ok(theme_with_head(
-                    Some("Create Passkey"),
-                    html! {
-                    script
-                        src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
-                        crossorigin="anonymous" {}
-                    meta name="webauthn_url" content=(webauthn_url);
-                    script id="challenge-data" type="application/json" {
-                        (PreEscaped(challenge_json))
+        Ok(theme_with_head(
+                Some("Create Passkey"),
+                html! {
+                script
+                    src="https://cdn.jsdelivr.net/npm/js-base64@3.7.4/base64.min.js"
+                    crossorigin="anonymous" {}
+                meta name="webauthn_url" content=(webauthn_url);
+                script id="challenge-data" type="application/json" {
+                    (PreEscaped(challenge_json))
+                }
+                script {
+                       (PreEscaped(SIGNUP_JS))
+                }
+            },
+                html! {
+            div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
+                div class="sm:mx-auto sm:w-full sm:max-w-sm" {
+                    img src="/logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto";
+                    h2 class="mt-10 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white" {
+                        "Create Your Passkey"
                     }
-                    script {
-                           (PreEscaped(SIGNUP_JS))
+                    p class="mt-2 text-center text-sm/6 text-gray-600 dark:text-gray-400" {
+                        "Email: " strong { (email) }
                     }
-                },
-                    html! {
-                div class="flex min-h-full flex-col justify-center px-6 py-12 lg:px-8" {
-                    div class="sm:mx-auto sm:w-full sm:max-w-sm" {
-                        img src="/logo.svg" alt="Monkesto" class="mx-auto h-36 w-auto";
-                        h2 class="mt-10 text-center text-2xl/9 font-bold tracking-tight text-gray-900 dark:text-white" {
-                            "Create Your Passkey"
-                        }
-                        p class="mt-2 text-center text-sm/6 text-gray-600 dark:text-gray-400" {
-                            "Email: " strong { (email) }
+                }
+
+                div class="mt-10 sm:mx-auto sm:w-full sm:max-w-sm" {
+                    // Hidden form for credential submission
+                    form id="registration-form" method="POST" action="signup" style="display: none;" {
+                        input type="hidden" name="email" value=(email);
+                        input type="hidden" id="credential-field" name="credential" value="";
+                        @if let Some(next) = form.next {
+                            input type="hidden" name="next" value=(next);
                         }
                     }
 
-                    div class="mt-10 sm:mx-auto sm:w-full sm:max-w-sm" {
-                        // Hidden form for credential submission
-                        form id="registration-form" method="POST" action="signup" style="display: none;" {
-                            input type="hidden" name="email" value=(email);
-                            input type="hidden" id="credential-field" name="credential" value="";
-                            @if let Some(next) = form.next {
-                                input type="hidden" name="next" value=(next);
-                            }
+                    div class="text-center" {
+                        p id="status_message" class="text-lg text-gray-900 dark:text-white" {
+                            "Please follow your device's prompts to create your passkey"
                         }
 
-                        div class="text-center" {
-                            p id="status_message" class="text-lg text-gray-900 dark:text-white" {
-                                "Please follow your device's prompts to create your passkey"
-                            }
-
-                            div class="mt-6" {
-                                p id="flash_message" class="text-center text-sm/6 text-red-500" {}
-                            }
+                        div class="mt-6" {
+                            p id="flash_message" class="text-center text-sm/6 text-red-500" {}
                         }
                     }
                 }
-            }).into_response())
             }
-            Err(_) => Err(Redirect::to("/signup?error=registration_failed")),
-        }
+        }).into_response())
     } else {
-        Err(UserError::InvalidInput).or_redirect("/signup")
+        Ok(StatusCode::BAD_REQUEST.into_response())
     }
 }

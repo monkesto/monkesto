@@ -9,8 +9,8 @@ impl Deref for Timestamp {
     }
 }
 
-use crate::error::DecodeError;
-use crate::error::DecodeError::FieldRequired;
+use crate::proto::DecodeError;
+use crate::proto::DecodeError::FieldRequired;
 use crate::proto::time::timestamp::ProtoTimestamp;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};

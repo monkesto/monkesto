@@ -11,13 +11,14 @@ use crate::journal::event::{ActivityEvent, JournalDomainEvent};
 use crate::journal::member::JournalMember;
 use crate::journal::{Journal, JournalId, JournalService, Permissions, validate_permissions};
 use crate::name::Name;
+use crate::proto::DecodeError;
 use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::status::Status;
 use crate::time::Timestamp;
-use axum_test::expect_json::__private::serde_trampoline::{Deserialize, Serialize};
-use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
+use disintegrate::{Decision, StateMutate, StateQuery};
 use disintegrate_postgres::PgEventId;
 use prost::Message;
+use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 id!(ActivityId, Ident::new16());
@@ -169,7 +170,7 @@ impl JournalService {
         activity_kind: ActivityKind,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Result<PgEventId, DecisionError<JournalError>> {
+    ) -> Result<PgEventId, JournalError> {
         Ok(self
             .decision_maker
             .make(CreateActivity::new(
@@ -214,9 +215,10 @@ impl JournalService {
         let mut activities_with_meta = Vec::with_capacity(activities.len());
 
         for activity in activities {
-            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
-                activity.payload.as_slice(),
-            )?)?;
+            let payload = JournalDomainEvent::try_from(
+                ProtoJournalDomainEvent::decode(activity.payload.as_slice())
+                    .map_err(DecodeError::InvalidMessage)?,
+            )?;
 
             match payload {
                 JournalDomainEvent::ActivityCreated {

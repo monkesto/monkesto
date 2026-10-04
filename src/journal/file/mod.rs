@@ -8,6 +8,7 @@ use crate::id::Ident;
 use crate::journal::error::{JournalError, JournalResult};
 use crate::journal::event::{FileEvent, JournalDomainEvent};
 use crate::journal::{Journal, JournalId, JournalService, Permissions};
+use crate::proto::DecodeError;
 use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::status::Status;
 use crate::time::Timestamp;
@@ -340,12 +341,10 @@ impl JournalService {
         .await?;
 
         if let Some(file) = file {
-            let hash = *file.hash.as_array::<16>().ok_or_else(|| {
-                JournalError::EventDecode(format!(
-                    "expected 16 byte file hash, got {}",
-                    file.hash.len()
-                ))
-            })?;
+            let hash = *file
+                .hash
+                .as_array::<16>()
+                .expect("md5 hashes should always be 16 bytes long");
 
             return Ok(FileState {
                 id: file.id,
@@ -388,15 +387,14 @@ impl JournalService {
         let mut files_with_meta = Vec::with_capacity(files.len());
 
         for file in files {
-            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
-                file.payload.as_slice(),
-            )?)?;
-            let hash = *file.hash.as_array::<16>().ok_or_else(|| {
-                JournalError::EventDecode(format!(
-                    "expected 16 byte file hash, got {}",
-                    file.hash.len()
-                ))
-            })?;
+            let payload = JournalDomainEvent::try_from(
+                ProtoJournalDomainEvent::decode(file.payload.as_slice())
+                    .map_err(DecodeError::InvalidMessage)?,
+            )?;
+            let hash = *file
+                .hash
+                .as_array::<16>()
+                .expect("md5 hashes should always be 16 bytes long");
 
             match payload {
                 JournalDomainEvent::FileUploaded {

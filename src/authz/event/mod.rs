@@ -1,7 +1,8 @@
+// Disintegrate's event macro uses manual swaps
+#![allow(clippy::manual_swap)]
+
 use super::{GrantId, RoleId};
 use crate::authority::{Actor, Authority};
-use crate::error::DecodeError;
-use crate::error::DecodeError::FieldRequired;
 use crate::time::Timestamp;
 use disintegrate::Event;
 use serde::{Deserialize, Serialize};
@@ -47,6 +48,8 @@ pub enum AuthzEvent {
 }
 
 use crate::name::Name;
+use crate::proto::DecodeError;
+use crate::proto::DecodeError::FieldRequired;
 use crate::proto::authz::event::authz::ProtoAuthzEvent;
 use crate::proto::authz::event::authz::proto_authz_event::{
     AuthzEventType, ProtoGrantCreated, ProtoGrantRevoked, ProtoRoleActorAdded,

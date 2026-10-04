@@ -7,9 +7,13 @@ use super::role::{
     ChangeRoleActor, CreateRole, RoleDecisionError, RoleId, RoleIndex, RoleIndexError, RoleState,
 };
 use super::store::AuthzEventStore;
+use crate::authn::user::UserError;
 use crate::authority::{Actor, Authority};
-use crate::name::Name;
+use crate::name::{Name, NameError};
 use crate::time::Timestamp;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum_login::tracing::error;
 use chrono::Utc;
 use disintegrate::{DecisionError, PersistedEvent};
 use disintegrate_postgres::PgEventId;
@@ -28,6 +32,27 @@ pub enum AuthzError {
     RoleIndex(#[from] RoleIndexError),
     #[error("role lookup requires system authority")]
     RoleRequiresSystemAuthority,
+    #[error(transparent)]
+    User(#[from] UserError),
+    #[error("failed to create a name: {0}")]
+    NameCreation(#[from] NameError),
+}
+
+impl IntoResponse for AuthzError {
+    fn into_response(self) -> axum::response::Response {
+        use AuthzError::*;
+        match self {
+            RoleDecision(_) | GrantDecision(_) | Disintegrate(_) | RoleIndex(_) => {
+                error!("{}", self);
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            }
+            RoleRequiresSystemAuthority => StatusCode::UNAUTHORIZED.into_response(),
+            User(e) => e.into_response(),
+            NameCreation(_) => {
+                (StatusCode::BAD_REQUEST, "Names must be under 64 characters").into_response()
+            }
+        }
+    }
 }
 
 #[derive(Clone)]

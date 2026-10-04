@@ -3,15 +3,12 @@ use crate::StateType;
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
 use crate::dollars::Dollars;
-use crate::error::MonkestoError;
-use crate::error::monkesto_error::UrlError;
 use crate::id::Ident;
 use crate::journal::JournalId;
+use crate::journal::error::JournalError;
 use crate::journal::layout::layout;
 use axum::extract::Path;
-use axum::extract::Query;
 use axum::extract::State;
-use axum::response::Redirect;
 use axum_login::AuthSession;
 use maud::Markup;
 use maud::html;
@@ -28,8 +25,7 @@ pub async fn account_list_page(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
-    Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect> {
+) -> Result<Markup, JournalError> {
     let user = get_user(session)?;
     let authority = Authority::Direct(Actor::User(user.id));
     let journal_id_res = JournalId::from_str(&id);
@@ -100,13 +96,6 @@ pub async fn account_list_page(
                         "Create Account"
                     }
                 }
-            }
-        }
-
-
-        @if let Some(e) = err.err {
-            p {
-                (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
             }
         }
     };

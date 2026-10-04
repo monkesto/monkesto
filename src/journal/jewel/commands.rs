@@ -1,7 +1,5 @@
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
-use crate::error::MonkestoError;
-use crate::error::monkesto_error::OrRedirect;
 use crate::journal::JournalId;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::entry::{EntryKind, EntrySide};
@@ -27,13 +25,11 @@ pub async fn import_jewel_db(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path((journal_id, file_id)): Path<(String, String)>,
-) -> Result<Redirect, Redirect> {
-    let callback_url = &format!("/journal/{}/file", journal_id);
-
+) -> Result<Redirect, JournalError> {
     let user = get_user(session)?;
     let user_authority = Authority::Direct(Actor::User(user.id));
-    let journal_id = JournalId::from_str(&journal_id).or_redirect(callback_url)?;
-    let file_id = FileId::from_str(&file_id).or_redirect(callback_url)?;
+    let journal_id = JournalId::from_str(&journal_id)?;
+    let file_id = FileId::from_str(&file_id)?;
 
     let mut jewel_account_id_map = HashMap::new();
 
@@ -42,8 +38,7 @@ pub async fn import_jewel_db(
     let jewel_data = state
         .journal_service
         .get_jewel_db(journal_id, file_id, user_authority, 0, 0)
-        .await
-        .or_redirect(callback_url)?;
+        .await?;
 
     info!(
         "Jewel database imported in {:?})",
@@ -78,7 +73,7 @@ pub async fn import_jewel_db(
                         account_id,
                         journal_id,
                         // jewel names appear to be max 50 characters, ours are max 64
-                        Name::try_new(account.name.clone()).or_redirect(callback_url)?,
+                        Name::try_new(account.name.clone())?,
                         account_type,
                         user_authority,
                         creation_timestamp.get_time(),
@@ -89,7 +84,7 @@ pub async fn import_jewel_db(
                     Err(DecisionError::Domain(JournalError::AccountIdCollision(_))) => {
                         account_id = AccountId::new()
                     }
-                    Err(e) => Err(MonkestoError::from(e).redirect(callback_url))?,
+                    Err(e) => Err(e)?,
                 };
             }
             jewel_account_id_map.insert(jewel_account_id, account_id);
@@ -121,8 +116,7 @@ pub async fn import_jewel_db(
             .ok_or(JewelImportError::MissingJournalEntries(
                 jewel_transaction_id,
             ))
-            .map_err(JournalError::JewelImport)
-            .or_redirect(callback_url)?
+            .map_err(JournalError::JewelImport)?
         {
             if entry.account_id == jewel_transaction.z_single_account_id {
                 continue;
@@ -143,8 +137,7 @@ pub async fn import_jewel_db(
                     account_id: *jewel_account_id_map
                         .get(&entry.account_id)
                         .ok_or(JewelImportError::MissingAccount(entry.account_id))
-                        .map_err(JournalError::JewelImport)
-                        .or_redirect(callback_url)?,
+                        .map_err(JournalError::JewelImport)?,
                 },
             })
         }
@@ -160,8 +153,7 @@ pub async fn import_jewel_db(
                 account_id: *jewel_account_id_map
                     .get(&z_single_account_id)
                     .ok_or(JewelImportError::MissingAccount(z_single_account_id))
-                    .map_err(JournalError::JewelImport)
-                    .or_redirect(callback_url)?,
+                    .map_err(JournalError::JewelImport)?,
             },
         });
 
@@ -181,8 +173,7 @@ pub async fn import_jewel_db(
                     // jewel memos appear to be max 50 characters, ours are max 100 characters
                     Some(
                         Memo::try_new(jewel_transaction.memo.clone())
-                            .map_err(JournalError::Memo)
-                            .or_redirect(callback_url)?,
+                            .map_err(JournalError::Memo)?,
                     ),
                     user_authority,
                     jewel_transaction.accounting_date.get_time(),
@@ -193,7 +184,7 @@ pub async fn import_jewel_db(
                 Err(DecisionError::Domain(JournalError::TransactionIdCollision(_))) => {
                     transaction_id = TransactionId::new()
                 }
-                Err(e) => Err(MonkestoError::from(e).redirect(callback_url))?,
+                Err(e) => Err(e)?,
             };
         }
 

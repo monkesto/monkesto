@@ -1,26 +1,28 @@
-use aws_sdk_s3::error::SdkError;
-use sqlx::Error;
-use thiserror::Error;
 use crate::authn::UserId;
-use crate::error::DecodeError;
-use crate::error::DecodeError::{FieldRequired, PermissionDecode};
+use crate::authn::user::UserError;
+use crate::email::EmailError;
 use crate::id::ident_error::IdentError;
 use crate::journal::account::AccountId;
 use crate::journal::activity::ActivityId;
 use crate::journal::entry::EntryId;
+use crate::journal::error::transaction_validation::TransactionValidationError;
 use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
-use crate::journal::{JournalId, PermissionDecodeError, Permissions};
-use crate::journal::error::transaction_validation_error::TransactionValidationError;
 use crate::journal::jewel::JewelImportError;
-use crate::journal::transaction::memo::memo_error::MemoError;
 use crate::journal::transaction::TransactionId;
-use crate::proto::journal::error::journal_error::proto_journal_error::{JournalErrorType, ProtoJewelImportError, ProtoTransactionValidationError};
-use crate::proto::journal::error::journal_error::proto_journal_error::proto_jewel_import_error::JewelImportErrorType;
-use crate::proto::journal::error::journal_error::proto_journal_error::proto_transaction_validation_error::TransactionValidationErrorType;
-use crate::proto::journal::error::journal_error::ProtoJournalError;
+use crate::journal::transaction::memo::MemoError;
+use crate::journal::{JournalId, PermissionDecodeError, Permissions};
+use crate::name::NameError;
+use crate::proto::DecodeError;
+use aws_sdk_s3::error::SdkError;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
+use axum_login::tracing::error;
+use disintegrate::{BoxDynError, DecisionError};
+use std::backtrace::Backtrace;
+use thiserror::Error;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug)]
 pub enum JournalError {
     #[error("a journal already exists with the id {0}")]
     IdCollision(JournalId),
@@ -35,6 +37,7 @@ pub enum JournalError {
     FundIdCollision(FundId),
 
     #[error("an entry already exists with the id {0}")]
+    #[expect(unused)]
     EntryIdCollision(EntryId),
 
     #[error("a transaction already exists with the id {0}")]
@@ -53,12 +56,14 @@ pub enum JournalError {
     InvalidActivity(ActivityId),
 
     #[error("invalid fund: {0}")]
+    #[expect(unused)]
     InvalidFund(FundId),
 
     #[error("invalid entry: {0}")]
     InvalidEntry(EntryId),
 
     #[error("invalid transaction: {0}")]
+    #[expect(unused)]
     InvalidTransaction(TransactionId),
 
     #[error("failed to validate a transaction: {0}")]
@@ -76,20 +81,18 @@ pub enum JournalError {
     #[error("Failed to create an Ident: {0}")]
     IdentCreation(#[from] IdentError),
 
-    #[error("sqlx returned an error: {0}")]
-    Sqlx(String),
+    #[error("sqlx returned an error: {0}; backtrace {:#?}", backtrace)]
+    Sqlx {
+        #[from]
+        source: sqlx::Error,
+        backtrace: Backtrace,
+    },
 
     #[error("failed to construct permissions from an integer: {0}")]
     PermissionDecode(#[from] PermissionDecodeError),
 
     #[error("failed to decode an event: {0}")]
-    EventDecode(String),
-
-    #[error("failed to decode a proto type: {0}")]
-    ProtoDecode(#[from] DecodeError),
-
-    #[error("the server-side S3 credentials are invalid")]
-    InvalidS3Credentials,
+    EventDecode(#[from] DecodeError),
 
     #[error("an S3 transaction failed: {0}")]
     S3(String),
@@ -102,17 +105,30 @@ pub enum JournalError {
 
     #[error("failed to create a memo: {0}")]
     Memo(#[from] MemoError),
+
+    #[error("failed to create a name: {0}")]
+    Name(#[from] NameError),
+
+    #[error("got an error from the disintegrate event store: {0}")]
+    DisintegrateEvent(BoxDynError),
+
+    #[error("got an error from the disintegrate state store: {0}")]
+    DisintegrateState(BoxDynError),
+
+    #[error("got an error from the user store: {0}")]
+    User(#[from] UserError),
+
+    #[error(transparent)]
+    Email(#[from] EmailError),
 }
 
-impl From<sqlx::Error> for JournalError {
-    fn from(value: Error) -> Self {
-        Self::Sqlx(value.to_string())
-    }
-}
-
-impl From<prost::DecodeError> for JournalError {
-    fn from(value: prost::DecodeError) -> Self {
-        Self::EventDecode(value.to_string())
+impl From<DecisionError<JournalError>> for JournalError {
+    fn from(error: DecisionError<JournalError>) -> Self {
+        match error {
+            DecisionError::Domain(e) => e,
+            DecisionError::EventStore(e) => JournalError::DisintegrateEvent(e),
+            DecisionError::StateStore(e) => JournalError::DisintegrateState(e),
+        }
     }
 }
 
@@ -124,226 +140,67 @@ impl<E, R> From<SdkError<E, R>> for JournalError {
 
 pub type JournalResult<T> = Result<T, JournalError>;
 
-impl TryFrom<ProtoJournalError> for JournalError {
-    type Error = DecodeError;
-
-    fn try_from(e: ProtoJournalError) -> Result<Self, Self::Error> {
-        let journal_error = match e.journal_error_type.ok_or(FieldRequired)? {
-            JournalErrorType::IdCollision(id) => JournalError::IdCollision(id.try_into()?),
-            JournalErrorType::InvalidJournal(id) => JournalError::InvalidJournal(id.try_into()?),
-            JournalErrorType::Permissions(perms) => JournalError::Permissions(
-                Permissions::from_bits(perms).ok_or(PermissionDecode(perms))?,
-            ),
-            JournalErrorType::UserAlreadyHasAccess(id) => {
-                JournalError::UserAlreadyHasAccess(id.try_into()?)
+impl IntoResponse for JournalError {
+    fn into_response(self) -> Response {
+        use JournalError::*;
+        match self {
+            EventDecode(_)
+            | PermissionDecode(_)
+            | Sqlx { .. }
+            | S3(_)
+            | DisintegrateState(_)
+            | DisintegrateEvent(_) => {
+                error!("{}", self);
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
-            JournalErrorType::UserDoesntHaveAccess(id) => {
-                JournalError::UserDoesntHaveAccess(id.try_into()?)
-            }
-            JournalErrorType::IdentCreation(e) => JournalError::IdentCreation(e.try_into()?),
-            JournalErrorType::Sqlx(s) => JournalError::Sqlx(s),
-            JournalErrorType::PermissionDecode(e) => {
-                JournalError::PermissionDecode(PermissionDecodeError(e))
-            }
-            JournalErrorType::AccountIdCollision(id) => {
-                JournalError::AccountIdCollision(id.try_into()?)
-            }
-            JournalErrorType::TransactionIdCollision(id) => {
-                JournalError::TransactionIdCollision(id.try_into()?)
-            }
-            JournalErrorType::InvalidAccount(id) => JournalError::InvalidAccount(id.try_into()?),
-            JournalErrorType::InvalidTransaction(id) => {
-                JournalError::InvalidTransaction(id.try_into()?)
-            }
-            JournalErrorType::EventDecode(s) => JournalError::EventDecode(s),
-
-            JournalErrorType::TransactionValidation(e) => {
-                let validation_error =
-                    match e.transaction_validation_error_type.ok_or(FieldRequired)? {
-                        TransactionValidationErrorType::InvalidEntryType(s) => {
-                            TransactionValidationError::InvalidEntryType(s)
-                        }
-                        TransactionValidationErrorType::NoTransactionEntries(_) => {
-                            TransactionValidationError::NoTransactionEntries
-                        }
-                        TransactionValidationErrorType::MissingEntryAmount(_) => {
-                            TransactionValidationError::MissingEntryAmount
-                        }
-                        TransactionValidationErrorType::MissingEntryType(_) => {
-                            TransactionValidationError::MissingEntryType
-                        }
-                        TransactionValidationErrorType::ParseDecimal(s) => {
-                            TransactionValidationError::ParseDecimal(s)
-                        }
-                        TransactionValidationErrorType::PartialCentValue(s) => {
-                            TransactionValidationError::PartialCentValue(s)
-                        }
-                        TransactionValidationErrorType::OutOfRange(s) => {
-                            TransactionValidationError::OutOfRange(s)
-                        }
-                        TransactionValidationErrorType::NegativeEntryAmount(s) => {
-                            TransactionValidationError::NegativeEntryAmount(s)
-                        }
-                        TransactionValidationErrorType::ImbalancedTransaction(entries) => {
-                            TransactionValidationError::ImbalancedTransaction(entries.try_into()?)
-                        }
-                        TransactionValidationErrorType::TransferViolation(id) => {
-                            TransactionValidationError::TransferViolation(id.try_into()?)
-                        }
-                    };
-
-                JournalError::TransactionValidation(validation_error)
-            }
-            JournalErrorType::ProtoDecode(e) => JournalError::ProtoDecode(e.try_into()?),
-            JournalErrorType::FileIdCollision(id) => JournalError::FileIdCollision(id.try_into()?),
-            JournalErrorType::InvalidS3Credentials(_) => JournalError::InvalidS3Credentials,
-            JournalErrorType::S3(s) => JournalError::S3(s),
-            JournalErrorType::InvalidFile(id) => JournalError::InvalidFile(id.try_into()?),
-            JournalErrorType::FundIdCollision(id) => JournalError::FundIdCollision(id.try_into()?),
-            JournalErrorType::InvalidFund(id) => JournalError::InvalidFund(id.try_into()?),
-            JournalErrorType::ActivityIdCollision(id) => {
-                JournalError::ActivityIdCollision(id.try_into()?)
-            }
-            JournalErrorType::InvalidActivity(id) => JournalError::InvalidActivity(id.try_into()?),
-            JournalErrorType::InvalidTransactionEntry(id) => {
-                JournalError::InvalidEntry(id.try_into()?)
-            }
-            JournalErrorType::TransactionEntryIdCollision(id) => {
-                JournalError::EntryIdCollision(id.try_into()?)
-            }
-            JournalErrorType::JewelImport(e) => {
-                let import_error = match e.jewel_import_error_type.ok_or(FieldRequired)? {
-                    JewelImportErrorType::Io(s) => JewelImportError::Io(s),
-                    JewelImportErrorType::StartChildProcess(s) => {
-                        JewelImportError::StartChildProcess(s)
-                    }
-                    JewelImportErrorType::Write(s) => JewelImportError::Write(s),
-                    JewelImportErrorType::ChildProcessExitFailure(s) => {
-                        JewelImportError::ChildProcessExitFailure(s)
-                    }
-                    JewelImportErrorType::OutdatedJewelVersion(s) => {
-                        JewelImportError::OutdatedJewelVersion(s as f64)
-                    }
-                    JewelImportErrorType::MissingJournalEntries(id) => {
-                        JewelImportError::MissingJournalEntries(id)
-                    }
-                    JewelImportErrorType::MissingAccount(id) => {
-                        JewelImportError::MissingAccount(id)
-                    }
-                };
-                JournalError::JewelImport(import_error)
-            }
-            JournalErrorType::Memo(e) => JournalError::Memo(e.into()),
-        };
-
-        Ok(journal_error)
-    }
-}
-
-impl From<JournalError> for ProtoJournalError {
-    fn from(e: JournalError) -> Self {
-        let err = match e {
-            JournalError::IdCollision(id) => JournalErrorType::IdCollision(id.into()),
-            JournalError::AccountIdCollision(id) => JournalErrorType::AccountIdCollision(id.into()),
-            JournalError::TransactionIdCollision(id) => {
-                JournalErrorType::TransactionIdCollision(id.into())
-            }
-            JournalError::InvalidJournal(id) => JournalErrorType::InvalidJournal(id.into()),
-            JournalError::InvalidAccount(id) => JournalErrorType::InvalidAccount(id.into()),
-            JournalError::InvalidTransaction(id) => JournalErrorType::InvalidTransaction(id.into()),
-            JournalError::TransactionValidation(e) => {
-                let t_val = match e {
-                    TransactionValidationError::InvalidEntryType(s) => {
-                        TransactionValidationErrorType::InvalidEntryType(s)
-                    }
-                    TransactionValidationError::NoTransactionEntries => {
-                        TransactionValidationErrorType::NoTransactionEntries(())
-                    }
-                    TransactionValidationError::MissingEntryAmount => {
-                        TransactionValidationErrorType::MissingEntryAmount(())
-                    }
-                    TransactionValidationError::MissingEntryType => {
-                        TransactionValidationErrorType::MissingEntryType(())
-                    }
-                    TransactionValidationError::ParseDecimal(s) => {
-                        TransactionValidationErrorType::ParseDecimal(s)
-                    }
-                    TransactionValidationError::PartialCentValue(s) => {
-                        TransactionValidationErrorType::PartialCentValue(s)
-                    }
-                    TransactionValidationError::OutOfRange(s) => {
-                        TransactionValidationErrorType::OutOfRange(s)
-                    }
-                    TransactionValidationError::NegativeEntryAmount(s) => {
-                        TransactionValidationErrorType::NegativeEntryAmount(s)
-                    }
-                    TransactionValidationError::ImbalancedTransaction(updates) => {
-                        TransactionValidationErrorType::ImbalancedTransaction(updates.into())
-                    }
-                    TransactionValidationError::TransferViolation(id) => {
-                        TransactionValidationErrorType::TransferViolation(id.into())
-                    }
-                };
-                JournalErrorType::TransactionValidation(ProtoTransactionValidationError {
-                    transaction_validation_error_type: Some(t_val),
-                })
-            }
-            JournalError::Permissions(perms) => JournalErrorType::Permissions(perms.bits()),
-            JournalError::UserAlreadyHasAccess(id) => {
-                JournalErrorType::UserAlreadyHasAccess(id.into())
-            }
-            JournalError::UserDoesntHaveAccess(id) => {
-                JournalErrorType::UserDoesntHaveAccess(id.into())
-            }
-            JournalError::IdentCreation(e) => JournalErrorType::IdentCreation(e.into()),
-            JournalError::Sqlx(s) => JournalErrorType::Sqlx(s),
-            JournalError::PermissionDecode(e) => JournalErrorType::PermissionDecode(e.0),
-            JournalError::EventDecode(s) => JournalErrorType::EventDecode(s),
-            JournalError::ProtoDecode(e) => JournalErrorType::ProtoDecode(e.into()),
-            JournalError::FileIdCollision(id) => JournalErrorType::FileIdCollision(id.into()),
-            JournalError::InvalidS3Credentials => JournalErrorType::InvalidS3Credentials(()),
-            JournalError::S3(s) => JournalErrorType::S3(s),
-            JournalError::InvalidFile(id) => JournalErrorType::InvalidFile(id.into()),
-            JournalError::FundIdCollision(id) => JournalErrorType::FileIdCollision(id.into()),
-            JournalError::InvalidFund(id) => JournalErrorType::InvalidFund(id.into()),
-            JournalError::ActivityIdCollision(id) => {
-                JournalErrorType::ActivityIdCollision(id.into())
-            }
-            JournalError::InvalidActivity(id) => JournalErrorType::InvalidActivity(id.into()),
-            JournalError::EntryIdCollision(id) => {
-                JournalErrorType::TransactionEntryIdCollision(id.into())
-            }
-            JournalError::InvalidEntry(id) => JournalErrorType::InvalidTransactionEntry(id.into()),
-            JournalError::JewelImport(e) => {
-                let import_error = match e {
-                    JewelImportError::Io(s) => JewelImportErrorType::Io(s),
-                    JewelImportError::StartChildProcess(s) => {
-                        JewelImportErrorType::StartChildProcess(s)
-                    }
-                    JewelImportError::Write(s) => JewelImportErrorType::Write(s),
-                    JewelImportError::ChildProcessExitFailure(s) => {
-                        JewelImportErrorType::ChildProcessExitFailure(s)
-                    }
-                    JewelImportError::OutdatedJewelVersion(f) => {
-                        JewelImportErrorType::OutdatedJewelVersion(f as f32)
-                    }
-                    JewelImportError::MissingJournalEntries(id) => {
-                        JewelImportErrorType::MissingJournalEntries(id)
-                    }
-                    JewelImportError::MissingAccount(id) => {
-                        JewelImportErrorType::MissingAccount(id)
-                    }
-                };
-
-                JournalErrorType::JewelImport(ProtoJewelImportError {
-                    jewel_import_error_type: Some(import_error),
-                })
-            }
-            JournalError::Memo(e) => JournalErrorType::Memo(e.into()),
-        };
-
-        Self {
-            journal_error_type: Some(err),
+            IdCollision(_)
+            | AccountIdCollision(_)
+            | ActivityIdCollision(_)
+            | FundIdCollision(_)
+            | EntryIdCollision(_)
+            | TransactionIdCollision(_)
+            | FileIdCollision(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Id collision, try again.",
+            )
+                .into_response(),
+            InvalidJournal(_)
+            | InvalidAccount(_)
+            | InvalidActivity(_)
+            | InvalidFund(_)
+            | InvalidEntry(_)
+            | InvalidTransaction(_)
+            | InvalidFile(_) => StatusCode::CONFLICT.into_response(),
+            TransactionValidation(e) => e.into_response(),
+            Permissions(perms) => (
+                StatusCode::UNAUTHORIZED,
+                format!("The {:?} permission is required", perms),
+            )
+                .into_response(),
+            UserAlreadyHasAccess(_) => (
+                StatusCode::CONFLICT,
+                "The user already has access to this journal",
+            )
+                .into_response(),
+            UserDoesntHaveAccess(_) => (
+                StatusCode::CONFLICT,
+                "The user doesn't have access to this journal",
+            )
+                .into_response(),
+            JewelImport(e) => e.into_response(),
+            IdentCreation(_) => (StatusCode::BAD_REQUEST, "Invalid id").into_response(),
+            Memo(_) => (
+                StatusCode::BAD_REQUEST,
+                "Memos must have a maximum of 100 characters",
+            )
+                .into_response(),
+            Name(_) => (
+                StatusCode::BAD_REQUEST,
+                "Names must have a maximum of 64 characters",
+            )
+                .into_response(),
+            User(e) => e.into_response(),
+            Email(_) => (StatusCode::BAD_REQUEST, "Invalid email").into_response(),
         }
     }
 }

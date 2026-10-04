@@ -6,18 +6,15 @@ use crate::authn::{UserId, get_user};
 use crate::authority::{Actor, Authority};
 use crate::dollars::Dollars;
 use crate::email::Email;
-use crate::error::MonkestoError;
-use crate::error::monkesto_error::{MonkestoResult, UrlError};
 use crate::journal::JournalId;
 use crate::journal::account::AccountId;
 use crate::journal::account::AccountState;
 use crate::journal::entry::{EntryKind, EntrySide};
+use crate::journal::error::{JournalError, JournalResult};
 use crate::journal::layout;
 use crate::time::Timestamp;
 use axum::extract::Path;
-use axum::extract::Query;
 use axum::extract::State;
-use axum::response::Redirect;
 use axum_login::AuthSession;
 use maud::Markup;
 use maud::html;
@@ -28,24 +25,24 @@ pub async fn transaction_list_page(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
-    Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect> {
+) -> Result<Markup, JournalError> {
     let user = get_user(session)?;
     let user_authority = Authority::Direct(Actor::User(user.id));
 
     let journal_id_res = JournalId::from_str(&id);
 
-    let transactions_res: MonkestoResult<Vec<(TransactionState, Authority, Timestamp)>> =
+    let transactions_res: JournalResult<Vec<(TransactionState, Authority, Timestamp)>> =
         match &journal_id_res {
-            Ok(id) => state
-                .journal_service
-                .list_journal_transactions(*id, user_authority)
-                .await
-                .map_err(|e| e.into()),
-            Err(e) => Err(e.clone().into()),
+            Ok(id) => {
+                state
+                    .journal_service
+                    .list_journal_transactions(*id, user_authority)
+                    .await
+            }
+            Err(e) => Err(JournalError::from(e.clone()))?,
         };
 
-    let accounts_res: MonkestoResult<HashMap<AccountId, AccountState>> = match &journal_id_res {
+    let accounts_res: JournalResult<HashMap<AccountId, AccountState>> = match &journal_id_res {
         Ok(id) => match state
             .journal_service
             .list_journal_accounts(*id, user_authority)
@@ -55,12 +52,12 @@ pub async fn transaction_list_page(
                 .into_iter()
                 .map(|(state, _, _)| (state.id, state))
                 .collect::<HashMap<AccountId, AccountState>>()),
-            Err(e) => Err(e.into()),
+            Err(e) => Err(e),
         },
         Err(e) => Err(e.clone().into()),
     };
 
-    let members_res: MonkestoResult<HashMap<UserId, UserState>> = match &journal_id_res {
+    let members_res: JournalResult<HashMap<UserId, UserState>> = match &journal_id_res {
         Ok(id) => match state
             .journal_service
             .list_journal_members(*id, user_authority)
@@ -73,7 +70,7 @@ pub async fn transaction_list_page(
                     .collect::<HashMap<UserId, UserState>>()),
                 Err(e) => Err(e.into()),
             },
-            Err(e) => Err(e.into()),
+            Err(e) => Err(e),
         },
         Err(e) => Err(e.clone().into()),
     };
@@ -219,11 +216,6 @@ pub async fn transaction_list_page(
                                     "Create Transaction"
                                 }
                             }
-                        }
-                    }
-                    @if let Some(e) = err.err {
-                        p {
-                            (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
                         }
                     }
                 }

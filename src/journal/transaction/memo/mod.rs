@@ -1,5 +1,4 @@
-use crate::error::DecodeError;
-use crate::journal::transaction::memo::memo_error::MemoError;
+use crate::proto::DecodeError;
 use crate::proto::journal::transaction::memo::memo::ProtoMemo;
 use serde::Deserialize;
 use serde::Serialize;
@@ -7,8 +6,11 @@ use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::fmt::Display;
+use thiserror::Error;
 
-pub mod memo_error;
+#[derive(Error, Debug, Eq, PartialEq)]
+#[error("The memo {0} is too long; max length is 100 characters")]
+pub struct MemoError(pub String);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Memo(String);

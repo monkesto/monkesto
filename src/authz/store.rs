@@ -5,6 +5,7 @@ use disintegrate_postgres::{
     PgDecisionMaker, PgEventStore, PgSnapshotter, WithPgSnapshot, decision_maker,
 };
 use sqlx::PgPool;
+use std::backtrace::Backtrace;
 use thiserror::Error;
 
 type PgAuthzDecisionMaker =
@@ -13,8 +14,12 @@ type PgAuthzEventStore = PgEventStore<AuthzEvent, Prost<AuthzEvent, ProtoAuthzEv
 
 #[derive(Debug, Error)]
 pub enum AuthzConnectError {
-    #[error(transparent)]
-    Sqlx(#[from] sqlx::Error),
+    #[error("sqlx error: {0}; backtrace {:#?}", backtrace)]
+    Sqlx {
+        #[from]
+        source: sqlx::Error,
+        backtrace: Backtrace,
+    },
     #[error("disintegrate error: {0}")]
     Disintegrate(String),
 }

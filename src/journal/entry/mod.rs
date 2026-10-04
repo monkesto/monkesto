@@ -1,5 +1,3 @@
-use crate::error::DecodeError;
-use crate::error::DecodeError::FieldRequired;
 use crate::id;
 use crate::id::Ident;
 use crate::journal::account::AccountId;
@@ -115,6 +113,8 @@ impl<'r> Decode<'r, Postgres> for EntryKind {
 }
 
 use crate::journal::transaction::{TransactionEntries, TransactionEntry, TransactionEntryIds};
+use crate::proto::DecodeError;
+use crate::proto::DecodeError::FieldRequired;
 use crate::proto::journal::entry::entry::proto_entry_kind::{
     ProtoActivityEntryKind, ProtoEntryKindVariant,
 };

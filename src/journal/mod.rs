@@ -88,6 +88,7 @@ use crate::journal::member::{
     AddJournalMember, JournalMember, RemoveJournalMember, UpdateJournalMember,
 };
 use crate::name::Name;
+use crate::proto::DecodeError;
 use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::status::Status;
 use crate::time::Timestamp;
@@ -331,7 +332,7 @@ impl JournalService {
         name: Name,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Result<PgEventId, DecisionError<JournalError>> {
+    ) -> Result<PgEventId, JournalError> {
         Ok(self
             .decision_maker
             .make(CreateJournal::new(
@@ -426,9 +427,10 @@ impl JournalService {
             .await?;
 
         if let Some(journal) = journal {
-            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
-                journal.payload.as_slice(),
-            )?)?;
+            let payload = JournalDomainEvent::try_from(
+                ProtoJournalDomainEvent::decode(journal.payload.as_slice())
+                    .map_err(DecodeError::InvalidMessage)?,
+            )?;
 
             match payload {
                 JournalDomainEvent::JournalCreated {
@@ -477,9 +479,10 @@ impl JournalService {
         let mut journals_with_meta = Vec::with_capacity(journals.len());
 
         for journal in journals {
-            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
-                journal.payload.as_slice(),
-            )?)?;
+            let payload = JournalDomainEvent::try_from(
+                ProtoJournalDomainEvent::decode(journal.payload.as_slice())
+                    .map_err(DecodeError::InvalidMessage)?,
+            )?;
 
             match payload {
                 JournalDomainEvent::JournalCreated {

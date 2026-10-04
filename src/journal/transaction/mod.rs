@@ -32,6 +32,7 @@ use crate::journal::fund::FundId;
 use crate::journal::member::JournalMember;
 use crate::journal::transaction::memo::Memo;
 use crate::journal::{Journal, JournalId, JournalService, Permissions, validate_permissions};
+use crate::proto::DecodeError;
 use crate::proto::journal::entry::entry::ProtoRepeatedTransactionEntryIds;
 use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::status::Status;
@@ -495,9 +496,10 @@ impl JournalService {
             .collect();
 
         for transaction in transactions {
-            let payload = JournalDomainEvent::try_from(ProtoJournalDomainEvent::decode(
-                transaction.payload.as_slice(),
-            )?)?;
+            let payload = JournalDomainEvent::try_from(
+                ProtoJournalDomainEvent::decode(transaction.payload.as_slice())
+                    .map_err(DecodeError::InvalidMessage)?,
+            )?;
 
             let mut tx_entries = Vec::new();
 

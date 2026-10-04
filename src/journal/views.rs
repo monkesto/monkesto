@@ -1,15 +1,13 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::authn::get_user;
+use crate::authn::user::UserError;
 use crate::authority::{Actor, Authority};
-use crate::error::monkesto_error::{MonkestoError, UrlError};
 use crate::id::Ident;
 use crate::journal::JournalId;
 use crate::journal::layout::layout;
 use axum::extract::Path;
-use axum::extract::Query;
 use axum::extract::State;
-use axum::response::Redirect;
 use axum_login::AuthSession;
 use maud::Markup;
 use maud::html;
@@ -26,8 +24,7 @@ pub struct Journal {
 pub async fn journal_list(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
-    Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect> {
+) -> Result<Markup, UserError> {
     let user = get_user(session)?;
 
     let content = html! {
@@ -98,12 +95,6 @@ pub async fn journal_list(
                 }
             }
         }
-
-        @if let Some(e) = err.err {
-            p class="mt-6 text-center text-sm/6 text-gray-500 dark:text-gray-400" {
-                (format! ("error: {:?}", MonkestoError::decode(&e)))
-            }
-        }
     };
 
     Ok(layout(None, false, None, content))
@@ -113,7 +104,7 @@ pub async fn journal_detail(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
-) -> Result<Markup, Redirect> {
+) -> Result<Markup, UserError> {
     let user = get_user(session)?;
 
     let journal_state_res = match JournalId::from_str(&id) {

@@ -1,12 +1,19 @@
-use crate::name::name_error::NameError;
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::fmt::Display;
+use thiserror::Error;
 
-pub mod name_error;
+#[derive(Error, Debug, Eq, PartialEq)]
+pub enum NameError {
+    #[error("The name {0} is too short")]
+    TooShort(String),
+
+    #[error("The name {0} is too long")]
+    TooLong(String),
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Name(String);

@@ -1,7 +1,7 @@
 pub mod ident_error;
 
-use crate::error::DecodeError;
 use crate::id::ident_error::IdentError;
+use crate::proto::DecodeError;
 use crate::proto::id::ident::ProtoIdent;
 use arrayvec::ArrayString;
 use cuid::Cuid2Constructor;
@@ -252,7 +252,7 @@ macro_rules! id {
         }
 
         impl TryFrom<$crate::proto::id::ident::ProtoIdent> for $id_name {
-            type Error = $crate::error::DecodeError;
+            type Error = $crate::proto::DecodeError;
 
             fn try_from(value: $crate::proto::id::ident::ProtoIdent) -> Result<Self, Self::Error> {
                 Ok(Self(Ident::try_from(value)?))
@@ -260,7 +260,7 @@ macro_rules! id {
         }
 
         impl TryFrom<Option<$crate::proto::id::ident::ProtoIdent>> for $id_name {
-            type Error = $crate::error::DecodeError;
+            type Error = $crate::proto::DecodeError;
 
             fn try_from(
                 value: Option<$crate::proto::id::ident::ProtoIdent>,

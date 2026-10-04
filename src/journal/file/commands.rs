@@ -1,6 +1,5 @@
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
-use crate::error::monkesto_error::OrRedirect;
 use crate::journal::error::JournalError;
 use crate::journal::file::{FileId, ObjectStore};
 use crate::journal::{JournalId, Permissions};
@@ -37,15 +36,12 @@ pub async fn upload_file(
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
     Json(form): Json<UploadFileForm>,
-) -> Result<Json<UploadLink>, Redirect> {
-    let callback_url = &format!("/journal/{}/file", id);
-
+) -> Result<Json<UploadLink>, JournalError> {
     if form.file_size > 1024 * 1024 * 50 {
-        return Err(JournalError::S3("File too large! 50 MB max".to_string()))
-            .or_redirect(callback_url);
+        Err(JournalError::S3("File too large! 50 MB max".to_string()))?;
     }
 
-    let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
+    let journal_id = JournalId::from_str(&id)?;
     let user = get_user(session)?;
     let user_authority = Authority::Direct(Actor::User(user.id));
 
@@ -68,8 +64,7 @@ pub async fn upload_file(
                 .content_length(form.file_size)
                 .presigned(presign_config)
                 .await
-                .map_err(JournalError::from)
-                .or_redirect(callback_url)?;
+                .map_err(JournalError::from)?;
 
             presigned_req.uri().to_string()
         }
@@ -84,8 +79,7 @@ pub async fn upload_file(
     if state
         .journal_service
         .get_effective_permissions(journal_id, user_authority)
-        .await
-        .or_redirect(callback_url)?
+        .await?
         .contains(Permissions::UPLOAD_FILE)
     {
         Ok(Json(UploadLink {
@@ -93,7 +87,7 @@ pub async fn upload_file(
             file_key,
         }))
     } else {
-        Err(JournalError::Permissions(Permissions::UPLOAD_FILE)).or_redirect(callback_url)?
+        Err(JournalError::Permissions(Permissions::UPLOAD_FILE))?
     }
 }
 
@@ -108,19 +102,18 @@ pub async fn localstore_file_handler(
     Path(id): Path<String>,
     Query(query): Query<LocalUploadQuery>,
     request: Request<Body>,
-) -> Result<StatusCode, Redirect> {
+) -> Result<StatusCode, JournalError> {
     let callback_url = &format!("/journal/{}/file", id);
 
     if let ObjectStore::Local { storage_directory } = state.journal_service.object_store.clone() {
-        let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
+        let journal_id = JournalId::from_str(&id)?;
         let user = get_user(session)?;
         let user_authority = Authority::Direct(Actor::User(user.id));
 
         if state
             .journal_service
             .get_effective_permissions(journal_id, user_authority)
-            .await
-            .or_redirect(callback_url)?
+            .await?
             .contains(Permissions::UPLOAD_FILE)
         {
             let file_path = storage_directory.join(query.file_key);
@@ -128,37 +121,31 @@ pub async fn localstore_file_handler(
             if let Some(parent) = file_path.parent() {
                 create_dir_all(parent)
                     .await
-                    .map_err(|e| JournalError::S3(e.to_string()))
-                    .or_redirect(callback_url)?;
+                    .map_err(|e| JournalError::S3(e.to_string()))?;
             }
 
             let mut file = File::create(file_path)
                 .await
-                .map_err(|e| JournalError::S3(e.to_string()))
-                .or_redirect(callback_url)?;
+                .map_err(|e| JournalError::S3(e.to_string()))?;
 
             let mut request_stream = request.into_body().into_data_stream();
             while let Some(chunk_result) = request_stream.next().await {
-                let chunk = chunk_result
-                    .map_err(|e| JournalError::S3(e.to_string()))
-                    .or_redirect(callback_url)?;
+                let chunk = chunk_result.map_err(|e| JournalError::S3(e.to_string()))?;
                 file.write_all(&chunk)
                     .await
-                    .map_err(|e| JournalError::S3(e.to_string()))
-                    .or_redirect(callback_url)?;
+                    .map_err(|e| JournalError::S3(e.to_string()))?;
             }
 
             file.flush()
                 .await
-                .map_err(|e| JournalError::S3(e.to_string()))
-                .or_redirect(callback_url)?;
+                .map_err(|e| JournalError::S3(e.to_string()))?;
 
             Ok(StatusCode::OK)
         } else {
-            Err(JournalError::Permissions(Permissions::UPLOAD_FILE)).or_redirect(callback_url)?
+            Err(JournalError::Permissions(Permissions::UPLOAD_FILE))?
         }
     } else {
-        Err(JournalError::S3("bad request".to_string())).or_redirect(callback_url)?
+        Err(JournalError::S3("bad request".to_string()))?
     }
 }
 
@@ -172,7 +159,7 @@ pub async fn record_file_upload(
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
     Json(form): Json<RecordFileUploadForm>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, JournalError> {
     let callback_url = &format!("/journal/{}/file", id);
 
     let k = form.file_key.splitn(2, '-').collect::<Vec<_>>();
@@ -188,31 +175,26 @@ pub async fn record_file_upload(
                 .key(&form.file_key)
                 .send()
                 .await
-                .map_err(JournalError::from)
-                .or_redirect(callback_url)?;
+                .map_err(JournalError::from)?;
 
             let hash = head
                 .e_tag()
-                .ok_or_else(|| JournalError::S3("no MD5 checksum found".to_string()))
-                .or_redirect(callback_url)?
+                .ok_or_else(|| JournalError::S3("no MD5 checksum found".to_string()))?
                 .trim_matches('"');
 
             hex::decode(hash)
-                .map_err(|e| JournalError::S3(format!("failed to decode file hash: {}", e)))
-                .or_redirect(callback_url)?
+                .map_err(|e| JournalError::S3(format!("failed to decode file hash: {}", e)))?
         }
         ObjectStore::Local { storage_directory } => {
             let mut file = File::open(storage_directory.join(&form.file_key))
                 .await
-                .map_err(|e| JournalError::S3(e.to_string()))
-                .or_redirect(callback_url)?;
+                .map_err(|e| JournalError::S3(e.to_string()))?;
 
             let mut buf = Vec::new();
 
             file.read_to_end(&mut buf)
                 .await
-                .map_err(|e| JournalError::S3(e.to_string()))
-                .or_redirect(callback_url)?;
+                .map_err(|e| JournalError::S3(e.to_string()))?;
 
             let digest = md5::compute(buf);
 
@@ -220,10 +202,9 @@ pub async fn record_file_upload(
         }
     };
 
-    let file_id =
-        FileId::from_str(k[0].splitn(2, '/').collect::<Vec<_>>()[1]).or_redirect(callback_url)?;
+    let file_id = FileId::from_str(k[0].splitn(2, '/').collect::<Vec<_>>()[1])?;
 
-    let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
+    let journal_id = JournalId::from_str(&id)?;
 
     let file_name = k[1];
 
@@ -235,18 +216,14 @@ pub async fn record_file_upload(
         .upload_file(
             file_id,
             journal_id,
-            *hash
-                .as_array::<16>()
-                .ok_or_else(|| {
-                    JournalError::S3("incorrect file hash length, expected 16 bytes".to_string())
-                })
-                .or_redirect(callback_url)?,
+            *hash.as_array::<16>().ok_or_else(|| {
+                JournalError::S3("incorrect file hash length, expected 16 bytes".to_string())
+            })?,
             file_name.to_string(),
             user_authority,
             DefaultTimeProvider.get_time(),
         )
-        .await
-        .or_redirect(callback_url)?;
+        .await?;
 
     state.journal_service.wait_for(event_id).await;
 
@@ -257,26 +234,24 @@ pub async fn delete_file(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path((journal_id, file_id)): Path<(String, String)>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, JournalError> {
     let callback_url = &format!("/journal/{}/file", journal_id);
 
-    let journal_id = JournalId::from_str(&journal_id).or_redirect(callback_url)?;
-    let file_id = FileId::from_str(&file_id).or_redirect(callback_url)?;
+    let journal_id = JournalId::from_str(&journal_id)?;
+    let file_id = FileId::from_str(&file_id)?;
     let user = get_user(session)?;
     let user_authority = Authority::Direct(Actor::User(user.id));
 
     let file_key = state
         .journal_service
         .get_file(file_id, journal_id, user_authority)
-        .await
-        .or_redirect(callback_url)?
+        .await?
         .key();
 
     if state
         .journal_service
         .get_effective_permissions(journal_id, user_authority)
-        .await
-        .or_redirect(callback_url)?
+        .await?
         .contains(Permissions::UPLOAD_FILE)
     {
         let event_id = state
@@ -287,8 +262,7 @@ pub async fn delete_file(
                 user_authority,
                 DefaultTimeProvider.get_time(),
             )
-            .await
-            .or_redirect(callback_url)?;
+            .await?;
 
         match state.journal_service.object_store.clone() {
             ObjectStore::S3 {
@@ -301,14 +275,12 @@ pub async fn delete_file(
                     .key(&file_key)
                     .send()
                     .await
-                    .map_err(|e| JournalError::S3(e.to_string()))
-                    .or_redirect(callback_url)?;
+                    .map_err(|e| JournalError::S3(e.to_string()))?;
             }
             ObjectStore::Local { storage_directory } => {
                 remove_file(storage_directory.join(&file_key))
                     .await
-                    .map_err(|e| JournalError::S3(e.to_string()))
-                    .or_redirect(callback_url)?;
+                    .map_err(|e| JournalError::S3(e.to_string()))?;
             }
         }
 
@@ -316,6 +288,6 @@ pub async fn delete_file(
 
         Ok(Redirect::to(callback_url))
     } else {
-        Err(JournalError::Permissions(Permissions::UPLOAD_FILE)).or_redirect(callback_url)?
+        Err(JournalError::Permissions(Permissions::UPLOAD_FILE))?
     }
 }

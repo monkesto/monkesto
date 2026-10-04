@@ -3,7 +3,7 @@ mod extract;
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
 use crate::dollars::Dollars;
-use crate::journal::error::JournalResult;
+use crate::journal::error::{JournalError, JournalResult};
 use crate::journal::file::{FileId, ObjectStore};
 use crate::journal::jewel::extract::{JewelData, jewel_extract};
 use crate::journal::layout::layout;
@@ -11,8 +11,10 @@ use crate::journal::transaction::FinancialPeriod;
 use crate::journal::{JournalId, JournalService};
 use crate::{BackendType, StateType};
 use axum::extract::{Path, State};
-use axum::response::Redirect;
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Response};
 use axum_login::AuthSession;
+use axum_login::tracing::error;
 use chrono::{Datelike, NaiveDate, Utc};
 use maud::{Markup, html};
 use sqlx::ConnectOptions;
@@ -43,6 +45,30 @@ pub enum JewelImportError {
     MissingJournalEntries(i64),
     #[error("missing account with id {0}")]
     MissingAccount(i64),
+}
+
+impl IntoResponse for JewelImportError {
+    fn into_response(self) -> Response {
+        use JewelImportError::*;
+        match self {
+            Io(_) | StartChildProcess(_) | Write(_) | ChildProcessExitFailure(_) => {
+                error!("{}", self);
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            }
+            OutdatedJewelVersion(_) => {
+                (StatusCode::BAD_REQUEST, "jewel 9.0 or later is required").into_response()
+            }
+
+            MissingJournalEntries(_) => (
+                StatusCode::BAD_REQUEST,
+                "one or more journals is missing entries",
+            )
+                .into_response(),
+            MissingAccount(_) => {
+                (StatusCode::BAD_REQUEST, "one or more accounts is missing").into_response()
+            }
+        }
+    }
 }
 
 impl JournalService {
@@ -232,7 +258,7 @@ pub async fn view_db(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path((journal_id, file_id)): Path<(String, String)>,
-) -> Result<Markup, Redirect> {
+) -> Result<Markup, JournalError> {
     let user = get_user(session)?;
     let user_authority = Authority::Direct(Actor::User(user.id));
     let journal_id_res = JournalId::from_str(&journal_id);

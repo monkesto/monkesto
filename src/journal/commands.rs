@@ -3,7 +3,7 @@ use crate::StateType;
 use crate::authn::{UserId, get_user};
 use crate::authority::{Actor, Authority};
 use crate::email::Email;
-use crate::error::monkesto_error::OrRedirect;
+use crate::journal::error::JournalError;
 use crate::journal::{JournalId, Permissions};
 use crate::name::Name;
 use crate::time::{DefaultTimeProvider, TimeProvider};
@@ -23,12 +23,10 @@ pub async fn create_journal(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Form(form): Form<CreateJournalForm>,
-) -> Result<Redirect, Redirect> {
-    const CALLBACK_URL: &str = "/journal";
-
+) -> Result<Redirect, JournalError> {
     let user = get_user(session)?;
 
-    let name = Name::try_new(form.journal_name).or_redirect(CALLBACK_URL)?;
+    let name = Name::try_new(form.journal_name)?;
 
     let event_id = state
         .journal_service
@@ -39,12 +37,11 @@ pub async fn create_journal(
             Authority::Direct(Actor::User(user.id)),
             DefaultTimeProvider.get_time(),
         )
-        .await
-        .or_redirect(CALLBACK_URL)?;
+        .await?;
 
     state.journal_service.wait_for(event_id).await;
 
-    Ok(Redirect::to(CALLBACK_URL))
+    Ok(Redirect::to("/journal"))
 }
 
 #[derive(Deserialize)]
@@ -61,14 +58,12 @@ pub async fn invite_member(
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
     Form(form): Form<InviteUserForm>,
-) -> Result<Redirect, Redirect> {
-    let callback_url = &format!("/journal/{}/person", id);
-
-    let email = Email::try_new(form.email).or_redirect(callback_url)?;
+) -> Result<Redirect, JournalError> {
+    let email = Email::try_new(form.email)?;
 
     let user = get_user(session)?;
 
-    let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
+    let journal_id = JournalId::from_str(&id)?;
 
     let mut invitee_permissions = Permissions::empty();
     if form.read.is_some() {
@@ -84,11 +79,7 @@ pub async fn invite_member(
         invitee_permissions.insert(Permissions::INVITE);
     }
 
-    let invitee_id = state
-        .authn_service
-        .lookup_user_id(&email)
-        .await
-        .or_redirect(callback_url)?;
+    let invitee_id = state.authn_service.lookup_user_id(&email).await?;
 
     let event_id = state
         .journal_service
@@ -99,12 +90,11 @@ pub async fn invite_member(
             Authority::Direct(Actor::User(user.id)),
             DefaultTimeProvider.get_time(),
         )
-        .await
-        .or_redirect(callback_url)?;
+        .await?;
 
     state.journal_service.wait_for(event_id).await;
 
-    Ok(Redirect::to(callback_url))
+    Ok(Redirect::to(&format!("/journal/{}/person", id)))
 }
 
 #[derive(Deserialize)]
@@ -120,12 +110,10 @@ pub async fn update_permissions(
     session: AuthSession<BackendType>,
     Path((id, person_id)): Path<(String, String)>,
     Form(form): Form<UpdatePermissionsForm>,
-) -> Result<Redirect, Redirect> {
-    let callback_url = &format!("/journal/{}/person/{}", id, person_id);
-
+) -> Result<Redirect, JournalError> {
     let user = get_user(session)?;
-    let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
-    let target_user_id = UserId::from_str(&person_id).or_redirect(callback_url)?;
+    let journal_id = JournalId::from_str(&id)?;
+    let target_user_id = UserId::from_str(&person_id)?;
 
     let mut new_permissions = Permissions::empty();
     if form.read.is_some() {
@@ -150,25 +138,24 @@ pub async fn update_permissions(
             Authority::Direct(Actor::User(user.id)),
             DefaultTimeProvider.get_time(),
         )
-        .await
-        .or_redirect(callback_url)?;
+        .await?;
 
     state.journal_service.wait_for(event_id).await;
 
-    Ok(Redirect::to(callback_url))
+    Ok(Redirect::to(&format!(
+        "/journal/{}/person/{}",
+        id, person_id
+    )))
 }
 
 pub async fn remove_member(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path((id, person_id)): Path<(String, String)>,
-) -> Result<Redirect, Redirect> {
-    let callback_url = &format!("/journal/{}/person", id);
-    let person_detail_url = &format!("/journal/{}/person/{}", id, person_id);
-
+) -> Result<Redirect, JournalError> {
     let user = get_user(session)?;
-    let journal_id = JournalId::from_str(&id).or_redirect(person_detail_url)?;
-    let target_user_id = UserId::from_str(&person_id).or_redirect(person_detail_url)?;
+    let journal_id = JournalId::from_str(&id)?;
+    let target_user_id = UserId::from_str(&person_id)?;
 
     let event_id = state
         .journal_service
@@ -178,10 +165,12 @@ pub async fn remove_member(
             Authority::Direct(Actor::User(user.id)),
             DefaultTimeProvider.get_time(),
         )
-        .await
-        .or_redirect(callback_url)?;
+        .await?;
 
     state.journal_service.wait_for(event_id).await;
 
-    Ok(Redirect::to(callback_url))
+    Ok(Redirect::to(&format!(
+        "/journal/{}/person/{}",
+        id, person_id
+    )))
 }

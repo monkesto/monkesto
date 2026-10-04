@@ -1,8 +1,7 @@
 use super::user::DEV_USERS;
 use super::{AuthSession, AuthnService, UserId};
-use crate::authn::error::UserError;
-use crate::error::MonkestoError;
-use crate::error::monkesto_error::OrRedirect;
+use crate::authn::error::{AuthnError, UserError};
+use crate::authn::passkey::PasskeyError;
 use crate::theme::theme_with_head;
 use axum::extract::Extension;
 use axum::extract::Form;
@@ -22,7 +21,6 @@ use webauthn_rs::prelude::Webauthn;
 
 #[derive(Deserialize)]
 pub struct SigninQuery {
-    err: Option<String>,
     next: Option<String>,
 }
 
@@ -59,19 +57,6 @@ pub async fn signin_get(
     } else {
         None
     };
-
-    let error_str = query.err.clone().map(|str| {
-        let error = MonkestoError::decode(&str);
-        match error {
-            MonkestoError::User(UserError::SessionNotFound) => {
-                "Your authentication session has expired. Please try again.".to_string()
-            }
-            MonkestoError::User(UserError::AuthenticationFailed) => {
-                "Authentication failed. Please try again.".to_string()
-            }
-            _ => error.to_string(),
-        }
-    });
 
     let dev_users = authn_service.get_dev_users().await;
 
@@ -137,13 +122,7 @@ pub async fn signin_get(
                         }
 
                         div class="mt-6" {
-                            @if let Some(error_message) = error_str {
-                                p id="flash_message" class="text-center text-sm/6 text-red-500" {
-                                    (error_message)
-                                }
-                            } @else {
-                                p id="flash_message" class="text-center text-sm/6 text-gray-500 dark:text-gray-400" {}
-                            }
+                            p id="flash_message" class="text-center text-sm/6 text-gray-500 dark:text-gray-400" {}
                         }
 
                         @if !dev_users.is_empty() {
@@ -178,29 +157,20 @@ pub async fn signin_post(
     Extension(authn_service): Extension<AuthnService>,
     mut auth_session: AuthSession,
     form: Form<HashMap<String, String>>,
-) -> Result<impl IntoResponse, Redirect> {
-    const CALLBACK_URL: &str = "/signin";
-
+) -> Result<impl IntoResponse, AuthnError> {
     let next = form.get("next").cloned();
 
     // TODO(Gabriel): toggle dev login with an env variable
     if let Some(dev_user_id) = form.get("dev_user_id") {
-        let user_id = UserId::from_str(dev_user_id).or_redirect(CALLBACK_URL)?;
+        let user_id = UserId::from_str(dev_user_id).map_err(UserError::from)?;
 
-        let user = authn_service
-            .fetch_user(user_id)
-            .await
-            .or_redirect(CALLBACK_URL)?;
+        let user = authn_service.fetch_user(user_id).await?;
 
         if !DEV_USERS.clone().contains_key(&user.email) {
-            return Err(UserError::InvalidInput).or_redirect(CALLBACK_URL);
+            Err(UserError::EmailDoesntExist(user.email.clone()))?;
         }
 
-        auth_session
-            .login(&user)
-            .await
-            .map_err(UserError::from)
-            .or_redirect(CALLBACK_URL)?;
+        auth_session.login(&user).await.map_err(UserError::from)?;
 
         let redirect_to = next.as_deref().unwrap_or("/journal");
         return Ok(Redirect::to(redirect_to).into_response());
@@ -208,47 +178,35 @@ pub async fn signin_post(
 
     let credential_json = form
         .get("credential")
-        .ok_or(UserError::InvalidInput)
-        .or_redirect(CALLBACK_URL)?;
+        .ok_or(PasskeyError::MissingCredential)?;
 
-    let credential: PublicKeyCredential = serde_json::from_str(credential_json)
-        .map_err(UserError::from)
-        .or_redirect(CALLBACK_URL)?;
+    let credential: PublicKeyCredential =
+        serde_json::from_str(credential_json).map_err(UserError::from)?;
 
     let session = &auth_session.session;
     let auth_state = session
         .get::<PasskeyAuthentication>("identifierless_auth_state")
         .await
-        .map_err(UserError::from)
-        .or_redirect(CALLBACK_URL)?
-        .ok_or(MonkestoError::from(UserError::SessionNotFound).redirect(CALLBACK_URL))?;
+        .map_err(UserError::from)?
+        .ok_or(UserError::SessionNotFound)?;
 
     _ = session.remove_value("identifierless_auth_state").await;
 
     let auth_result = webauthn
         .finish_passkey_authentication(&credential, &auth_state)
-        .map_err(|_| UserError::AuthenticationFailed)
-        .or_redirect("/signin")?;
+        .map_err(PasskeyError::from)?;
 
     let (user_id, _passkey_id) = authn_service
         .find_user_by_credential(auth_result.cred_id())
-        .await
-        .or_redirect("/signin")?
-        .ok_or(UserError::AuthenticationFailed)
-        .or_redirect("/signin")?;
+        .await?
+        .ok_or(UserError::CredentialNotFound)?;
 
     let user = authn_service
         .get_user(&user_id)
-        .await
-        .or_redirect(CALLBACK_URL)?
-        .ok_or(MonkestoError::from(UserError::AuthenticationFailed))
-        .or_redirect(CALLBACK_URL)?;
+        .await?
+        .ok_or(UserError::UserDoesntExist(user_id))?;
 
-    auth_session
-        .login(&user)
-        .await
-        .map_err(UserError::from)
-        .or_redirect(CALLBACK_URL)?;
+    auth_session.login(&user).await.map_err(UserError::from)?;
 
     let redirect_to = next.as_deref().unwrap_or("/journal");
     Ok(Redirect::to(redirect_to).into_response())

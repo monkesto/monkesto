@@ -1,16 +1,13 @@
 use crate::BackendType;
 use crate::StateType;
+use crate::authn::user::UserError;
 use crate::authn::{UserId, get_user};
 use crate::authority::{Actor, Authority};
-use crate::error::MonkestoError;
-use crate::error::monkesto_error::UrlError;
 use crate::journal::JournalId;
 use crate::journal::Permissions;
 use crate::journal::layout::layout;
 use axum::extract::Path;
-use axum::extract::Query;
 use axum::extract::State;
-use axum::response::Redirect;
 use axum_login::AuthSession;
 use maud::Markup;
 use maud::html;
@@ -21,8 +18,7 @@ pub async fn person_detail_page(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path((id, person_id)): Path<(String, String)>,
-    Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect> {
+) -> Result<Markup, UserError> {
     let user = get_user(session)?;
     let authority = Authority::Direct(Actor::User(user.id));
 
@@ -170,14 +166,6 @@ pub async fn person_detail_page(
                     }
                 }
             }
-
-            @if let Some(e) = err.err {
-                div class="mt-6 bg-red-50 dark:bg-red-900/30 border-l-4 border-red-400 p-4" {
-                    p class="text-sm text-red-700 dark:text-red-200" {
-                        (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
-                    }
-                }
-            }
         }
     };
 
@@ -218,8 +206,7 @@ pub async fn people_list_page(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
-    Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect> {
+) -> Result<Markup, UserError> {
     let user = get_user(session)?;
 
     let user_authority = Authority::Direct(Actor::User(user.id));
@@ -299,12 +286,6 @@ pub async fn people_list_page(
                     class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500" {
                         "Send Invite"
                     }
-                }
-            }
-
-            @if let Some(e) = err.err {
-                p {
-                    (format!("An error occurred: {:?}", MonkestoError::decode(&e)))
                 }
             }
         }

@@ -2,9 +2,9 @@ use crate::BackendType;
 use crate::StateType;
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
-use crate::error::monkesto_error::OrRedirect;
 use crate::journal::JournalId;
 use crate::journal::account::{AccountId, AccountType};
+use crate::journal::error::JournalError;
 use crate::name::Name;
 use crate::time::{DefaultTimeProvider, TimeProvider};
 use axum::extract::Path;
@@ -25,14 +25,14 @@ pub async fn create_account(
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
     Form(form): Form<CreateAccountForm>,
-) -> Result<Redirect, Redirect> {
+) -> Result<Redirect, JournalError> {
     let callback_url = &format!("/journal/{}/account", id);
 
-    let journal_id = JournalId::from_str(&id).or_redirect(callback_url)?;
+    let journal_id = JournalId::from_str(&id)?;
 
     let user = get_user(session)?;
 
-    let name = Name::try_new(form.account_name).or_redirect(callback_url)?;
+    let name = Name::try_new(form.account_name)?;
 
     let event_id = state
         .journal_service
@@ -45,8 +45,7 @@ pub async fn create_account(
             Authority::Direct(Actor::User(user.id)),
             DefaultTimeProvider.get_time(),
         )
-        .await
-        .or_redirect(callback_url)?;
+        .await?;
 
     state.journal_service.wait_for(event_id).await;
 

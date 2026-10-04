@@ -1,7 +1,8 @@
+// Disintegrate's event macro uses manual swaps
+#![allow(clippy::manual_swap)]
+
 use crate::authn::UserId;
 use crate::authority::Authority;
-use crate::error::DecodeError;
-use crate::error::DecodeError::FieldRequired;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::{ActivityId, ActivityKind};
 use crate::journal::entry::{EntryId, EntryKind, EntrySide};
@@ -12,6 +13,8 @@ use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{FinancialPeriod, TransactionEntryIds, TransactionId};
 use crate::journal::{JournalId, JournalService, Permissions};
 use crate::name::Name;
+use crate::proto::DecodeError;
+use crate::proto::DecodeError::FieldRequired;
 use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::proto::journal::event::journal_event::proto_journal_domain_event::{
     JournalDomainEventType, ProtoAccountCreated, ProtoAccountDeleted, ProtoAccountRenamed,

@@ -11,14 +11,13 @@ pub mod user;
 
 use crate::id::Ident;
 
-use crate::authn::error::{UserError, UserResult};
+use crate::authn::error::{AuthnError, UserError, UserResult};
 use crate::authn::event::AuthnEvent;
 use crate::authn::passkey::error::PasskeyError;
 use crate::authn::passkey::{CreatePasskey, DeletePasskey, PasskeyState};
 use crate::authn::user::{CreateUser, DEV_USERS, UserState};
 use crate::authority::Authority;
 use crate::email::Email;
-use crate::error::monkesto_error::OrRedirect;
 use crate::event_id::GetEventId;
 use crate::proto::authn::event::authn::ProtoAuthnEvent;
 use crate::time::Timestamp;
@@ -26,7 +25,6 @@ use crate::{id, shutdown};
 use async_trait::async_trait;
 use axum::Router;
 use axum::extract::Extension;
-use axum::response::Redirect;
 use axum::routing::get;
 use axum::routing::post;
 use axum_login::tracing::log::{Level, log};
@@ -307,7 +305,7 @@ impl AuthnService {
         webauthn_uuid: Uuid,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Result<PgEventId, DecisionError<UserError>> {
+    ) -> Result<PgEventId, UserError> {
         Ok(self
             .decision_maker
             .make(CreateUser::new(
@@ -328,7 +326,7 @@ impl AuthnService {
         passkey: CorePasskey,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Result<PgEventId, DecisionError<PasskeyError>> {
+    ) -> Result<PgEventId, DecisionError<AuthnError>> {
         Ok(self
             .decision_maker
             .make(CreatePasskey::new(
@@ -344,7 +342,7 @@ impl AuthnService {
         user_id: UserId,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Result<PgEventId, DecisionError<PasskeyError>> {
+    ) -> Result<PgEventId, AuthnError> {
         Ok(self
             .decision_maker
             .make(DeletePasskey::new(
@@ -366,6 +364,7 @@ impl AuthnService {
         Ok(passkeys)
     }
 
+    #[expect(unused)]
     pub async fn email_exists(&self, email: &Email) -> UserResult<bool> {
         Ok(sqlx::query_scalar!(
             r#"
@@ -591,11 +590,8 @@ pub(crate) async fn event_listener(event_store: AuthnEventStore, service: AuthnS
         .expect("event listener failed");
 }
 
-pub fn get_user(session: AuthSession) -> Result<UserState, Redirect> {
-    session
-        .user
-        .ok_or(UserError::SessionNotFound)
-        .or_redirect("/signin")
+pub fn get_user(session: AuthSession) -> Result<UserState, UserError> {
+    session.user.ok_or(UserError::SessionNotFound)
 }
 
 fn handle_event_listener_retry(

@@ -1,6 +1,6 @@
 use crate::authn::get_user;
+use crate::authn::user::UserError;
 use crate::authority::{Actor, Authority};
-use crate::error::monkesto_error::{MonkestoError, OrRedirect, UrlError};
 use crate::journal::JournalId;
 use crate::journal::error::JournalError;
 use crate::journal::file::{FileId, ObjectStore};
@@ -22,8 +22,7 @@ pub async fn file_list_page(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
-    Query(err): Query<UrlError>,
-) -> Result<Markup, Redirect> {
+) -> Result<Markup, UserError> {
     let user = get_user(session)?;
     let user_authority = Authority::Direct(Actor::User(user.id));
     let journal_id_res = JournalId::from_str(&id);
@@ -136,9 +135,6 @@ pub async fn file_list_page(
                 }
             }
         }
-        @if let Some(error_str) = err.err {
-                (MonkestoError::decode(&error_str))
-            }
     };
     let wrapped_content = html! {
         div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
@@ -169,19 +165,16 @@ pub async fn download_file(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path((journal_id, file_id)): Path<(String, String)>,
-) -> Result<Response, Redirect> {
-    let callback_url = &format!("/journal/{}/file", journal_id);
-
+) -> Result<Response, JournalError> {
     let user = get_user(session)?;
     let user_authority = Authority::Direct(Actor::User(user.id));
-    let journal_id = JournalId::from_str(&journal_id).or_redirect(callback_url)?;
-    let file_id = FileId::from_str(&file_id).or_redirect(callback_url)?;
+    let journal_id = JournalId::from_str(&journal_id)?;
+    let file_id = FileId::from_str(&file_id)?;
 
     let file = state
         .journal_service
         .get_file(file_id, journal_id, user_authority)
-        .await
-        .or_redirect(callback_url)?;
+        .await?;
 
     let file_key = file.key();
 
@@ -201,16 +194,14 @@ pub async fn download_file(
                 .response_content_disposition(format!("filename=\"{}\"", file.name))
                 .presigned(presigning_config)
                 .await
-                .map_err(JournalError::from)
-                .or_redirect(callback_url)?;
+                .map_err(JournalError::from)?;
 
             Ok(Redirect::temporary(presigned_req.uri()).into_response())
         }
         ObjectStore::Local { storage_directory } => {
             let disk_file = File::open(storage_directory.join(file_key))
                 .await
-                .map_err(|e| JournalError::S3(e.to_string()))
-                .or_redirect(callback_url)?;
+                .map_err(|e| JournalError::S3(e.to_string()))?;
 
             let stream = ReaderStream::new(disk_file);
 
