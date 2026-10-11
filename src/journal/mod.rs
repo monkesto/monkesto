@@ -5,6 +5,8 @@ pub mod entry;
 pub mod error;
 pub mod event;
 #[expect(unused)]
+mod event_store_revised;
+#[expect(unused)]
 mod file;
 pub mod fund;
 pub mod jewel;
@@ -467,7 +469,7 @@ impl JournalService {
             FROM journals j
             INNER JOIN event e
                 ON e.journal_id = j.id AND e.event_type = 'JournalCreated'
-            LEFT JOIN journal_members jm ON jm.journal_id = j.id AND (jm.permissions & $1) = $1
+            LEFT JOIN journal_members jm ON jm.journal_id = j.id AND (jm.role & $1) = $1
             WHERE j.owner_id = $2 OR jm.user_id = $2
             "#,
             Permissions::READ.bits(),

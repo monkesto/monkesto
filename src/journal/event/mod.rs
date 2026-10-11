@@ -6,6 +6,7 @@ use crate::authority::Authority;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::{ActivityId, ActivityKind};
 use crate::journal::entry::{EntryId, EntryKind, EntrySide};
+use crate::journal::event_store_revised::{EventType, StreamType};
 use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
 use crate::journal::store::JournalEventStore;
@@ -29,7 +30,11 @@ use disintegrate::Event;
 use disintegrate_postgres::{
     PgEventListener, PgEventListenerConfig, PgEventListenerError, RetryAction,
 };
+use prost::Message;
 use serde::{Deserialize, Serialize};
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Event, Serialize, Deserialize)]
@@ -174,6 +179,72 @@ pub enum JournalDomainEvent {
         authority: Authority,
         timestamp: Timestamp,
     },
+}
+
+impl JournalDomainEvent {
+    pub fn stream_type(&self) -> StreamType {
+        use JournalDomainEvent::*;
+        match self {
+            JournalCreated { .. }
+            | JournalDeleted { .. }
+            | MemberAdded { .. }
+            | MemberPermissionsUpdated { .. }
+            | MemberRemoved { .. } => StreamType::Journal,
+            AccountCreated { .. } | AccountRenamed { .. } | AccountDeleted { .. } => {
+                StreamType::Account
+            }
+            FundCreated { .. } => StreamType::Fund,
+            ActivityCreated { .. } => StreamType::Activity,
+            EntryCreated { .. } => StreamType::Entry,
+            TransactionCreated { .. } => StreamType::Transaction,
+            FileUploaded { .. } => StreamType::File,
+            FileDeleted { .. } => StreamType::File,
+        }
+    }
+
+    pub fn event_type(&self) -> EventType {
+        use EventType as ET;
+        use JournalDomainEvent::*;
+        match self {
+            JournalCreated { .. } => ET::JournalCreated,
+            JournalDeleted { .. } => ET::JournalDeleted,
+            MemberAdded { .. } => ET::MemberAdded,
+            MemberPermissionsUpdated { .. } => ET::MemberPermissionsUpdated,
+            MemberRemoved { .. } => ET::MemberRemoved,
+            AccountCreated { .. } => ET::AccountCreated,
+            AccountRenamed { .. } => ET::AccountRenamed,
+            AccountDeleted { .. } => ET::AccountDeleted,
+            FundCreated { .. } => ET::FundCreated,
+            ActivityCreated { .. } => ET::ActivityCreated,
+            EntryCreated { .. } => ET::EntryCreated,
+            TransactionCreated { .. } => ET::TransactionCreated,
+            FileUploaded { .. } => ET::FileUploaded,
+            FileDeleted { .. } => ET::FileDeleted,
+        }
+    }
+}
+
+impl Type<Postgres> for JournalDomainEvent {
+    fn type_info() -> <Postgres as Database>::TypeInfo {
+        <&[u8] as Type<Postgres>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for JournalDomainEvent {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        let bytes = ProtoJournalDomainEvent::from(self.clone()).encode_to_vec();
+        <Vec<u8> as Encode<Postgres>>::encode(bytes, buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for JournalDomainEvent {
+    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
+        let bytes = <&[u8] as Decode<Postgres>>::decode(value)?;
+        Ok(ProtoJournalDomainEvent::decode(bytes)?.try_into()?)
+    }
 }
 
 pub(crate) async fn event_listener(event_store: JournalEventStore, service: JournalService) {

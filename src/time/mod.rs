@@ -9,11 +9,42 @@ impl Deref for Timestamp {
     }
 }
 
+impl Type<Postgres> for Timestamp {
+    fn type_info() -> PgTypeInfo {
+        <DateTime<Utc> as Type<Postgres>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for Timestamp
+where
+    DateTime<Utc>: Encode<'q, Postgres>,
+{
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        self.0.encode_by_ref(buf)
+    }
+}
+
+impl<'q> Decode<'q, Postgres> for Timestamp
+where
+    DateTime<Utc>: Decode<'q, Postgres>,
+{
+    fn decode(value: <Postgres as Database>::ValueRef<'q>) -> Result<Self, BoxDynError> {
+        DateTime::decode(value).map(Timestamp)
+    }
+}
+
 use crate::proto::DecodeError;
 use crate::proto::DecodeError::FieldRequired;
 use crate::proto::time::timestamp::ProtoTimestamp;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::encode::IsNull;
+use sqlx::error::BoxDynError;
+use sqlx::postgres::PgTypeInfo;
+use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::cell::Cell;
 use std::ops::Deref;
 

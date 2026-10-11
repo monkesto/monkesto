@@ -28,11 +28,10 @@ pub async fn account_list_page(
 ) -> Result<Markup, JournalError> {
     let user = get_user(session)?;
     let authority = Authority::Direct(Actor::User(user.id));
-    let journal_id_res = JournalId::from_str(&id);
+    let journal_id = JournalId::from_str(&id)?;
 
     let content = html! {
-        @if let Ok(journal_id) = journal_id_res {
-            @match state.journal_service.list_journal_accounts(journal_id, authority).await {
+        @match state.journal_service.list_journal_accounts(journal_id, authority).await {
                 Ok(journal_accounts) => {
                      @for (acc, _, _) in journal_accounts {
                         a
@@ -56,14 +55,6 @@ pub async fn account_list_page(
                     }
                 }
             }
-        }
-        @else {
-            div class="flex justify-center items-center h-full" {
-                p class="text-gray-500 dark:text-gray-400" {
-                    "Invalid journal Id"
-                }
-            }
-        }
 
         hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600";
 
@@ -106,16 +97,12 @@ pub async fn account_list_page(
         }
     };
 
-    let journal_name = if let Ok(id) = journal_id_res {
-        state
-            .journal_service
-            .get_journal(id, authority)
-            .await
-            .map(|(j, _, _)| j.name.to_string())
-            .unwrap_or_else(|e| format!("failed to fetch the journal name: {e}"))
-    } else {
-        "invalid journal id".to_string()
-    };
+    let journal_name = state
+        .journal_service
+        .get_journal(journal_id, authority)
+        .await
+        .map(|(j, _, _)| j.name.to_string())
+        .unwrap_or_else(|e| format!("failed to fetch the journal name: {e}"));
 
     Ok(layout(
         Some(&journal_name),

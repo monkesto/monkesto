@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT id as \"id: EntryId\", journal_id as \"journal_id: JournalId\", amount, entry_side as \"entry_side: EntrySide\", entry_kind as \"entry_kind: EntryKind\" from transaction_entries WHERE journal_id = $1\n            ",
+  "query": "\n            SELECT id as \"id: EntryId\", journal_id as \"journal_id: JournalId\", amount, entry_side as \"entry_side: EntrySide\", entry_kind as \"entry_kind: EntryKind\" from entries WHERE journal_id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -42,5 +42,5 @@
       false
     ]
   },
-  "hash": "b9de330cac3df9baff681f087920c4da94908e382848a8dc94e107f721935582"
+  "hash": "29f0e43a4d45aac34b14862898307c5941afdc309a9ae81a897f8e8381896540"
 }

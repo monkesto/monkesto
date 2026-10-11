@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT fund_id as \"fund_id: FundId\", valid FROM fund_stream WHERE journal_id = $1 AND fund_id = ANY($2)\n            ORDER BY fund_id\n            FOR SHARE\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "fund_id: FundId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "valid",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "791fbdc872ebc9c60291b06e3d153980f5a3a8ba0c54a48802f517156098e74b"
+}

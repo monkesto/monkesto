@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)\n        ",
+  "query": "\n            SELECT EXISTS(SELECT 1 FROM users WHERE email = $1) as \"exists!\"\n        ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "exists",
+        "name": "exists!",
         "type_info": "Bool"
       }
     ],
@@ -18,5 +18,5 @@
       null
     ]
   },
-  "hash": "9a4761c0cefdd975df59c4aab902b0133a306e76c3c0d6ae389c10e19302102c"
+  "hash": "859df10fec27a38b2b6dda01025e3d4eebcd578130cc46bf4b57ca56f05507de"
 }

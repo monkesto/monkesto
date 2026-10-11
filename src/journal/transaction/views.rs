@@ -29,50 +29,38 @@ pub async fn transaction_list_page(
     let user = get_user(session)?;
     let user_authority = Authority::Direct(Actor::User(user.id));
 
-    let journal_id_res = JournalId::from_str(&id);
+    let journal_id = JournalId::from_str(&id)?;
 
-    let transactions_res: JournalResult<Vec<(TransactionState, Authority, Timestamp)>> =
-        match &journal_id_res {
-            Ok(id) => {
-                state
-                    .journal_service
-                    .list_journal_transactions(*id, user_authority)
-                    .await
-            }
-            Err(e) => Err(JournalError::from(e.clone()))?,
-        };
+    let transactions_res: JournalResult<Vec<(TransactionState, Authority, Timestamp)>> = state
+        .journal_service
+        .list_journal_transactions(journal_id, user_authority)
+        .await;
 
-    let accounts_res: JournalResult<HashMap<AccountId, AccountState>> = match &journal_id_res {
-        Ok(id) => match state
-            .journal_service
-            .list_journal_accounts(*id, user_authority)
-            .await
-        {
-            Ok(accounts) => Ok(accounts
-                .into_iter()
-                .map(|(state, _, _)| (state.id, state))
-                .collect::<HashMap<AccountId, AccountState>>()),
-            Err(e) => Err(e),
-        },
-        Err(e) => Err(e.clone().into()),
+    let accounts_res: JournalResult<HashMap<AccountId, AccountState>> = match state
+        .journal_service
+        .list_journal_accounts(journal_id, user_authority)
+        .await
+    {
+        Ok(accounts) => Ok(accounts
+            .into_iter()
+            .map(|(state, _, _)| (state.id, state))
+            .collect::<HashMap<AccountId, AccountState>>()),
+        Err(e) => Err(e),
     };
 
-    let members_res: JournalResult<HashMap<UserId, UserState>> = match &journal_id_res {
-        Ok(id) => match state
-            .journal_service
-            .list_journal_members(*id, user_authority)
-            .await
-        {
-            Ok(ids) => match state.authn_service.fetch_users(ids.as_slice()).await {
-                Ok(members) => Ok(members
-                    .into_iter()
-                    .map(|m| (m.id, m))
-                    .collect::<HashMap<UserId, UserState>>()),
-                Err(e) => Err(e.into()),
-            },
-            Err(e) => Err(e),
+    let members_res: JournalResult<HashMap<UserId, UserState>> = match state
+        .journal_service
+        .list_journal_members(journal_id, user_authority)
+        .await
+    {
+        Ok(ids) => match state.authn_service.fetch_users(ids.as_slice()).await {
+            Ok(members) => Ok(members
+                .into_iter()
+                .map(|m| (m.id, m))
+                .collect::<HashMap<UserId, UserState>>()),
+            Err(e) => Err(e.into()),
         },
-        Err(e) => Err(e.clone().into()),
+        Err(e) => Err(e),
     };
 
     let mut nonmember_cache: HashMap<UserId, Email> = HashMap::new();
@@ -122,13 +110,13 @@ pub async fn transaction_list_page(
                                         Actor::User(id) => {
                                             @match &members_res {
                                                 Ok(members) => {
-                                                    @if let Some(email) = members.get(id).map(|m| m.email.clone()) {
+                                                    @if let Some(email) = members.get(&id).map(|m| m.email.clone()) {
                                                         (email.to_string())
-                                                    } @else if let Some(email) = nonmember_cache.get(id)  {
+                                                    } @else if let Some(email) = nonmember_cache.get(&id)  {
                                                         (email.to_string())
                                                     } @else {
                                                         // the user may be the owner or somebody who left the journal after creating the transaction
-                                                        @match state.authn_service.fetch_user(*id).await {
+                                                        @match state.authn_service.fetch_user(id).await {
                                                             Ok(user) => {
                                                                 // maud assumes that you never want to call functions for
                                                                 // side effects and makes you assign a value to the result
@@ -232,12 +220,13 @@ pub async fn transaction_list_page(
         }
     };
 
-    let journal_name = match &journal_id_res {
-        Ok(id) => match state.journal_service.get_journal(*id, user_authority).await {
-            Ok((journal, _, _)) => journal.name.to_string(),
-            Err(e) => format!("failed to fetch the journal: {e}"),
-        },
-        Err(e) => format!("invalid journal id: {e}"),
+    let journal_name = match state
+        .journal_service
+        .get_journal(journal_id, user_authority)
+        .await
+    {
+        Ok((journal, _, _)) => journal.name.to_string(),
+        Err(e) => format!("failed to fetch the journal: {e}"),
     };
 
     Ok(layout::layout(

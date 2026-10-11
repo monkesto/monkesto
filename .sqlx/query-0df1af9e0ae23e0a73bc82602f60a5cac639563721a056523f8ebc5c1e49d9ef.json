@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE account_stream SET version = $1 WHERE journal_id = $2 AND account_id = $3\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0df1af9e0ae23e0a73bc82602f60a5cac639563721a056523f8ebc5c1e49d9ef"
+}

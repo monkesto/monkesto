@@ -23,19 +23,42 @@ pub enum Authority {
 }
 
 impl Authority {
-    pub fn actor(&self) -> &Actor {
+    pub fn actor(self) -> Actor {
         match self {
             Authority::Direct(actor) => actor,
             Authority::Delegated { grantee, .. } => grantee,
         }
     }
 
-    pub fn user_id(&self) -> Option<UserId> {
+    pub fn user_id(self) -> Option<UserId> {
         match self.actor() {
             Actor::Anonymous => None,
             Actor::System => None,
-            Actor::User(user_id) => Some(*user_id),
+            Actor::User(user_id) => Some(user_id),
         }
+    }
+}
+
+impl Type<Postgres> for Authority {
+    fn type_info() -> <Postgres as Database>::TypeInfo {
+        <&[u8] as Type<Postgres>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for Authority {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        let bytes = ProtoAuthority::from(*self).encode_to_vec();
+        <Vec<u8> as Encode<Postgres>>::encode(bytes, buf)
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for Authority {
+    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
+        let bytes = <&[u8] as Decode<Postgres>>::decode(value)?;
+        Ok(ProtoAuthority::decode(bytes)?.try_into()?)
     }
 }
 
@@ -50,7 +73,7 @@ impl<'q> Encode<'q, Postgres> for Actor {
         &self,
         buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
     ) -> Result<IsNull, BoxDynError> {
-        let bytes = postcard::to_allocvec(self)?;
+        let bytes = ProtoActor::from(*self).encode_to_vec();
         <Vec<u8> as Encode<Postgres>>::encode(bytes, buf)
     }
 }
@@ -58,7 +81,7 @@ impl<'q> Encode<'q, Postgres> for Actor {
 impl<'r> Decode<'r, Postgres> for Actor {
     fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
         let bytes = <&[u8] as Decode<Postgres>>::decode(value)?;
-        Ok(postcard::from_bytes(bytes)?)
+        Ok(ProtoActor::decode(bytes)?.try_into()?)
     }
 }
 
@@ -75,6 +98,7 @@ use crate::proto::DecodeError::FieldRequired;
 use crate::proto::authority::authority::proto_actor::ActorType;
 use crate::proto::authority::authority::proto_authority::{AuthorityType, ProtoDelegatedAuthority};
 use crate::proto::authority::authority::{ProtoActor, ProtoAuthority};
+use prost::Message;
 use std::str::FromStr;
 
 impl From<Actor> for ProtoActor {

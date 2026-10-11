@@ -22,10 +22,10 @@ pub async fn file_list_page(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
-) -> Result<Markup, UserError> {
+) -> Result<Markup, JournalError> {
     let user = get_user(session)?;
     let user_authority = Authority::Direct(Actor::User(user.id));
-    let journal_id_res = JournalId::from_str(&id);
+    let journal_id = JournalId::from_str(&id)?;
 
     const UPLOAD_JS: &str = include_str!("upload.js");
 
@@ -45,95 +45,86 @@ pub async fn file_list_page(
         }
 
         div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" {
-            @if let Ok(journal_id) = journal_id_res {
-                @match state.journal_service.list_journal_files(journal_id, user_authority).await {
-                    Ok(files) => {
-                        @for (file, uploader, upload_timestamp) in files {
-                            div
-                            class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
-                                h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
-                                    (file.name)
-                                }
+            @match state.journal_service.list_journal_files(journal_id, user_authority).await {
+                Ok(files) => {
+                    @for (file, uploader, upload_timestamp) in files {
+                        div
+                        class="self-start p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
+                            h3 class="text-lg font-semibold text-gray-900 dark:text-white" {
+                                (file.name)
+                            }
 
-                                div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
-                                    "Uploaded by "
+                            div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
+                                "Uploaded by "
 
-                                    @match uploader.actor() {
-                                        Actor::System => {"System"},
-                                        Actor::Anonymous => {"Anonymous"},
-                                        Actor::User(uploader_id) => {
-                                             @match state.authn_service.fetch_user(*uploader_id).await {
-                                                Ok(user) => (user.email.to_string()),
+                                @match uploader.actor() {
+                                    Actor::System => {"System"},
+                                    Actor::Anonymous => {"Anonymous"},
+                                    Actor::User(uploader_id) => {
+                                         @match state.authn_service.fetch_user(uploader_id).await {
+                                            Ok(user) => (user.email.to_string()),
 
-                                                Err(e) => (format!("failed to fetch uploader email: {:?}", e)),
-                                            }
-                                        }
-                                    }
-
-                                    " on "
-
-                                    (upload_timestamp.with_timezone(&chrono_tz::America::Chicago).format("%Y-%m-%d %H:%M:%S %Z"))
-
-                                }
-
-                                div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
-                                    form method = "get" action=(format! ("/journal/{}/file/{}", journal_id, file.id)) class="space-y-6" {
-                                        button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
-                                            "Download"
+                                            Err(e) => (format!("failed to fetch uploader email: {:?}", e)),
                                         }
                                     }
                                 }
 
-                                div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
-                                    form method = "post" action=(format!("/journal/{}/file/{}/delete", id, file.id)) class="space-y-6" {
-                                        button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
-                                            "Delete"
-                                        }
-                                    }
-                                }
+                                " on "
 
-                                @if file.name.ends_with(".mdb") {
-                                    div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
-                                        form method = "get" action=(format! ("/journal/{}/file/{}/jewel", journal_id, file.id)) class="space-y-6" {
-                                            button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
-                                                "View Jewel Database"
-                                            }
-                                        }
-
-                                        form method = "get" action=(format! ("/journal/{}/file/{}/import_jewel", journal_id, file.id)) class="space-y-6" {
-                                            button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
-                                                "Import Jewel Database"
-                                            }
-                                        }
-                                    }
-                                }
+                                (upload_timestamp.with_timezone(&chrono_tz::America::Chicago).format("%Y-%m-%d %H:%M:%S %Z"))
 
                             }
-                        }
-                    }
 
-                    Err(e) => {
-                        div class="flex justify-center items-center h-full" {
-                            p class="text-gray-500 dark:text-gray-400" {
-                                (format!("Failed to fetch journals: {:?}", e))
+                            div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
+                                form method = "get" action=(format! ("/journal/{}/file/{}", journal_id, file.id)) class="space-y-6" {
+                                    button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
+                                        "Download"
+                                    }
+                                }
                             }
+
+                            div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
+                                form method = "post" action=(format!("/journal/{}/file/{}/delete", id, file.id)) class="space-y-6" {
+                                    button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
+                                        "Delete"
+                                    }
+                                }
+                            }
+
+                            @if file.name.ends_with(".mdb") {
+                                div class="mt-2 text-sm text-gray-600 dark:text-gray-400" {
+                                    form method = "get" action=(format! ("/journal/{}/file/{}/jewel", journal_id, file.id)) class="space-y-6" {
+                                        button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
+                                            "View Jewel Database"
+                                        }
+                                    }
+
+                                    form method = "get" action=(format! ("/journal/{}/file/{}/import_jewel", journal_id, file.id)) class="space-y-6" {
+                                        button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
+                                            "Import Jewel Database"
+                                        }
+                                    }
+                                }
+                            }
+
                         }
                     }
                 }
 
-                button
-                    onclick="upload()"
-                    class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500" {
-                        "Upload File"
-                    }
-            }
-            @else {
-                div class="flex justify-center items-center h-full" {
-                    p class="text-gray-500 dark:text-gray-400" {
-                        "Invalid journal Id"
+                Err(e) => {
+                    div class="flex justify-center items-center h-full" {
+                        p class="text-gray-500 dark:text-gray-400" {
+                            (format!("Failed to fetch journals: {:?}", e))
+                        }
                     }
                 }
             }
+
+            button
+                onclick="upload()"
+                class="flex w-full justify-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm/6 font-semibold text-white shadow-xs hover:bg-indigo-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600 dark:bg-indigo-500 dark:shadow-none dark:hover:bg-indigo-400 dark:focus-visible:outline-indigo-500" {
+                    "Upload File"
+                }
         }
     };
     let wrapped_content = html! {
@@ -142,16 +133,12 @@ pub async fn file_list_page(
         }
     };
 
-    let journal_name = if let Ok(id) = journal_id_res {
-        state
-            .journal_service
-            .get_journal(id, user_authority)
-            .await
-            .map(|(j, _, _)| j.name.to_string())
-            .unwrap_or_else(|e| format!("failed to fetch the journal name: {e}"))
-    } else {
-        "invalid journal id".to_string()
-    };
+    let journal_name = state
+        .journal_service
+        .get_journal(journal_id, user_authority)
+        .await
+        .map(|(j, _, _)| j.name.to_string())
+        .unwrap_or_else(|e| format!("failed to fetch the journal name: {e}"));
 
     Ok(layout(
         Some(&journal_name),

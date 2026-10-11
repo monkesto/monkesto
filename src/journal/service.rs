@@ -60,7 +60,7 @@ impl JournalService {
             CREATE TABLE IF NOT EXISTS journal_members (
                 user_id TEXT NOT NULL,
                 journal_id TEXT NOT NULL,
-                permissions INTEGER NOT NULL
+                role INTEGER NOT NULL
             )
         "#
         )
@@ -136,7 +136,7 @@ impl JournalService {
 
         sqlx::query!(
             r#"
-            CREATE TABLE IF NOT EXISTS transaction_entries (
+            CREATE TABLE IF NOT EXISTS entries (
                 id TEXT NOT NULL,
                 journal_id TEXT NOT NULL,
                 amount BIGINT NOT NULL,
@@ -182,7 +182,7 @@ impl JournalService {
                         CASE
                             WHEN j.owner_id = $1 THEN $2::INTEGER
                             ELSE COALESCE(
-                                 (SELECT jm.permissions
+                                 (SELECT jm.role
                                  FROM journal_members jm
                                  WHERE jm.journal_id = j.id AND jm.user_id = $1),
                                  0
@@ -191,7 +191,7 @@ impl JournalService {
                     FROM journals j
                     WHERE j.id = $3
                 "#,
-                    *user_id as UserId,
+                    user_id as UserId,
                     Permissions::all().bits(),
                     journal_id as JournalId
                 )
@@ -270,7 +270,7 @@ impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
             } => {
                 sqlx::query!(
                     r#"
-                    INSERT INTO journal_members (user_id, journal_id, permissions) VALUES($1, $2, $3) ON CONFLICT DO NOTHING
+                    INSERT INTO journal_members (user_id, journal_id, role) VALUES($1, $2, $3) ON CONFLICT DO NOTHING
                     "#,
                     user_id as UserId,
                     journal_id as JournalId,
@@ -287,14 +287,14 @@ impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
             } => {
                 sqlx::query!(
                     r#"
-                    UPDATE journal_members SET permissions = $1 WHERE user_id = $2 AND journal_id = $3
+                    UPDATE journal_members SET role = $1 WHERE user_id = $2 AND journal_id = $3
                     "#,
                     user_id as UserId,
                     journal_id as JournalId,
                     permissions as Permissions
-                    )
-                    .execute(&self.projection_pool)
-                    .await?;
+                )
+                .execute(&self.projection_pool)
+                .await?;
             }
             JournalDomainEvent::MemberRemoved {
                 journal_id,
@@ -444,7 +444,7 @@ impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
 
                 sqlx::query!(
                     r#"
-                    INSERT INTO transaction_entries (id, journal_id, amount, entry_side, entry_kind) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING
+                    INSERT INTO entries (id, journal_id, amount, entry_side, entry_kind) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING
                     "#,
                     entry_id as EntryId,
                     journal_id as JournalId,

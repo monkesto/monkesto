@@ -1,10 +1,10 @@
 use crate::BackendType;
 use crate::StateType;
 use crate::authn::get_user;
-use crate::authn::user::UserError;
 use crate::authority::{Actor, Authority};
 use crate::id::Ident;
 use crate::journal::JournalId;
+use crate::journal::error::JournalError;
 use crate::journal::layout::layout;
 use axum::extract::Path;
 use axum::extract::State;
@@ -24,7 +24,7 @@ pub struct Journal {
 pub async fn journal_list(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
-) -> Result<Markup, UserError> {
+) -> Result<Markup, JournalError> {
     let user = get_user(session)?;
 
     let content = html! {
@@ -46,7 +46,7 @@ pub async fn journal_list(
                                     Actor::System => {"System"},
                                     Actor::Anonymous => {"Anonymous"},
                                     Actor::User(creator_id) => {
-                                         @match state.authn_service.fetch_user(*creator_id).await {
+                                         @match state.authn_service.fetch_user(creator_id).await {
                                             Ok(user) => (user.email.to_string()),
 
                                             Err(e) => (format!("failed to fetch creator email: {:?}", e)),
@@ -104,18 +104,14 @@ pub async fn journal_detail(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
-) -> Result<Markup, UserError> {
+) -> Result<Markup, JournalError> {
     let user = get_user(session)?;
+    let journal_id = JournalId::from_str(&id)?;
 
-    let journal_state_res = match JournalId::from_str(&id) {
-        Ok(s) => {
-            state
-                .journal_service
-                .get_journal(s, Authority::Direct(Actor::User(user.id)))
-                .await
-        }
-        Err(e) => Err(e.into()),
-    };
+    let journal_state_res = state
+        .journal_service
+        .get_journal(journal_id, Authority::Direct(Actor::User(user.id)))
+        .await;
 
     let pages = [
         ("Transactions", "transaction"),
@@ -154,7 +150,7 @@ pub async fn journal_detail(
                                         Actor::System => {"System"},
                                         Actor::Anonymous => {"Anonymous"},
                                         Actor::User(creator_id) => {
-                                             @match state.authn_service.fetch_user(*creator_id).await {
+                                             @match state.authn_service.fetch_user(creator_id).await {
                                                 Ok(user) => (user.email.to_string()),
 
                                                 Err(e) => (format!("failed to fetch creator email: {:?}", e)),

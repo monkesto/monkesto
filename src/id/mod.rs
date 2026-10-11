@@ -12,6 +12,7 @@ use phf::phf_set;
 use serde::{Deserialize, Serialize};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
+use sqlx::postgres::PgHasArrayType;
 use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::fmt::Display;
 use std::fmt::{self};
@@ -164,13 +165,19 @@ impl IntoIdentifierValue for Ident {
     }
 }
 
+impl PgHasArrayType for Ident {
+    fn array_type_info() -> <Postgres as Database>::TypeInfo {
+        <&[&str] as Type<Postgres>>::type_info()
+    }
+}
+
 #[macro_export]
 macro_rules! id {
     ($id_name:ident, $new_fn:expr) => {
         #[derive(
             ::serde::Serialize, ::serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash,
         )]
-        pub struct $id_name($crate::id::Ident);
+        pub struct $id_name(pub $crate::id::Ident);
 
         impl $id_name {
             pub fn new() -> Self {
@@ -266,6 +273,12 @@ macro_rules! id {
                 value: Option<$crate::proto::id::ident::ProtoIdent>,
             ) -> Result<Self, Self::Error> {
                 Ok(Self(Ident::try_from(value)?))
+            }
+        }
+
+        impl ::sqlx::postgres::types::PgHasArrayType for $id_name {
+            fn array_type_info() -> <::sqlx::Postgres as sqlx::Database>::TypeInfo {
+                <&[&str] as ::sqlx::Type<::sqlx::Postgres>>::type_info()
             }
         }
     };

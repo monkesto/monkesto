@@ -120,6 +120,9 @@ pub enum JournalError {
 
     #[error(transparent)]
     Email(#[from] EmailError),
+
+    #[error("tried to remove or update the permissions of the journal owner ({0})")]
+    OwnerModification(UserId),
 }
 
 impl From<DecisionError<JournalError>> for JournalError {
@@ -201,6 +204,11 @@ impl IntoResponse for JournalError {
                 .into_response(),
             User(e) => e.into_response(),
             Email(_) => (StatusCode::BAD_REQUEST, "Invalid email").into_response(),
+            OwnerModification(_) => (
+                StatusCode::BAD_REQUEST,
+                "Can't update the permissions of or remove the journal owner",
+            )
+                .into_response(),
         }
     }
 }

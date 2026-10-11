@@ -47,6 +47,7 @@ use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, FromRow, Postgres, Type};
 use std::fmt::Debug;
+use std::ops::Deref;
 use thiserror::Error;
 
 #[repr(i8)]
@@ -372,6 +373,13 @@ impl Decision for CreateTransaction {
 #[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
 pub struct TransactionEntries(pub Vec<TransactionEntry>);
 
+impl Deref for TransactionEntries {
+    type Target = Vec<TransactionEntry>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
 pub struct TransactionEntryIds(pub Vec<EntryId>);
 
@@ -486,7 +494,7 @@ impl JournalService {
         let entries: HashMap<EntryId, StoredTransactionEntry> = sqlx::query_as!(
             StoredTransactionEntry,
             r#"
-            SELECT id as "id: EntryId", journal_id as "journal_id: JournalId", amount, entry_side as "entry_side: EntrySide", entry_kind as "entry_kind: EntryKind" from transaction_entries WHERE journal_id = $1
+            SELECT id as "id: EntryId", journal_id as "journal_id: JournalId", amount, entry_side as "entry_side: EntrySide", entry_kind as "entry_kind: EntryKind" from entries WHERE journal_id = $1
             "#,
             journal_id as JournalId
         ).fetch_all(&self.projection_pool)

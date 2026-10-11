@@ -1,5 +1,5 @@
 pub mod commands;
-mod extract;
+pub mod extract;
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
 use crate::dollars::Dollars;

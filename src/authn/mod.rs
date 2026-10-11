@@ -40,8 +40,7 @@ use passkey::corepasskey::CorePasskey;
 use rand::RngExt;
 use resend_rs::Resend;
 use resend_rs::types::CreateEmailBaseOptions;
-use sqlx::postgres::PgHasArrayType;
-use sqlx::{Database, PgPool, Postgres, Type};
+use sqlx::PgPool;
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
@@ -125,12 +124,6 @@ pub struct AuthnService {
     decision_maker: PgAuthnDecisionMaker,
     current_event: watch::Sender<PgEventId>,
     email_verifier: EmailVerifier,
-}
-
-impl PgHasArrayType for UserId {
-    fn array_type_info() -> <Postgres as Database>::TypeInfo {
-        <&[&str] as Type<Postgres>>::type_info()
-    }
 }
 
 impl AuthnService {
@@ -368,13 +361,12 @@ impl AuthnService {
     pub async fn email_exists(&self, email: &Email) -> UserResult<bool> {
         Ok(sqlx::query_scalar!(
             r#"
-            SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)
+            SELECT EXISTS(SELECT 1 FROM users WHERE email = $1) as "exists!"
         "#,
             email.as_ref()
         )
         .fetch_one(&self.projection_pool)
-        .await?
-        .unwrap_or(false))
+        .await?)
     }
 
     pub async fn fetch_user(&self, user_id: UserId) -> UserResult<UserState> {
@@ -467,7 +459,7 @@ impl AuthnService {
         credential_id.as_ref())
             .fetch_optional(&self.projection_pool)
             .await?
-            .map(|pk| (pk.user_id, pk.id)))
+            .map(|pk: PasskeyState| (pk.user_id, pk.id)))
     }
 
     pub async fn wait_for(&self, event_id: PgEventId) {

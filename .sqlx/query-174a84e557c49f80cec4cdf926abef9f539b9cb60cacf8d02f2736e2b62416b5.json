@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE journal_stream SET version = $1, valid = false WHERE journal_id = $2\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "174a84e557c49f80cec4cdf926abef9f539b9cb60cacf8d02f2736e2b62416b5"
+}
