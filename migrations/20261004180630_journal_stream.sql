@@ -4,8 +4,6 @@ CREATE TABLE journal_stream (
     valid bool NOT NULL
 );
 
-
-
 CREATE TABLE account_stream (
     journal_id TEXT NOT NULL REFERENCES journal_stream(journal_id),
     account_id TEXT NOT NULL,

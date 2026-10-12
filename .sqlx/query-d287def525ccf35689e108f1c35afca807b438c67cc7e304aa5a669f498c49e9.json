@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    SELECT\n                        CASE\n                            WHEN j.owner_id = $1 THEN $2::INTEGER\n                            ELSE COALESCE(\n                                 (SELECT jm.permissions\n                                 FROM journal_members jm\n                                 WHERE jm.journal_id = j.id AND jm.user_id = $1),\n                                 0\n                            )\n                        END as \"i32!\"\n                    FROM journals j\n                    WHERE j.id = $3\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "i32!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d287def525ccf35689e108f1c35afca807b438c67cc7e304aa5a669f498c49e9"
+}

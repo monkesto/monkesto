@@ -1,22 +1,21 @@
-CREATE TABLE IF NOT EXISTS journal_event_listener (
+CREATE table journal_event_listener (
     id TEXT NOT NULL,
-    last_processed_id BIGINT NOT NULL,
-    last_updated TIMESTAMPTZ NOT NULL
+    last_processed_event_id BIGINT
 );
 
-CREATE TABLE IF NOT EXISTS journals (
+CREATE TABLE journals (
     id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL,
     name TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS journal_members (
+CREATE TABLE journal_members (
     user_id     TEXT   NOT NULL,
     journal_id  TEXT   NOT NULL,
     permissions INTEGER NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS accounts (
+CREATE TABLE accounts (
     id TEXT PRIMARY KEY,
     journal_id TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -24,7 +23,7 @@ CREATE TABLE IF NOT EXISTS accounts (
     balance BIGINT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS activities (
+CREATE TABLE activities (
     id TEXT NOT NULL,
     journal_id TEXT NOT NULL,
     name TEXT NOT NULL,
@@ -32,21 +31,21 @@ CREATE TABLE IF NOT EXISTS activities (
     balance BIGINT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS funds (
+CREATE TABLE funds (
     id TEXT NOT NULL,
     journal_id TEXT NOT NULL,
     name TEXT NOT NULL,
     balance BIGINT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS transactions (
+CREATE TABLE transactions (
     id TEXT PRIMARY KEY,
     journal_id TEXT NOT NULL,
     entries BYTEA NOT NULL,
     memo TEXT
 );
 
-CREATE TABLE IF NOT EXISTS entries (
+CREATE TABLE entries (
     id TEXT NOT NULL,
     journal_id TEXT NOT NULL,
     amount BIGINT NOT NULL,
@@ -54,7 +53,7 @@ CREATE TABLE IF NOT EXISTS entries (
     entry_kind BYTEA NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS files (
+CREATE TABLE files (
     id TEXT PRIMARY KEY,
     journal_id TEXT NOT NULL,
     hash BYTEA NOT NULL,

@@ -20,7 +20,7 @@ use async_trait::async_trait;
 use disintegrate::serde::prost::Prost;
 use disintegrate::{EventListener, NoSnapshot, PersistedEvent, StreamQuery, query};
 use disintegrate_postgres::{PgDecisionMaker, PgEventId, decision_maker};
-use sqlx::PgPool;
+use sqlx::{PgPool, PgTransaction};
 use tokio::sync::watch;
 
 type PgJournalDecisionMaker = PgDecisionMaker<
@@ -60,7 +60,7 @@ impl JournalService {
             CREATE TABLE IF NOT EXISTS journal_members (
                 user_id TEXT NOT NULL,
                 journal_id TEXT NOT NULL,
-                role INTEGER NOT NULL
+                permissions INTEGER NOT NULL
             )
         "#
         )
@@ -182,7 +182,7 @@ impl JournalService {
                         CASE
                             WHEN j.owner_id = $1 THEN $2::INTEGER
                             ELSE COALESCE(
-                                 (SELECT jm.role
+                                 (SELECT jm.permissions
                                  FROM journal_members jm
                                  WHERE jm.journal_id = j.id AND jm.user_id = $1),
                                  0
@@ -217,6 +217,293 @@ impl JournalService {
     }
 }
 
+pub async fn handle_incoming_event(
+    payload: JournalDomainEvent,
+    tx: &mut PgTransaction<'_>,
+) -> Result<(), sqlx::Error> {
+    match payload {
+        JournalDomainEvent::JournalCreated {
+            journal_id,
+            owner,
+            name,
+            ..
+        } => {
+            sqlx::query!(
+                    r#"
+                    INSERT INTO journals (id, owner_id, name) VALUES($1, $2, $3) ON CONFLICT DO NOTHING
+                    "#,
+                    journal_id as JournalId,
+                    owner as UserId,
+                    name as Name
+                )
+                .execute(&mut **tx)
+                .await?;
+        }
+        JournalDomainEvent::JournalDeleted { journal_id, .. } => {
+            sqlx::query!(
+                r#"
+                    DELETE FROM journals where id = $1
+                    "#,
+                journal_id as JournalId
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+        JournalDomainEvent::MemberAdded {
+            journal_id,
+            user_id,
+            permissions,
+            ..
+        } => {
+            sqlx::query!(
+                    r#"
+                    INSERT INTO journal_members (user_id, journal_id, permissions) VALUES($1, $2, $3) ON CONFLICT DO NOTHING
+                    "#,
+                    user_id as UserId,
+                    journal_id as JournalId,
+                    permissions as Permissions
+                    )
+                .execute(&mut **tx)
+                .await?;
+        }
+        JournalDomainEvent::MemberPermissionsUpdated {
+            journal_id,
+            user_id,
+            permissions,
+            ..
+        } => {
+            sqlx::query!(
+                    r#"
+                    UPDATE journal_members SET permissions = $1 WHERE user_id = $2 AND journal_id = $3
+                    "#,
+                    user_id as UserId,
+                    journal_id as JournalId,
+                    permissions as Permissions
+                )
+                .execute(&mut **tx)
+                .await?;
+        }
+        JournalDomainEvent::MemberRemoved {
+            journal_id,
+            user_id,
+            ..
+        } => {
+            sqlx::query!(
+                r#"
+                    DELETE FROM journal_members WHERE user_id = $1 AND journal_id = $2
+                    "#,
+                user_id as UserId,
+                journal_id as JournalId,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+        JournalDomainEvent::AccountCreated {
+            account_id,
+            journal_id,
+            name,
+            account_type,
+            ..
+        } => {
+            sqlx::query!(
+                    r#"
+                    INSERT INTO accounts (id, journal_id, name, balance, account_type) VALUES($1, $2, $3, 0, $4) ON CONFLICT DO NOTHING
+                    "#,
+                    account_id as AccountId,
+                    journal_id as JournalId,
+                    name as Name,
+                    account_type as AccountType,
+                )
+                .execute(&mut **tx)
+                .await?;
+        }
+        JournalDomainEvent::AccountRenamed {
+            account_id,
+            journal_id,
+            new_name,
+            ..
+        } => {
+            sqlx::query!(
+                r#"
+                    UPDATE accounts SET name = $1 WHERE id = $2 AND journal_id = $3
+                    "#,
+                new_name as Name,
+                account_id as AccountId,
+                journal_id as JournalId,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+        JournalDomainEvent::AccountDeleted {
+            account_id,
+            journal_id,
+            ..
+        } => {
+            sqlx::query!(
+                r#"
+                    DELETE FROM accounts WHERE id = $1 AND journal_id = $2
+                    "#,
+                account_id as AccountId,
+                journal_id as JournalId,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+        JournalDomainEvent::TransactionCreated {
+            transaction_id,
+            journal_id,
+            entries,
+            memo,
+            ..
+        } => {
+            sqlx::query!(
+                    r#"
+                    INSERT INTO transactions (id, journal_id, entries, memo) VALUES($1, $2, $3, $4) ON CONFLICT DO NOTHING
+                    "#,
+                    transaction_id as TransactionId,
+                    journal_id as JournalId,
+                    entries.clone() as TransactionEntryIds,
+                    memo as Option<Memo>
+                )
+                .execute(&mut **tx)
+                .await?;
+        }
+        JournalDomainEvent::FileUploaded {
+            file_id,
+            journal_id,
+            hash,
+            file_name,
+            ..
+        } => {
+            sqlx::query!(
+                    r#"
+                    INSERT INTO files (id, journal_id, hash, name) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
+                    "#,
+                    file_id as FileId,
+                    journal_id as JournalId,
+                    hash.as_slice() as &[u8],
+                    file_name
+                )
+                .execute(&mut **tx)
+                .await?;
+        }
+        JournalDomainEvent::FileDeleted {
+            file_id,
+            journal_id,
+            ..
+        } => {
+            sqlx::query!(
+                r#"
+                    DELETE FROM files where id = $1 AND journal_id = $2
+                    "#,
+                file_id as FileId,
+                journal_id as JournalId,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+        JournalDomainEvent::FundCreated {
+            fund_id,
+            journal_id,
+            fund_name,
+            ..
+        } => {
+            sqlx::query!(
+                    r#"
+                    INSERT INTO funds (id, journal_id, name, balance) VALUES ($1, $2, $3, 0) ON CONFLICT DO NOTHING
+                    "#,
+                    fund_id as FundId,
+                    journal_id as JournalId,
+                    fund_name as Name
+                )
+                .execute(&mut **tx)
+                .await?;
+        }
+        JournalDomainEvent::EntryCreated {
+            entry_id,
+            journal_id,
+            amount,
+            entry_side,
+            entry_kind,
+            ..
+        } => {
+            sqlx::query!(
+                    r#"
+                    INSERT INTO entries (id, journal_id, amount, entry_side, entry_kind) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING
+                    "#,
+                    entry_id as EntryId,
+                    journal_id as JournalId,
+                    amount as i64,
+                    entry_side as EntrySide,
+                    entry_kind as EntryKind
+                )
+                .execute(&mut **tx)
+                .await?;
+
+            let diff = match entry_side {
+                EntrySide::Credit => amount as i64,
+                EntrySide::Debit => -(amount as i64),
+            };
+
+            match entry_kind {
+                EntryKind::Account { account_id } => {
+                    sqlx::query!(
+                            r#"
+                            UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND journal_id = $3
+                            "#,
+                            diff,
+                            account_id as AccountId,
+                            journal_id as JournalId,
+                        ).execute(&mut **tx).await?;
+                }
+                EntryKind::Activity {
+                    activity_id,
+                    fund_id,
+                    scope: _,
+                } => {
+                    sqlx::query!(
+                            r#"
+                            UPDATE funds SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
+                            "#,
+                            diff,
+                            fund_id as FundId,
+                            journal_id as JournalId,
+                        ).execute(&mut **tx).await?;
+                    sqlx::query!(
+                            r#"
+                            UPDATE activities SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
+                            "#,
+                            diff,
+                            activity_id as ActivityId,
+                            journal_id as JournalId,
+                        ).execute(&mut **tx).await?;
+                }
+            }
+        }
+        JournalDomainEvent::ActivityCreated {
+            activity_id,
+            journal_id,
+            activity_name,
+            activity_kind: activity_type,
+            ..
+        } => {
+            sqlx::query!(
+                    r#"
+                    INSERT INTO activities (id, journal_id, name, balance, activity_kind) VALUES ($1, $2, $3, 0, $4) ON CONFLICT DO NOTHING
+                    "#,
+                    activity_id as ActivityId,
+                    journal_id as JournalId,
+                    activity_name as Name,
+                    activity_type as i16
+                )
+                .execute(&mut **tx)
+                .await?;
+        }
+    }
+
+    Ok(())
+}
+
 #[async_trait]
 impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
     type Error = sqlx::Error;
@@ -234,288 +521,10 @@ impl EventListener<PgEventId, JournalDomainEvent> for JournalService {
         event: PersistedEvent<PgEventId, JournalDomainEvent>,
     ) -> Result<(), Self::Error> {
         let event_id = event.id();
-        match event.into_inner() {
-            JournalDomainEvent::JournalCreated {
-                journal_id,
-                owner,
-                name,
-                ..
-            } => {
-                sqlx::query!(
-                    r#"
-                    INSERT INTO journals (id, owner_id, name) VALUES($1, $2, $3) ON CONFLICT DO NOTHING
-                    "#,
-                    journal_id as JournalId,
-                    owner as UserId,
-                    name as Name
-                )
-                .execute(&self.projection_pool)
-                .await?;
-            }
-            JournalDomainEvent::JournalDeleted { journal_id, .. } => {
-                sqlx::query!(
-                    r#"
-                    DELETE FROM journals where id = $1
-                    "#,
-                    journal_id as JournalId
-                )
-                .execute(&self.projection_pool)
-                .await?;
-            }
-            JournalDomainEvent::MemberAdded {
-                journal_id,
-                user_id,
-                permissions,
-                ..
-            } => {
-                sqlx::query!(
-                    r#"
-                    INSERT INTO journal_members (user_id, journal_id, role) VALUES($1, $2, $3) ON CONFLICT DO NOTHING
-                    "#,
-                    user_id as UserId,
-                    journal_id as JournalId,
-                    permissions as Permissions
-                    )
-                    .execute(&self.projection_pool)
-                    .await?;
-            }
-            JournalDomainEvent::MemberPermissionsUpdated {
-                journal_id,
-                user_id,
-                permissions,
-                ..
-            } => {
-                sqlx::query!(
-                    r#"
-                    UPDATE journal_members SET role = $1 WHERE user_id = $2 AND journal_id = $3
-                    "#,
-                    user_id as UserId,
-                    journal_id as JournalId,
-                    permissions as Permissions
-                )
-                .execute(&self.projection_pool)
-                .await?;
-            }
-            JournalDomainEvent::MemberRemoved {
-                journal_id,
-                user_id,
-                ..
-            } => {
-                sqlx::query!(
-                    r#"
-                    DELETE FROM journal_members WHERE user_id = $1 AND journal_id = $2
-                    "#,
-                    user_id as UserId,
-                    journal_id as JournalId,
-                )
-                .execute(&self.projection_pool)
-                .await?;
-            }
-            JournalDomainEvent::AccountCreated {
-                account_id,
-                journal_id,
-                name,
-                account_type,
-                ..
-            } => {
-                sqlx::query!(
-                    r#"
-                    INSERT INTO accounts (id, journal_id, name, balance, account_type) VALUES($1, $2, $3, 0, $4) ON CONFLICT DO NOTHING
-                    "#,
-                    account_id as AccountId,
-                    journal_id as JournalId,
-                    name as Name,
-                    account_type as AccountType,
-                )
-                .execute(&self.projection_pool)
-                .await?;
-            }
-            JournalDomainEvent::AccountRenamed {
-                account_id,
-                journal_id,
-                new_name,
-                ..
-            } => {
-                sqlx::query!(
-                    r#"
-                    UPDATE accounts SET name = $1 WHERE id = $2 AND journal_id = $3
-                    "#,
-                    new_name as Name,
-                    account_id as AccountId,
-                    journal_id as JournalId,
-                )
-                .execute(&self.projection_pool)
-                .await?;
-            }
-            JournalDomainEvent::AccountDeleted {
-                account_id,
-                journal_id,
-                ..
-            } => {
-                sqlx::query!(
-                    r#"
-                    DELETE FROM accounts WHERE id = $1 AND journal_id = $2
-                    "#,
-                    account_id as AccountId,
-                    journal_id as JournalId,
-                )
-                .execute(&self.projection_pool)
-                .await?;
-            }
-            JournalDomainEvent::TransactionCreated {
-                transaction_id,
-                journal_id,
-                entries,
-                memo,
-                ..
-            } => {
-                sqlx::query!(
-                    r#"
-                    INSERT INTO transactions (id, journal_id, entries, memo) VALUES($1, $2, $3, $4) ON CONFLICT DO NOTHING
-                    "#,
-                    transaction_id as TransactionId,
-                    journal_id as JournalId,
-                    entries.clone() as TransactionEntryIds,
-                    memo as Option<Memo>
-                )
-                .execute(&self.projection_pool)
-                .await?;
-            }
-            JournalDomainEvent::FileUploaded {
-                file_id,
-                journal_id,
-                hash,
-                file_name,
-                ..
-            } => {
-                sqlx::query!(
-                    r#"
-                    INSERT INTO files (id, journal_id, hash, name) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
-                    "#,
-                    file_id as FileId,
-                    journal_id as JournalId,
-                    hash.as_slice() as &[u8],
-                    file_name
-                )
-                .execute(&self.projection_pool)
-                .await?;
-            }
-            JournalDomainEvent::FileDeleted {
-                file_id,
-                journal_id,
-                ..
-            } => {
-                sqlx::query!(
-                    r#"
-                    DELETE FROM files where id = $1 AND journal_id = $2
-                    "#,
-                    file_id as FileId,
-                    journal_id as JournalId,
-                )
-                .execute(&self.projection_pool)
-                .await?;
-            }
-            JournalDomainEvent::FundCreated {
-                fund_id,
-                journal_id,
-                fund_name,
-                ..
-            } => {
-                sqlx::query!(
-                    r#"
-                    INSERT INTO funds (id, journal_id, name, balance) VALUES ($1, $2, $3, 0) ON CONFLICT DO NOTHING
-                    "#,
-                    fund_id as FundId,
-                    journal_id as JournalId,
-                    fund_name as Name
-                )
-                    .execute(&self.projection_pool)
-                    .await?;
-            }
-            JournalDomainEvent::EntryCreated {
-                entry_id,
-                journal_id,
-                amount,
-                entry_side,
-                entry_kind,
-                ..
-            } => {
-                let mut tx = self.projection_pool.begin().await?;
 
-                sqlx::query!(
-                    r#"
-                    INSERT INTO entries (id, journal_id, amount, entry_side, entry_kind) VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING
-                    "#,
-                    entry_id as EntryId,
-                    journal_id as JournalId,
-                    amount as i64,
-                    entry_side as EntrySide,
-                    entry_kind as EntryKind
-                )
-                    .execute(&mut *tx)
-                    .await?;
-
-                let diff = match entry_side {
-                    EntrySide::Credit => amount as i64,
-                    EntrySide::Debit => -(amount as i64),
-                };
-
-                match entry_kind {
-                    EntryKind::Account { account_id } => {
-                        sqlx::query!(
-                            r#"
-                            UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND journal_id = $3
-                            "#,
-                            diff,
-                            account_id as AccountId,
-                            journal_id as JournalId,
-                        ).execute(&mut *tx).await?;
-                    }
-                    EntryKind::Activity {
-                        activity_id,
-                        fund_id,
-                        scope: _,
-                    } => {
-                        sqlx::query!(
-                            r#"
-                            UPDATE funds SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
-                            "#,
-                            diff,
-                            fund_id as FundId,
-                            journal_id as JournalId,
-                        ).execute(&mut *tx).await?;
-                        sqlx::query!(
-                            r#"
-                            UPDATE activities SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
-                            "#,
-                            diff,
-                            activity_id as ActivityId,
-                            journal_id as JournalId,
-                        ).execute(&mut *tx).await?;
-                    }
-                }
-                tx.commit().await?;
-            }
-            JournalDomainEvent::ActivityCreated {
-                activity_id,
-                journal_id,
-                activity_name,
-                activity_kind: activity_type,
-                ..
-            } => {
-                sqlx::query!(
-                    r#"
-                    INSERT INTO activities (id, journal_id, name, balance, activity_kind) VALUES ($1, $2, $3, 0, $4) ON CONFLICT DO NOTHING
-                    "#,
-                    activity_id as ActivityId,
-                    journal_id as JournalId,
-                    activity_name as Name,
-                    activity_type as i16
-                )
-                    .execute(&self.projection_pool)
-                    .await?;
-            }
-        }
+        let mut tx = self.projection_pool.begin().await?;
+        handle_incoming_event(event.into_inner(), &mut tx).await?;
+        tx.commit().await?;
 
         self.current_event
             .send(event_id)

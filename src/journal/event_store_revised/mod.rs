@@ -1,3 +1,5 @@
+mod projection;
+
 use crate::authn::UserId;
 use crate::authority::{Actor, Authority};
 use crate::id::Ident;
@@ -27,8 +29,8 @@ use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use thiserror::Error;
 
-type EventId = i64;
-type Version = i64;
+pub type EventId = i64;
+pub type Version = i64;
 
 #[derive(Clone)]
 pub struct JournalService {
