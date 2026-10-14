@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                    INSERT INTO entries (id, journal_id, transaction_id, amount, entry_side, entry_kind) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING\n                    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int2",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e77caf4df1bb850c5f7cd69739f3c415ac028b906526d43227d3020e3ad517e7"
+}

@@ -131,7 +131,7 @@ pub async fn update_permissions(
 
     let event_id = state
         .journal_service
-        .update_member(
+        .update_member_permissions(
             journal_id,
             target_user_id,
             new_permissions,

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT a.id as \"id: AccountId\", a.journal_id as \"journal_id: JournalId\", a.balance, a.name as \"name: Name\", a.account_type as \"account_type: AccountType\", e.payload as \"payload!\"\n            FROM accounts a\n            INNER JOIN event e\n                ON e.account_id = a.id AND e.event_type = 'AccountCreated'\n            WHERE a.journal_id = $1\n            ",
+  "query": "\n            SELECT a.id as \"id: AccountId\", a.journal_id as \"journal_id: JournalId\", a.balance, a.name as \"name: Name\", a.account_type as \"account_type: AccountType\", e.payload as \"payload!: JournalDomainEvent\"\n            FROM accounts a\n            INNER JOIN event e\n                ON e.account_id = a.id AND e.event_type = 'AccountCreated'\n            WHERE a.journal_id = $1\n            ",
   "describe": {
     "columns": [
       {
@@ -30,7 +30,7 @@
       },
       {
         "ordinal": 5,
-        "name": "payload!",
+        "name": "payload!: JournalDomainEvent",
         "type_info": "Bytea"
       }
     ],
@@ -48,5 +48,5 @@
       true
     ]
   },
-  "hash": "cecdc806ec618aa68f747eec0d9bc88df31625e3375853d86ecc3df2e25138d6"
+  "hash": "567ad431d3e681a45ee066a340028788b72d23d220160cc718c2161d975048d7"
 }

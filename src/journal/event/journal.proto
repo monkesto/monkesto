@@ -79,14 +79,14 @@ message ProtoJournalDomainEvent {
     int32 entry_side = 5;
     authority.authority.ProtoAuthority authority = 6;
     time.timestamp.ProtoTimestamp timestamp = 7;
+    id.ident.ProtoIdent transaction_id = 8;
   }
 
   message ProtoTransactionCreated {
     id.ident.ProtoIdent transaction_id = 1;
     id.ident.ProtoIdent journal_id = 2;
-    proto.journal.entry.entry.ProtoRepeatedTransactionEntryIds entries = 3;
-    int32 financial_period = 4;
-    transaction.memo.memo.ProtoMemo memo = 7;
+    int32 financial_period = 3;
+    transaction.memo.memo.ProtoMemo memo = 4;
     authority.authority.ProtoAuthority authority = 5;
     time.timestamp.ProtoTimestamp timestamp = 6;
   }

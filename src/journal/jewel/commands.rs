@@ -1,25 +1,15 @@
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
 use crate::journal::JournalId;
-use crate::journal::account::{AccountId, AccountType};
-use crate::journal::entry::{EntryKind, EntrySide};
 use crate::journal::error::JournalError;
 use crate::journal::file::FileId;
-use crate::journal::jewel::JewelImportError;
-use crate::journal::transaction::memo::Memo;
-use crate::journal::transaction::{FinancialPeriod, TransactionEntry, TransactionId};
-use crate::name::Name;
-use crate::time::TimeProvider;
 use crate::{BackendType, StateType};
 use axum::extract::{Path, State};
 use axum::response::Redirect;
 use axum_login::AuthSession;
 use axum_login::tracing::info;
-use chrono::Utc;
-use disintegrate::DecisionError;
-use std::collections::HashMap;
 use std::str::FromStr;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub async fn import_jewel_db(
     State(state): State<StateType>,
@@ -30,8 +20,6 @@ pub async fn import_jewel_db(
     let user_authority = Authority::Direct(Actor::User(user.id));
     let journal_id = JournalId::from_str(&journal_id)?;
     let file_id = FileId::from_str(&file_id)?;
-
-    let mut jewel_account_id_map = HashMap::new();
 
     let data_gather_start = Instant::now();
 
@@ -45,163 +33,30 @@ pub async fn import_jewel_db(
         data_gather_start.elapsed()
     );
 
-    let mut creation_timestamp = Utc::now();
+    let num_accounts = jewel_data.accounts.len();
+    let num_transactions = jewel_data.journals.len();
 
-    let account_import_start = Instant::now();
-    let mut num_imported_accounts = 0;
-
-    for (jewel_account_id, account) in jewel_data.accounts {
-        if account.active {
-            let account_type = if account.account_type < 3 {
-                AccountType::Asset
-            } else {
-                AccountType::Liability
-            };
-
-            // jewel doesn't record account creation timestamps, but its ids are sequential
-            // since we're creating the accounts in that sequential order, we can keep the order
-            // by creating each account 1 millisecond later than the last
-            creation_timestamp += Duration::from_millis(1);
-
-            // looping pattern to retry in the case of an id collision
-            let mut account_id = AccountId::new();
-            num_imported_accounts += 1;
-            loop {
-                match state
-                    .journal_service
-                    .create_account(
-                        account_id,
-                        journal_id,
-                        // jewel names appear to be max 50 characters, ours are max 64
-                        Name::try_new(account.name.clone())?,
-                        account_type,
-                        user_authority,
-                        creation_timestamp.get_time(),
-                    )
-                    .await
-                {
-                    Ok(_) => break,
-                    Err(DecisionError::Domain(JournalError::AccountIdCollision(_))) => {
-                        account_id = AccountId::new()
-                    }
-                    Err(e) => Err(e)?,
-                };
-            }
-            jewel_account_id_map.insert(jewel_account_id, account_id);
-        }
-    }
+    let event_id = state
+        .journal_service
+        .import_jewel_database(journal_id, jewel_data, user_authority)
+        .await?;
 
     info!(
-        "Imported {} accounts in {:?} (total {:?})",
-        num_imported_accounts,
-        account_import_start.elapsed(),
+        "Imported {} accounts and {} transaction in {:?}",
+        num_accounts,
+        num_transactions,
         data_gather_start.elapsed()
     );
 
-    let start_transaction_import = Instant::now();
-    let mut rotating_transaction_import = Instant::now();
+    let projection_update_start = Instant::now();
 
-    let mut num_transactions = 0;
+    state.journal_service.wait_for(event_id).await;
 
-    for (jewel_transaction_id, jewel_transaction) in jewel_data.journals {
-        let z_single_account_id = jewel_transaction.z_single_account_id;
-
-        let mut entries = Vec::new();
-
-        let mut entry_sum = 0;
-
-        for entry in jewel_data
-            .journal_entries
-            .get(&jewel_transaction_id)
-            .ok_or(JewelImportError::MissingJournalEntries(
-                jewel_transaction_id,
-            ))
-            .map_err(JournalError::JewelImport)?
-        {
-            if entry.account_id == jewel_transaction.z_single_account_id {
-                continue;
-            }
-
-            let entry_amount = (entry.amount * 100.0).round() as i64;
-
-            entry_sum += entry_amount;
-
-            entries.push(TransactionEntry {
-                amount: entry_amount.unsigned_abs(),
-                entry_side: if entry_amount > 0 {
-                    EntrySide::Debit
-                } else {
-                    EntrySide::Credit
-                },
-                entry_kind: EntryKind::Account {
-                    account_id: *jewel_account_id_map
-                        .get(&entry.account_id)
-                        .ok_or(JewelImportError::MissingAccount(entry.account_id))
-                        .map_err(JournalError::JewelImport)?,
-                },
-            })
-        }
-
-        entries.push(TransactionEntry {
-            amount: entry_sum.unsigned_abs(),
-            entry_side: if entry_sum < 0 {
-                EntrySide::Debit
-            } else {
-                EntrySide::Credit
-            },
-            entry_kind: EntryKind::Account {
-                account_id: *jewel_account_id_map
-                    .get(&z_single_account_id)
-                    .ok_or(JewelImportError::MissingAccount(z_single_account_id))
-                    .map_err(JournalError::JewelImport)?,
-            },
-        });
-
-        let mut transaction_id = TransactionId::new();
-
-        loop {
-            match state
-                .journal_service
-                .create_transaction(
-                    transaction_id,
-                    journal_id,
-                    // cloning feels really silly here, but making this borrowed is actually quite challenging
-                    // the performance impact should be negligible because the list should be small and
-                    // the chances of an id collision are mathematically insignificant
-                    entries.clone(),
-                    FinancialPeriod::from(jewel_transaction.accounting_date),
-                    // jewel memos appear to be max 50 characters, ours are max 100 characters
-                    Some(
-                        Memo::try_new(jewel_transaction.memo.clone())
-                            .map_err(JournalError::Memo)?,
-                    ),
-                    user_authority,
-                    jewel_transaction.accounting_date.get_time(),
-                )
-                .await
-            {
-                Ok(_) => break,
-                Err(DecisionError::Domain(JournalError::TransactionIdCollision(_))) => {
-                    transaction_id = TransactionId::new()
-                }
-                Err(e) => Err(e)?,
-            };
-        }
-
-        num_transactions += 1;
-        if num_transactions % 1000 == 0 {
-            info!(
-                "Imported {} transactions in {:?} (last 1000: {:?}), total elapsed: {:?}",
-                num_transactions,
-                start_transaction_import.elapsed(),
-                rotating_transaction_import.elapsed(),
-                data_gather_start.elapsed()
-            );
-            rotating_transaction_import = Instant::now();
-        }
-    }
-
-    info!("Final jewel import time: {:?}", data_gather_start.elapsed());
+    info!(
+        "projection updated in {:?} ({:?} total)",
+        projection_update_start.elapsed(),
+        data_gather_start.elapsed()
+    );
 
     Ok(Redirect::to(&format!("/journal/{}", journal_id)))
 }

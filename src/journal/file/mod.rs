@@ -5,11 +5,9 @@ use crate::authority::Authority;
 use crate::event_id::GetEventId;
 use crate::id;
 use crate::id::Ident;
-use crate::journal::error::{JournalError, JournalResult};
+use crate::journal::error::JournalError;
 use crate::journal::event::{FileEvent, JournalDomainEvent};
-use crate::journal::{Journal, JournalId, JournalService, Permissions};
-use crate::proto::DecodeError;
-use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
+use crate::journal::{Journal, JournalId};
 use crate::status::Status;
 use crate::time::Timestamp;
 use aws_sdk_s3::Client as S3Client;
@@ -264,171 +262,32 @@ impl Decision for DeleteFile {
 
 pub struct FileState {
     pub id: FileId,
-    journal_id: JournalId,
+    pub journal_id: JournalId,
     #[expect(unused)]
     pub hash: [u8; 16],
     pub name: String,
 }
 
 #[derive(FromRow)]
-struct FileStateWithPayload {
-    id: FileId,
+pub struct FileStateWithPayload {
+    pub id: FileId,
     #[expect(unused)]
-    journal_id: JournalId,
-    hash: Vec<u8>,
-    name: String,
-    payload: Vec<u8>,
+    pub journal_id: JournalId,
+    pub hash: [u8; 16],
+    pub name: String,
+    pub payload: JournalDomainEvent,
 }
 
 #[derive(FromRow)]
-struct FileStateWithVecHash {
-    id: FileId,
-    journal_id: JournalId,
-    hash: Vec<u8>,
-    name: String,
+pub struct FileStateWithVecHash {
+    pub id: FileId,
+    pub journal_id: JournalId,
+    pub hash: Vec<u8>,
+    pub name: String,
 }
 
 impl FileState {
     pub fn key(&self) -> String {
         format!("{}/{}-{}", self.journal_id, self.id, self.name)
-    }
-}
-
-impl JournalService {
-    pub async fn upload_file(
-        &self,
-        file_id: FileId,
-        journal_id: JournalId,
-        hash: [u8; 16],
-        file_name: String,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> Result<PgEventId, DecisionError<JournalError>> {
-        Ok(self
-            .decision_maker
-            .make(UploadFile::new(
-                file_id, journal_id, hash, file_name, authority, timestamp,
-            ))
-            .await?
-            .event_id())
-    }
-
-    pub async fn get_file(
-        &self,
-        file_id: FileId,
-        journal_id: JournalId,
-        authority: Authority,
-    ) -> JournalResult<FileState> {
-        if !self
-            .get_effective_permissions(journal_id, authority)
-            .await?
-            .contains(Permissions::READ)
-        {
-            return Err(JournalError::InvalidJournal(journal_id));
-        }
-
-        let file = sqlx::query_as!(
-            FileStateWithVecHash,
-            r#"
-            SELECT f.id as "id: FileId", f.journal_id as "journal_id: JournalId", f.hash, f.name
-            FROM files f
-            WHERE f.journal_id = $1 AND f.id = $2
-            "#,
-            journal_id as JournalId,
-            file_id as FileId,
-        )
-        .fetch_optional(&self.projection_pool)
-        .await?;
-
-        if let Some(file) = file {
-            let hash = *file
-                .hash
-                .as_array::<16>()
-                .expect("md5 hashes should always be 16 bytes long");
-
-            return Ok(FileState {
-                id: file.id,
-                journal_id: file.journal_id,
-                hash,
-                name: file.name,
-            });
-        }
-
-        Err(JournalError::InvalidFile(file_id))
-    }
-
-    pub async fn list_journal_files(
-        &self,
-        journal_id: JournalId,
-        authority: Authority,
-    ) -> JournalResult<Vec<(FileState, Authority, Timestamp)>> {
-        if !self
-            .get_effective_permissions(journal_id, authority)
-            .await?
-            .contains(Permissions::READ)
-        {
-            return Err(JournalError::InvalidJournal(journal_id));
-        }
-
-        let files = sqlx::query_as!(
-            FileStateWithPayload,
-            r#"
-            SELECT f.id as "id: FileId", f.journal_id as "journal_id: JournalId", f.hash, f.name, e.payload as "payload!"
-            FROM files f
-            INNER JOIN event e
-                ON e.file_id = f.id AND e.event_type = 'FileUploaded'
-            WHERE f.journal_id = $1
-            "#,
-            journal_id as JournalId
-        )
-            .fetch_all(&self.projection_pool)
-            .await?;
-
-        let mut files_with_meta = Vec::with_capacity(files.len());
-
-        for file in files {
-            let payload = JournalDomainEvent::try_from(
-                ProtoJournalDomainEvent::decode(file.payload.as_slice())
-                    .map_err(DecodeError::InvalidMessage)?,
-            )?;
-            let hash = *file
-                .hash
-                .as_array::<16>()
-                .expect("md5 hashes should always be 16 bytes long");
-
-            match payload {
-                JournalDomainEvent::FileUploaded {
-                    authority,
-                    timestamp,
-                    ..
-                } => files_with_meta.push((
-                    FileState {
-                        id: file.id,
-                        journal_id,
-                        hash,
-                        name: file.name,
-                    },
-                    authority,
-                    timestamp,
-                )),
-                _ => unreachable!("FileUploaded events are filtered by the sql query"),
-            }
-        }
-
-        Ok(files_with_meta)
-    }
-
-    pub async fn delete_file(
-        &self,
-        file_id: FileId,
-        journal_id: JournalId,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> Result<PgEventId, DecisionError<JournalError>> {
-        Ok(self
-            .decision_maker
-            .make(DeleteFile::new(file_id, journal_id, authority, timestamp))
-            .await?
-            .event_id())
     }
 }

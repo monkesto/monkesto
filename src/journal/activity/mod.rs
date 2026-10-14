@@ -2,22 +2,17 @@ pub mod kind;
 pub mod scope;
 
 use crate::authority::Authority;
-use crate::event_id::GetEventId;
 use crate::id;
 use crate::id::Ident;
 pub(crate) use crate::journal::activity::kind::ActivityKind;
-use crate::journal::error::{JournalError, JournalResult};
+use crate::journal::error::JournalError;
 use crate::journal::event::{ActivityEvent, JournalDomainEvent};
 use crate::journal::member::JournalMember;
-use crate::journal::{Journal, JournalId, JournalService, Permissions, validate_permissions};
+use crate::journal::{Journal, JournalId, Permissions, validate_permissions};
 use crate::name::Name;
-use crate::proto::DecodeError;
-use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::status::Status;
 use crate::time::Timestamp;
 use disintegrate::{Decision, StateMutate, StateQuery};
-use disintegrate_postgres::PgEventId;
-use prost::Message;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -151,97 +146,11 @@ pub struct ActivityState {
 
 #[derive(FromRow)]
 pub struct ActivityStateWithPayload {
-    id: ActivityId,
+    pub id: ActivityId,
     #[expect(unused)]
-    journal_id: JournalId,
-    name: Name,
-    activity_kind: ActivityKind,
-    balance: i64,
-    payload: Vec<u8>,
-}
-
-impl JournalService {
-    #[expect(unused)]
-    pub async fn create_activity(
-        &self,
-        activity_id: ActivityId,
-        journal_id: JournalId,
-        name: Name,
-        activity_kind: ActivityKind,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> Result<PgEventId, JournalError> {
-        Ok(self
-            .decision_maker
-            .make(CreateActivity::new(
-                activity_id,
-                journal_id,
-                name,
-                activity_kind,
-                authority,
-                timestamp,
-            ))
-            .await?
-            .event_id())
-    }
-
-    #[expect(unused)]
-    pub async fn list_journal_activities(
-        &self,
-        journal_id: JournalId,
-        authority: Authority,
-    ) -> JournalResult<Vec<(ActivityState, Authority, Timestamp)>> {
-        if !self
-            .get_effective_permissions(journal_id, authority)
-            .await?
-            .contains(Permissions::READ)
-        {
-            return Err(JournalError::InvalidJournal(journal_id));
-        }
-
-        let activities = sqlx::query_as!(
-            ActivityStateWithPayload,
-            r#"
-            SELECT a.id as "id: ActivityId", a.journal_id as "journal_id: JournalId", a.name as "name: Name", a.activity_kind as "activity_kind: ActivityKind", a.balance, e.payload as "payload!"
-            FROM activities a
-            INNER JOIN event e
-                ON e.account_id = a.id AND e.event_type = 'ActivityCreated'
-            WHERE e.journal_id = $1
-            "#,
-            journal_id as JournalId)
-            .fetch_all(&self.projection_pool)
-            .await?;
-
-        let mut activities_with_meta = Vec::with_capacity(activities.len());
-
-        for activity in activities {
-            let payload = JournalDomainEvent::try_from(
-                ProtoJournalDomainEvent::decode(activity.payload.as_slice())
-                    .map_err(DecodeError::InvalidMessage)?,
-            )?;
-
-            match payload {
-                JournalDomainEvent::ActivityCreated {
-                    authority,
-                    timestamp,
-                    ..
-                } => {
-                    activities_with_meta.push((
-                        ActivityState {
-                            id: activity.id,
-                            journal_id,
-                            name: activity.name,
-                            activity_type: activity.activity_kind,
-                            balance: activity.balance,
-                        },
-                        authority,
-                        timestamp,
-                    ));
-                }
-                _ => unreachable!("ActivityCreated events are filtered by the sql query"),
-            }
-        }
-
-        Ok(activities_with_meta)
-    }
+    pub journal_id: JournalId,
+    pub name: Name,
+    pub activity_kind: ActivityKind,
+    pub balance: i64,
+    pub payload: JournalDomainEvent,
 }

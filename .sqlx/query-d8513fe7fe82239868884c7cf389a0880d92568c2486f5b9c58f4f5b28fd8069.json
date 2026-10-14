@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT f.id as \"id: FileId\", f.journal_id as \"journal_id: JournalId\", f.hash as \"hash: [u8; 16]\", f.name, e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\"\n            FROM files f\n            INNER JOIN journal_events e\n                ON e.stream_id = f.id AND e.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3\n            WHERE f.journal_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: FileId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "hash: [u8; 16]",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "authority: Authority",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 5,
+        "name": "timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "display_timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int2",
+        "Int2"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "d8513fe7fe82239868884c7cf389a0880d92568c2486f5b9c58f4f5b28fd8069"
+}

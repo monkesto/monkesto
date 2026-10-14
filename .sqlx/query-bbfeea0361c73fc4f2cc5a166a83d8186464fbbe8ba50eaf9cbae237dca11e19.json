@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT t.id as \"id: TransactionId\", t.journal_id as \"journal_id: JournalId\", t.memo as \"memo: Memo\", e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\",\n                   ARRAY(\n                        SELECT (en.id, en.amount, en.entry_side, en.entry_kind)\n                        FROM entries en\n                        WHERE en.transaction_id = t.id AND t.journal_id = $1\n                   ) AS \"entries!: Vec<(EntryId, i64, EntrySide, EntryKind)>\"\n            FROM transactions t\n            INNER JOIN journal_events e\n                ON e.stream_id = t.id AND e.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3\n            WHERE t.journal_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: TransactionId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "memo: Memo",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "authority: Authority",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 4,
+        "name": "timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "display_timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "entries!: Vec<(EntryId, i64, EntrySide, EntryKind)>",
+        "type_info": "RecordArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int2",
+        "Int2"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "bbfeea0361c73fc4f2cc5a166a83d8186464fbbe8ba50eaf9cbae237dca11e19"
+}

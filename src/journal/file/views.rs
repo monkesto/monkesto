@@ -1,10 +1,10 @@
 use crate::authn::get_user;
-use crate::authn::user::UserError;
 use crate::authority::{Actor, Authority};
 use crate::journal::JournalId;
 use crate::journal::error::JournalError;
 use crate::journal::file::{FileId, ObjectStore};
 use crate::journal::layout::layout;
+use crate::journal::service::JournalExecutor;
 use crate::{BackendType, StateType};
 use aws_sdk_s3::presigning::PresigningConfig;
 use axum::body::Body;
@@ -165,7 +165,7 @@ pub async fn download_file(
 
     let file_key = file.key();
 
-    match state.journal_service.object_store {
+    match state.journal_service.object_store() {
         ObjectStore::S3 {
             s3_client,
             bucket_name,

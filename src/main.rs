@@ -19,8 +19,8 @@ mod time;
 
 use crate::authn::{AuthnEventStore, AuthnService};
 use crate::authz::{AuthzEventStore, AuthzService, RoleIndex};
-use crate::journal::JournalService;
-use crate::journal::store::JournalEventStore;
+use crate::journal::event_store_revised::JournalServiceRevised;
+use crate::journal::service::JournalExecutor;
 use axum::Router;
 use axum::extract::FromRef;
 use axum::http::header;
@@ -37,6 +37,7 @@ use seed::seed_dev_data;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
 use tower_http::services::ServeFile;
@@ -48,7 +49,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 #[derive(Clone)]
 struct AppState {
     authn_service: AuthnService,
-    journal_service: JournalService,
+    journal_service: Arc<dyn JournalExecutor>,
     authz_service: AuthzService,
 }
 
@@ -56,19 +57,13 @@ impl AppState {
     fn new(
         authn_service: AuthnService,
         authz_service: AuthzService,
-        journal_service: JournalService,
+        journal_service: Arc<dyn JournalExecutor>,
     ) -> Self {
         Self {
             authn_service,
             journal_service,
             authz_service,
         }
-    }
-}
-
-impl FromRef<AppState> for JournalService {
-    fn from_ref(input: &AppState) -> Self {
-        input.journal_service.clone()
     }
 }
 
@@ -89,7 +84,7 @@ async fn main() {
         unsafe {
             // Concurrent writing of set_var is not permitted,
             // but we're in main, so that shouldn't be a problem.
-            env::set_var("RUST_LOG", "INFO");
+            env::set_var("RUST_LOG", "DEBUG");
         }
     }
 
@@ -157,32 +152,31 @@ async fn main() {
         auth_service.clone(),
     ));
 
+    // let journal_pool = PgPoolOptions::new()
+    //     .after_connect(|connection, _| {
+    //         Box::pin(async move {
+    //             sqlx::query!("SET search_path TO journal")
+    //                 .execute(connection)
+    //                 .await?;
+    //             Ok(())
+    //         })
+    //     })
+    //     .connect(&database_url)
+    //     .await
+    //     .expect("failed to create a journal pool");
+    //
+    // let journal_service = JournalService::try_new(journal_pool.clone())
+    //     .await
+    //     .expect("failed to create a journal service");
+
     let journal_pool = PgPoolOptions::new()
-        .after_connect(|connection, _| {
-            Box::pin(async move {
-                sqlx::query!("SET search_path TO journal")
-                    .execute(connection)
-                    .await?;
-                Ok(())
-            })
-        })
         .connect(&database_url)
         .await
         .expect("failed to create a journal pool");
 
-    let journal_event_store = JournalEventStore::try_new(journal_pool.clone())
+    let journal_service = JournalServiceRevised::try_new(journal_pool.clone())
         .await
-        .expect("failed to create a journal event store");
-
-    let journal_service =
-        JournalService::try_new(journal_pool.clone(), journal_event_store.clone())
-            .await
-            .expect("failed to create a journal service");
-
-    tokio::spawn(journal::event::event_listener(
-        journal_event_store,
-        journal_service.clone(),
-    ));
+        .expect("failed to create journal service");
 
     // Disintegrate uses unqualified object names and cannot target a schema directly, so
     // authz needs a schema-scoped pool. Ideally, the backend would qualify its objects with
@@ -210,7 +204,11 @@ async fn main() {
 
     let authz_service = AuthzService::new(authz_event_store, role_index);
 
-    let state = AppState::new(auth_service.clone(), authz_service, journal_service);
+    let state = AppState::new(
+        auth_service.clone(),
+        authz_service,
+        Arc::new(journal_service),
+    );
 
     seed_dev_data(&state)
         .await

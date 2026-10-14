@@ -8,6 +8,7 @@ use tokio::sync::watch;
 use tokio::sync::watch::Sender;
 use tokio::time::sleep;
 
+#[derive(Clone)]
 pub struct JournalProjection {
     pool: PgPool,
     last_processed_event: Sender<EventId>,
@@ -25,7 +26,7 @@ impl JournalProjection {
         }
     }
 
-    pub async fn run(&mut self) -> Result<!, sqlx::Error> {
+    pub async fn run(&self) -> Result<!, sqlx::Error> {
         let mut conn = self.pool.acquire().await?;
         let mut lock_conn = self.pool.acquire().await?;
 
@@ -60,7 +61,7 @@ impl JournalProjection {
 
                         let unprocessed_events = sqlx::query!(
                             r#"
-                            SELECT event_id, payload as "payload: JournalDomainEvent" FROM journal_events WHERE event_id > (SELECT last_processed_event_id FROM journal_event_listener)
+                            SELECT event_id, payload as "payload: JournalDomainEvent" FROM journal_events WHERE event_id > (SELECT last_processed_event_id FROM journal_event_listener WHERE id = 'Journal Projection')
                             ORDER BY event_id
                             LIMIT 100
                             "#

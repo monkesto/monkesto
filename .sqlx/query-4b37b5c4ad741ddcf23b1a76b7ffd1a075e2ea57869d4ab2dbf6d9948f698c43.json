@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT t.id as \"id: TransactionId\", t.journal_id as \"journal_id: JournalId\", t.memo as \"memo: Memo\", ev.payload as \"payload!: JournalDomainEvent\",\n                   ARRAY(\n                        SELECT (en.id, en.amount, en.entry_side, en.entry_kind)\n                        FROM entries en\n                        WHERE en.transaction_id = t.id AND t.journal_id = $1\n                   ) AS \"entries!: Vec<(EntryId, i64, EntrySide, EntryKind)>\"\n            FROM transactions t\n            INNER JOIN event ev\n                ON ev.transaction_id = t.id AND ev.event_type = 'TransactionCreated'\n            WHERE t.journal_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: TransactionId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "memo: Memo",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "payload!: JournalDomainEvent",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 4,
+        "name": "entries!: Vec<(EntryId, i64, EntrySide, EntryKind)>",
+        "type_info": "RecordArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "4b37b5c4ad741ddcf23b1a76b7ffd1a075e2ea57869d4ab2dbf6d9948f698c43"
+}

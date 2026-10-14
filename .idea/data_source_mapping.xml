@@ -5,6 +5,6 @@
     <file url="file://$PROJECT_DIR$/migrations/20261004180626_journal_event.sql" value="d0cb159d-effa-4d5c-af79-da61b5b2fd0f" />
     <file url="file://$PROJECT_DIR$/migrations/20261004180630_journal_stream.sql" value="d0cb159d-effa-4d5c-af79-da61b5b2fd0f" />
     <file url="file://$PROJECT_DIR$/migrations/20261004180640_journal_projections.sql" value="d0cb159d-effa-4d5c-af79-da61b5b2fd0f" />
-    <file url="file://$PROJECT_DIR$/src/journal/jewel/extract.rs" value="6e58ce65-95c3-4230-ac41-948ad93ba7e8" />
+    <file url="file://$PROJECT_DIR$/src/authn/mod.rs" value="d0cb159d-effa-4d5c-af79-da61b5b2fd0f" />
   </component>
 </project>

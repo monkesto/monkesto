@@ -22,24 +22,20 @@ pub fn router() -> Router<crate::StateType> {
 }
 
 use crate::authority::Authority;
-use crate::event_id::GetEventId;
 use crate::id;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::{ActivityId, ActivityKind};
 use crate::journal::entry::{EntryId, EntryKind, EntrySide};
-use crate::journal::error::{JournalError, JournalResult, TransactionValidationError};
+use crate::journal::error::{JournalError, TransactionValidationError};
 use crate::journal::fund::FundId;
 use crate::journal::member::JournalMember;
 use crate::journal::transaction::memo::Memo;
-use crate::journal::{Journal, JournalId, JournalService, Permissions, validate_permissions};
-use crate::proto::DecodeError;
+use crate::journal::{Journal, JournalId, Permissions, validate_permissions};
 use crate::proto::journal::entry::entry::ProtoRepeatedTransactionEntryIds;
-use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::status::Status;
 use crate::time::Timestamp;
 use chrono::{DateTime, Datelike, Utc};
-use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
-use disintegrate_postgres::PgEventId;
+use disintegrate::{Decision, StateMutate, StateQuery};
 use prost::Message;
 use serde::Deserialize;
 use serde::Serialize;
@@ -219,13 +215,8 @@ impl Transaction {
 impl StateMutate for Transaction {
     fn mutate(&mut self, event: Self::Event) {
         match event {
-            TransactionEvent::TransactionCreated {
-                entries,
-                journal_id,
-                ..
-            } => {
+            TransactionEvent::TransactionCreated { journal_id, .. } => {
                 self.journal_id = journal_id;
-                self.entries = entries;
                 self.status = Status::Valid;
             }
         }
@@ -342,6 +333,7 @@ impl Decision for CreateTransaction {
             events.push(JournalDomainEvent::EntryCreated {
                 entry_id,
                 journal_id: self.journal_id,
+                transaction_id: self.transaction_id,
                 amount: entry.amount,
                 entry_side: entry.entry_side,
                 entry_kind: entry.entry_kind,
@@ -359,7 +351,6 @@ impl Decision for CreateTransaction {
         events.push(JournalDomainEvent::TransactionCreated {
             transaction_id: self.transaction_id,
             journal_id: self.journal_id,
-            entries: TransactionEntryIds(entry_ids),
             financial_period: self.period,
             memo: self.memo.clone(),
             authority: self.authority,
@@ -411,7 +402,6 @@ impl<'r> Decode<'r, Postgres> for TransactionEntryIds {
 #[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, FromRow)]
 pub struct StoredTransactionEntry {
     pub id: EntryId,
-    pub journal_id: JournalId,
     pub amount: i64,
     pub entry_side: EntrySide,
     pub entry_kind: EntryKind,
@@ -421,125 +411,16 @@ pub struct TransactionState {
     pub id: TransactionId,
     #[expect(unused)]
     pub journal_id: JournalId,
-    pub memo: Option<Memo>,
     pub entries: Vec<StoredTransactionEntry>,
+    pub memo: Option<Memo>,
 }
 
 #[derive(FromRow)]
-struct TransactionStateWithPayload {
-    id: TransactionId,
+pub struct TransactionStateWithPayload {
+    pub id: TransactionId,
     #[expect(unused)]
-    journal_id: JournalId,
-    entries: TransactionEntryIds,
-    memo: Option<Memo>,
-    payload: Vec<u8>,
-}
-
-impl JournalService {
-    #[allow(clippy::too_many_arguments)]
-    pub async fn create_transaction(
-        &self,
-        transaction_id: TransactionId,
-        journal_id: JournalId,
-        entries: Vec<TransactionEntry>,
-        period: FinancialPeriod,
-        memo: Option<Memo>,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> Result<PgEventId, DecisionError<JournalError>> {
-        Ok(self
-            .decision_maker
-            .make(CreateTransaction::new(
-                transaction_id,
-                journal_id,
-                TransactionEntries(entries),
-                period,
-                memo,
-                authority,
-                timestamp,
-            ))
-            .await?
-            .event_id())
-    }
-
-    pub async fn list_journal_transactions(
-        &self,
-        journal_id: JournalId,
-        authority: Authority,
-    ) -> JournalResult<Vec<(TransactionState, Authority, Timestamp)>> {
-        if !self
-            .get_effective_permissions(journal_id, authority)
-            .await?
-            .contains(Permissions::READ)
-        {
-            return Err(JournalError::Permissions(Permissions::READ));
-        }
-
-        let transactions = sqlx::query_as!(
-            TransactionStateWithPayload,
-            r#"
-            SELECT t.id as "id: TransactionId", t.journal_id as "journal_id: JournalId", t.entries as "entries: TransactionEntryIds", t.memo as "memo: Memo", e.payload as "payload!"
-            FROM transactions t
-            INNER JOIN event e
-                ON e.transaction_id = t.id AND e.event_type = 'TransactionCreated'
-            WHERE t.journal_id = $1
-            "#,
-            journal_id as JournalId)
-            .fetch_all(&self.projection_pool)
-            .await?;
-
-        let mut transactions_with_meta = Vec::with_capacity(transactions.len());
-
-        // TODO(Gabriel) bundling all journal entries for now, probably will want to load them lazily at some point
-        let entries: HashMap<EntryId, StoredTransactionEntry> = sqlx::query_as!(
-            StoredTransactionEntry,
-            r#"
-            SELECT id as "id: EntryId", journal_id as "journal_id: JournalId", amount, entry_side as "entry_side: EntrySide", entry_kind as "entry_kind: EntryKind" from entries WHERE journal_id = $1
-            "#,
-            journal_id as JournalId
-        ).fetch_all(&self.projection_pool)
-            .await?
-            .into_iter()
-            .map(|e| (e.id, e))
-            .collect();
-
-        for transaction in transactions {
-            let payload = JournalDomainEvent::try_from(
-                ProtoJournalDomainEvent::decode(transaction.payload.as_slice())
-                    .map_err(DecodeError::InvalidMessage)?,
-            )?;
-
-            let mut tx_entries = Vec::new();
-
-            for entry_id in transaction.entries.0 {
-                if let Some(entry) = entries.get(&entry_id) {
-                    tx_entries.push(*entry)
-                } else {
-                    return Err(JournalError::InvalidEntry(entry_id));
-                }
-            }
-
-            match payload {
-                JournalDomainEvent::TransactionCreated {
-                    authority,
-                    timestamp,
-                    ..
-                } => {
-                    transactions_with_meta.push((
-                        TransactionState {
-                            id: transaction.id,
-                            journal_id,
-                            memo: transaction.memo,
-                            entries: tx_entries,
-                        },
-                        authority,
-                        timestamp,
-                    ));
-                }
-                _ => unreachable!("TransactionCreated events are filtered by the sql query"),
-            }
-        }
-
-        Ok(transactions_with_meta)
-    }
+    pub journal_id: JournalId,
+    pub memo: Option<Memo>,
+    pub entries: Vec<(EntryId, i64, EntrySide, EntryKind)>,
+    pub payload: JournalDomainEvent,
 }

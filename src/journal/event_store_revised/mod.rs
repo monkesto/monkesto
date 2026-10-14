@@ -3,29 +3,35 @@ mod projection;
 use crate::authn::UserId;
 use crate::authority::{Actor, Authority};
 use crate::id::Ident;
-use crate::journal::JournalError;
 use crate::journal::JournalId;
 use crate::journal::JournalResult;
 use crate::journal::Permissions;
-use crate::journal::account::{AccountId, AccountType};
-use crate::journal::activity::{ActivityId, ActivityKind};
+use crate::journal::account::{AccountId, AccountState, AccountType};
+use crate::journal::activity::{ActivityId, ActivityKind, ActivityState};
 use crate::journal::entry::{EntryId, EntryKind, EntrySide};
+use crate::journal::error::JournalError::InvalidJournal;
 use crate::journal::error::TransactionValidationError;
 use crate::journal::event::JournalDomainEvent;
-use crate::journal::file::{FileId, ObjectStore};
-use crate::journal::fund::{Fund, FundId};
+use crate::journal::event_store_revised::projection::JournalProjection;
+use crate::journal::file::{FileId, FileState, ObjectStore};
+use crate::journal::fund::{Fund, FundId, FundState};
 use crate::journal::jewel::JewelImportError;
 use crate::journal::jewel::extract::JewelData;
+use crate::journal::service::JournalExecutor;
 use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{
-    FinancialPeriod, TransactionEntries, TransactionEntryIds, TransactionId,
+    FinancialPeriod, StoredTransactionEntry, TransactionEntries, TransactionEntry,
+    TransactionEntryIds, TransactionId, TransactionState,
 };
+use crate::journal::{JournalError, JournalState};
 use crate::name::Name;
 use crate::time::{TimeProvider, Timestamp};
+use async_trait::async_trait;
+use axum_login::tracing::error;
 use chrono::Utc;
-use sqlx::migrate::MigrateError;
+use futures_util::TryFutureExt;
 use sqlx::{PgPool, Postgres, Transaction};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -33,9 +39,10 @@ pub type EventId = i64;
 pub type Version = i64;
 
 #[derive(Clone)]
-pub struct JournalService {
+pub struct JournalServiceRevised {
     pub pool: PgPool,
     pub object_store: ObjectStore,
+    pub projection: &'static JournalProjection,
 }
 
 #[repr(i16)]
@@ -177,13 +184,27 @@ async fn get_latest_member_payload(
     }))
 }
 
-impl JournalService {
-    pub async fn try_new(pool: PgPool) -> Result<Self, MigrateError> {
+impl JournalServiceRevised {
+    pub async fn try_new(pool: PgPool) -> Result<Self, sqlx::Error> {
         sqlx::migrate!("./migrations").run(&pool).await?;
+
+        let projection = Box::leak(Box::new(JournalProjection::new(pool.clone())));
+
+        tokio::spawn(
+            projection
+                .run()
+                .inspect_err(|e| error!("projection failed: {:#?}", e)),
+        );
+        tokio::spawn(
+            projection
+                .update_last_processed_event()
+                .inspect_err(|e| error!("event id processor failed: {:#?}", e)),
+        );
 
         Ok(Self {
             pool,
             object_store: ObjectStore::new().await,
+            projection,
         })
     }
 
@@ -291,409 +312,6 @@ impl JournalService {
             Actor::System => Ok(()),
             Actor::Anonymous => Err(JournalError::Permissions(expected_permissions)),
         }
-    }
-
-    async fn create_journal(
-        &self,
-        journal_id: JournalId,
-        name: Name,
-        owner: UserId,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> JournalResult<EventId> {
-        let mut tx = self.pool.begin().await?;
-
-        // no locks are required because there isn't any validation needed
-        // journal id conflicts will surface as sql unique violations
-
-        let event_id = self
-            .append_event_in_tx(
-                &mut tx,
-                journal_id,
-                *journal_id,
-                0,
-                JournalDomainEvent::JournalCreated {
-                    journal_id,
-                    owner,
-                    name,
-                    authority,
-                    timestamp,
-                },
-                Some(owner),
-                authority,
-                timestamp,
-                None,
-            )
-            .await?;
-
-        sqlx::query!(
-            r#"
-            INSERT INTO journal_stream (journal_id, version, valid) VALUES ($1, 0, true)
-            "#,
-            journal_id as JournalId,
-        )
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
-        Ok(event_id)
-    }
-
-    async fn delete_journal(
-        &self,
-        journal_id: JournalId,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> JournalResult<EventId> {
-        let mut tx = self.pool.begin().await?;
-
-        // get a write lock on the journal
-        let stream_query = sqlx::query!(
-            r#"
-            SELECT version, valid FROM journal_stream
-            WHERE journal_id = $1
-            FOR UPDATE
-            "#,
-            journal_id as JournalId,
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        if let Some(query) = stream_query {
-            if !query.valid {
-                return Err(JournalError::InvalidJournal(journal_id));
-            }
-
-            self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::OWNER)
-                .await?;
-
-            let event_id = self
-                .append_event_in_tx(
-                    &mut tx,
-                    journal_id,
-                    *journal_id,
-                    query.version + 1,
-                    JournalDomainEvent::JournalDeleted {
-                        journal_id,
-                        authority,
-                        timestamp,
-                    },
-                    None,
-                    authority,
-                    timestamp,
-                    None,
-                )
-                .await?;
-
-            sqlx::query!(
-                r#"
-                UPDATE journal_stream SET version = $1, valid = false WHERE journal_id = $2
-                "#,
-                query.version + 1,
-                journal_id as JournalId,
-            )
-            .execute(&mut *tx)
-            .await?;
-
-            tx.commit().await?;
-            Ok(event_id)
-        } else {
-            Err(JournalError::InvalidJournal(journal_id))
-        }
-    }
-
-    async fn add_journal_member(
-        &self,
-        journal_id: JournalId,
-        user_id: UserId,
-        permissions: Permissions,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> JournalResult<i64> {
-        let mut tx = self.pool.begin().await?;
-
-        // get a write lock on the journal
-        let stream_query = sqlx::query!(
-            r#"
-            SELECT version, valid FROM journal_stream
-            WHERE journal_id = $1
-            FOR UPDATE
-            "#,
-            journal_id as JournalId,
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        if let Some(query) = stream_query {
-            if !query.valid {
-                return Err(JournalError::InvalidJournal(journal_id));
-            }
-
-            self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::INVITE)
-                .await?;
-
-            let member_payload = get_latest_member_payload(&mut tx, journal_id, user_id).await?;
-
-            if let Some(payload) = member_payload {
-                match payload {
-                    MemberPayload::AddedToJournal(..)
-                    | MemberPayload::PermissionsUpdated(..)
-                    | MemberPayload::CreatedJournal => {
-                        return Err(JournalError::UserAlreadyHasAccess(user_id));
-                    }
-
-                    MemberPayload::RemovedFromJournal => {
-                        // allow re-invitation of removed users
-                    }
-                }
-            }
-
-            let event_id = self
-                .append_event_in_tx(
-                    &mut tx,
-                    journal_id,
-                    *journal_id,
-                    query.version + 1,
-                    JournalDomainEvent::MemberAdded {
-                        journal_id,
-                        user_id,
-                        permissions,
-                        authority,
-                        timestamp,
-                    },
-                    Some(user_id),
-                    authority,
-                    timestamp,
-                    None,
-                )
-                .await?;
-
-            sqlx::query!(
-                r#"
-                UPDATE journal_stream SET version = $1 WHERE journal_id = $2
-                "#,
-                query.version + 1,
-                journal_id as JournalId,
-            )
-            .execute(&mut *tx)
-            .await?;
-
-            tx.commit().await?;
-            Ok(event_id)
-        } else {
-            Err(JournalError::InvalidJournal(journal_id))
-        }
-    }
-
-    async fn change_member_permissions(
-        &self,
-        journal_id: JournalId,
-        user_id: UserId,
-        permissions: Permissions,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> JournalResult<i64> {
-        let mut tx = self.pool.begin().await?;
-
-        // get a write lock on the journal
-        let stream_query = sqlx::query!(
-            r#"
-            SELECT version, valid FROM journal_stream
-            WHERE journal_id = $1
-            FOR UPDATE
-            "#,
-            journal_id as JournalId,
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        if let Some(query) = stream_query {
-            if !query.valid {
-                return Err(JournalError::InvalidJournal(journal_id));
-            }
-
-            self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::OWNER)
-                .await?;
-
-            let latest_member_payload = get_latest_member_payload(&mut tx, journal_id, user_id)
-                .await?
-                .ok_or(JournalError::UserDoesntHaveAccess(user_id))?;
-            match latest_member_payload {
-                MemberPayload::AddedToJournal(..) | MemberPayload::PermissionsUpdated(..) => {}
-
-                MemberPayload::CreatedJournal => {
-                    return Err(JournalError::OwnerModification(user_id));
-                }
-
-                MemberPayload::RemovedFromJournal => {
-                    return Err(JournalError::UserDoesntHaveAccess(user_id));
-                }
-            }
-
-            let event_id = self
-                .append_event_in_tx(
-                    &mut tx,
-                    journal_id,
-                    *journal_id,
-                    query.version + 1,
-                    JournalDomainEvent::MemberPermissionsUpdated {
-                        journal_id,
-                        user_id,
-                        permissions,
-                        authority,
-                        timestamp,
-                    },
-                    Some(user_id),
-                    authority,
-                    timestamp,
-                    None,
-                )
-                .await?;
-
-            sqlx::query!(
-                r#"
-            UPDATE journal_stream SET version = $1 WHERE journal_id = $2
-            "#,
-                query.version + 1,
-                journal_id as JournalId,
-            )
-            .execute(&mut *tx)
-            .await?;
-
-            tx.commit().await?;
-            Ok(event_id)
-        } else {
-            Err(JournalError::UserDoesntHaveAccess(user_id))
-        }
-    }
-
-    async fn remove_journal_member(
-        &self,
-        journal_id: JournalId,
-        user_id: UserId,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> JournalResult<i64> {
-        let mut tx = self.pool.begin().await?;
-
-        // get a write lock on the journal
-        let stream_query = sqlx::query!(
-            r#"
-            SELECT version, valid FROM journal_stream
-            WHERE journal_id = $1
-            FOR UPDATE
-            "#,
-            journal_id as JournalId,
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        if let Some(query) = stream_query {
-            if !query.valid {
-                return Err(JournalError::InvalidJournal(journal_id));
-            }
-
-            self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::OWNER)
-                .await?;
-
-            let latest_member_payload = get_latest_member_payload(&mut tx, journal_id, user_id)
-                .await?
-                .ok_or(JournalError::UserDoesntHaveAccess(user_id))?;
-
-            match latest_member_payload {
-                MemberPayload::CreatedJournal => {
-                    return Err(JournalError::OwnerModification(user_id));
-                }
-                MemberPayload::AddedToJournal(..) | MemberPayload::PermissionsUpdated(..) => {}
-
-                MemberPayload::RemovedFromJournal => {
-                    return Err(JournalError::UserDoesntHaveAccess(user_id));
-                }
-            }
-
-            let event_id = self
-                .append_event_in_tx(
-                    &mut tx,
-                    journal_id,
-                    *journal_id,
-                    query.version + 1,
-                    JournalDomainEvent::MemberRemoved {
-                        journal_id,
-                        user_id,
-                        authority,
-                        timestamp,
-                    },
-                    Some(user_id),
-                    authority,
-                    timestamp,
-                    None,
-                )
-                .await?;
-
-            sqlx::query!(
-                r#"
-                UPDATE journal_stream SET version = $1 WHERE journal_id = $2
-                "#,
-                query.version + 1,
-                journal_id as JournalId,
-            )
-            .execute(&mut *tx)
-            .await?;
-
-            tx.commit().await?;
-            Ok(event_id)
-        } else {
-            Err(JournalError::InvalidJournal(journal_id))
-        }
-    }
-
-    async fn create_account(
-        &self,
-        journal_id: JournalId,
-        account_id: AccountId,
-        account_type: AccountType,
-        name: Name,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> JournalResult<EventId> {
-        let mut tx = self.pool.begin().await?;
-
-        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::ADD_ACCOUNT)
-            .await?;
-
-        let event_id = self
-            .append_event_in_tx(
-                &mut tx,
-                journal_id,
-                *account_id,
-                0,
-                JournalDomainEvent::AccountCreated {
-                    journal_id,
-                    account_id,
-                    account_type,
-                    name,
-                    authority,
-                    timestamp,
-                },
-                None,
-                authority,
-                timestamp,
-                None,
-            )
-            .await?;
-
-        sqlx::query!(
-            r#"
-            INSERT INTO account_stream (journal_id, account_id, version, valid) VALUES ($1, $2, 0, true)
-            "#,
-            journal_id as JournalId,
-            account_id as AccountId,
-        )
-            .execute(&mut *tx)
-            .await?;
-
-        tx.commit().await?;
-        Ok(event_id)
     }
 
     async fn rename_account(
@@ -820,8 +438,8 @@ impl JournalService {
                 journal_id as JournalId,
                 account_id as AccountId,
             )
-            .execute(&mut *tx)
-            .await?;
+                .execute(&mut *tx)
+                .await?;
 
             tx.commit().await?;
             Ok(event_id)
@@ -830,31 +448,478 @@ impl JournalService {
         }
     }
 
-    async fn create_activity(
+    async fn delete_journal(
         &self,
         journal_id: JournalId,
-        activity_id: ActivityId,
-        activity_kind: ActivityKind,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> JournalResult<EventId> {
+        let mut tx = self.pool.begin().await?;
+
+        // get a write lock on the journal
+        let stream_query = sqlx::query!(
+            r#"
+            SELECT version, valid FROM journal_stream
+            WHERE journal_id = $1
+            FOR UPDATE
+            "#,
+            journal_id as JournalId,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(query) = stream_query {
+            if !query.valid {
+                return Err(JournalError::InvalidJournal(journal_id));
+            }
+
+            self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::OWNER)
+                .await?;
+
+            let event_id = self
+                .append_event_in_tx(
+                    &mut tx,
+                    journal_id,
+                    *journal_id,
+                    query.version + 1,
+                    JournalDomainEvent::JournalDeleted {
+                        journal_id,
+                        authority,
+                        timestamp,
+                    },
+                    None,
+                    authority,
+                    timestamp,
+                    None,
+                )
+                .await?;
+
+            sqlx::query!(
+                r#"
+                UPDATE journal_stream SET version = $1, valid = false WHERE journal_id = $2
+                "#,
+                query.version + 1,
+                journal_id as JournalId,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+            Ok(event_id)
+        } else {
+            Err(JournalError::InvalidJournal(journal_id))
+        }
+    }
+}
+
+#[async_trait]
+impl JournalExecutor for JournalServiceRevised {
+    fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    fn object_store(&self) -> &ObjectStore {
+        &self.object_store
+    }
+
+    async fn wait_for(&self, event_id: EventId) {
+        self.projection.wait_for(event_id).await
+    }
+
+    async fn create_journal(
+        &self,
+        journal_id: JournalId,
+        owner: UserId,
         name: Name,
         authority: Authority,
         timestamp: Timestamp,
     ) -> JournalResult<EventId> {
         let mut tx = self.pool.begin().await?;
 
-        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::CREATE_ACTIVITY)
+        // no locks are required because there isn't any validation needed
+        // journal id conflicts will surface as sql unique violations
+
+        let event_id = self
+            .append_event_in_tx(
+                &mut tx,
+                journal_id,
+                *journal_id,
+                0,
+                JournalDomainEvent::JournalCreated {
+                    journal_id,
+                    owner,
+                    name,
+                    authority,
+                    timestamp,
+                },
+                Some(owner),
+                authority,
+                timestamp,
+                None,
+            )
+            .await?;
+
+        sqlx::query!(
+            r#"
+            INSERT INTO journal_stream (journal_id, version, valid) VALUES ($1, 0, true)
+            "#,
+            journal_id as JournalId,
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(event_id)
+    }
+
+    async fn add_member(
+        &self,
+        journal_id: JournalId,
+        user_id: UserId,
+        permissions: Permissions,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> JournalResult<i64> {
+        let mut tx = self.pool.begin().await?;
+
+        // get a write lock on the journal
+        let stream_query = sqlx::query!(
+            r#"
+            SELECT version, valid FROM journal_stream
+            WHERE journal_id = $1
+            FOR UPDATE
+            "#,
+            journal_id as JournalId,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(query) = stream_query {
+            if !query.valid {
+                return Err(JournalError::InvalidJournal(journal_id));
+            }
+
+            self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::INVITE)
+                .await?;
+
+            let member_payload = get_latest_member_payload(&mut tx, journal_id, user_id).await?;
+
+            if let Some(payload) = member_payload {
+                match payload {
+                    MemberPayload::AddedToJournal(..)
+                    | MemberPayload::PermissionsUpdated(..)
+                    | MemberPayload::CreatedJournal => {
+                        return Err(JournalError::UserAlreadyHasAccess(user_id));
+                    }
+
+                    MemberPayload::RemovedFromJournal => {
+                        // allow re-invitation of removed users
+                    }
+                }
+            }
+
+            let event_id = self
+                .append_event_in_tx(
+                    &mut tx,
+                    journal_id,
+                    *journal_id,
+                    query.version + 1,
+                    JournalDomainEvent::MemberAdded {
+                        journal_id,
+                        user_id,
+                        permissions,
+                        authority,
+                        timestamp,
+                    },
+                    Some(user_id),
+                    authority,
+                    timestamp,
+                    None,
+                )
+                .await?;
+
+            sqlx::query!(
+                r#"
+                UPDATE journal_stream SET version = $1 WHERE journal_id = $2
+                "#,
+                query.version + 1,
+                journal_id as JournalId,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+            Ok(event_id)
+        } else {
+            Err(JournalError::InvalidJournal(journal_id))
+        }
+    }
+
+    async fn update_member_permissions(
+        &self,
+        journal_id: JournalId,
+        user_id: UserId,
+        permissions: Permissions,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> JournalResult<i64> {
+        let mut tx = self.pool.begin().await?;
+
+        // get a write lock on the journal
+        let stream_query = sqlx::query!(
+            r#"
+            SELECT version, valid FROM journal_stream
+            WHERE journal_id = $1
+            FOR UPDATE
+            "#,
+            journal_id as JournalId,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(query) = stream_query {
+            if !query.valid {
+                return Err(JournalError::InvalidJournal(journal_id));
+            }
+
+            self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::OWNER)
+                .await?;
+
+            let latest_member_payload = get_latest_member_payload(&mut tx, journal_id, user_id)
+                .await?
+                .ok_or(JournalError::UserDoesntHaveAccess(user_id))?;
+            match latest_member_payload {
+                MemberPayload::AddedToJournal(..) | MemberPayload::PermissionsUpdated(..) => {}
+
+                MemberPayload::CreatedJournal => {
+                    return Err(JournalError::OwnerModification(user_id));
+                }
+
+                MemberPayload::RemovedFromJournal => {
+                    return Err(JournalError::UserDoesntHaveAccess(user_id));
+                }
+            }
+
+            let event_id = self
+                .append_event_in_tx(
+                    &mut tx,
+                    journal_id,
+                    *journal_id,
+                    query.version + 1,
+                    JournalDomainEvent::MemberPermissionsUpdated {
+                        journal_id,
+                        user_id,
+                        permissions,
+                        authority,
+                        timestamp,
+                    },
+                    Some(user_id),
+                    authority,
+                    timestamp,
+                    None,
+                )
+                .await?;
+
+            sqlx::query!(
+                r#"
+            UPDATE journal_stream SET version = $1 WHERE journal_id = $2
+            "#,
+                query.version + 1,
+                journal_id as JournalId,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+            Ok(event_id)
+        } else {
+            Err(JournalError::UserDoesntHaveAccess(user_id))
+        }
+    }
+
+    async fn remove_member(
+        &self,
+        journal_id: JournalId,
+        user_id: UserId,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> JournalResult<i64> {
+        let mut tx = self.pool.begin().await?;
+
+        // get a write lock on the journal
+        let stream_query = sqlx::query!(
+            r#"
+            SELECT version, valid FROM journal_stream
+            WHERE journal_id = $1
+            FOR UPDATE
+            "#,
+            journal_id as JournalId,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(query) = stream_query {
+            if !query.valid {
+                return Err(JournalError::InvalidJournal(journal_id));
+            }
+
+            self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::OWNER)
+                .await?;
+
+            let latest_member_payload = get_latest_member_payload(&mut tx, journal_id, user_id)
+                .await?
+                .ok_or(JournalError::UserDoesntHaveAccess(user_id))?;
+
+            match latest_member_payload {
+                MemberPayload::CreatedJournal => {
+                    return Err(JournalError::OwnerModification(user_id));
+                }
+                MemberPayload::AddedToJournal(..) | MemberPayload::PermissionsUpdated(..) => {}
+
+                MemberPayload::RemovedFromJournal => {
+                    return Err(JournalError::UserDoesntHaveAccess(user_id));
+                }
+            }
+
+            let event_id = self
+                .append_event_in_tx(
+                    &mut tx,
+                    journal_id,
+                    *journal_id,
+                    query.version + 1,
+                    JournalDomainEvent::MemberRemoved {
+                        journal_id,
+                        user_id,
+                        authority,
+                        timestamp,
+                    },
+                    Some(user_id),
+                    authority,
+                    timestamp,
+                    None,
+                )
+                .await?;
+
+            sqlx::query!(
+                r#"
+                UPDATE journal_stream SET version = $1 WHERE journal_id = $2
+                "#,
+                query.version + 1,
+                journal_id as JournalId,
+            )
+            .execute(&mut *tx)
+            .await?;
+
+            tx.commit().await?;
+            Ok(event_id)
+        } else {
+            Err(JournalError::InvalidJournal(journal_id))
+        }
+    }
+
+    async fn get_journal(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<(JournalState, Authority, Timestamp)> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(InvalidJournal(journal_id));
+        }
+
+        let journal = sqlx::query!(
+            r#"
+            SELECT j.id as "id: JournalId", j.owner_id as "owner_id: UserId", j.name as "name: Name", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
+            FROM journals j
+            INNER JOIN journal_events e
+                ON e.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
+            WHERE j.id = $1
+            "#,
+            journal_id as JournalId,
+            StreamType::Journal as i16,
+            EventType::JournalCreated as i16
+        )
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(journal) = journal {
+            let timestamp = journal.display_timestamp.unwrap_or(journal.timestamp);
+
+            Ok((
+                JournalState {
+                    id: journal.id,
+                    owner_id: journal.owner_id,
+                    name: journal.name,
+                },
+                journal.authority,
+                timestamp,
+            ))
+        } else {
+            Err(InvalidJournal(journal_id))
+        }
+    }
+
+    async fn list_accessible_journals(
+        &self,
+        user: UserId,
+    ) -> JournalResult<Vec<(JournalState, Authority, Timestamp)>> {
+        let journals = sqlx::query!(
+            r#"
+            SELECT j.id as "id: JournalId", j.owner_id as "owner_id: UserId", j.name as "name: Name", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
+            FROM journals j
+            INNER JOIN journal_events e
+                ON e.journal_id = j.id AND e.stream_type = $1 AND e.event_type = $2
+            LEFT JOIN journal_members jm ON jm.journal_id = j.id AND (jm.permissions & $3) = $3
+            WHERE j.owner_id = $4 OR jm.user_id = $4
+            "#,
+            StreamType::Journal as i16,
+            EventType::JournalCreated as i16,
+            Permissions::READ.bits(),
+            user as UserId)
+            .fetch_all(&self.pool)
+            .await?.into_iter().map(
+            |j| {
+                let timestamp = j.display_timestamp.unwrap_or(j.timestamp);
+
+                (JournalState {
+                    id: j.id,
+                    owner_id: j.owner_id,
+                    name: j.name,
+                }, j.authority, timestamp)
+            }
+        ).collect();
+
+        Ok(journals)
+    }
+
+    async fn create_account(
+        &self,
+        account_id: AccountId,
+        journal_id: JournalId,
+        name: Name,
+        account_type: AccountType,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> JournalResult<EventId> {
+        let mut tx = self.pool.begin().await?;
+
+        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::ADD_ACCOUNT)
             .await?;
 
         let event_id = self
             .append_event_in_tx(
                 &mut tx,
                 journal_id,
-                *activity_id,
+                *account_id,
                 0,
-                JournalDomainEvent::ActivityCreated {
+                JournalDomainEvent::AccountCreated {
                     journal_id,
-                    activity_id,
-                    activity_name: name,
-                    activity_kind,
+                    account_id,
+                    account_type,
+                    name,
                     authority,
                     timestamp,
                 },
@@ -867,10 +932,10 @@ impl JournalService {
 
         sqlx::query!(
             r#"
-            INSERT INTO activity_stream (journal_id, activity_id, version, valid) VALUES ($1, $2, 0, true)
+            INSERT INTO account_stream (journal_id, account_id, version, valid) VALUES ($1, $2, 0, true)
             "#,
             journal_id as JournalId,
-            activity_id as ActivityId,
+            account_id as AccountId,
         )
             .execute(&mut *tx)
             .await?;
@@ -879,10 +944,50 @@ impl JournalService {
         Ok(event_id)
     }
 
-    async fn create_fund(
+    async fn list_journal_accounts(
         &self,
         journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<Vec<(AccountState, Authority, Timestamp)>> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(InvalidJournal(journal_id));
+        }
+
+        let accounts = sqlx::query!(
+            r#"
+            SELECT a.id as "id: AccountId", a.journal_id as "journal_id: JournalId", a.balance, a.name as "name: Name", a.account_type as "account_type: AccountType", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
+            FROM accounts a
+            INNER JOIN journal_events e
+                ON e.journal_id = $1 AND e.stream_id = a.id AND e.stream_type = $2 AND e.event_type = $3
+            WHERE a.journal_id = $1
+            "#,
+            journal_id as JournalId,
+            StreamType::Account as i16,
+            EventType::AccountCreated as i16,
+        )
+            .fetch_all(self.pool())
+            .await?.into_iter().map(|a| {
+            let timestamp = a.display_timestamp.unwrap_or(a.timestamp);
+            (AccountState {
+                id: a.id,
+                journal_id,
+                account_type: a.account_type,
+                name: a.name,
+                balance: a.balance,
+            }, a.authority, timestamp)
+        }).collect();
+
+        Ok(accounts)
+    }
+
+    async fn create_fund(
+        &self,
         fund_id: FundId,
+        journal_id: JournalId,
         name: Name,
         authority: Authority,
         timestamp: Timestamp,
@@ -926,31 +1031,72 @@ impl JournalService {
         Ok(event_id)
     }
 
-    async fn upload_file(
+    async fn list_journal_funds(
         &self,
         journal_id: JournalId,
-        file_id: FileId,
-        file_name: String,
-        file_hash: [u8; 16],
+        authority: Authority,
+    ) -> JournalResult<Vec<(FundState, Authority, Timestamp)>> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(InvalidJournal(journal_id));
+        }
+
+        let funds = sqlx::query!(
+            r#"
+            SELECT f.id as "id: FundId", f.journal_id as "journal_id: JournalId", f.name as "name: Name", f.balance, e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
+            FROM funds f
+            INNER JOIN journal_events e
+                ON e.journal_id = $1 AND e.stream_id = f.id AND e.stream_type = $2 AND e.event_type = $3
+            WHERE e.journal_id = $1
+            "#,
+            journal_id as JournalId,
+            StreamType::Fund as i16,
+            EventType::FundCreated as i16,
+        )
+            .fetch_all(self.pool())
+            .await?.into_iter().map(|f| {
+            let timestamp = f.display_timestamp.unwrap_or(f.timestamp);
+
+            (FundState {
+                    id: f.id,
+                    journal_id,
+                    name: f.name,
+                    balance: f.balance,
+                },
+                authority, timestamp)
+        }).collect();
+
+        Ok(funds)
+    }
+
+    async fn create_activity(
+        &self,
+        activity_id: ActivityId,
+        journal_id: JournalId,
+        name: Name,
+        activity_kind: ActivityKind,
         authority: Authority,
         timestamp: Timestamp,
     ) -> JournalResult<EventId> {
         let mut tx = self.pool.begin().await?;
 
-        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::UPLOAD_FILE)
+        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::CREATE_ACTIVITY)
             .await?;
 
         let event_id = self
             .append_event_in_tx(
                 &mut tx,
                 journal_id,
-                *file_id,
+                *activity_id,
                 0,
-                JournalDomainEvent::FileUploaded {
-                    file_id,
+                JournalDomainEvent::ActivityCreated {
                     journal_id,
-                    hash: file_hash,
-                    file_name,
+                    activity_id,
+                    activity_name: name,
+                    activity_kind,
                     authority,
                     timestamp,
                 },
@@ -963,81 +1109,48 @@ impl JournalService {
 
         sqlx::query!(
             r#"
-            INSERT INTO file_stream (journal_id, file_id, version, valid) VALUES ($1, $2, 0, true)
+            INSERT INTO activity_stream (journal_id, activity_id, version, valid) VALUES ($1, $2, 0, true)
             "#,
             journal_id as JournalId,
-            file_id as FileId
+            activity_id as ActivityId,
         )
-        .execute(&mut *tx)
-        .await?;
+            .execute(&mut *tx)
+            .await?;
 
         tx.commit().await?;
         Ok(event_id)
     }
 
-    async fn delete_file(
+    async fn list_journal_activities(
         &self,
         journal_id: JournalId,
-        file_id: FileId,
         authority: Authority,
-        timestamp: Timestamp,
-    ) -> JournalResult<EventId> {
-        let mut tx = self.pool.begin().await?;
-
-        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::OWNER)
-            .await?;
-
-        let stream_query = sqlx::query!(
+    ) -> JournalResult<Vec<(ActivityState, Authority, Timestamp)>> {
+        let activities = sqlx::query!(
             r#"
-            SELECT version, valid FROM file_stream WHERE journal_id = $1 AND file_id = $2
-            FOR UPDATE
+            SELECT a.id as "id: ActivityId", a.journal_id as "journal_id: JournalId", a.name as "name: Name", a.activity_kind as "activity_kind: ActivityKind", a.balance, e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
+            FROM activities a
+            INNER JOIN journal_events e
+                ON e.journal_id = $1 AND e.stream_id = a.id AND e.stream_type = $2 AND e.event_type = $3
+            WHERE e.journal_id = $1
             "#,
             journal_id as JournalId,
-            file_id as FileId,
+            StreamType::Activity as i16,
+            EventType::ActivityCreated as i16,
         )
-        .fetch_optional(&mut *tx)
-        .await?;
+            .fetch_all(self.pool())
+            .await?.into_iter().map(|a| {
+            let timestamp = a.display_timestamp.unwrap_or(a.timestamp);
+            (ActivityState {
+                id: a.id,
+                journal_id,
+                name: a.name,
+                activity_type: a.activity_kind,
+                balance: 0,
+            }, a.authority, timestamp)
+        }).collect();
 
-        if let Some(query) = stream_query {
-            if !query.valid {
-                return Err(JournalError::InvalidFile(file_id));
-            }
-
-            let event_id = self
-                .append_event_in_tx(
-                    &mut tx,
-                    journal_id,
-                    *file_id,
-                    query.version + 1,
-                    JournalDomainEvent::FileDeleted {
-                        file_id,
-                        journal_id,
-                        authority,
-                        timestamp,
-                    },
-                    None,
-                    authority,
-                    timestamp,
-                    None,
-                )
-                .await?;
-
-            sqlx::query!(
-                r#"
-            UPDATE file_stream SET version = $1, valid = false WHERE journal_id = $2 AND file_id = $3
-            "#,
-                query.version + 1,
-                journal_id as JournalId,
-                file_id as FileId,
-            )
-            .execute(&mut *tx)
-            .await?;
-
-            tx.commit().await?;
-            Ok(event_id)
-        } else {
-            Err(JournalError::InvalidFile(file_id))
-        }
+        Ok(activities)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1045,7 +1158,7 @@ impl JournalService {
         &self,
         transaction_id: TransactionId,
         journal_id: JournalId,
-        entries: TransactionEntries,
+        entries: Vec<TransactionEntry>,
         period: FinancialPeriod,
         memo: Option<Memo>,
         authority: Authority,
@@ -1169,6 +1282,7 @@ impl JournalService {
                 JournalDomainEvent::EntryCreated {
                     entry_id,
                     journal_id,
+                    transaction_id,
                     amount: entry.amount,
                     entry_side: entry.entry_side,
                     entry_kind: entry.entry_kind,
@@ -1190,13 +1304,15 @@ impl JournalService {
             transaction_id as TransactionId,
             entry_id as EntryId,
         )
-            .execute(&mut *tx)
-            .await?;
+                .execute(&mut *tx)
+                .await?;
         }
 
         if overall_balance != 0 {
             return Err(JournalError::TransactionValidation(
-                TransactionValidationError::ImbalancedTransaction(entries.clone()),
+                TransactionValidationError::ImbalancedTransaction(TransactionEntries(
+                    entries.clone(),
+                )),
             ));
         }
 
@@ -1209,8 +1325,6 @@ impl JournalService {
                 JournalDomainEvent::TransactionCreated {
                     transaction_id,
                     journal_id,
-                    // TODO(Gabriel): we can query associated entries through the entry stream, this is only here for disintegrate
-                    entries: TransactionEntryIds(entry_ids),
                     financial_period: period,
                     memo,
                     authority,
@@ -1236,6 +1350,211 @@ impl JournalService {
         tx.commit().await?;
 
         Ok(event_id)
+    }
+
+    async fn list_journal_transactions(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<Vec<(TransactionState, Authority, Timestamp)>> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(JournalError::Permissions(Permissions::READ));
+        }
+
+        let transactions = sqlx::query!(
+            r#"
+            SELECT t.id as "id: TransactionId", t.journal_id as "journal_id: JournalId", t.memo as "memo: Memo", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp",
+                   ARRAY(
+                        SELECT (en.id, en.amount, en.entry_side, en.entry_kind)
+                        FROM entries en
+                        WHERE en.transaction_id = t.id AND t.journal_id = $1
+                   ) AS "entries!: Vec<(EntryId, i64, EntrySide, EntryKind)>"
+            FROM transactions t
+            INNER JOIN journal_events e
+                ON e.stream_id = t.id AND e.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
+            WHERE t.journal_id = $1
+            "#,
+            journal_id as JournalId,
+            StreamType::Transaction as i16,
+            EventType::TransactionCreated as i16,
+        )
+            .fetch_all(self.pool())
+            .await?.into_iter().map(|t| {
+            let timestamp = t.display_timestamp.unwrap_or(t.timestamp);
+
+            let entries = t.entries.into_iter().map(|(id, amount, entry_side, entry_kind)| StoredTransactionEntry {
+                id,
+                amount,
+                entry_side,
+                entry_kind,
+            }).collect();
+
+            (TransactionState {
+                id: t.id,
+                journal_id,
+                entries,
+                memo: t.memo,
+            }, t.authority, timestamp)
+        }).collect();
+
+        Ok(transactions)
+    }
+
+    async fn upload_file(
+        &self,
+        file_id: FileId,
+        journal_id: JournalId,
+        file_hash: [u8; 16],
+        file_name: String,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> JournalResult<EventId> {
+        let mut tx = self.pool.begin().await?;
+
+        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::UPLOAD_FILE)
+            .await?;
+
+        let event_id = self
+            .append_event_in_tx(
+                &mut tx,
+                journal_id,
+                *file_id,
+                0,
+                JournalDomainEvent::FileUploaded {
+                    file_id,
+                    journal_id,
+                    hash: file_hash,
+                    file_name,
+                    authority,
+                    timestamp,
+                },
+                None,
+                authority,
+                timestamp,
+                None,
+            )
+            .await?;
+
+        sqlx::query!(
+            r#"
+            INSERT INTO file_stream (journal_id, file_id, version, valid) VALUES ($1, $2, 0, true)
+            "#,
+            journal_id as JournalId,
+            file_id as FileId
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+        Ok(event_id)
+    }
+
+    async fn list_journal_files(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<Vec<(FileState, Authority, Timestamp)>> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(InvalidJournal(journal_id));
+        }
+
+        let files = sqlx::query!(
+            r#"
+            SELECT f.id as "id: FileId", f.journal_id as "journal_id: JournalId", f.hash as "hash: [u8; 16]", f.name, e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
+            FROM files f
+            INNER JOIN journal_events e
+                ON e.stream_id = f.id AND e.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
+            WHERE f.journal_id = $1
+            "#,
+            journal_id as JournalId,
+            StreamType::File as i16,
+            EventType::FileUploaded as i16,
+        )
+            .fetch_all(self.pool())
+            .await?.into_iter().map(|f| {
+            let timestamp = f.display_timestamp.unwrap_or(f.timestamp);
+
+            (FileState {
+            id: f.id,
+            journal_id,
+            hash: f.hash,
+            name: f.name,
+        }, authority, timestamp)}).collect();
+
+        Ok(files)
+    }
+
+    async fn delete_file(
+        &self,
+        file_id: FileId,
+        journal_id: JournalId,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> JournalResult<EventId> {
+        let mut tx = self.pool.begin().await?;
+
+        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::OWNER)
+            .await?;
+
+        let stream_query = sqlx::query!(
+            r#"
+            SELECT version, valid FROM file_stream WHERE journal_id = $1 AND file_id = $2
+            FOR UPDATE
+            "#,
+            journal_id as JournalId,
+            file_id as FileId,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(query) = stream_query {
+            if !query.valid {
+                return Err(JournalError::InvalidFile(file_id));
+            }
+
+            let event_id = self
+                .append_event_in_tx(
+                    &mut tx,
+                    journal_id,
+                    *file_id,
+                    query.version + 1,
+                    JournalDomainEvent::FileDeleted {
+                        file_id,
+                        journal_id,
+                        authority,
+                        timestamp,
+                    },
+                    None,
+                    authority,
+                    timestamp,
+                    None,
+                )
+                .await?;
+
+            sqlx::query!(
+                r#"
+            UPDATE file_stream SET version = $1, valid = false WHERE journal_id = $2 AND file_id = $3
+            "#,
+                query.version + 1,
+                journal_id as JournalId,
+                file_id as FileId,
+            )
+                .execute(&mut *tx)
+                .await?;
+
+            tx.commit().await?;
+            Ok(event_id)
+        } else {
+            Err(JournalError::InvalidFile(file_id))
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1282,7 +1601,7 @@ impl JournalService {
                     .append_event_in_tx(
                         &mut tx,
                         journal_id,
-                        *journal_id,
+                        *account_id,
                         0,
                         JournalDomainEvent::AccountCreated {
                             journal_id,
@@ -1306,8 +1625,8 @@ impl JournalService {
             journal_id as JournalId,
             account_id as AccountId,
         )
-        .execute(&mut *tx)
-        .await?;
+                    .execute(&mut *tx)
+                    .await?;
             }
         }
 
@@ -1344,6 +1663,7 @@ impl JournalService {
                     JournalDomainEvent::EntryCreated {
                         entry_id,
                         journal_id,
+                        transaction_id,
                         amount: entry_amount as u64,
                         entry_side: if entry_amount > 0 {
                             EntrySide::Credit
@@ -1373,8 +1693,8 @@ impl JournalService {
             transaction_id as TransactionId,
             entry_id as EntryId,
             )
-            .execute(&mut *tx)
-            .await?;
+                    .execute(&mut *tx)
+                    .await?;
             }
 
             let z_single_entry_id = EntryId::new();
@@ -1388,6 +1708,7 @@ impl JournalService {
                 JournalDomainEvent::EntryCreated {
                     entry_id: z_single_entry_id,
                     journal_id,
+                    transaction_id,
                     amount: entry_sum.unsigned_abs(),
                     entry_side: if entry_sum > 0 {
                         EntrySide::Debit
@@ -1429,7 +1750,6 @@ impl JournalService {
                     JournalDomainEvent::TransactionCreated {
                         transaction_id,
                         journal_id,
-                        entries: TransactionEntryIds(entry_ids),
                         financial_period: FinancialPeriod::from(jewel_transaction.accounting_date),
                         memo: Some(Memo::try_new(jewel_transaction.memo)?),
                         authority,
@@ -1449,8 +1769,8 @@ impl JournalService {
             journal_id as JournalId,
             transaction_id as TransactionId,
         )
-        .execute(&mut *tx)
-        .await?;
+                .execute(&mut *tx)
+                .await?;
         }
 
         tx.commit().await?;

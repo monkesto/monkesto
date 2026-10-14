@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                            SELECT event_id, payload as \"payload: JournalDomainEvent\" FROM journal_events WHERE event_id > (SELECT last_processed_event_id FROM journal_event_listener WHERE id = 'Journal Projection')\n                            ORDER BY event_id\n                            LIMIT 100\n                            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "payload: JournalDomainEvent",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "c0351ef8e8cb6392ef6dd70212b92da8004de69f3585b861a55c813e97b0ecc9"
+}

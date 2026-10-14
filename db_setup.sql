@@ -50,7 +50,6 @@ CREATE TABLE IF NOT EXISTS accounts (
 CREATE TABLE IF NOT EXISTS transactions (
     id TEXT PRIMARY KEY,
     journal_id TEXT NOT NULL,
-    entries BYTEA NOT NULL,
     memo TEXT
 );
 
@@ -79,6 +78,7 @@ CREATE TABLE IF NOT EXISTS funds (
 CREATE TABLE IF NOT EXISTS transaction_entries (
     id TEXT NOT NULL,
     journal_id TEXT NOT NULL,
+    transaction_id TEXT NOT NULL,
     amount BIGINT NOT NULL,
     entry_side int2 NOT NULL,
     entry_kind BYTEA NOT NULL
@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS verification_codes (
 
 -- stub that includes indexes for the journal store
 CREATE TABLE IF NOT EXISTS event (
-    event_id BIGINT,
+    event_id BIGINT PRIMARY KEY ,
     event_type VARCHAR(255),
     payload BYTEA,
     inserted_at TIMESTAMP,

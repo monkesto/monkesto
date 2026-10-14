@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT f.id as \"id: FundId\", f.journal_id as \"journal_id: JournalId\", f.name as \"name: Name\", f.balance, e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\"\n            FROM funds f\n            INNER JOIN journal_events e\n                ON e.journal_id = $1 AND e.stream_id = f.id AND e.stream_type = $2 AND e.event_type = $3\n            WHERE e.journal_id = $1\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: FundId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name: Name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "balance",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "authority: Authority",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 5,
+        "name": "timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "display_timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int2",
+        "Int2"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "6191f11151e4c2fb7569b279c539b8d73d29ccde1c0cf57d69246f180ef0f038"
+}

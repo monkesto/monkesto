@@ -11,7 +11,7 @@ use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
 use crate::journal::store::JournalEventStore;
 use crate::journal::transaction::memo::Memo;
-use crate::journal::transaction::{FinancialPeriod, TransactionEntryIds, TransactionId};
+use crate::journal::transaction::{FinancialPeriod, TransactionId};
 use crate::journal::{JournalId, JournalService, Permissions};
 use crate::name::Name;
 use crate::proto::DecodeError;
@@ -144,6 +144,7 @@ pub enum JournalDomainEvent {
         entry_id: EntryId,
         #[id]
         journal_id: JournalId,
+        transaction_id: TransactionId,
         amount: u64,
         entry_side: EntrySide,
         entry_kind: EntryKind,
@@ -155,7 +156,6 @@ pub enum JournalDomainEvent {
         transaction_id: TransactionId,
         #[id]
         journal_id: JournalId,
-        entries: TransactionEntryIds,
         financial_period: FinancialPeriod,
         memo: Option<Memo>,
         authority: Authority,
@@ -247,6 +247,7 @@ impl<'r> Decode<'r, Postgres> for JournalDomainEvent {
     }
 }
 
+#[expect(unused)]
 pub(crate) async fn event_listener(event_store: JournalEventStore, service: JournalService) {
     PgEventListener::builder(event_store.event_store)
         .register_listener(
@@ -261,6 +262,7 @@ pub(crate) async fn event_listener(event_store: JournalEventStore, service: Jour
         .expect("event listener failed");
 }
 
+#[expect(unused)]
 fn handle_event_listener_retry(
     error: PgEventListenerError<sqlx::Error>,
     _attempts: usize,
@@ -386,7 +388,6 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
             JournalDomainEvent::TransactionCreated {
                 transaction_id,
                 journal_id,
-                entries,
                 financial_period,
                 memo,
                 authority,
@@ -394,7 +395,6 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
             } => JournalDomainEventType::TransactionCreated(ProtoTransactionCreated {
                 transaction_id: Some(transaction_id.into()),
                 journal_id: Some(journal_id.into()),
-                entries: Some(entries.into()),
                 financial_period: financial_period as i32,
                 memo: memo.map(|memo| memo.into()),
                 authority: Some(authority.into()),
@@ -433,6 +433,7 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
             JournalDomainEvent::EntryCreated {
                 entry_id,
                 journal_id,
+                transaction_id,
                 amount,
                 entry_side,
                 entry_kind,
@@ -446,6 +447,7 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 entry_side: entry_side as i32,
                 authority: Some(authority.into()),
                 timestamp: Some(timestamp.into()),
+                transaction_id: Some(transaction_id.into()),
             }),
             JournalDomainEvent::FileDeleted {
                 file_id,
@@ -539,7 +541,6 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                 JournalDomainEvent::TransactionCreated {
                     transaction_id: ev.transaction_id.try_into()?,
                     journal_id: ev.journal_id.try_into()?,
-                    entries: ev.entries.ok_or(FieldRequired)?.try_into()?,
                     financial_period: (ev.financial_period as i8).try_into()?,
                     memo: ev.memo.map(|m| m.try_into()).transpose()?,
                     authority: ev.authority.try_into()?,
@@ -565,6 +566,7 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
             JournalDomainEventType::EntryCreated(ev) => JournalDomainEvent::EntryCreated {
                 entry_id: ev.entry_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
+                transaction_id: ev.transaction_id.try_into()?,
                 amount: ev.amount,
                 entry_side: (ev.entry_side as i8).try_into()?,
                 entry_kind: ev.entry_kind.try_into()?,

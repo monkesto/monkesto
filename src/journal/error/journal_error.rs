@@ -60,6 +60,7 @@ pub enum JournalError {
     InvalidFund(FundId),
 
     #[error("invalid entry: {0}")]
+    #[expect(unused)]
     InvalidEntry(EntryId),
 
     #[error("invalid transaction: {0}")]

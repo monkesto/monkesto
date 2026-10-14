@@ -10,7 +10,6 @@ use crate::journal::transaction::{FinancialPeriod, TransactionEntry, Transaction
 use crate::journal::{JournalId, Permissions};
 use crate::name::Name;
 use crate::time::{IncrementalTimeProvider, TimeProvider};
-use disintegrate::DecisionError;
 use std::str::FromStr;
 
 pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
@@ -103,8 +102,8 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
         .await
     {
         Ok(ev_id) => latest_journal_event = ev_id,
-        Err(DecisionError::Domain(JournalError::UserAlreadyHasAccess(_))) => {}
-        Err(e) => return Err(e.into()),
+        Err(JournalError::UserAlreadyHasAccess(_)) => {}
+        Err(e) => return Err(e),
     }
 
     let accounts = [
@@ -149,8 +148,8 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
             .await
         {
             Ok(ev_id) => latest_journal_event = ev_id,
-            Err(DecisionError::Domain(JournalError::AccountIdCollision(_))) => {}
-            Err(e) => return Err(e.into()),
+            Err(JournalError::AccountIdCollision(_)) => {}
+            Err(e) => return Err(e),
         }
     }
 
@@ -275,8 +274,8 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
             .await
         {
             Ok(ev_id) => latest_journal_event = ev_id,
-            Err(DecisionError::Domain(JournalError::TransactionIdCollision(_))) => {}
-            Err(e) => return Err(e.into()),
+            Err(JournalError::TransactionIdCollision(_)) => {}
+            Err(e) => return Err(e),
         }
     }
 

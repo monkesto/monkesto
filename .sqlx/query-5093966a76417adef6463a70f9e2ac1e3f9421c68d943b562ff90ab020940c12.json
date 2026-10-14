@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT j.id as \"id: JournalId\", j.owner_id as \"owner_id: UserId\", j.name as \"name: Name\", e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\"\n            FROM journals j\n            INNER JOIN journal_events e\n                ON e.journal_id = j.id AND e.stream_type = $1 AND e.event_type = $2\n            LEFT JOIN journal_members jm ON jm.journal_id = j.id AND (jm.permissions & $3) = $3\n            WHERE j.owner_id = $4 OR jm.user_id = $4\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "owner_id: UserId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name: Name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "authority: Authority",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 4,
+        "name": "timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "display_timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int2",
+        "Int2",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "5093966a76417adef6463a70f9e2ac1e3f9421c68d943b562ff90ab020940c12"
+}

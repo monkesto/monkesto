@@ -2,6 +2,7 @@ use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
 use crate::journal::error::JournalError;
 use crate::journal::file::{FileId, ObjectStore};
+use crate::journal::service::JournalExecutor;
 use crate::journal::{JournalId, Permissions};
 use crate::time::{DefaultTimeProvider, TimeProvider};
 use crate::{BackendType, StateType};
@@ -48,7 +49,7 @@ pub async fn upload_file(
     let file_id = FileId::new();
     let file_key = format!("{}/{}-{}", journal_id, file_id, form.file_name);
 
-    let upload_url = match state.journal_service.object_store.clone() {
+    let upload_url = match state.journal_service.object_store() {
         ObjectStore::S3 {
             s3_client,
             bucket_name,
@@ -105,7 +106,7 @@ pub async fn localstore_file_handler(
 ) -> Result<StatusCode, JournalError> {
     let callback_url = &format!("/journal/{}/file", id);
 
-    if let ObjectStore::Local { storage_directory } = state.journal_service.object_store.clone() {
+    if let ObjectStore::Local { storage_directory } = state.journal_service.object_store() {
         let journal_id = JournalId::from_str(&id)?;
         let user = get_user(session)?;
         let user_authority = Authority::Direct(Actor::User(user.id));
@@ -164,7 +165,7 @@ pub async fn record_file_upload(
 
     let k = form.file_key.splitn(2, '-').collect::<Vec<_>>();
 
-    let hash = match state.journal_service.object_store.clone() {
+    let hash = match state.journal_service.object_store() {
         ObjectStore::S3 {
             s3_client,
             bucket_name,
@@ -264,7 +265,7 @@ pub async fn delete_file(
             )
             .await?;
 
-        match state.journal_service.object_store.clone() {
+        match state.journal_service.object_store() {
             ObjectStore::S3 {
                 s3_client,
                 bucket_name,
