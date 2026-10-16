@@ -3,10 +3,11 @@
 
 use crate::authn::UserId;
 use crate::authority::Authority;
+use crate::id::Ident;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::{ActivityId, ActivityKind};
 use crate::journal::entry::{EntryId, EntryKind, EntrySide};
-use crate::journal::event_store_revised::{EventType, StreamType};
+use crate::journal::event_store_revised::{EventAction, EventType, StreamType};
 use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
 use crate::journal::store::JournalEventStore;
@@ -220,6 +221,92 @@ impl JournalDomainEvent {
             TransactionCreated { .. } => ET::TransactionCreated,
             FileUploaded { .. } => ET::FileUploaded,
             FileDeleted { .. } => ET::FileDeleted,
+        }
+    }
+
+    pub fn event_action(&self) -> EventAction {
+        use EventAction::*;
+        use JournalDomainEvent::*;
+
+        match self {
+            JournalCreated { .. } => Created,
+            JournalDeleted { .. } => Deleted,
+
+            // member events modify the journal stream
+            MemberAdded { .. } => Modified,
+            MemberPermissionsUpdated { .. } => Modified,
+            MemberRemoved { .. } => Modified,
+
+            AccountCreated { .. } => Created,
+            AccountRenamed { .. } => Modified,
+            AccountDeleted { .. } => Deleted,
+
+            FundCreated { .. } => Created,
+
+            ActivityCreated { .. } => Created,
+
+            EntryCreated { .. } => Created,
+
+            TransactionCreated { .. } => Created,
+
+            FileUploaded { .. } => Created,
+            FileDeleted { .. } => Deleted,
+        }
+    }
+
+    pub fn journal_id(&self) -> JournalId {
+        use JournalDomainEvent::*;
+
+        match self {
+            JournalCreated { journal_id, .. }
+            | JournalDeleted { journal_id, .. }
+            | MemberAdded { journal_id, .. }
+            | MemberPermissionsUpdated { journal_id, .. }
+            | MemberRemoved { journal_id, .. }
+            | AccountCreated { journal_id, .. }
+            | AccountRenamed { journal_id, .. }
+            | AccountDeleted { journal_id, .. }
+            | FundCreated { journal_id, .. }
+            | ActivityCreated { journal_id, .. }
+            | EntryCreated { journal_id, .. }
+            | TransactionCreated { journal_id, .. }
+            | FileUploaded { journal_id, .. }
+            | FileDeleted { journal_id, .. } => *journal_id,
+        }
+    }
+
+    pub fn stream_id(&self) -> Ident {
+        use JournalDomainEvent::*;
+
+        match self {
+            JournalCreated { journal_id, .. }
+            | JournalDeleted { journal_id, .. }
+            | MemberAdded { journal_id, .. }
+            | MemberPermissionsUpdated { journal_id, .. }
+            | MemberRemoved { journal_id, .. } => **journal_id,
+
+            AccountCreated { account_id, .. }
+            | AccountRenamed { account_id, .. }
+            | AccountDeleted { account_id, .. } => **account_id,
+
+            FundCreated { fund_id, .. } => **fund_id,
+
+            ActivityCreated { activity_id, .. } => **activity_id,
+
+            EntryCreated { entry_id, .. } => **entry_id,
+
+            TransactionCreated { transaction_id, .. } => **transaction_id,
+
+            FileUploaded { file_id, .. } | FileDeleted { file_id, .. } => **file_id,
+        }
+    }
+
+    pub fn transaction_id(&self) -> Option<TransactionId> {
+        // the entry stream requires a transaction id when appending an EntryCreated event,
+        // but the entries aren't actually namespaced by transaction
+        match self {
+            JournalDomainEvent::EntryCreated { transaction_id, .. } => Some(*transaction_id),
+            _ => None,
         }
     }
 }
