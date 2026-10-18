@@ -2,8 +2,8 @@
 alias = "dev"
 
 [tasks.watch-css]
-command = "npx"
-args = ["tailwindcss", "-i", "./style/input.css", "-o", "./target/site/pkg/monkesto.css", "--watch"]
+command = "tailwindcss"
+args = ["-i", "./style/input.css", "-o", "./target/site/pkg/monkesto.css", "--watch"]
 
 [tasks.watch-server]
 command = "cargo"
@@ -13,8 +13,8 @@ args = ["watch", "-x", "run", "-i", "object_storage"]
 run_task = { name = ["watch-css", "watch-server"], parallel = true }
 
 [tasks.css]
-command = "npx"
-args = ["tailwindcss", "-i", "./style/input.css", "-o", "./target/site/pkg/monkesto.css", "--minify"]
+command = "tailwindcss"
+args = ["-i", "./style/input.css", "-o", "./target/site/pkg/monkesto.css", "--minify"]
 
 [tasks.build]
 dependencies = ["css"]

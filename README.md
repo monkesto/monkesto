@@ -16,11 +16,23 @@ cd monkesto
 
 ## install build dependencies:
 
+### tailwind css
+Arch
+```bash
+yay -S tailwindcss-bin
+```
+
+MacOS/other linux distros
+```bash
+brew install tailwindcss
+```
+
+other cargo dependencies
+
 ```
 cargo install cargo-watch
 cargo install cargo-make
 cargo install sqlx-cli
-npm install
 ```
 
 `mdbtools` and `sqlite3` are required for importing Jewel databases
