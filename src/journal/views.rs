@@ -114,8 +114,10 @@ pub async fn journal_detail(
         .await;
 
     let pages = [
-        ("Transactions", "transaction"),
         ("Accounts", "account"),
+        ("Funds", "fund"),
+        ("Activities", "activity"),
+        ("Transactions", "transaction"),
         ("People", "person"),
         ("Files", "file"),
     ];

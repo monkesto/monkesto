@@ -18,6 +18,7 @@ use std::str::FromStr;
 #[derive(Deserialize)]
 pub struct CreateAccountForm {
     account_name: String,
+    account_type: i8,
 }
 
 pub async fn create_account(
@@ -26,13 +27,12 @@ pub async fn create_account(
     Path(id): Path<String>,
     Form(form): Form<CreateAccountForm>,
 ) -> Result<Redirect, JournalError> {
-    let callback_url = &format!("/journal/{}/account", id);
-
     let journal_id = JournalId::from_str(&id)?;
 
     let user = get_user(session)?;
 
     let name = Name::try_new(form.account_name)?;
+    let account_type = AccountType::try_from(form.account_type)?;
 
     let event_id = state
         .journal_service
@@ -40,8 +40,7 @@ pub async fn create_account(
             AccountId::new(),
             journal_id,
             name,
-            // TODO(Ryan): extract this from a form
-            AccountType::Asset,
+            account_type,
             Authority::Direct(Actor::User(user.id)),
             DefaultTimeProvider.get_time(),
         )
@@ -49,5 +48,5 @@ pub async fn create_account(
 
     state.journal_service.wait_for(event_id).await;
 
-    Ok(Redirect::to(callback_url))
+    Ok(Redirect::to(&format!("/journal/{}/account", id)))
 }

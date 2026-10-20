@@ -34,6 +34,19 @@ pub fn router() -> Router<crate::StateType> {
         .route("/journal", get(views::journal_list))
         .route("/createjournal", post(commands::create_journal))
         .route("/journal/{id}", get(views::journal_detail))
+        .route("/journal/{id}/fund", get(fund::views::fund_list_page))
+        .route(
+            "/journal/{id}/createfund",
+            post(fund::commands::create_fund),
+        )
+        .route(
+            "/journal/{id}/activity",
+            get(activity::views::activity_list_page),
+        )
+        .route(
+            "/journal/{id}/createactivity",
+            post(activity::commands::create_activity),
+        )
         .route("/journal/{id}/file", get(file::views::file_list_page))
         .route(
             "/journal/{id}/file/upload",

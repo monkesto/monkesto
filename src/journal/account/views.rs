@@ -3,8 +3,8 @@ use crate::StateType;
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
 use crate::dollars::Dollars;
-use crate::id::Ident;
 use crate::journal::JournalId;
+use crate::journal::account::AccountType;
 use crate::journal::error::JournalError;
 use crate::journal::layout::layout;
 use axum::extract::Path;
@@ -13,13 +13,6 @@ use axum_login::AuthSession;
 use maud::Markup;
 use maud::html;
 use std::str::FromStr;
-
-#[expect(dead_code)]
-struct AccountItem {
-    pub id: Ident,
-    pub name: String,
-    pub balance: i64, // in cents
-}
 
 pub async fn account_list_page(
     State(state): State<StateType>,
@@ -39,6 +32,13 @@ pub async fn account_list_page(
                         class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" {
                             div class="flex justify-between items-center" {
                                 h3 class="text-lg font-semibold text-gray-900 dark:text-white" { (acc.name) }
+
+                                 div class="text-lg font-medium text-gray-900 dark:text-white" {
+                                    @match acc.account_type {
+                                        AccountType::Asset => {"Asset"}
+                                        AccountType::Liability => {"Liability"}
+                                    }
+                                }
                                 @let balance = acc.balance.abs();
                                 div class="text-right" {
                                     div class="text-lg font-medium text-gray-900 dark:text-white" {
@@ -77,6 +77,38 @@ pub async fn account_list_page(
                         required
                         class="block w-full rounded-md bg-white px-3 py-1.5 text-base text-gray-900 outline-1 -outline-offset-1 outline-gray-300 placeholder:text-gray-400 focus:outline-2 focus:-outline-offset-2 focus:outline-indigo-600 sm:text-sm/6 dark:bg-white/5 dark:text-white dark:outline-white/10 dark:placeholder:text-gray-500 dark:focus:outline-indigo-500"
                         ;
+                    }
+                }
+
+                div {
+                    fieldset {
+                        legend { "Account Type" }
+
+                        div {
+                            div class="mt-2" {
+                                input
+                                id="asset"
+                                type="radio"
+                                name="account_type"
+                                value=(AccountType::Asset as i8)
+                                checked
+                                ;
+                            label for="asset" {"Asset"}
+                            }
+                        }
+
+                        div {
+                            div class="mt-2" {
+                                input
+                                id="liability"
+                                type="radio"
+                                name="account_type"
+                                value=(AccountType::Liability as i8)
+                                checked
+                                ;
+                            label for="liability" {"Liability"}
+                            }
+                        }
                     }
                 }
 

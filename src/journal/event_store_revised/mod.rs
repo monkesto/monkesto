@@ -36,6 +36,7 @@ use chrono::Utc;
 use futures_util::TryFutureExt;
 use sqlx::{PgPool, Postgres, QueryBuilder, Transaction};
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -770,10 +771,7 @@ impl JournalExecutor for JournalServiceRevised {
     ) -> JournalResult<EventId> {
         let mut tx = self.pool.begin().await?;
 
-        // no locks are required because there isn't any validation needed
-        // journal id conflicts will surface as sql unique violations
-
-        let event_id = append_creation_event_in_tx(
+        append_creation_event_in_tx(
             &mut tx,
             JournalDomainEvent::JournalCreated {
                 journal_id,
@@ -783,6 +781,23 @@ impl JournalExecutor for JournalServiceRevised {
                 timestamp,
             },
             Some(owner),
+            authority,
+            timestamp,
+            None,
+        )
+        .await?;
+
+        // seed the general fund upon journal creation
+        let event_id = append_creation_event_in_tx(
+            &mut tx,
+            JournalDomainEvent::FundCreated {
+                fund_id: FundId::from_str("gfund")?,
+                journal_id,
+                fund_name: Name::try_new("General".to_string())?,
+                authority,
+                timestamp,
+            },
+            None,
             authority,
             timestamp,
             None,
@@ -1129,16 +1144,6 @@ impl JournalExecutor for JournalServiceRevised {
             timestamp,
             None,
         )
-        .await?;
-
-        sqlx::query!(
-            r#"
-            INSERT INTO fund_stream (journal_id, fund_id, version, valid) VALUES ($1, $2, 0, true)
-            "#,
-            journal_id as JournalId,
-            fund_id as FundId,
-        )
-        .execute(&mut *tx)
         .await?;
 
         tx.commit().await?;

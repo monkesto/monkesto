@@ -1,3 +1,6 @@
+pub mod commands;
+pub mod views;
+
 use crate::authority::Authority;
 use crate::id;
 use crate::id::Ident;

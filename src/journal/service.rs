@@ -193,7 +193,6 @@ pub trait JournalExecutor: Send + Sync {
         authority: Authority,
     ) -> JournalResult<Vec<(AccountState, Authority, Timestamp)>>;
 
-    #[expect(unused)]
     async fn create_fund(
         &self,
         fund_id: FundId,
@@ -203,14 +202,12 @@ pub trait JournalExecutor: Send + Sync {
         timestamp: Timestamp,
     ) -> JournalResult<EventId>;
 
-    #[expect(unused)]
     async fn list_journal_funds(
         &self,
         journal_id: JournalId,
         authority: Authority,
     ) -> JournalResult<Vec<(FundState, Authority, Timestamp)>>;
 
-    #[expect(unused)]
     async fn create_activity(
         &self,
         activity_id: ActivityId,
@@ -221,7 +218,6 @@ pub trait JournalExecutor: Send + Sync {
         timestamp: Timestamp,
     ) -> JournalResult<EventId>;
 
-    #[expect(unused)]
     async fn list_journal_activities(
         &self,
         journal_id: JournalId,

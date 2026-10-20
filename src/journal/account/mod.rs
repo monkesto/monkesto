@@ -338,7 +338,6 @@ pub struct AccountState {
     pub id: AccountId,
     #[expect(unused)]
     pub journal_id: JournalId,
-    #[expect(unused)]
     pub account_type: AccountType,
     pub name: Name,
     pub balance: i64,

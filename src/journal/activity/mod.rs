@@ -1,5 +1,7 @@
+pub mod commands;
 pub mod kind;
 pub mod scope;
+pub mod views;
 
 use crate::authority::Authority;
 use crate::id;

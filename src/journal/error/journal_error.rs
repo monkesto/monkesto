@@ -2,8 +2,9 @@ use crate::authn::UserId;
 use crate::authn::user::UserError;
 use crate::email::EmailError;
 use crate::id::ident_error::IdentError;
-use crate::journal::account::AccountId;
+use crate::journal::account::{AccountId, AccountTypeFromIntError};
 use crate::journal::activity::ActivityId;
+use crate::journal::activity::kind::ActivityKindFromIntError;
 use crate::journal::entry::EntryId;
 use crate::journal::error::transaction_validation::TransactionValidationError;
 use crate::journal::file::FileId;
@@ -124,6 +125,12 @@ pub enum JournalError {
 
     #[error("tried to remove or update the permissions of the journal owner ({0})")]
     OwnerModification(UserId),
+
+    #[error(transparent)]
+    ActivityKindFromInt(#[from] ActivityKindFromIntError),
+
+    #[error(transparent)]
+    AccountTypeFromInt(#[from] AccountTypeFromIntError),
 }
 
 impl From<DecisionError<JournalError>> for JournalError {
@@ -210,6 +217,12 @@ impl IntoResponse for JournalError {
                 "Can't update the permissions of or remove the journal owner",
             )
                 .into_response(),
+            ActivityKindFromInt(_) => {
+                (StatusCode::BAD_REQUEST, "Invalid activity kind").into_response()
+            }
+            AccountTypeFromInt(_) => {
+                (StatusCode::BAD_REQUEST, "Invalid account type").into_response()
+            }
         }
     }
 }
