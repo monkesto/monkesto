@@ -53,6 +53,9 @@ CREATE TABLE transactions (
     PRIMARY KEY (journal_id, id)
 );
 
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE EXTENSION IF NOT EXISTS btree_gin;
+CREATE INDEX idx_tx_memo_trgm ON transactions USING GIN (journal_id, memo gin_trgm_ops);
 
 CREATE TABLE entries (
     id TEXT NOT NULL,

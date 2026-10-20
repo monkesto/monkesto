@@ -13,4 +13,6 @@ CREATE TABLE journal_events (
     CONSTRAINT uq_steam_ver UNIQUE (journal_id, stream_type, stream_id, version)
 );
 
-CREATE INDEX idx_event_stream ON journal_events (journal_id, stream_id, stream_type)
+CREATE INDEX idx_event_stream ON journal_events (journal_id, stream_id, stream_type);
+
+CREATE INDEX idx_joural_events_effective_tx ON journal_events (journal_id, COALESCE(display_timestamp, timestamp))

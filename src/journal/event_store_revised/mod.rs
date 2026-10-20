@@ -1097,6 +1097,7 @@ impl JournalExecutor for JournalServiceRevised {
             INNER JOIN journal_events e
                 ON e.journal_id = $1 AND e.stream_id = a.id AND e.stream_type = $2 AND e.event_type = $3
             WHERE a.journal_id = $1
+            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
             "#,
             journal_id as JournalId,
             StreamType::Account as i16,
@@ -1170,6 +1171,7 @@ impl JournalExecutor for JournalServiceRevised {
             INNER JOIN journal_events e
                 ON e.journal_id = $1 AND e.stream_id = f.id AND e.stream_type = $2 AND e.event_type = $3
             WHERE e.journal_id = $1
+            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
             "#,
             journal_id as JournalId,
             StreamType::Fund as i16,
@@ -1238,6 +1240,7 @@ impl JournalExecutor for JournalServiceRevised {
             INNER JOIN journal_events e
                 ON e.journal_id = $1 AND e.stream_id = a.id AND e.stream_type = $2 AND e.event_type = $3
             WHERE e.journal_id = $1
+            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
             "#,
             journal_id as JournalId,
             StreamType::Activity as i16,
@@ -1396,6 +1399,7 @@ impl JournalExecutor for JournalServiceRevised {
             INNER JOIN journal_events e
                 ON e.stream_id = t.id AND e.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
             WHERE t.journal_id = $1
+            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
             "#,
             journal_id as JournalId,
             StreamType::Transaction as i16,
@@ -1478,6 +1482,7 @@ impl JournalExecutor for JournalServiceRevised {
             INNER JOIN journal_events e
                 ON e.stream_id = f.id AND e.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
             WHERE f.journal_id = $1
+            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
             "#,
             journal_id as JournalId,
             StreamType::File as i16,

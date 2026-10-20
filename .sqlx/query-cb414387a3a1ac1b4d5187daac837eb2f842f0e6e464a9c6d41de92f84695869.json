@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT f.id as \"id: FundId\", f.journal_id as \"journal_id: JournalId\", f.name as \"name: Name\", f.balance, e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\"\n            FROM funds f\n            INNER JOIN journal_events e\n                ON e.journal_id = $1 AND e.stream_id = f.id AND e.stream_type = $2 AND e.event_type = $3\n            WHERE e.journal_id = $1\n            ",
+  "query": "\n            SELECT f.id as \"id: FileId\", f.journal_id as \"journal_id: JournalId\", f.hash as \"hash: [u8; 16]\", f.name, e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\"\n            FROM files f\n            INNER JOIN journal_events e\n                ON e.stream_id = f.id AND e.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3\n            WHERE f.journal_id = $1\n            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC\n            ",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id: FundId",
+        "name": "id: FileId",
         "type_info": "Text"
       },
       {
@@ -15,13 +15,13 @@
       },
       {
         "ordinal": 2,
-        "name": "name: Name",
-        "type_info": "Text"
+        "name": "hash: [u8; 16]",
+        "type_info": "Bytea"
       },
       {
         "ordinal": 3,
-        "name": "balance",
-        "type_info": "Int8"
+        "name": "name",
+        "type_info": "Text"
       },
       {
         "ordinal": 4,
@@ -56,5 +56,5 @@
       true
     ]
   },
-  "hash": "6191f11151e4c2fb7569b279c539b8d73d29ccde1c0cf57d69246f180ef0f038"
+  "hash": "cb414387a3a1ac1b4d5187daac837eb2f842f0e6e464a9c6d41de92f84695869"
 }

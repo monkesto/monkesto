@@ -68,7 +68,7 @@ pub async fn transaction_list_page(
     let content = html! {
           @match transactions_res {
             Ok(ref transactions) => {
-                @for (tx, tx_authority, _) in transactions {
+                @for (tx, tx_authority, timestamp) in transactions {
                     a
                     href=(format!("/journal/{}/transaction/{}", id, tx.id))
                     class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
@@ -132,11 +132,8 @@ pub async fn transaction_list_page(
                                         },
                                         Actor::System => {"system"},
                                         Actor::Anonymous => {"anonymous"}
-                                    }
+                                    } " on " ((timestamp.format("%m/%d/%Y")))
                                 }
-
-
-
                             }
                         }
                     }
