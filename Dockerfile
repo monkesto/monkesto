@@ -7,12 +7,13 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 # Make an /app dir, which everything will eventually live in
 RUN mkdir -p /app
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm install
+
+RUN npm install tailwindcss @tailwindcss/cli
+
 COPY . .
 
 # Build the app
-RUN npx tailwindcss -i ./style/input.css -o ./target/site/pkg/monkesto.css --minify
+RUN npx @tailwindcss/cli -i ./style/input.css -o ./target/site/pkg/monkesto.css --minify
 RUN cargo build --release
 
 FROM debian:trixie-slim AS runtime
