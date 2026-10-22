@@ -1095,7 +1095,7 @@ impl JournalExecutor for JournalServiceRevised {
             SELECT a.id as "id: AccountId", a.journal_id as "journal_id: JournalId", a.balance, a.name as "name: Name", a.account_type as "account_type: AccountType", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
             FROM accounts a
             INNER JOIN journal_events e
-                ON e.journal_id = $1 AND e.stream_id = a.id AND e.stream_type = $2 AND e.event_type = $3
+                ON a.journal_id = $1 AND e.stream_id = a.id AND e.stream_type = $2 AND e.event_type = $3
             WHERE a.journal_id = $1
             ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
             "#,
@@ -1169,7 +1169,7 @@ impl JournalExecutor for JournalServiceRevised {
             SELECT f.id as "id: FundId", f.journal_id as "journal_id: JournalId", f.name as "name: Name", f.balance, e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
             FROM funds f
             INNER JOIN journal_events e
-                ON e.journal_id = $1 AND e.stream_id = f.id AND e.stream_type = $2 AND e.event_type = $3
+                ON f.journal_id = $1 AND e.stream_id = f.id AND e.stream_type = $2 AND e.event_type = $3
             WHERE e.journal_id = $1
             ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
             "#,
@@ -1238,7 +1238,7 @@ impl JournalExecutor for JournalServiceRevised {
             SELECT a.id as "id: ActivityId", a.journal_id as "journal_id: JournalId", a.name as "name: Name", a.activity_kind as "activity_kind: ActivityKind", a.balance, e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
             FROM activities a
             INNER JOIN journal_events e
-                ON e.journal_id = $1 AND e.stream_id = a.id AND e.stream_type = $2 AND e.event_type = $3
+                ON a.journal_id = $1 AND e.stream_id = a.id AND e.stream_type = $2 AND e.event_type = $3
             WHERE e.journal_id = $1
             ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
             "#,
@@ -1397,7 +1397,7 @@ impl JournalExecutor for JournalServiceRevised {
                    ) AS "entries!: Vec<(EntryId, i64, EntrySide, EntryKind)>"
             FROM transactions t
             INNER JOIN journal_events e
-                ON e.stream_id = t.id AND e.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
+                ON e.stream_id = t.id AND t.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
             WHERE t.journal_id = $1
             ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
             "#,
@@ -1480,7 +1480,7 @@ impl JournalExecutor for JournalServiceRevised {
             SELECT f.id as "id: FileId", f.journal_id as "journal_id: JournalId", f.hash as "hash: [u8; 16]", f.name, e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
             FROM files f
             INNER JOIN journal_events e
-                ON e.stream_id = f.id AND e.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
+                ON e.stream_id = f.id AND f.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
             WHERE f.journal_id = $1
             ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
             "#,

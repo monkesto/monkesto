@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT a.id as \"id: ActivityId\", a.journal_id as \"journal_id: JournalId\", a.name as \"name: Name\", a.activity_kind as \"activity_kind: ActivityKind\", a.balance, e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\"\n            FROM activities a\n            INNER JOIN journal_events e\n                ON e.journal_id = $1 AND e.stream_id = a.id AND e.stream_type = $2 AND e.event_type = $3\n            WHERE e.journal_id = $1\n            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC\n            ",
+  "query": "\n            SELECT a.id as \"id: ActivityId\", a.journal_id as \"journal_id: JournalId\", a.name as \"name: Name\", a.activity_kind as \"activity_kind: ActivityKind\", a.balance, e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\"\n            FROM activities a\n            INNER JOIN journal_events e\n                ON a.journal_id = $1 AND e.stream_id = a.id AND e.stream_type = $2 AND e.event_type = $3\n            WHERE e.journal_id = $1\n            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC\n            ",
   "describe": {
     "columns": [
       {
@@ -62,5 +62,5 @@
       true
     ]
   },
-  "hash": "450ab1a5d0b729f466116955b261e69c08831367efe9540d1b9d142b3dbcd5e5"
+  "hash": "09182cb88b19c16b9d0a39362b101c0a381a7422d12a07649aabe55911058f3a"
 }
