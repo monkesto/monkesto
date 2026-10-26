@@ -2,7 +2,6 @@ use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
 use crate::journal::error::JournalError;
 use crate::journal::file::{FileId, ObjectStore};
-use crate::journal::service::JournalExecutor;
 use crate::journal::{JournalId, Permissions};
 use crate::time::{DefaultTimeProvider, TimeProvider};
 use crate::{BackendType, StateType};

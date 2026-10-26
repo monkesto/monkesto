@@ -1,5 +1,5 @@
 use crate::journal::JournalDomainEvent;
-use crate::journal::event_store_revised::EventId;
+use crate::journal::service::EventId;
 use crate::journal::service::handle_incoming_event;
 use sqlx::postgres::{PgAdvisoryLock, PgListener};
 use sqlx::{Either, PgPool};

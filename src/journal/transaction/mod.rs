@@ -4,11 +4,9 @@ pub mod memo;
 pub mod views;
 
 use crate::id::Ident;
-use crate::journal::event::{AFTEvent, EntryEvent, JournalDomainEvent, TransactionEvent};
 use axum::Router;
 use axum::routing::{get, post};
 use axum_login::login_required;
-use std::collections::{HashMap, HashSet};
 
 id!(TransactionId, Ident::new16());
 
@@ -24,25 +22,23 @@ pub fn router() -> Router<crate::StateType> {
 
 use crate::authority::Authority;
 use crate::id;
-use crate::journal::account::{AccountId, AccountType};
-use crate::journal::activity::{ActivityId, ActivityKind};
-use crate::journal::error::{JournalError, TransactionValidationError};
-use crate::journal::fund::FundId;
-use crate::journal::member::JournalMember;
+use crate::journal::error::{JournalError, JournalResult, TransactionValidationError};
+use crate::journal::event::JournalDomainEvent;
+use crate::journal::service::stream_lock::{
+    append_creation_event_in_tx, assert_multiple_streams_exist,
+};
+use crate::journal::service::{EventId, EventType, JournalService, StreamType};
 use crate::journal::transaction::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::transaction::memo::Memo;
-use crate::journal::{Journal, JournalId, Permissions, validate_permissions};
-use crate::status::Status;
+use crate::journal::{JournalId, Permissions};
 use crate::time::Timestamp;
 use chrono::{DateTime, Datelike, Utc};
-use disintegrate::{Decision, StateMutate, StateQuery};
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, FromRow, Postgres, Type};
 use std::fmt::Debug;
-use std::ops::Deref;
 use thiserror::Error;
 
 #[repr(i8)]
@@ -118,45 +114,6 @@ impl<'r> Decode<'r, Postgres> for FinancialPeriod {
     }
 }
 
-// TODO(gabriel) there's probably a more efficient way to validate that the applicable accounts exist
-#[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
-#[state_query(AFTEvent)]
-pub struct JournalAFTs {
-    #[id]
-    journal_id: JournalId,
-    accounts: HashMap<AccountId, AccountType>,
-    funds: HashSet<FundId>,
-    activities: HashMap<ActivityId, ActivityKind>,
-}
-
-impl JournalAFTs {
-    pub fn new(journal_id: JournalId) -> Self {
-        Self {
-            journal_id,
-            ..Default::default()
-        }
-    }
-}
-
-impl StateMutate for JournalAFTs {
-    fn mutate(&mut self, event: Self::Event) {
-        match event {
-            AFTEvent::AccountCreated {
-                account_id,
-                account_type,
-                ..
-            } => _ = self.accounts.insert(account_id, account_type),
-            AFTEvent::AccountDeleted { account_id, .. } => _ = self.accounts.remove(&account_id),
-            AFTEvent::FundCreated { fund_id, .. } => _ = self.funds.insert(fund_id),
-            AFTEvent::ActivityCreated {
-                activity_id,
-                activity_kind,
-                ..
-            } => _ = self.activities.insert(activity_id, activity_kind),
-        }
-    }
-}
-
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct TransactionEntry {
     pub amount: u64,
@@ -164,213 +121,8 @@ pub struct TransactionEntry {
     pub entry_kind: EntryKind,
 }
 
-#[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
-#[state_query(EntryEvent)]
-pub struct AllJournalEntries {
-    #[id]
-    journal_id: JournalId,
-    entries: HashSet<EntryId>,
-}
-
-impl AllJournalEntries {
-    pub fn new(journal_id: JournalId) -> Self {
-        Self {
-            journal_id,
-            ..Default::default()
-        }
-    }
-}
-
-impl StateMutate for AllJournalEntries {
-    fn mutate(&mut self, event: Self::Event) {
-        match event {
-            EntryEvent::EntryCreated { entry_id, .. } => {
-                self.entries.insert(entry_id);
-            }
-        }
-    }
-}
-
-#[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
-#[state_query(TransactionEvent)]
-pub struct Transaction {
-    #[id]
-    transaction_id: TransactionId,
-    journal_id: JournalId,
-    memo: Memo,
-    status: Status,
-}
-
-impl Transaction {
-    fn new(transaction_id: TransactionId) -> Self {
-        Self {
-            transaction_id,
-            ..Default::default()
-        }
-    }
-}
-
-impl StateMutate for Transaction {
-    fn mutate(&mut self, event: Self::Event) {
-        match event {
-            TransactionEvent::TransactionCreated { journal_id, .. } => {
-                self.journal_id = journal_id;
-                self.status = Status::Valid;
-            }
-        }
-    }
-}
-
-pub struct CreateTransaction {
-    transaction_id: TransactionId,
-    journal_id: JournalId,
-    entries: TransactionEntries,
-    period: FinancialPeriod,
-    memo: Option<Memo>,
-    authority: Authority,
-    timestamp: Timestamp,
-}
-
-impl CreateTransaction {
-    pub fn new(
-        transaction_id: TransactionId,
-        journal_id: JournalId,
-        entries: TransactionEntries,
-        period: FinancialPeriod,
-        memo: Option<Memo>,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> Self {
-        Self {
-            transaction_id,
-            journal_id,
-            entries,
-            period,
-            memo,
-            authority,
-            timestamp,
-        }
-    }
-}
-
-impl Decision for CreateTransaction {
-    type Event = JournalDomainEvent;
-    type StateQuery = (Transaction, JournalAFTs, Journal, JournalMember);
-    type Error = JournalError;
-
-    fn state_query(&self) -> Self::StateQuery {
-        (
-            Transaction::new(self.transaction_id),
-            JournalAFTs::new(self.journal_id),
-            Journal::new(self.journal_id),
-            JournalMember::new(
-                self.journal_id,
-                self.authority.user_id().unwrap_or_default(),
-            ),
-        )
-    }
-
-    fn process(
-        &self,
-        (transaction, afts, journal, actor): &Self::StateQuery,
-    ) -> Result<Vec<Self::Event>, Self::Error> {
-        if transaction.status.found() {
-            return Err(JournalError::TransactionIdCollision(self.transaction_id));
-        }
-
-        if !journal.status.valid() {
-            return Err(JournalError::InvalidJournal(self.journal_id));
-        }
-
-        if !validate_permissions(
-            actor,
-            self.authority,
-            journal.owner,
-            Permissions::APPEND_TRANSACTION,
-        ) {
-            return Err(JournalError::Permissions(Permissions::APPEND_TRANSACTION));
-        }
-
-        let mut overall_balance = 0;
-        let mut entry_ids = Vec::with_capacity(self.entries.0.len());
-        let mut events = Vec::with_capacity(self.entries.0.len() + 1);
-
-        for entry in self.entries.0.iter() {
-            let entry_change = match entry.entry_side {
-                EntrySide::Credit => entry.amount as i64,
-                EntrySide::Debit => -(entry.amount as i64),
-            };
-
-            overall_balance += entry_change;
-
-            match entry.entry_kind {
-                EntryKind::Account { account_id } => {
-                    if !afts.accounts.contains_key(&account_id) {
-                        return Err(JournalError::InvalidAccount(account_id));
-                    }
-                }
-                EntryKind::Activity {
-                    activity_id,
-                    fund_id,
-                    scope: _,
-                } => {
-                    // TODO(Gabriel): Where does scope fit in?
-                    if !afts.funds.contains(&fund_id) {
-                        return Err(JournalError::InvalidActivity(activity_id));
-                    }
-
-                    if !afts.activities.contains_key(&activity_id) {
-                        return Err(JournalError::InvalidActivity(activity_id));
-                    }
-                }
-            }
-
-            let entry_id = EntryId::new();
-
-            entry_ids.push(entry_id);
-            events.push(JournalDomainEvent::EntryCreated {
-                entry_id,
-                journal_id: self.journal_id,
-                transaction_id: self.transaction_id,
-                amount: entry.amount,
-                entry_side: entry.entry_side,
-                entry_kind: entry.entry_kind,
-                authority: self.authority,
-                timestamp: self.timestamp,
-            })
-        }
-
-        if overall_balance != 0 {
-            return Err(JournalError::TransactionValidation(
-                TransactionValidationError::ImbalancedTransaction(self.entries.clone()),
-            ));
-        }
-
-        events.push(JournalDomainEvent::TransactionCreated {
-            transaction_id: self.transaction_id,
-            journal_id: self.journal_id,
-            financial_period: self.period,
-            memo: self.memo.clone(),
-            authority: self.authority,
-            timestamp: self.timestamp,
-        });
-
-        Ok(events)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
-pub struct TransactionEntries(pub Vec<TransactionEntry>);
-
-impl Deref for TransactionEntries {
-    type Target = Vec<TransactionEntry>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 #[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, FromRow)]
-pub struct StoredTransactionEntry {
+pub struct PersistedTransactionEntry {
     pub id: EntryId,
     pub amount: i64,
     pub entry_side: EntrySide,
@@ -381,16 +133,168 @@ pub struct TransactionState {
     pub id: TransactionId,
     #[expect(unused)]
     pub journal_id: JournalId,
-    pub entries: Vec<StoredTransactionEntry>,
+    pub entries: Vec<PersistedTransactionEntry>,
     pub memo: Option<Memo>,
 }
 
-#[derive(FromRow)]
-pub struct TransactionStateWithPayload {
-    pub id: TransactionId,
-    #[expect(unused)]
-    pub journal_id: JournalId,
-    pub memo: Option<Memo>,
-    pub entries: Vec<(EntryId, i64, EntrySide, EntryKind)>,
-    pub payload: JournalDomainEvent,
+impl JournalService {
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_transaction(
+        &self,
+        transaction_id: TransactionId,
+        journal_id: JournalId,
+        entries: Vec<TransactionEntry>,
+        period: FinancialPeriod,
+        memo: Option<Memo>,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> JournalResult<EventId> {
+        let mut tx = self.pool.begin().await?;
+
+        self.check_permissions_in_tx(
+            &mut tx,
+            journal_id,
+            authority,
+            Permissions::APPEND_TRANSACTION,
+        )
+        .await?;
+
+        let mut account_ids = Vec::new();
+        let mut activity_ids = Vec::new();
+        let mut fund_ids = Vec::new();
+        let mut entry_ids = Vec::new();
+
+        for entry in entries.iter() {
+            match entry.entry_kind {
+                EntryKind::Account { account_id } => {
+                    account_ids.push(*account_id);
+                }
+                EntryKind::Activity {
+                    activity_id,
+                    fund_id,
+                    scope: _,
+                } => {
+                    activity_ids.push(*activity_id);
+                    fund_ids.push(*fund_id);
+                }
+            }
+        }
+
+        assert_multiple_streams_exist(&mut tx, journal_id, &account_ids, StreamType::Account)
+            .await?;
+
+        assert_multiple_streams_exist(&mut tx, journal_id, &activity_ids, StreamType::Activity)
+            .await?;
+
+        assert_multiple_streams_exist(&mut tx, journal_id, &fund_ids, StreamType::Fund).await?;
+
+        let mut overall_balance = 0;
+
+        for entry in entries.iter() {
+            let entry_change = match entry.entry_side {
+                EntrySide::Credit => entry.amount as i64,
+                EntrySide::Debit => -(entry.amount as i64),
+            };
+
+            overall_balance += entry_change;
+
+            let entry_id = EntryId::new();
+
+            entry_ids.push(entry_id);
+
+            append_creation_event_in_tx(
+                &mut tx,
+                JournalDomainEvent::EntryCreated {
+                    entry_id,
+                    journal_id,
+                    transaction_id,
+                    amount: entry.amount,
+                    entry_side: entry.entry_side,
+                    entry_kind: entry.entry_kind,
+                },
+                None,
+                authority,
+                timestamp,
+                None,
+            )
+            .await?;
+        }
+
+        if overall_balance != 0 {
+            return Err(JournalError::TransactionValidation(
+                TransactionValidationError::ImbalancedTransaction(entries),
+            ));
+        }
+
+        let event_id = append_creation_event_in_tx(
+            &mut tx,
+            JournalDomainEvent::TransactionCreated {
+                transaction_id,
+                journal_id,
+                financial_period: period,
+                memo,
+            },
+            None,
+            authority,
+            timestamp,
+            None,
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(event_id)
+    }
+
+    pub async fn list_journal_transactions(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<Vec<(TransactionState, Authority, Timestamp)>> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(JournalError::Permissions(Permissions::READ));
+        }
+
+        let transactions = sqlx::query!(
+            r#"
+            SELECT t.id as "id: TransactionId", t.journal_id as "journal_id: JournalId", t.memo as "memo: Memo", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp",
+                   ARRAY(
+                        SELECT (en.id, en.amount, en.entry_side, en.entry_kind)
+                        FROM entries en
+                        WHERE en.transaction_id = t.id AND t.journal_id = $1
+                   ) AS "entries!: Vec<(EntryId, i64, EntrySide, EntryKind)>"
+            FROM transactions t
+            INNER JOIN journal_events e
+                ON e.stream_id = t.id AND t.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
+            WHERE t.journal_id = $1
+            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
+            "#,
+            journal_id as JournalId,
+            StreamType::Transaction as i16,
+            EventType::TransactionCreated as i16,
+        )
+            .fetch_all(self.pool())
+            .await?.into_iter().map(|t| {
+            let timestamp = t.display_timestamp.unwrap_or(t.timestamp);
+
+            let entries = t.entries.into_iter().map(|(id, amount, entry_side, entry_kind)| PersistedTransactionEntry {
+                id,
+                amount,
+                entry_side,
+                entry_kind,
+            }).collect();
+
+            (TransactionState {
+                id: t.id,
+                journal_id,
+                entries,
+                memo: t.memo,
+            }, t.authority, timestamp)
+        }).collect();
+
+        Ok(transactions)
+    }
 }

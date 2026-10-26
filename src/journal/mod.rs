@@ -5,22 +5,19 @@ pub mod donation;
 pub mod error;
 pub mod event;
 #[expect(unused)]
-pub mod event_store_revised;
-#[expect(unused)]
 mod file;
 pub mod fund;
 pub mod jewel;
 pub mod layout;
 pub mod member;
 pub mod person;
+mod projection;
 pub mod service;
-pub mod store;
 pub mod transaction;
 pub mod views;
 
 use crate::id::Ident;
-use crate::journal::event::{JournalDomainEvent, JournalEvent};
-pub use service::JournalService;
+use crate::journal::event::JournalDomainEvent;
 use std::cmp::PartialEq;
 
 use axum::Router;
@@ -92,182 +89,29 @@ pub fn router() -> Router<crate::StateType> {
 }
 
 use crate::authn::UserId;
-use crate::authority::{Actor, Authority};
+use crate::authority::Authority;
 use crate::id;
 use crate::journal::error::JournalError::InvalidJournal;
-use crate::journal::error::{JournalError, JournalResult};
+use crate::journal::error::JournalResult;
 use crate::journal::file::commands::delete_file;
 use crate::journal::fund::FundId;
-use crate::journal::member::JournalMember;
+use crate::journal::service::stream_lock::{
+    append_creation_event_in_tx, append_modification_event_in_tx,
+};
+use crate::journal::service::{EventId, EventType, JournalService, StreamType};
 use crate::name::Name;
-use crate::status::Status;
 use crate::time::Timestamp;
 use axum::extract::DefaultBodyLimit;
 use bitflags::bitflags;
-use disintegrate::{Decision, StateMutate, StateQuery};
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
-use sqlx::{Database, Decode, Encode, FromRow, Postgres, Type};
+use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::fmt::Display;
 use std::fmt::Formatter;
+use std::str::FromStr;
 use thiserror::Error;
-
-/// validates that an `Authority` has sufficient permissions to perform an action
-pub fn validate_permissions(
-    member: &JournalMember,
-    authority: Authority,
-    journal_owner: UserId,
-    permissions: Permissions,
-) -> bool {
-    if let Some(user_id) = authority.user_id()
-        && user_id == journal_owner
-    {
-        return true;
-    }
-
-    if member.status.valid() && member.permissions.contains(permissions) {
-        return true;
-    }
-
-    if matches!(authority.actor(), Actor::System) {
-        return true;
-    }
-
-    false
-}
-
-#[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
-#[state_query(JournalEvent)]
-pub struct Journal {
-    #[id]
-    pub journal_id: JournalId,
-    pub owner: UserId,
-    pub name: Name,
-    pub status: Status,
-}
-
-impl Journal {
-    pub fn new(journal_id: JournalId) -> Self {
-        Self {
-            journal_id,
-            ..Default::default()
-        }
-    }
-}
-
-impl StateMutate for Journal {
-    fn mutate(&mut self, event: Self::Event) {
-        match event {
-            JournalEvent::JournalCreated { owner, name, .. } => {
-                self.owner = owner;
-                self.name = name;
-                self.status = Status::Valid;
-            }
-            JournalEvent::JournalDeleted { .. } => self.status = Status::Deleted,
-        }
-    }
-}
-
-pub struct CreateJournal {
-    journal_id: JournalId,
-    owner: UserId,
-    name: Name,
-    authority: Authority,
-    timestamp: Timestamp,
-}
-
-impl CreateJournal {
-    pub fn new(
-        journal_id: JournalId,
-        owner: UserId,
-        name: Name,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> Self {
-        Self {
-            journal_id,
-            owner,
-            name,
-            authority,
-            timestamp,
-        }
-    }
-}
-
-impl Decision for CreateJournal {
-    type Event = JournalDomainEvent;
-    type StateQuery = Journal;
-    type Error = JournalError;
-
-    fn state_query(&self) -> Self::StateQuery {
-        Journal::new(self.journal_id)
-    }
-
-    fn process(&self, state: &Self::StateQuery) -> Result<Vec<Self::Event>, Self::Error> {
-        if state.status.found() {
-            return Err(JournalError::IdCollision(self.journal_id));
-        }
-
-        Ok(vec![
-            JournalDomainEvent::JournalCreated {
-                journal_id: self.journal_id,
-                owner: self.owner,
-                name: self.name.clone(),
-                authority: self.authority,
-                timestamp: self.timestamp,
-            },
-            // seed the general fund when the journal is created
-            JournalDomainEvent::FundCreated {
-                fund_id: FundId::new(),
-                journal_id: self.journal_id,
-                fund_name: Name::try_new("General".to_string()).expect("valid fund name"),
-                authority: Authority::Direct(Actor::System),
-                timestamp: self.timestamp,
-            },
-        ])
-    }
-}
-
-pub struct DeleteJournal {
-    journal_id: JournalId,
-    authority: Authority,
-    timestamp: Timestamp,
-}
-
-#[expect(unused)]
-impl DeleteJournal {
-    pub fn new(journal_id: JournalId, authority: Authority, timestamp: Timestamp) -> Self {
-        Self {
-            journal_id,
-            authority,
-            timestamp,
-        }
-    }
-}
-
-impl Decision for DeleteJournal {
-    type Event = JournalDomainEvent;
-    type StateQuery = Journal;
-    type Error = JournalError;
-
-    fn state_query(&self) -> Self::StateQuery {
-        Journal::new(self.journal_id)
-    }
-
-    fn process(&self, state: &Self::StateQuery) -> Result<Vec<Self::Event>, Self::Error> {
-        if !state.status.valid() {
-            return Err(InvalidJournal(state.journal_id));
-        }
-
-        Ok(vec![JournalDomainEvent::JournalDeleted {
-            journal_id: self.journal_id,
-            authority: self.authority,
-            timestamp: self.timestamp,
-        }])
-    }
-}
 
 bitflags! {
     #[derive(Hash, Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -324,10 +168,157 @@ pub struct JournalState {
     pub name: Name,
 }
 
-#[derive(FromRow)]
-pub struct JournalStateWithPayload {
-    pub id: JournalId,
-    pub owner_id: UserId,
-    pub name: Name,
-    pub payload: JournalDomainEvent,
+impl JournalService {
+    pub async fn create_journal(
+        &self,
+        journal_id: JournalId,
+        owner: UserId,
+        name: Name,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> JournalResult<EventId> {
+        let mut tx = self.pool.begin().await?;
+
+        append_creation_event_in_tx(
+            &mut tx,
+            JournalDomainEvent::JournalCreated {
+                journal_id,
+                owner,
+                name,
+            },
+            Some(owner),
+            authority,
+            timestamp,
+            None,
+        )
+        .await?;
+
+        // seed the general fund upon journal creation
+        let event_id = append_creation_event_in_tx(
+            &mut tx,
+            JournalDomainEvent::FundCreated {
+                fund_id: FundId::from_str("gfund")?,
+                journal_id,
+                fund_name: Name::try_new("General".to_string())?,
+            },
+            None,
+            authority,
+            timestamp,
+            None,
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(event_id)
+    }
+
+    #[expect(unused)]
+    pub async fn delete_journal(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> JournalResult<EventId> {
+        let mut tx = self.pool.begin().await?;
+
+        let stream_handle = service::stream_lock::get_stream_handle(
+            &mut tx,
+            journal_id,
+            *journal_id,
+            StreamType::Journal,
+        )
+        .await?;
+
+        let event_id = append_modification_event_in_tx(
+            &mut tx,
+            stream_handle,
+            JournalDomainEvent::JournalDeleted { journal_id },
+            None,
+            authority,
+            timestamp,
+            None,
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(event_id)
+    }
+
+    pub async fn get_journal(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<(JournalState, Authority, Timestamp)> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(InvalidJournal(journal_id));
+        }
+
+        let journal = sqlx::query!(
+            r#"
+            SELECT j.id as "id: JournalId", j.owner_id as "owner_id: UserId", j.name as "name: Name", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
+            FROM journals j
+            INNER JOIN journal_events e
+                ON e.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
+            WHERE j.id = $1
+            "#,
+            journal_id as JournalId,
+            StreamType::Journal as i16,
+            EventType::JournalCreated as i16
+        )
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(journal) = journal {
+            let timestamp = journal.display_timestamp.unwrap_or(journal.timestamp);
+
+            Ok((
+                JournalState {
+                    id: journal.id,
+                    owner_id: journal.owner_id,
+                    name: journal.name,
+                },
+                journal.authority,
+                timestamp,
+            ))
+        } else {
+            Err(InvalidJournal(journal_id))
+        }
+    }
+
+    pub async fn list_accessible_journals(
+        &self,
+        user: UserId,
+    ) -> JournalResult<Vec<(JournalState, Authority, Timestamp)>> {
+        let journals = sqlx::query!(
+            r#"
+            SELECT j.id as "id: JournalId", j.owner_id as "owner_id: UserId", j.name as "name: Name", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
+            FROM journals j
+            INNER JOIN journal_events e
+                ON e.journal_id = j.id AND e.stream_type = $1 AND e.event_type = $2
+            LEFT JOIN journal_members jm ON jm.journal_id = j.id AND (jm.permissions & $3) = $3
+            WHERE j.owner_id = $4 OR jm.user_id = $4
+            "#,
+            StreamType::Journal as i16,
+            EventType::JournalCreated as i16,
+            Permissions::READ.bits(),
+            user as UserId)
+            .fetch_all(&self.pool)
+            .await?.into_iter().map(
+            |j| {
+                let timestamp = j.display_timestamp.unwrap_or(j.timestamp);
+
+                (JournalState {
+                    id: j.id,
+                    owner_id: j.owner_id,
+                    name: j.name,
+                }, j.authority, timestamp)
+            }
+        ).collect();
+
+        Ok(journals)
+    }
 }

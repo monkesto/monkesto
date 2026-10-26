@@ -19,13 +19,3 @@ message ProtoEntryKind {
     ProtoActivityEntryKind activity = 2;
   }
 }
-
-message ProtoTransactionEntry {
-  uint64 amount = 1;
-  int32 entry_side = 2;
-  ProtoEntryKind entry_kind = 3;
-}
-
-message ProtoRepeatedTransactionEntries {
-  repeated ProtoTransactionEntry entries = 1;
-}

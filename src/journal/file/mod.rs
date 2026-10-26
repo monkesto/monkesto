@@ -5,17 +5,19 @@ use crate::authority::Authority;
 use crate::event_id::GetEventId;
 use crate::id;
 use crate::id::Ident;
-use crate::journal::error::JournalError;
-use crate::journal::event::{FileEvent, JournalDomainEvent};
-use crate::journal::{Journal, JournalId};
-use crate::status::Status;
+use crate::journal::error::JournalError::InvalidJournal;
+use crate::journal::error::{JournalError, JournalResult};
+use crate::journal::event::JournalDomainEvent;
+use crate::journal::service::stream_lock::{
+    append_creation_event_in_tx, append_modification_event_in_tx, get_stream_handle,
+};
+use crate::journal::service::{EventId, EventType, JournalService, StreamType};
+use crate::journal::{JournalId, Permissions};
 use crate::time::Timestamp;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3::config::Credentials;
 use aws_sdk_s3::types::{CorsConfiguration, CorsRule};
 use aws_types::region::Region;
-use disintegrate::{Decision, DecisionError, StateMutate, StateQuery};
-use disintegrate_postgres::PgEventId;
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -101,165 +103,6 @@ impl ObjectStore {
     }
 }
 
-#[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
-#[state_query(FileEvent)]
-pub struct FileUpload {
-    #[id]
-    pub file_id: FileId,
-    pub journal_id: JournalId,
-    pub hash: [u8; 16],
-    file_name: String,
-    status: Status,
-}
-
-impl StateMutate for FileUpload {
-    fn mutate(&mut self, event: Self::Event) {
-        match event {
-            FileEvent::FileUploaded {
-                file_id,
-                journal_id,
-                hash,
-                file_name,
-                ..
-            } => {
-                self.file_id = file_id;
-                self.journal_id = journal_id;
-                self.hash = hash;
-                self.file_name = file_name;
-                self.status = Status::Valid
-            }
-            FileEvent::FileDeleted { .. } => {
-                self.status = Status::Deleted;
-            }
-        }
-    }
-}
-
-impl FileUpload {
-    fn new(file_id: FileId) -> Self {
-        Self {
-            file_id,
-            ..Default::default()
-        }
-    }
-}
-
-/// The user should verify that an uploaded file exists with a matching hash before sending this event
-pub struct UploadFile {
-    file_id: FileId,
-    journal_id: JournalId,
-    hash: [u8; 16],
-    file_name: String,
-    authority: Authority,
-    timestamp: Timestamp,
-}
-
-impl UploadFile {
-    pub fn new(
-        file_id: FileId,
-        journal_id: JournalId,
-        hash: [u8; 16],
-        file_name: String,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> Self {
-        Self {
-            file_id,
-            journal_id,
-            hash,
-            file_name,
-            authority,
-            timestamp,
-        }
-    }
-}
-
-impl Decision for UploadFile {
-    type Event = JournalDomainEvent;
-    type StateQuery = (FileUpload, Journal);
-    type Error = JournalError;
-
-    fn state_query(&self) -> Self::StateQuery {
-        (FileUpload::new(self.file_id), Journal::new(self.journal_id))
-    }
-
-    fn process(
-        &self,
-        (upload_state, journal_state): &Self::StateQuery,
-    ) -> Result<Vec<Self::Event>, Self::Error> {
-        if upload_state.status.found() {
-            return Err(JournalError::FileIdCollision(upload_state.file_id));
-        };
-
-        if !journal_state.status.valid() {
-            return Err(JournalError::InvalidJournal(journal_state.journal_id));
-        }
-
-        Ok(vec![JournalDomainEvent::FileUploaded {
-            file_id: self.file_id,
-            journal_id: self.journal_id,
-            hash: self.hash,
-            file_name: self.file_name.clone(),
-            authority: self.authority,
-            timestamp: self.timestamp,
-        }])
-    }
-}
-
-// The user should verify that an uploaded file exists with a matching hash before sending this event
-pub struct DeleteFile {
-    file_id: FileId,
-    journal_id: JournalId,
-    authority: Authority,
-    timestamp: Timestamp,
-}
-
-impl DeleteFile {
-    pub fn new(
-        file_id: FileId,
-        journal_id: JournalId,
-        authority: Authority,
-        timestamp: Timestamp,
-    ) -> Self {
-        Self {
-            file_id,
-            journal_id,
-            authority,
-            timestamp,
-        }
-    }
-}
-
-impl Decision for DeleteFile {
-    type Event = JournalDomainEvent;
-    type StateQuery = (FileUpload, Journal);
-    type Error = JournalError;
-
-    fn state_query(&self) -> Self::StateQuery {
-        (FileUpload::new(self.file_id), Journal::new(self.journal_id))
-    }
-
-    fn process(
-        &self,
-        (upload_state, journal_state): &Self::StateQuery,
-    ) -> Result<Vec<Self::Event>, Self::Error> {
-        if !upload_state.status.valid() {
-            return Err(JournalError::InvalidFile(upload_state.file_id));
-        };
-
-        if !journal_state.status.valid() {
-            return Err(JournalError::InvalidJournal(journal_state.journal_id));
-        }
-
-        Ok(vec![JournalDomainEvent::FileDeleted {
-            file_id: self.file_id,
-            journal_id: self.journal_id,
-            authority: self.authority,
-            timestamp: self.timestamp,
-        }])
-    }
-}
-
 pub struct FileState {
     pub id: FileId,
     pub journal_id: JournalId,
@@ -268,26 +111,150 @@ pub struct FileState {
     pub name: String,
 }
 
-#[derive(FromRow)]
-pub struct FileStateWithPayload {
-    pub id: FileId,
-    #[expect(unused)]
-    pub journal_id: JournalId,
-    pub hash: [u8; 16],
-    pub name: String,
-    pub payload: JournalDomainEvent,
-}
-
-#[derive(FromRow)]
-pub struct FileStateWithVecHash {
-    pub id: FileId,
-    pub journal_id: JournalId,
-    pub hash: Vec<u8>,
-    pub name: String,
-}
-
 impl FileState {
     pub fn key(&self) -> String {
         format!("{}/{}-{}", self.journal_id, self.id, self.name)
+    }
+}
+
+impl JournalService {
+    pub async fn upload_file(
+        &self,
+        file_id: FileId,
+        journal_id: JournalId,
+        file_hash: [u8; 16],
+        file_name: String,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> JournalResult<EventId> {
+        let mut tx = self.pool.begin().await?;
+
+        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::UPLOAD_FILE)
+            .await?;
+
+        let event_id = append_creation_event_in_tx(
+            &mut tx,
+            JournalDomainEvent::FileUploaded {
+                file_id,
+                journal_id,
+                hash: file_hash,
+                file_name,
+            },
+            None,
+            authority,
+            timestamp,
+            None,
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(event_id)
+    }
+
+    pub async fn delete_file(
+        &self,
+        file_id: FileId,
+        journal_id: JournalId,
+        authority: Authority,
+        timestamp: Timestamp,
+    ) -> JournalResult<EventId> {
+        let mut tx = self.pool.begin().await?;
+
+        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::OWNER)
+            .await?;
+
+        let stream_handle =
+            get_stream_handle(&mut tx, journal_id, *file_id, StreamType::File).await?;
+
+        let event_id = append_modification_event_in_tx(
+            &mut tx,
+            stream_handle,
+            JournalDomainEvent::FileDeleted {
+                file_id,
+                journal_id,
+            },
+            None,
+            authority,
+            timestamp,
+            None,
+        )
+        .await?;
+
+        tx.commit().await?;
+        Ok(event_id)
+    }
+
+    pub async fn list_journal_files(
+        &self,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<Vec<(FileState, Authority, Timestamp)>> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(InvalidJournal(journal_id));
+        }
+
+        let files = sqlx::query!(
+            r#"
+            SELECT f.id as "id: FileId", f.journal_id as "journal_id: JournalId", f.hash as "hash: [u8; 16]", f.name, e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
+            FROM files f
+            INNER JOIN journal_events e
+                ON e.stream_id = f.id AND f.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
+            WHERE f.journal_id = $1
+            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
+            "#,
+            journal_id as JournalId,
+            StreamType::File as i16,
+            EventType::FileUploaded as i16,
+        )
+            .fetch_all(self.pool())
+            .await?.into_iter().map(|f| {
+            let timestamp = f.display_timestamp.unwrap_or(f.timestamp);
+
+            (FileState {
+                id: f.id,
+                journal_id,
+                hash: f.hash,
+                name: f.name,
+            }, authority, timestamp)}).collect();
+
+        Ok(files)
+    }
+
+    pub(crate) async fn get_file(
+        &self,
+        file_id: FileId,
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<FileState> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(JournalError::InvalidJournal(journal_id));
+        }
+
+        let file = sqlx::query_as!(
+            FileState,
+            r#"
+            SELECT f.id as "id: FileId", f.journal_id as "journal_id: JournalId", f.hash as "hash: [u8; 16]", f.name
+            FROM files f
+            WHERE f.journal_id = $1 AND f.id = $2
+            "#,
+            journal_id as JournalId,
+            file_id as FileId,
+        )
+            .fetch_optional(self.pool())
+            .await?;
+
+        if let Some(file) = file {
+            return Ok(file);
+        }
+
+        Err(JournalError::InvalidFile(file_id))
     }
 }

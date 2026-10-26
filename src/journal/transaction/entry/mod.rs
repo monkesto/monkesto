@@ -112,14 +112,11 @@ impl<'r> Decode<'r, Postgres> for EntryKind {
     }
 }
 
-use crate::journal::transaction::{TransactionEntries, TransactionEntry};
 use crate::proto::DecodeError;
 use crate::proto::DecodeError::FieldRequired;
+use crate::proto::journal::transaction::entry::entry::ProtoEntryKind;
 use crate::proto::journal::transaction::entry::entry::proto_entry_kind::{
     ProtoActivityEntryKind, ProtoEntryKindVariant,
-};
-use crate::proto::journal::transaction::entry::entry::{
-    ProtoEntryKind, ProtoRepeatedTransactionEntries, ProtoTransactionEntry,
 };
 
 impl From<EntryKind> for ProtoEntryKind {
@@ -168,59 +165,5 @@ impl TryFrom<Option<ProtoEntryKind>> for EntryKind {
     type Error = DecodeError;
     fn try_from(proto_entry_kind: Option<ProtoEntryKind>) -> Result<Self, Self::Error> {
         proto_entry_kind.ok_or(FieldRequired)?.try_into()
-    }
-}
-
-impl From<TransactionEntry> for ProtoTransactionEntry {
-    fn from(value: TransactionEntry) -> Self {
-        ProtoTransactionEntry {
-            amount: value.amount,
-            entry_side: value.entry_side as i32,
-            entry_kind: Some(ProtoEntryKind::from(value.entry_kind)),
-        }
-    }
-}
-
-impl TryFrom<ProtoTransactionEntry> for TransactionEntry {
-    type Error = DecodeError;
-
-    fn try_from(value: ProtoTransactionEntry) -> Result<Self, Self::Error> {
-        let entry = TransactionEntry {
-            amount: value.amount,
-            entry_side: EntrySide::try_from(value.entry_side as i8)?,
-            entry_kind: EntryKind::try_from(value.entry_kind)?,
-        };
-
-        Ok(entry)
-    }
-}
-
-impl TryFrom<Option<ProtoTransactionEntry>> for TransactionEntry {
-    type Error = DecodeError;
-
-    fn try_from(value: Option<ProtoTransactionEntry>) -> Result<Self, Self::Error> {
-        value.ok_or(FieldRequired)?.try_into()
-    }
-}
-
-impl TryFrom<ProtoRepeatedTransactionEntries> for TransactionEntries {
-    type Error = DecodeError;
-
-    fn try_from(value: ProtoRepeatedTransactionEntries) -> Result<Self, Self::Error> {
-        let mut entries = Vec::with_capacity(value.entries.len());
-
-        for entry in value.entries {
-            entries.push(entry.try_into()?);
-        }
-
-        Ok(Self(entries))
-    }
-}
-
-impl From<TransactionEntries> for ProtoRepeatedTransactionEntries {
-    fn from(entries: TransactionEntries) -> Self {
-        Self {
-            entries: entries.0.into_iter().map(Into::into).collect(),
-        }
     }
 }

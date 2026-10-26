@@ -1,4 +1,4 @@
-use crate::journal::transaction::TransactionEntries;
+use crate::journal::transaction::TransactionEntry;
 use crate::journal::transaction::entry::EntrySideFromIntError;
 use crate::journal::transaction::memo::MemoError;
 use axum::http::StatusCode;
@@ -24,7 +24,7 @@ pub enum TransactionValidationError {
     )]
     NegativeEntryAmount(String),
     #[error("Imbalanced transaction: {:?}", 0)]
-    ImbalancedTransaction(TransactionEntries),
+    ImbalancedTransaction(Vec<TransactionEntry>),
     #[error(transparent)]
     InvalidEntrySide(#[from] EntrySideFromIntError),
     #[error(transparent)]

@@ -19,20 +19,21 @@ pub fn router() -> Router<crate::StateType> {
 use crate::authority::Authority;
 use crate::id;
 use crate::id::Ident;
-use crate::journal::JournalId;
-use crate::journal::error::JournalError;
-use crate::journal::event::{AccountEvent, JournalDomainEvent};
-use crate::journal::member::JournalMember;
-use crate::journal::{Journal, Permissions, validate_permissions};
+use crate::journal::error::JournalError::InvalidJournal;
+use crate::journal::error::JournalResult;
+use crate::journal::event::JournalDomainEvent;
+use crate::journal::service::stream_lock::{
+    append_creation_event_in_tx, append_modification_event_in_tx, get_stream_handle,
+};
+use crate::journal::service::{EventId, EventType, JournalService, StreamType};
+use crate::journal::{JournalId, Permissions};
 use crate::name::Name;
-use crate::status::Status;
 use crate::time::Timestamp;
-use disintegrate::{Decision, StateMutate, StateQuery};
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
-use sqlx::{Database, Decode, Encode, FromRow, Postgres, Type};
+use sqlx::{Database, Decode, Encode, Postgres, Type};
 use thiserror::Error;
 
 id!(AccountId, Ident::new16());
@@ -83,254 +84,150 @@ impl<'r> Decode<'r, Postgres> for AccountType {
     }
 }
 
-#[derive(StateQuery, Clone, Default, Serialize, Deserialize)]
-#[state_query(AccountEvent)]
-pub struct Account {
-    #[id]
-    account_id: AccountId,
-    journal_id: JournalId,
-    name: Name,
-    account_type: AccountType,
-    status: Status,
-}
-
-impl StateMutate for Account {
-    fn mutate(&mut self, event: Self::Event) {
-        match event {
-            AccountEvent::AccountCreated {
-                name, journal_id, ..
-            } => {
-                self.journal_id = journal_id;
-                self.name = name;
-                self.status = Status::Valid;
-            }
-            AccountEvent::AccountRenamed { new_name, .. } => {
-                self.name = new_name;
-            }
-            AccountEvent::AccountDeleted { .. } => {
-                self.status = Status::Deleted;
-            }
-        }
-    }
-}
-
-impl Account {
-    fn new(account_id: AccountId) -> Self {
-        Self {
-            account_id,
-            ..Default::default()
-        }
-    }
-}
-
-pub struct CreateAccount {
-    account_id: AccountId,
-    journal_id: JournalId,
-    name: Name,
-    account_type: AccountType,
-    authority: Authority,
-    timestamp: Timestamp,
-}
-
-impl CreateAccount {
-    pub fn new(
+impl JournalService {
+    pub async fn create_account(
+        &self,
         account_id: AccountId,
         journal_id: JournalId,
         name: Name,
         account_type: AccountType,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Self {
-        Self {
-            account_id,
-            journal_id,
-            name,
-            account_type,
+    ) -> JournalResult<EventId> {
+        let mut tx = self.pool.begin().await?;
+
+        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::ADD_ACCOUNT)
+            .await?;
+
+        let event_id = append_creation_event_in_tx(
+            &mut tx,
+            JournalDomainEvent::AccountCreated {
+                journal_id,
+                account_id,
+                account_type,
+                name,
+            },
+            None,
             authority,
             timestamp,
-        }
-    }
-}
-
-impl Decision for CreateAccount {
-    type Event = JournalDomainEvent;
-    type StateQuery = (Account, Journal, JournalMember);
-    type Error = JournalError;
-
-    fn state_query(&self) -> Self::StateQuery {
-        (
-            Account::new(self.account_id),
-            Journal::new(self.journal_id),
-            JournalMember::new(
-                self.journal_id,
-                self.authority.user_id().unwrap_or_default(),
-            ),
+            None,
         )
+        .await?;
+
+        tx.commit().await?;
+        Ok(event_id)
     }
 
-    fn process(
+    #[expect(unused)]
+    pub async fn rename_account(
         &self,
-        (account, journal, actor): &Self::StateQuery,
-    ) -> Result<Vec<Self::Event>, Self::Error> {
-        if account.status.found() {
-            return Err(JournalError::AccountIdCollision(self.account_id));
-        }
-
-        if !journal.status.valid() {
-            return Err(JournalError::InvalidJournal(self.journal_id));
-        }
-
-        if !validate_permissions(
-            actor,
-            self.authority,
-            journal.owner,
-            Permissions::ADD_ACCOUNT,
-        ) {
-            return Err(JournalError::Permissions(Permissions::ADD_ACCOUNT));
-        }
-
-        Ok(vec![JournalDomainEvent::AccountCreated {
-            account_id: self.account_id,
-            journal_id: self.journal_id,
-            name: self.name.clone(),
-            account_type: self.account_type,
-            authority: self.authority,
-            timestamp: self.timestamp,
-        }])
-    }
-}
-
-pub struct RenameAccount {
-    account_id: AccountId,
-    journal_id: JournalId,
-    name: Name,
-    authority: Authority,
-    timestamp: Timestamp,
-}
-
-#[expect(unused)]
-impl RenameAccount {
-    pub fn new(
-        account_id: AccountId,
         journal_id: JournalId,
-        name: Name,
+        account_id: AccountId,
+        new_name: Name,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Self {
-        Self {
-            account_id,
-            journal_id,
-            name,
+    ) -> JournalResult<EventId> {
+        let mut tx = self.pool.begin().await?;
+
+        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::ADD_ACCOUNT)
+            .await?;
+
+        let stream_handle =
+            get_stream_handle(&mut tx, journal_id, *account_id, StreamType::Account).await?;
+
+        let event_id = append_modification_event_in_tx(
+            &mut tx,
+            stream_handle,
+            JournalDomainEvent::AccountRenamed {
+                journal_id,
+                account_id,
+                new_name,
+            },
+            None,
             authority,
             timestamp,
-        }
-    }
-}
-
-impl Decision for RenameAccount {
-    type Event = JournalDomainEvent;
-    type StateQuery = (Account, Journal, JournalMember);
-    type Error = JournalError;
-
-    fn state_query(&self) -> Self::StateQuery {
-        (
-            Account::new(self.account_id),
-            Journal::new(self.journal_id),
-            JournalMember::new(
-                self.journal_id,
-                self.authority.user_id().unwrap_or_default(),
-            ),
+            None,
         )
+        .await?;
+
+        tx.commit().await?;
+
+        Ok(event_id)
     }
 
-    fn process(
+    #[expect(unused)]
+    pub async fn delete_account(
         &self,
-        (account, journal, actor): &Self::StateQuery,
-    ) -> Result<Vec<Self::Event>, Self::Error> {
-        if !account.status.valid() || account.journal_id != self.journal_id {
-            return Err(JournalError::InvalidAccount(self.account_id));
-        }
-
-        if !journal.status.valid() {
-            return Err(JournalError::InvalidJournal(self.journal_id));
-        }
-
-        if !validate_permissions(actor, self.authority, journal.owner, Permissions::OWNER) {
-            return Err(JournalError::Permissions(Permissions::OWNER));
-        }
-
-        Ok(vec![JournalDomainEvent::AccountRenamed {
-            account_id: self.account_id,
-            journal_id: self.journal_id,
-            new_name: self.name.clone(),
-            authority: self.authority,
-            timestamp: self.timestamp,
-        }])
-    }
-}
-
-pub struct DeleteAccount {
-    account_id: AccountId,
-    journal_id: JournalId,
-    authority: Authority,
-    timestamp: Timestamp,
-}
-
-#[expect(unused)]
-impl DeleteAccount {
-    pub fn new(
-        account_id: AccountId,
         journal_id: JournalId,
+        account_id: AccountId,
         authority: Authority,
         timestamp: Timestamp,
-    ) -> Self {
-        Self {
-            account_id,
-            journal_id,
+    ) -> JournalResult<EventId> {
+        let mut tx = self.pool.begin().await?;
+
+        self.check_permissions_in_tx(&mut tx, journal_id, authority, Permissions::OWNER)
+            .await?;
+
+        let stream_handle =
+            get_stream_handle(&mut tx, journal_id, *account_id, StreamType::Account).await?;
+
+        let event_id = append_modification_event_in_tx(
+            &mut tx,
+            stream_handle,
+            JournalDomainEvent::AccountDeleted {
+                journal_id,
+                account_id,
+            },
+            None,
             authority,
             timestamp,
-        }
-    }
-}
-
-impl Decision for DeleteAccount {
-    type Event = JournalDomainEvent;
-    type StateQuery = (Account, Journal, JournalMember);
-    type Error = JournalError;
-
-    fn state_query(&self) -> Self::StateQuery {
-        (
-            Account::new(self.account_id),
-            Journal::new(self.journal_id),
-            JournalMember::new(
-                self.journal_id,
-                self.authority.user_id().unwrap_or_default(),
-            ),
+            None,
         )
+        .await?;
+
+        tx.commit().await?;
+        Ok(event_id)
     }
 
-    fn process(
+    pub async fn list_journal_accounts(
         &self,
-        (account, journal, actor): &Self::StateQuery,
-    ) -> Result<Vec<Self::Event>, Self::Error> {
-        if !account.status.valid() || account.journal_id != self.journal_id {
-            return Err(JournalError::InvalidAccount(self.account_id));
+        journal_id: JournalId,
+        authority: Authority,
+    ) -> JournalResult<Vec<(AccountState, Authority, Timestamp)>> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(Permissions::READ)
+        {
+            return Err(InvalidJournal(journal_id));
         }
 
-        if !journal.status.valid() {
-            return Err(JournalError::InvalidJournal(self.journal_id));
-        }
+        let accounts = sqlx::query!(
+            r#"
+            SELECT a.id as "id: AccountId", a.journal_id as "journal_id: JournalId", a.balance, a.name as "name: Name", a.account_type as "account_type: AccountType", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
+            FROM accounts a
+            INNER JOIN journal_events e
+                ON a.journal_id = $1 AND e.stream_id = a.id AND e.stream_type = $2 AND e.event_type = $3
+            WHERE a.journal_id = $1
+            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
+            "#,
+            journal_id as JournalId,
+            StreamType::Account as i16,
+            EventType::AccountCreated as i16,
+        )
+            .fetch_all(self.pool())
+            .await?.into_iter().map(|a| {
+            let timestamp = a.display_timestamp.unwrap_or(a.timestamp);
+            (AccountState {
+                id: a.id,
+                journal_id,
+                account_type: a.account_type,
+                name: a.name,
+                balance: a.balance,
+            }, a.authority, timestamp)
+        }).collect();
 
-        if !validate_permissions(actor, self.authority, journal.owner, Permissions::OWNER) {
-            return Err(JournalError::Permissions(Permissions::OWNER));
-        }
-
-        Ok(vec![JournalDomainEvent::AccountDeleted {
-            account_id: self.account_id,
-            journal_id: self.journal_id,
-            authority: self.authority,
-            timestamp: self.timestamp,
-        }])
+        Ok(accounts)
     }
 }
 
@@ -341,15 +238,4 @@ pub struct AccountState {
     pub account_type: AccountType,
     pub name: Name,
     pub balance: i64,
-}
-
-#[derive(FromRow)]
-pub struct AccountStateWithPayload {
-    pub id: AccountId,
-    #[expect(unused)]
-    pub journal_id: JournalId,
-    pub name: Name,
-    pub account_type: AccountType,
-    pub balance: i64,
-    pub payload: JournalDomainEvent,
 }

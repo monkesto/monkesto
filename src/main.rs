@@ -19,8 +19,7 @@ mod time;
 
 use crate::authn::{AuthnEventStore, AuthnService};
 use crate::authz::{AuthzEventStore, AuthzService, RoleIndex};
-use crate::journal::event_store_revised::JournalServiceRevised;
-use crate::journal::service::JournalExecutor;
+use crate::journal::service::JournalService;
 use axum::Router;
 use axum::extract::FromRef;
 use axum::http::header;
@@ -37,7 +36,6 @@ use seed::seed_dev_data;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
 use tower_http::services::ServeFile;
@@ -49,7 +47,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 #[derive(Clone)]
 struct AppState {
     authn_service: AuthnService,
-    journal_service: Arc<dyn JournalExecutor>,
+    journal_service: JournalService,
     authz_service: AuthzService,
 }
 
@@ -57,7 +55,7 @@ impl AppState {
     fn new(
         authn_service: AuthnService,
         authz_service: AuthzService,
-        journal_service: Arc<dyn JournalExecutor>,
+        journal_service: JournalService,
     ) -> Self {
         Self {
             authn_service,
@@ -152,29 +150,12 @@ async fn main() {
         auth_service.clone(),
     ));
 
-    // let journal_pool = PgPoolOptions::new()
-    //     .after_connect(|connection, _| {
-    //         Box::pin(async move {
-    //             sqlx::query!("SET search_path TO journal")
-    //                 .execute(connection)
-    //                 .await?;
-    //             Ok(())
-    //         })
-    //     })
-    //     .connect(&database_url)
-    //     .await
-    //     .expect("failed to create a journal pool");
-    //
-    // let journal_service = JournalService::try_new(journal_pool.clone())
-    //     .await
-    //     .expect("failed to create a journal service");
-
     let journal_pool = PgPoolOptions::new()
         .connect(&database_url)
         .await
         .expect("failed to create a journal pool");
 
-    let journal_service = JournalServiceRevised::try_new(journal_pool.clone())
+    let journal_service = JournalService::try_new(journal_pool.clone())
         .await
         .expect("failed to create journal service");
 
@@ -204,11 +185,7 @@ async fn main() {
 
     let authz_service = AuthzService::new(authz_event_store, role_index);
 
-    let state = AppState::new(
-        auth_service.clone(),
-        authz_service,
-        Arc::new(journal_service),
-    );
+    let state = AppState::new(auth_service.clone(), authz_service, journal_service);
 
     seed_dev_data(&state)
         .await

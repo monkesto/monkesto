@@ -2,21 +2,19 @@
 #![allow(clippy::manual_swap)]
 
 use crate::authn::UserId;
-use crate::authority::Authority;
 use crate::id::Ident;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::{ActivityId, ActivityKind};
 use crate::journal::donation::donation_entry::{DonationEntryId, DonationInstrument};
 use crate::journal::donation::donor::DonorId;
 use crate::journal::donation::{CheckNum, DonationId};
-use crate::journal::event_store_revised::{EventAction, EventType, StreamType};
 use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
-use crate::journal::store::JournalEventStore;
+use crate::journal::service::{EventAction, EventType, StreamType};
 use crate::journal::transaction::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{FinancialPeriod, TransactionId};
-use crate::journal::{JournalId, JournalService, Permissions};
+use crate::journal::{JournalId, Permissions};
 use crate::name::Name;
 use crate::proto::DecodeError;
 use crate::proto::DecodeError::FieldRequired;
@@ -28,19 +26,12 @@ use crate::proto::journal::event::journal_event::proto_journal_domain_event::{
     ProtoJournalDeleted, ProtoMemberAdded, ProtoMemberPermissionsUpdated, ProtoMemberRemoved,
     ProtoTransactionCreated,
 };
-use crate::shutdown;
-use crate::time::Timestamp;
-use axum_login::tracing;
 use disintegrate::Event;
-use disintegrate_postgres::{
-    PgEventListener, PgEventListenerConfig, PgEventListenerError, RetryAction,
-};
 use prost::Message;
 use serde::{Deserialize, Serialize};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, Postgres, Type};
-use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Event, Serialize, Deserialize)]
 #[stream(JournalEvent, [JournalCreated, JournalDeleted])]
@@ -60,14 +51,10 @@ pub enum JournalDomainEvent {
         journal_id: JournalId,
         owner: UserId,
         name: Name,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     JournalDeleted {
         #[id]
         journal_id: JournalId,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     MemberAdded {
         #[id]
@@ -75,8 +62,6 @@ pub enum JournalDomainEvent {
         #[id]
         user_id: UserId,
         permissions: Permissions,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     MemberPermissionsUpdated {
         #[id]
@@ -84,16 +69,12 @@ pub enum JournalDomainEvent {
         #[id]
         user_id: UserId,
         permissions: Permissions,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     MemberRemoved {
         #[id]
         journal_id: JournalId,
         #[id]
         user_id: UserId,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     AccountCreated {
         #[id]
@@ -102,8 +83,6 @@ pub enum JournalDomainEvent {
         journal_id: JournalId,
         name: Name,
         account_type: AccountType,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     AccountRenamed {
         #[id]
@@ -111,16 +90,12 @@ pub enum JournalDomainEvent {
         #[id]
         journal_id: JournalId,
         new_name: Name,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     AccountDeleted {
         #[id]
         account_id: AccountId,
         #[id]
         journal_id: JournalId,
-        authority: Authority,
-        timestamp: Timestamp,
     },
 
     FundCreated {
@@ -129,8 +104,6 @@ pub enum JournalDomainEvent {
         #[id]
         journal_id: JournalId,
         fund_name: Name,
-        authority: Authority,
-        timestamp: Timestamp,
     },
 
     ActivityCreated {
@@ -140,8 +113,6 @@ pub enum JournalDomainEvent {
         journal_id: JournalId,
         activity_name: Name,
         activity_kind: ActivityKind,
-        authority: Authority,
-        timestamp: Timestamp,
     },
 
     EntryCreated {
@@ -153,8 +124,6 @@ pub enum JournalDomainEvent {
         amount: u64,
         entry_side: EntrySide,
         entry_kind: EntryKind,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     TransactionCreated {
         #[id]
@@ -163,8 +132,6 @@ pub enum JournalDomainEvent {
         journal_id: JournalId,
         financial_period: FinancialPeriod,
         memo: Option<Memo>,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     FileUploaded {
         #[id]
@@ -173,16 +140,12 @@ pub enum JournalDomainEvent {
         journal_id: JournalId,
         hash: [u8; 16],
         file_name: String,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     FileDeleted {
         #[id]
         file_id: FileId,
         #[id]
         journal_id: JournalId,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     DonorCreated {
         #[id]
@@ -190,8 +153,6 @@ pub enum JournalDomainEvent {
         #[id]
         journal_id: JournalId,
         name: Name,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     DonationEntryCreated {
         #[id]
@@ -204,16 +165,12 @@ pub enum JournalDomainEvent {
         amount: u64,
         instrument: DonationInstrument,
         check_num: Option<CheckNum>,
-        authority: Authority,
-        timestamp: Timestamp,
     },
     DonationCreated {
         #[id]
         donation_id: DonationId,
         #[id]
         journal_id: JournalId,
-        authority: Authority,
-        timestamp: Timestamp,
     },
 }
 
@@ -399,30 +356,6 @@ impl<'r> Decode<'r, Postgres> for JournalDomainEvent {
     }
 }
 
-#[expect(unused)]
-pub(crate) async fn event_listener(event_store: JournalEventStore, service: JournalService) {
-    PgEventListener::builder(event_store.event_store)
-        .register_listener(
-            service,
-            PgEventListenerConfig::poller(Duration::from_secs(5))
-                .with_notifier()
-                .fetch_size(1000)
-                .with_retry(handle_event_listener_retry),
-        )
-        .start_with_shutdown(shutdown())
-        .await
-        .expect("event listener failed");
-}
-
-#[expect(unused)]
-fn handle_event_listener_retry(
-    error: PgEventListenerError<sqlx::Error>,
-    _attempts: usize,
-) -> RetryAction {
-    tracing::error!(?error, "read model listener failed");
-    RetryAction::Abort
-}
-
 impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
     fn from(event: JournalDomainEvent) -> Self {
         let event = match event {
@@ -430,157 +363,109 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 journal_id,
                 owner,
                 name,
-                authority,
-                timestamp,
             } => JournalDomainEventType::JournalCreated(ProtoJournalCreated {
                 journal_id: Some(journal_id.into()),
                 owner_id: Some(owner.into()),
                 name: name.to_string(),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
-            JournalDomainEvent::JournalDeleted {
-                journal_id,
-                authority,
-                timestamp,
-            } => JournalDomainEventType::JournalDeleted(ProtoJournalDeleted {
-                journal_id: Some(journal_id.into()),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
-            }),
+            JournalDomainEvent::JournalDeleted { journal_id } => {
+                JournalDomainEventType::JournalDeleted(ProtoJournalDeleted {
+                    journal_id: Some(journal_id.into()),
+                })
+            }
             JournalDomainEvent::MemberAdded {
                 journal_id,
                 user_id,
                 permissions,
-                authority,
-                timestamp,
             } => JournalDomainEventType::MemberAdded(ProtoMemberAdded {
                 journal_id: Some(journal_id.into()),
                 user_id: Some(user_id.into()),
                 permissions: permissions.bits(),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::MemberPermissionsUpdated {
                 journal_id,
                 user_id,
                 permissions,
-                authority,
-                timestamp,
             } => JournalDomainEventType::MemberPermissionsUpdated(ProtoMemberPermissionsUpdated {
                 journal_id: Some(journal_id.into()),
                 user_id: Some(user_id.into()),
                 permissions: permissions.bits(),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::MemberRemoved {
                 journal_id,
                 user_id,
-                authority,
-                timestamp,
             } => JournalDomainEventType::MemberRemoved(ProtoMemberRemoved {
                 journal_id: Some(journal_id.into()),
                 user_id: Some(user_id.into()),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::AccountCreated {
                 account_id,
                 journal_id,
                 name,
-                authority,
                 account_type,
-                timestamp,
             } => JournalDomainEventType::AccountCreated(ProtoAccountCreated {
                 account_id: Some(account_id.into()),
                 journal_id: Some(journal_id.into()),
                 name: name.to_string(),
                 account_type: account_type as i32,
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::AccountRenamed {
                 account_id,
                 journal_id,
                 new_name,
-                authority,
-                timestamp,
             } => JournalDomainEventType::AccountRenamed(ProtoAccountRenamed {
                 account_id: Some(account_id.into()),
                 journal_id: Some(journal_id.into()),
                 new_name: new_name.to_string(),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::AccountDeleted {
                 account_id,
                 journal_id,
-                authority,
-                timestamp,
             } => JournalDomainEventType::AccountDeleted(ProtoAccountDeleted {
                 account_id: Some(account_id.into()),
                 journal_id: Some(journal_id.into()),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::FundCreated {
                 fund_id,
                 journal_id,
                 fund_name,
-                authority,
-                timestamp,
             } => JournalDomainEventType::FundCreated(ProtoFundCreated {
                 fund_id: Some(fund_id.into()),
                 journal_id: Some(journal_id.into()),
                 fund_name: fund_name.to_string(),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::TransactionCreated {
                 transaction_id,
                 journal_id,
                 financial_period,
                 memo,
-                authority,
-                timestamp,
             } => JournalDomainEventType::TransactionCreated(ProtoTransactionCreated {
                 transaction_id: Some(transaction_id.into()),
                 journal_id: Some(journal_id.into()),
                 financial_period: financial_period as i32,
                 memo: memo.map(|memo| memo.into()),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::FileUploaded {
                 file_id,
                 journal_id,
                 hash,
                 file_name,
-                authority,
-                timestamp,
             } => JournalDomainEventType::FileUploaded(ProtoFileUploaded {
                 file_id: Some(file_id.into()),
                 journal_id: Some(journal_id.into()),
                 hash: hash.into(),
                 file_name,
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::ActivityCreated {
                 activity_id,
                 journal_id,
                 activity_name,
                 activity_kind,
-                authority,
-                timestamp,
             } => JournalDomainEventType::ActivityCreated(ProtoActivityCreated {
                 activity_id: Some(activity_id.into()),
                 journal_id: Some(journal_id.into()),
                 activity_name: activity_name.to_string(),
                 activity_kind: activity_kind as i32,
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::EntryCreated {
                 entry_id,
@@ -589,41 +474,29 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 amount,
                 entry_side,
                 entry_kind,
-                authority,
-                timestamp,
             } => JournalDomainEventType::EntryCreated(ProtoEntryCreated {
                 entry_id: Some(entry_id.into()),
                 journal_id: Some(journal_id.into()),
                 entry_kind: Some(entry_kind.into()),
                 amount,
                 entry_side: entry_side as i32,
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
                 transaction_id: Some(transaction_id.into()),
             }),
             JournalDomainEvent::FileDeleted {
                 file_id,
                 journal_id,
-                authority,
-                timestamp,
             } => JournalDomainEventType::FileDeleted(ProtoFileDeleted {
                 file_id: Some(file_id.into()),
                 journal_id: Some(journal_id.into()),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::DonorCreated {
                 donor_id,
                 journal_id,
                 name,
-                authority,
-                timestamp,
             } => JournalDomainEventType::DonorCreated(ProtoDonorCreated {
                 donor_id: Some(donor_id.into()),
                 journal_id: Some(journal_id.into()),
                 name: name.to_string(),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::DonationEntryCreated {
                 donation_entry_id,
@@ -634,8 +507,6 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 amount,
                 instrument,
                 check_num,
-                authority,
-                timestamp,
             } => JournalDomainEventType::DonationEntryCreated(ProtoDonationEntryCreated {
                 donation_entry_id: Some(donation_entry_id.into()),
                 journal_id: Some(journal_id.into()),
@@ -645,19 +516,13 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 amount,
                 instrument: instrument as i32,
                 check_num: check_num.map(|n| n.to_string()),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
             JournalDomainEvent::DonationCreated {
                 donation_id,
                 journal_id,
-                authority,
-                timestamp,
             } => JournalDomainEventType::DonationCreated(ProtoDonationCreated {
                 donation_id: Some(donation_id.into()),
                 journal_id: Some(journal_id.into()),
-                authority: Some(authority.into()),
-                timestamp: Some(timestamp.into()),
             }),
         };
 
@@ -676,21 +541,15 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                 journal_id: ev.journal_id.try_into()?,
                 owner: ev.owner_id.try_into()?,
                 name: Name::try_new(ev.name)?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::JournalDeleted(ev) => JournalDomainEvent::JournalDeleted {
                 journal_id: ev.journal_id.try_into()?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::MemberAdded(ev) => JournalDomainEvent::MemberAdded {
                 journal_id: ev.journal_id.try_into()?,
                 user_id: ev.user_id.try_into()?,
                 permissions: Permissions::from_bits(ev.permissions)
                     .ok_or(DecodeError::PermissionDecode(ev.permissions))?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::MemberPermissionsUpdated(ev) => {
                 JournalDomainEvent::MemberPermissionsUpdated {
@@ -698,43 +557,31 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                     user_id: ev.user_id.try_into()?,
                     permissions: Permissions::from_bits(ev.permissions)
                         .ok_or(DecodeError::PermissionDecode(ev.permissions))?,
-                    authority: ev.authority.try_into()?,
-                    timestamp: ev.timestamp.try_into()?,
                 }
             }
             JournalDomainEventType::MemberRemoved(ev) => JournalDomainEvent::MemberRemoved {
                 journal_id: ev.journal_id.try_into()?,
                 user_id: ev.user_id.try_into()?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::AccountCreated(ev) => JournalDomainEvent::AccountCreated {
                 account_id: ev.account_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
                 name: Name::try_new(ev.name)?,
                 account_type: (ev.account_type as i8).try_into()?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::AccountRenamed(ev) => JournalDomainEvent::AccountRenamed {
                 account_id: ev.account_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
                 new_name: Name::try_new(ev.new_name)?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::AccountDeleted(ev) => JournalDomainEvent::AccountDeleted {
                 account_id: ev.account_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::FundCreated(ev) => JournalDomainEvent::FundCreated {
                 fund_id: ev.fund_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
                 fund_name: Name::try_new(ev.fund_name)?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::TransactionCreated(ev) => {
                 JournalDomainEvent::TransactionCreated {
@@ -742,8 +589,6 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                     journal_id: ev.journal_id.try_into()?,
                     financial_period: (ev.financial_period as i8).try_into()?,
                     memo: ev.memo.map(|m| m.try_into()).transpose()?,
-                    authority: ev.authority.try_into()?,
-                    timestamp: ev.timestamp.try_into()?,
                 }
             }
             JournalDomainEventType::FileUploaded(ev) => JournalDomainEvent::FileUploaded {
@@ -751,16 +596,12 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                 journal_id: ev.journal_id.try_into()?,
                 hash: ev.hash.try_into().map_err(|_| DecodeError::Deserialize)?,
                 file_name: ev.file_name,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::ActivityCreated(ev) => JournalDomainEvent::ActivityCreated {
                 activity_id: ev.activity_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
                 activity_name: Name::try_new(ev.activity_name)?,
                 activity_kind: ActivityKind::try_from(ev.activity_kind as i8)?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::EntryCreated(ev) => JournalDomainEvent::EntryCreated {
                 entry_id: ev.entry_id.try_into()?,
@@ -769,21 +610,15 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                 amount: ev.amount,
                 entry_side: (ev.entry_side as i8).try_into()?,
                 entry_kind: ev.entry_kind.try_into()?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::FileDeleted(ev) => JournalDomainEvent::FileDeleted {
                 file_id: ev.file_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::DonorCreated(ev) => JournalDomainEvent::DonorCreated {
                 donor_id: ev.donor_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
                 name: Name::try_new(ev.name)?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
             JournalDomainEventType::DonationEntryCreated(ev) => {
                 JournalDomainEvent::DonationEntryCreated {
@@ -795,15 +630,11 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
                     amount: ev.amount,
                     instrument: DonationInstrument::try_from(ev.instrument as i16)?,
                     check_num: ev.check_num.map(CheckNum::try_new).transpose()?,
-                    authority: ev.authority.try_into()?,
-                    timestamp: ev.timestamp.try_into()?,
                 }
             }
             JournalDomainEventType::DonationCreated(ev) => JournalDomainEvent::DonationCreated {
                 donation_id: ev.donation_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
-                authority: ev.authority.try_into()?,
-                timestamp: ev.timestamp.try_into()?,
             },
         };
 

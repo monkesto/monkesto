@@ -45,5 +45,5 @@ pub async fn create_fund(
 
     state.journal_service.wait_for(event_id).await;
 
-    Ok(Redirect::to(&format!("/journal/{}/account", id)))
+    Ok(Redirect::to(&format!("/journal/{}/fund", id)))
 }

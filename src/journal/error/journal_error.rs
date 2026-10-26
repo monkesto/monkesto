@@ -41,7 +41,6 @@ pub enum JournalError {
     FundIdCollision(FundId),
 
     #[error("an entry already exists with the id {0}")]
-    #[expect(unused)]
     EntryIdCollision(EntryId),
 
     #[error("a transaction already exists with the id {0}")]
@@ -60,15 +59,12 @@ pub enum JournalError {
     InvalidActivity(ActivityId),
 
     #[error("invalid fund: {0}")]
-    #[expect(unused)]
     InvalidFund(FundId),
 
     #[error("invalid entry: {0}")]
-    #[expect(unused)]
     InvalidEntry(EntryId),
 
     #[error("invalid transaction: {0}")]
-    #[expect(unused)]
     InvalidTransaction(TransactionId),
 
     #[error("failed to validate a transaction: {0}")]

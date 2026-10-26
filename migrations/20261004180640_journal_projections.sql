@@ -49,6 +49,7 @@ CREATE TABLE funds (
 CREATE TABLE transactions (
     id TEXT NOT NULL,
     journal_id TEXT NOT NULL REFERENCES journals(id),
+    financial_period int2 NOT NULL,
     memo TEXT,
     PRIMARY KEY (journal_id, id)
 );
