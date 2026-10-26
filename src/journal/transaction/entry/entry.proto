@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package proto.journal.entry.entry;
+package proto.journal.transaction.entry.entry;
 import "id/ident.proto";
 
 message ProtoRepeatedTransactionEntryIds {

@@ -3,7 +3,7 @@ fn main() {
         &[
             "src/id/ident.proto",
             "src/authority/authority.proto",
-            "src/journal/entry/entry.proto",
+            "src/journal/transaction/entry/entry.proto",
             "src/time/timestamp.proto",
             "src/authn/event/authn.proto",
             "src/authz/event/authz.proto",

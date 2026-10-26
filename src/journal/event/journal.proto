@@ -5,7 +5,7 @@ package proto.journal.event.journal;
 import "authority/authority.proto";
 import "id/ident.proto";
 import "time/timestamp.proto";
-import "journal/entry/entry.proto";
+import "journal/transaction/entry/entry.proto";
 import "journal/transaction/memo/memo.proto";
 
 
@@ -74,7 +74,7 @@ message ProtoJournalDomainEvent {
   message ProtoEntryCreated {
     id.ident.ProtoIdent entry_id = 1;
     id.ident.ProtoIdent journal_id = 2;
-    proto.journal.entry.entry.ProtoEntryKind entry_kind = 3;
+    proto.journal.transaction.entry.entry.ProtoEntryKind entry_kind = 3;
     uint64 amount = 4;
     int32 entry_side = 5;
     authority.authority.ProtoAuthority authority = 6;
@@ -124,6 +124,34 @@ message ProtoJournalDomainEvent {
     time.timestamp.ProtoTimestamp timestamp = 5;
   }
 
+  message ProtoDonorCreated {
+    id.ident.ProtoIdent donor_id = 1;
+    id.ident.ProtoIdent journal_id = 2;
+    string name = 3;
+    authority.authority.ProtoAuthority authority = 4;
+    time.timestamp.ProtoTimestamp timestamp = 5;
+  }
+
+  message ProtoDonationEntryCreated {
+    id.ident.ProtoIdent donation_entry_id = 1;
+    id.ident.ProtoIdent journal_id = 2;
+    id.ident.ProtoIdent fund_id = 3;
+    id.ident.ProtoIdent donor_id = 4;
+    id.ident.ProtoIdent donation_id = 5;
+    uint64 amount = 6;
+    int32 instrument = 7;
+    optional string check_num = 8;
+    authority.authority.ProtoAuthority authority = 9;
+    time.timestamp.ProtoTimestamp timestamp = 10;
+  }
+
+  message ProtoDonationCreated {
+    id.ident.ProtoIdent donation_id = 1;
+    id.ident.ProtoIdent journal_id = 2;
+    authority.authority.ProtoAuthority authority = 3;
+    time.timestamp.ProtoTimestamp timestamp = 4;
+  }
+
   oneof journal_domain_event_type {
     ProtoJournalCreated journal_created = 1;
     ProtoJournalDeleted journal_deleted = 2;
@@ -139,5 +167,8 @@ message ProtoJournalDomainEvent {
     ProtoActivityCreated activity_created = 13;
     ProtoFundCreated fund_created = 14;
     ProtoEntryCreated entry_created = 15;
+    ProtoDonorCreated donor_created = 16;
+    ProtoDonationEntryCreated donation_entry_created = 17;
+    ProtoDonationCreated donation_created = 18;
   }
 }

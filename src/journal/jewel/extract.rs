@@ -823,8 +823,7 @@ pub async fn jewel_extract(
         }
 
         let mut allocations = allocations_map.into_iter().collect::<Vec<_>>();
-        allocations
-            .sort_by_key(|(_account_id, (budgeted_month, _, _, _))| Reverse(*budgeted_month));
+        allocations.sort_by_key(|(_account_id, (_, spent_month, _, _))| Reverse(*spent_month));
         monthly_budget_allocations.push(allocations);
     }
 

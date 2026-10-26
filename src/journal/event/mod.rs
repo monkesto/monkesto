@@ -6,11 +6,14 @@ use crate::authority::Authority;
 use crate::id::Ident;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::{ActivityId, ActivityKind};
-use crate::journal::entry::{EntryId, EntryKind, EntrySide};
+use crate::journal::donation::donation_entry::{DonationEntryId, DonationInstrument};
+use crate::journal::donation::donor::DonorId;
+use crate::journal::donation::{CheckNum, DonationId};
 use crate::journal::event_store_revised::{EventAction, EventType, StreamType};
 use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
 use crate::journal::store::JournalEventStore;
+use crate::journal::transaction::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{FinancialPeriod, TransactionId};
 use crate::journal::{JournalId, JournalService, Permissions};
@@ -20,9 +23,10 @@ use crate::proto::DecodeError::FieldRequired;
 use crate::proto::journal::event::journal_event::ProtoJournalDomainEvent;
 use crate::proto::journal::event::journal_event::proto_journal_domain_event::{
     JournalDomainEventType, ProtoAccountCreated, ProtoAccountDeleted, ProtoAccountRenamed,
-    ProtoActivityCreated, ProtoEntryCreated, ProtoFileDeleted, ProtoFileUploaded, ProtoFundCreated,
-    ProtoJournalCreated, ProtoJournalDeleted, ProtoMemberAdded, ProtoMemberPermissionsUpdated,
-    ProtoMemberRemoved, ProtoTransactionCreated,
+    ProtoActivityCreated, ProtoDonationCreated, ProtoDonationEntryCreated, ProtoDonorCreated,
+    ProtoEntryCreated, ProtoFileDeleted, ProtoFileUploaded, ProtoFundCreated, ProtoJournalCreated,
+    ProtoJournalDeleted, ProtoMemberAdded, ProtoMemberPermissionsUpdated, ProtoMemberRemoved,
+    ProtoTransactionCreated,
 };
 use crate::shutdown;
 use crate::time::Timestamp;
@@ -180,6 +184,37 @@ pub enum JournalDomainEvent {
         authority: Authority,
         timestamp: Timestamp,
     },
+    DonorCreated {
+        #[id]
+        donor_id: DonorId,
+        #[id]
+        journal_id: JournalId,
+        name: Name,
+        authority: Authority,
+        timestamp: Timestamp,
+    },
+    DonationEntryCreated {
+        #[id]
+        donation_entry_id: DonationEntryId,
+        #[id]
+        journal_id: JournalId,
+        fund_id: FundId,
+        donor_id: DonorId,
+        donation_id: DonationId,
+        amount: u64,
+        instrument: DonationInstrument,
+        check_num: Option<CheckNum>,
+        authority: Authority,
+        timestamp: Timestamp,
+    },
+    DonationCreated {
+        #[id]
+        donation_id: DonationId,
+        #[id]
+        journal_id: JournalId,
+        authority: Authority,
+        timestamp: Timestamp,
+    },
 }
 
 impl JournalDomainEvent {
@@ -200,6 +235,9 @@ impl JournalDomainEvent {
             TransactionCreated { .. } => StreamType::Transaction,
             FileUploaded { .. } => StreamType::File,
             FileDeleted { .. } => StreamType::File,
+            DonorCreated { .. } => StreamType::Donor,
+            DonationEntryCreated { .. } => StreamType::DonationEntry,
+            DonationCreated { .. } => StreamType::Donation,
         }
     }
 
@@ -221,6 +259,9 @@ impl JournalDomainEvent {
             TransactionCreated { .. } => ET::TransactionCreated,
             FileUploaded { .. } => ET::FileUploaded,
             FileDeleted { .. } => ET::FileDeleted,
+            DonorCreated { .. } => ET::DonorCreated,
+            DonationEntryCreated { .. } => ET::DonationEntryCreated,
+            DonationCreated { .. } => EventType::DonationCreated,
         }
     }
 
@@ -251,6 +292,12 @@ impl JournalDomainEvent {
 
             FileUploaded { .. } => Created,
             FileDeleted { .. } => Deleted,
+
+            DonorCreated { .. } => Created,
+
+            DonationEntryCreated { .. } => Created,
+
+            DonationCreated { .. } => Created,
         }
     }
 
@@ -271,7 +318,10 @@ impl JournalDomainEvent {
             | EntryCreated { journal_id, .. }
             | TransactionCreated { journal_id, .. }
             | FileUploaded { journal_id, .. }
-            | FileDeleted { journal_id, .. } => *journal_id,
+            | FileDeleted { journal_id, .. }
+            | DonorCreated { journal_id, .. }
+            | DonationEntryCreated { journal_id, .. }
+            | DonationCreated { journal_id, .. } => *journal_id,
         }
     }
 
@@ -298,6 +348,14 @@ impl JournalDomainEvent {
             TransactionCreated { transaction_id, .. } => **transaction_id,
 
             FileUploaded { file_id, .. } | FileDeleted { file_id, .. } => **file_id,
+
+            DonorCreated { donor_id, .. } => **donor_id,
+
+            DonationEntryCreated {
+                donation_entry_id, ..
+            } => **donation_entry_id,
+
+            DonationCreated { donation_id, .. } => **donation_id,
         }
     }
 
@@ -306,6 +364,13 @@ impl JournalDomainEvent {
         // but the entries aren't actually namespaced by transaction
         match self {
             JournalDomainEvent::EntryCreated { transaction_id, .. } => Some(*transaction_id),
+            _ => None,
+        }
+    }
+
+    pub fn donation_id(&self) -> Option<DonationId> {
+        match self {
+            JournalDomainEvent::DonationEntryCreated { donation_id, .. } => Some(*donation_id),
             _ => None,
         }
     }
@@ -547,6 +612,53 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
                 authority: Some(authority.into()),
                 timestamp: Some(timestamp.into()),
             }),
+            JournalDomainEvent::DonorCreated {
+                donor_id,
+                journal_id,
+                name,
+                authority,
+                timestamp,
+            } => JournalDomainEventType::DonorCreated(ProtoDonorCreated {
+                donor_id: Some(donor_id.into()),
+                journal_id: Some(journal_id.into()),
+                name: name.to_string(),
+                authority: Some(authority.into()),
+                timestamp: Some(timestamp.into()),
+            }),
+            JournalDomainEvent::DonationEntryCreated {
+                donation_entry_id,
+                journal_id,
+                fund_id,
+                donor_id,
+                donation_id,
+                amount,
+                instrument,
+                check_num,
+                authority,
+                timestamp,
+            } => JournalDomainEventType::DonationEntryCreated(ProtoDonationEntryCreated {
+                donation_entry_id: Some(donation_entry_id.into()),
+                journal_id: Some(journal_id.into()),
+                fund_id: Some(fund_id.into()),
+                donor_id: Some(donor_id.into()),
+                donation_id: Some(donation_id.into()),
+                amount,
+                instrument: instrument as i32,
+                check_num: check_num.map(|n| n.to_string()),
+                authority: Some(authority.into()),
+                timestamp: Some(timestamp.into()),
+            }),
+            JournalDomainEvent::DonationCreated {
+                donation_id,
+                journal_id,
+                authority,
+                timestamp,
+            } => JournalDomainEventType::DonationCreated(ProtoDonationCreated {
+                donation_id: Some(donation_id.into()),
+                journal_id: Some(journal_id.into()),
+                authority: Some(authority.into()),
+                timestamp: Some(timestamp.into()),
+            }),
         };
 
         ProtoJournalDomainEvent {
@@ -662,6 +774,33 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
             },
             JournalDomainEventType::FileDeleted(ev) => JournalDomainEvent::FileDeleted {
                 file_id: ev.file_id.try_into()?,
+                journal_id: ev.journal_id.try_into()?,
+                authority: ev.authority.try_into()?,
+                timestamp: ev.timestamp.try_into()?,
+            },
+            JournalDomainEventType::DonorCreated(ev) => JournalDomainEvent::DonorCreated {
+                donor_id: ev.donor_id.try_into()?,
+                journal_id: ev.journal_id.try_into()?,
+                name: Name::try_new(ev.name)?,
+                authority: ev.authority.try_into()?,
+                timestamp: ev.timestamp.try_into()?,
+            },
+            JournalDomainEventType::DonationEntryCreated(ev) => {
+                JournalDomainEvent::DonationEntryCreated {
+                    donation_entry_id: ev.donation_entry_id.try_into()?,
+                    journal_id: ev.journal_id.try_into()?,
+                    fund_id: ev.fund_id.try_into()?,
+                    donor_id: ev.donor_id.try_into()?,
+                    donation_id: ev.donation_id.try_into()?,
+                    amount: ev.amount,
+                    instrument: DonationInstrument::try_from(ev.instrument as i16)?,
+                    check_num: ev.check_num.map(CheckNum::try_new).transpose()?,
+                    authority: ev.authority.try_into()?,
+                    timestamp: ev.timestamp.try_into()?,
+                }
+            }
+            JournalDomainEventType::DonationCreated(ev) => JournalDomainEvent::DonationCreated {
+                donation_id: ev.donation_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
                 authority: ev.authority.try_into()?,
                 timestamp: ev.timestamp.try_into()?,

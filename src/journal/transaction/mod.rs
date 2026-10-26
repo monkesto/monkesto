@@ -1,4 +1,5 @@
 pub mod commands;
+pub mod entry;
 pub mod memo;
 pub mod views;
 
@@ -25,18 +26,16 @@ use crate::authority::Authority;
 use crate::id;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::{ActivityId, ActivityKind};
-use crate::journal::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::error::{JournalError, TransactionValidationError};
 use crate::journal::fund::FundId;
 use crate::journal::member::JournalMember;
+use crate::journal::transaction::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::transaction::memo::Memo;
 use crate::journal::{Journal, JournalId, Permissions, validate_permissions};
-use crate::proto::journal::entry::entry::ProtoRepeatedTransactionEntryIds;
 use crate::status::Status;
 use crate::time::Timestamp;
 use chrono::{DateTime, Datelike, Utc};
 use disintegrate::{Decision, StateMutate, StateQuery};
-use prost::Message;
 use serde::Deserialize;
 use serde::Serialize;
 use sqlx::encode::IsNull;
@@ -198,7 +197,6 @@ pub struct Transaction {
     #[id]
     transaction_id: TransactionId,
     journal_id: JournalId,
-    entries: TransactionEntryIds,
     memo: Memo,
     status: Status,
 }
@@ -368,34 +366,6 @@ impl Deref for TransactionEntries {
     type Target = Vec<TransactionEntry>;
     fn deref(&self) -> &Self::Target {
         &self.0
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone, Default, Serialize, Deserialize)]
-pub struct TransactionEntryIds(pub Vec<EntryId>);
-
-impl Type<Postgres> for TransactionEntryIds {
-    fn type_info() -> <Postgres as Database>::TypeInfo {
-        <&[u8] as Type<Postgres>>::type_info()
-    }
-}
-
-impl<'q> Encode<'q, Postgres> for TransactionEntryIds {
-    fn encode_by_ref(
-        &self,
-        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
-    ) -> Result<IsNull, BoxDynError> {
-        let bytes = ProtoRepeatedTransactionEntryIds::from(TransactionEntryIds(self.0.clone()))
-            .encode_to_vec();
-        <Vec<u8> as Encode<Postgres>>::encode(bytes, buf)
-    }
-}
-
-impl<'r> Decode<'r, Postgres> for TransactionEntryIds {
-    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
-        let bytes = <&[u8] as Decode<Postgres>>::decode(value)?;
-        let prost_entries = ProtoRepeatedTransactionEntryIds::decode(bytes)?;
-        Ok(prost_entries.try_into()?)
     }
 }
 

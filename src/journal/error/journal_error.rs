@@ -5,12 +5,15 @@ use crate::id::ident_error::IdentError;
 use crate::journal::account::{AccountId, AccountTypeFromIntError};
 use crate::journal::activity::ActivityId;
 use crate::journal::activity::kind::ActivityKindFromIntError;
-use crate::journal::entry::EntryId;
+use crate::journal::donation::DonationId;
+use crate::journal::donation::donation_entry::DonationEntryId;
+use crate::journal::donation::donor::DonorId;
 use crate::journal::error::transaction_validation::TransactionValidationError;
 use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
 use crate::journal::jewel::JewelImportError;
 use crate::journal::transaction::TransactionId;
+use crate::journal::transaction::entry::EntryId;
 use crate::journal::transaction::memo::MemoError;
 use crate::journal::{JournalId, PermissionDecodeError, Permissions};
 use crate::name::NameError;
@@ -131,6 +134,24 @@ pub enum JournalError {
 
     #[error(transparent)]
     AccountTypeFromInt(#[from] AccountTypeFromIntError),
+
+    #[error("invalid donor: {0}")]
+    InvalidDonor(DonorId),
+
+    #[error("a donor already exists with the id {0}")]
+    DonorIdCollision(DonorId),
+
+    #[error("invalid donation entry: {0}")]
+    InvalidDonationEntry(DonationEntryId),
+
+    #[error("a donation entry already exists with the id {0}")]
+    DonationEntryIdCollision(DonationEntryId),
+
+    #[error("invalid donation: {0}")]
+    InvalidDonation(DonationId),
+
+    #[error("a donation already exists with the id {0}")]
+    DonationIdCollision(DonationId),
 }
 
 impl From<DecisionError<JournalError>> for JournalError {
@@ -170,7 +191,10 @@ impl IntoResponse for JournalError {
             | FundIdCollision(_)
             | EntryIdCollision(_)
             | TransactionIdCollision(_)
-            | FileIdCollision(_) => (
+            | FileIdCollision(_)
+            | DonorIdCollision(_)
+            | DonationEntryIdCollision(_)
+            | DonationIdCollision(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Id collision, try again.",
             )
@@ -181,7 +205,12 @@ impl IntoResponse for JournalError {
             | InvalidFund(_)
             | InvalidEntry(_)
             | InvalidTransaction(_)
-            | InvalidFile(_) => StatusCode::CONFLICT.into_response(),
+            | InvalidFile(_)
+            | InvalidDonor(_)
+            | InvalidDonationEntry(_)
+            | InvalidDonation(_) => {
+                (StatusCode::CONFLICT, "tried to fetch an invalid resource").into_response()
+            }
             TransactionValidation(e) => e.into_response(),
             Permissions(perms) => (
                 StatusCode::UNAUTHORIZED,

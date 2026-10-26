@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                INSERT INTO donors (id, journal_id, name, total_donated) VALUES ($1, $2, $3, 0) ON CONFLICT DO NOTHING\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "da2015cb02b85fbd12e065a1ded339721f2d07d4de8df4a2d24126aeba65418c"
+}

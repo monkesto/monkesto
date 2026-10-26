@@ -1,7 +1,7 @@
 pub mod account;
 pub mod activity;
 pub mod commands;
-pub mod entry;
+pub mod donation;
 pub mod error;
 pub mod event;
 #[expect(unused)]

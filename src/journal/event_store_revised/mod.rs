@@ -8,7 +8,9 @@ use crate::journal::JournalResult;
 use crate::journal::Permissions;
 use crate::journal::account::{AccountId, AccountState, AccountType};
 use crate::journal::activity::{ActivityId, ActivityKind, ActivityState};
-use crate::journal::entry::{EntryId, EntryKind, EntrySide};
+use crate::journal::donation::DonationId;
+use crate::journal::donation::donation_entry::DonationEntryId;
+use crate::journal::donation::donor::DonorId;
 use crate::journal::error::JournalError::InvalidJournal;
 use crate::journal::error::TransactionValidationError;
 use crate::journal::event::JournalDomainEvent;
@@ -22,10 +24,11 @@ use crate::journal::fund::{Fund, FundId, FundState};
 use crate::journal::jewel::JewelImportError;
 use crate::journal::jewel::extract::JewelData;
 use crate::journal::service::JournalExecutor;
+use crate::journal::transaction::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{
-    FinancialPeriod, StoredTransactionEntry, TransactionEntries, TransactionEntry,
-    TransactionEntryIds, TransactionId, TransactionState,
+    FinancialPeriod, StoredTransactionEntry, TransactionEntries, TransactionEntry, TransactionId,
+    TransactionState,
 };
 use crate::journal::{JournalError, JournalState};
 use crate::name::Name;
@@ -58,7 +61,6 @@ mod stream_lock {
     use crate::time::Timestamp;
     use sqlx::{Postgres, QueryBuilder, Transaction};
     use std::collections::HashMap;
-    use std::ops::Deref;
 
     pub struct StreamHandle {
         journal_id: JournalId,
@@ -229,6 +231,7 @@ mod stream_lock {
         let stream_id = payload.stream_id();
         let stream_type = payload.stream_type();
         let transaction_id = payload.transaction_id();
+        let donation_id = payload.donation_id();
         let version = 0;
 
         let event_id = sqlx::query_scalar!(
@@ -272,7 +275,10 @@ mod stream_lock {
 
             if let Some(transaction_id) = transaction_id {
                 builder.push(", transaction_id");
+            } else if let Some(donation_id) = donation_id {
+                builder.push(", donation_id");
             }
+
             builder.push(") VALUES (");
 
             let mut sep = builder.separated(", ");
@@ -402,6 +408,9 @@ pub enum StreamType {
     Entry = 5,
     Transaction = 6,
     File = 7,
+    Donor = 8,
+    DonationEntry = 9,
+    Donation = 10,
 }
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum EventAction {
@@ -420,6 +429,9 @@ impl StreamType {
             StreamType::Entry => "entry",
             StreamType::Transaction => "transaction",
             StreamType::File => "file",
+            StreamType::Donor => "donor",
+            StreamType::DonationEntry => "donation_entry",
+            StreamType::Donation => "donation",
         }
     }
 }
@@ -460,6 +472,9 @@ pub enum EventType {
     TransactionCreated = 601,
     FileUploaded = 701,
     FileDeleted = 702,
+    DonorCreated = 801,
+    DonationEntryCreated = 901,
+    DonationCreated = 1001,
 }
 
 #[derive(Error, Debug)]
@@ -509,6 +524,11 @@ fn handle_unique_violation(
                 JournalError::TransactionIdCollision(TransactionId(stream_id))
             }
             StreamType::File => JournalError::FileIdCollision(FileId(stream_id)),
+            StreamType::Donor => JournalError::DonorIdCollision(DonorId(stream_id)),
+            StreamType::DonationEntry => {
+                JournalError::DonationEntryIdCollision(DonationEntryId(stream_id))
+            }
+            StreamType::Donation => JournalError::DonationIdCollision(DonationId(stream_id)),
         };
     }
     JournalError::from(error)
@@ -525,6 +545,9 @@ fn handle_missing_stream(stream_id: Ident, stream_type: StreamType) -> JournalEr
         StreamType::Entry => InvalidEntry(EntryId(stream_id)),
         StreamType::Transaction => InvalidTransaction(TransactionId(stream_id)),
         StreamType::File => InvalidFile(FileId(stream_id)),
+        StreamType::Donor => InvalidDonor(DonorId(stream_id)),
+        StreamType::DonationEntry => InvalidDonationEntry(DonationEntryId(stream_id)),
+        StreamType::Donation => InvalidDonation(DonationId(stream_id)),
     }
 }
 

@@ -1,5 +1,5 @@
-use crate::journal::entry::EntrySideFromIntError;
 use crate::journal::transaction::TransactionEntries;
+use crate::journal::transaction::entry::EntrySideFromIntError;
 use crate::journal::transaction::memo::MemoError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};

@@ -5,8 +5,10 @@ use crate::id::ident_error::IdentError;
 use crate::journal::account::AccountTypeFromIntError;
 use crate::journal::activity::kind::ActivityKindFromIntError;
 use crate::journal::activity::scope::ActivityScopeFromIntError;
-use crate::journal::entry::EntrySideFromIntError;
+use crate::journal::donation::CheckNumFromIntError;
+use crate::journal::donation::donation_entry::DonationInstrumentFromIntError;
 use crate::journal::transaction::FinancialPeriodFromIntError;
+use crate::journal::transaction::entry::EntrySideFromIntError;
 use crate::journal::transaction::memo::MemoError;
 use crate::name::NameError;
 use thiserror::Error;
@@ -24,18 +26,21 @@ pub mod journal {
         }
     }
 
-    pub mod entry {
-        pub mod entry {
-            include!(concat!(env!("OUT_DIR"), "/proto.journal.entry.entry.rs"));
-        }
-    }
-
     pub mod transaction {
         pub mod memo {
             pub mod memo {
                 include!(concat!(
                     env!("OUT_DIR"),
                     "/proto.journal.transaction.memo.memo.rs"
+                ));
+            }
+        }
+
+        pub mod entry {
+            pub mod entry {
+                include!(concat!(
+                    env!("OUT_DIR"),
+                    "/proto.journal.transaction.entry.entry.rs"
                 ));
             }
         }
@@ -106,4 +111,8 @@ pub enum DecodeError {
     ActivityScopeFromInt(#[from] ActivityScopeFromIntError),
     #[error("invalid prost message: {0}")]
     InvalidMessage(#[from] prost::DecodeError),
+    #[error(transparent)]
+    DonationInstrument(#[from] DonationInstrumentFromIntError),
+    #[error(transparent)]
+    CheckNum(#[from] CheckNumFromIntError),
 }

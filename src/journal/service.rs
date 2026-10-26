@@ -12,7 +12,9 @@ use crate::journal::account::{
 use crate::journal::activity::{
     ActivityId, ActivityKind, ActivityState, ActivityStateWithPayload, CreateActivity,
 };
-use crate::journal::entry::{EntryId, EntryKind, EntrySide};
+use crate::journal::donation::donation_entry::{DonationEntryId, DonationInstrument};
+use crate::journal::donation::donor::DonorId;
+use crate::journal::donation::{CheckNum, DonationId};
 use crate::journal::error::JournalError::InvalidJournal;
 use crate::journal::event::JournalDomainEvent;
 use crate::journal::event_store_revised::EventId;
@@ -25,6 +27,7 @@ use crate::journal::jewel::JewelImportError;
 use crate::journal::jewel::extract::{JewelData, jewel_extract};
 use crate::journal::member::{AddJournalMember, RemoveJournalMember, UpdateJournalMember};
 use crate::journal::store::JournalEventStore;
+use crate::journal::transaction::entry::{EntryId, EntryKind, EntrySide};
 use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{
     CreateTransaction, FinancialPeriod, StoredTransactionEntry, TransactionEntries,
@@ -1659,6 +1662,73 @@ pub async fn handle_incoming_event(
                 )
                 .execute(&mut **tx)
                 .await?;
+        }
+        JournalDomainEvent::DonorCreated {
+            donor_id,
+            journal_id,
+            name,
+            ..
+        } => {
+            sqlx::query!(
+                r#"
+                INSERT INTO donors (id, journal_id, name, total_donated) VALUES ($1, $2, $3, 0) ON CONFLICT DO NOTHING
+                "#,
+                donor_id as DonorId,
+                journal_id as JournalId,
+                name as Name,
+            ).execute(&mut **tx).await?;
+        }
+        JournalDomainEvent::DonationEntryCreated {
+            donation_entry_id,
+            journal_id,
+            fund_id,
+            donor_id,
+            donation_id,
+            amount,
+            instrument,
+            check_num,
+            ..
+        } => {
+            sqlx::query!(
+                r#"
+                INSERT INTO donation_entries (id, journal_id, donor_id, fund_id, donation_id, amount, instrument, check_num) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING
+                "#,
+                donation_entry_id as DonationEntryId,
+                journal_id as JournalId,
+                donor_id as DonorId,
+                fund_id as FundId,
+                donation_id as DonationId,
+                amount as i64,
+                instrument as DonationInstrument,
+                check_num as Option<CheckNum>
+            ).execute(&mut **tx).await?;
+
+            // update the activity's balance
+            sqlx::query!(
+                r#"
+                UPDATE funds SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
+                "#,
+                amount as i64,
+                fund_id as FundId,
+                journal_id as JournalId,
+            )
+            .execute(&mut **tx)
+            .await?;
+        }
+        JournalDomainEvent::DonationCreated {
+            donation_id,
+            journal_id,
+            ..
+        } => {
+            sqlx::query!(
+                r#"
+                INSERT INTO donations (id, journal_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
+                "#,
+                donation_id as DonationId,
+                journal_id as JournalId
+            )
+            .execute(&mut **tx)
+            .await?;
         }
     }
 
