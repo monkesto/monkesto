@@ -26,7 +26,7 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-none", "postgres",
 tower-sessions-sqlx-store = { version = "0.15.0", features = ["postgres"] }
 regex = "1.13.1"
 phf = { version = "0.14.0", features = ["macros"] }
-webauthn-rs-proto = "0.5.4"
+webauthn-rs-proto = "0.6.0"
 axum-extra = { version = "0.12.6", features = ["form"] }
 rust_decimal = { version = "1.42.1", features = ["macros"] }
 axum-test = "21.0.0"
