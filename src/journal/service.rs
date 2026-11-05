@@ -989,14 +989,17 @@ pub async fn handle_incoming_event(
         JournalDomainEvent::DonationCreated {
             donation_id,
             journal_id,
-            ..
+            deposit_account_id,
+            donation_total,
         } => {
             sqlx::query!(
                 r#"
-                INSERT INTO donations (id, journal_id) VALUES ($1, $2) ON CONFLICT DO NOTHING
+                INSERT INTO donations (id, journal_id, deposit_account_id, donation_total) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
                 "#,
                 donation_id as DonationId,
-                journal_id as JournalId
+                journal_id as JournalId,
+                deposit_account_id as AccountId,
+                donation_total as i64
             )
             .execute(&mut **tx)
             .await?;

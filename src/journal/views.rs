@@ -118,6 +118,8 @@ pub async fn journal_detail(
         ("Funds", "fund"),
         ("Activities", "activity"),
         ("Transactions", "transaction"),
+        ("Donors", "donor"),
+        ("Donations", "donation"),
         ("People", "person"),
         ("Files", "file"),
     ];

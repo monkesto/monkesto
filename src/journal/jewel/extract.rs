@@ -90,17 +90,17 @@ pub struct JewelName {
 #[sqlx(rename_all = "PascalCase")]
 pub struct JewelOffering {
     #[sqlx(rename = "OfferingID")]
-    offering_id: i64,
-    date: OffsetDateTime,
+    pub offering_id: i64,
+    pub date: OffsetDateTime,
     /// yes, jewel stores money as a floating point number
-    offering_total: f64,
+    pub offering_total: f64,
     #[sqlx(rename = "DepositJournalID")]
-    deposit_journal_id: i64,
+    pub deposit_journal_id: i64,
 
     // no idea what these do
     #[sqlx(rename = "ArchiveID")]
-    archive_id: i64,
-    offering_source: i64,
+    pub archive_id: i64,
+    pub offering_source: i64,
 }
 
 #[expect(unused)]
@@ -262,10 +262,12 @@ pub struct JewelData {
     pub currency: JewelCurrency,
     pub accounts: BTreeMap<i64, JewelAccount>,
     pub names: BTreeMap<i64, JewelName>,
-    pub offerings: Vec<JewelOffering>,
+    pub offerings: BTreeMap<i64, JewelOffering>,
     pub contributions: BTreeMap<i64, JewelContribution>,
     pub envelopes: BTreeMap<i64, JewelEnvelope>,
     pub journals: BTreeMap<i64, JewelJournal>,
+    /// (journal_id, offering_id)
+    pub offering_journals: HashMap<i64, i64>,
     /// (journal_id, journal_items)
     pub journal_entries: BTreeMap<i64, Vec<JewelJournalItem>>,
     /// (account_id, allocation)
@@ -327,7 +329,9 @@ pub async fn jewel_extract(
     .map(|name: JewelName| (name.name_id, name))
     .collect();
 
-    let offerings = sqlx::query_as(
+    let mut offering_journals = HashMap::new();
+
+    let offerings: BTreeMap<i64, JewelOffering> = sqlx::query_as(
         r#"
         SELECT OfferingID,
                Date,
@@ -339,7 +343,13 @@ pub async fn jewel_extract(
         "#,
     )
     .fetch_all(&mut *conn)
-    .await?;
+    .await?
+    .into_iter()
+    .map(|offering: JewelOffering| {
+        offering_journals.insert(offering.deposit_journal_id, offering.offering_id);
+        (offering.offering_id, offering)
+    })
+    .collect();
 
     let contributions = sqlx::query_as(
         r#"
@@ -842,6 +852,7 @@ pub async fn jewel_extract(
         offerings,
         contributions,
         envelopes,
+        offering_journals,
         journals,
         journal_entries,
         allocations,

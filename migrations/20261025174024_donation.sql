@@ -17,6 +17,7 @@ CREATE TABLE donors (
 CREATE TABLE donation_entry_stream (
     journal_id TEXT NOT NULL REFERENCES journal_stream(journal_id),
     donation_entry_id TEXT NOT NULL,
+    donation_id TEXT NOT NULL,
     version BIGINT NOT NULL,
     valid bool NOT NULL,
     PRIMARY KEY (journal_id, donation_entry_id)
@@ -45,6 +46,8 @@ CREATE TABLE donation_stream (
 CREATE TABLE donations (
     id TEXT NOT NULL,
     journal_id TEXT NOT NULL REFERENCES journals(id),
+    deposit_account_id TEXT NOT NULL,
+    donation_total BIGINT,
     PRIMARY KEY (journal_id, id)
 )
 

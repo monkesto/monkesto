@@ -85,12 +85,23 @@ pub fn router() -> Router<crate::StateType> {
             "/journal/{id}/person/{person_id}/remove",
             post(commands::remove_member),
         )
+        .route(
+            "/journal/{id}/donation",
+            get(donation::views::donation_list_page),
+        )
+        .route("/journal/{id}/donor", get(donor::views::donor_list_page))
+        .route(
+            "/journal/{id}/createdonor",
+            post(donor::commands::create_donor),
+        )
         .route_layer(login_required!(crate::BackendType, login_url = "/signin"))
 }
 
 use crate::authn::UserId;
 use crate::authority::Authority;
 use crate::id;
+use crate::journal::donation::donor;
+use crate::journal::donation::donor::DonorId;
 use crate::journal::error::JournalError::InvalidJournal;
 use crate::journal::error::JournalResult;
 use crate::journal::file::commands::delete_file;
@@ -124,6 +135,8 @@ bitflags! {
         const APPEND_TRANSACTION = 1 << 5;
         const INVITE = 1 << 6;
         const OWNER = 1 << 7;
+        const ADD_DONOR = 1 << 8;
+        const ADD_DONATION = 1 << 9;
     }
 }
 
@@ -193,13 +206,27 @@ impl JournalService {
         )
         .await?;
 
-        // seed the general fund upon journal creation
-        let event_id = append_creation_event_in_tx(
+        // seed the general fund and anonymous donor upon journal creation
+        append_creation_event_in_tx(
             &mut tx,
             JournalDomainEvent::FundCreated {
                 fund_id: FundId::from_str("gfund")?,
                 journal_id,
                 fund_name: Name::try_new("General".to_string())?,
+            },
+            None,
+            authority,
+            timestamp,
+            None,
+        )
+        .await?;
+
+        let event_id = append_creation_event_in_tx(
+            &mut tx,
+            JournalDomainEvent::DonorCreated {
+                donor_id: DonorId::from_str("annon")?,
+                journal_id,
+                name: Name::try_new("Anonymous".to_string())?,
             },
             None,
             authority,

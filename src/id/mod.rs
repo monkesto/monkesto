@@ -68,7 +68,9 @@ static VALID_CUSTOM_IDENTS: phf::Set<&'static str> = phf_set! {
     // general fund builtin
     "gfund",
     // uninitialized (default) id
-    "uinit"
+    "uinit",
+    // anonymous donor
+    "annon"
 };
 
 impl FromStr for Ident {

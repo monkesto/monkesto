@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT d.id as \"id: DonationId\", d.journal_id as \"journal_id: JournalId\", e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\",\n                ARRAY(\n                    SELECT (en.id, en.fund_id , en.donor_id, en.amount, en.instrument, en.check_num)\n                    FROM donation_entries en\n                    WHERE en.donation_id = d.id AND en.journal_id = d.journal_id\n                ) AS \"entries!: Vec<DonationEntryTuple>\"\n            FROM donations d\n            INNER JOIN journal_events e\n                ON d.journal_id = $1 AND e.stream_id = d.id AND e.stream_type = $2 AND e.event_type = $3\n            WHERE d.journal_id = $1\n            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: DonationId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "authority: Authority",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 3,
+        "name": "timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "display_timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "entries!: Vec<DonationEntryTuple>",
+        "type_info": "RecordArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int2",
+        "Int2"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "b4aeb5e3dc472380b72a7afe7823445119d1ca7d4b05f2ca91bbdcd56046cbbc"
+}

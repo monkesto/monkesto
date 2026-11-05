@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT d.id as \"id: DonorId\", d.journal_id as \"journal_id: JournalId\", d.name as \"name: Name\", d.total_donated, e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\"\n            FROM donors d\n            INNER JOIN journal_events e\n                ON d.journal_id = $1 AND e.stream_id = d.id AND e.stream_type = $2 AND e.event_type = $3\n            WHERE d.journal_id = $1\n            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: DonorId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "name: Name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "total_donated",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "authority: Authority",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 5,
+        "name": "timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "display_timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int2",
+        "Int2"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "185bd79c55c4533417e40bdefcefb519fd215f0d94a54b048fe9171fb4040297"
+}

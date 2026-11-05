@@ -171,6 +171,8 @@ pub enum JournalDomainEvent {
         donation_id: DonationId,
         #[id]
         journal_id: JournalId,
+        deposit_account_id: AccountId,
+        donation_total: u64,
     },
 }
 
@@ -520,9 +522,13 @@ impl From<JournalDomainEvent> for ProtoJournalDomainEvent {
             JournalDomainEvent::DonationCreated {
                 donation_id,
                 journal_id,
+                deposit_account_id,
+                donation_total,
             } => JournalDomainEventType::DonationCreated(ProtoDonationCreated {
                 donation_id: Some(donation_id.into()),
                 journal_id: Some(journal_id.into()),
+                deposit_account_id: Some(deposit_account_id.into()),
+                donation_total,
             }),
         };
 
@@ -635,6 +641,8 @@ impl TryFrom<ProtoJournalDomainEvent> for JournalDomainEvent {
             JournalDomainEventType::DonationCreated(ev) => JournalDomainEvent::DonationCreated {
                 donation_id: ev.donation_id.try_into()?,
                 journal_id: ev.journal_id.try_into()?,
+                deposit_account_id: ev.deposit_account_id.try_into()?,
+                donation_total: ev.donation_total,
             },
         };
 

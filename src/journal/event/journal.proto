@@ -114,6 +114,8 @@ message ProtoJournalDomainEvent {
   message ProtoDonationCreated {
     id.ident.ProtoIdent donation_id = 1;
     id.ident.ProtoIdent journal_id = 2;
+    id.ident.ProtoIdent deposit_account_id = 3;
+    uint64 donation_total = 4;
   }
 
   oneof journal_domain_event_type {
