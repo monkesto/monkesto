@@ -73,7 +73,7 @@ impl JournalService {
             SELECT d.id as "id: DonorId", d.journal_id as "journal_id: JournalId", d.name as "name: Name", d.total_donated, e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
             FROM donors d
             INNER JOIN journal_events e
-                ON d.journal_id = $1 AND e.stream_id = d.id AND e.stream_type = $2 AND e.event_type = $3
+                ON e.journal_id = $1 AND e.stream_id = d.id AND e.stream_type = $2 AND e.event_type = $3
             WHERE d.journal_id = $1
             ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
             "#,

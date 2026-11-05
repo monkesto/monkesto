@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            SELECT d.id as \"id: DonorId\", d.journal_id as \"journal_id: JournalId\", d.name as \"name: Name\", d.total_donated, e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\"\n            FROM donors d\n            INNER JOIN journal_events e\n                ON d.journal_id = $1 AND e.stream_id = d.id AND e.stream_type = $2 AND e.event_type = $3\n            WHERE d.journal_id = $1\n            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC\n            ",
+  "query": "\n            SELECT d.id as \"id: DonorId\", d.journal_id as \"journal_id: JournalId\", d.name as \"name: Name\", d.total_donated, e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\"\n            FROM donors d\n            INNER JOIN journal_events e\n                ON e.journal_id = $1 AND e.stream_id = d.id AND e.stream_type = $2 AND e.event_type = $3\n            WHERE d.journal_id = $1\n            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC\n            ",
   "describe": {
     "columns": [
       {
@@ -56,5 +56,5 @@
       true
     ]
   },
-  "hash": "185bd79c55c4533417e40bdefcefb519fd215f0d94a54b048fe9171fb4040297"
+  "hash": "9fb23097ceb385206ed4fcfcf1e18ec594cfbcf7d8efd7ce1dfb74cce7f19199"
 }

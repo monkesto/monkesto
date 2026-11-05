@@ -1,5 +1,6 @@
 use std::fmt;
 use std::fmt::{Display, Formatter};
+use thousands::Separable;
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Dollars(pub i64);
@@ -10,6 +11,6 @@ impl Display for Dollars {
         let dollars = abs_val / 100;
         let cents = abs_val % 100;
 
-        write!(f, "${dollars}.{cents:02}")
+        write!(f, "${}.{cents:02}", dollars.separate_with_commas())
     }
 }

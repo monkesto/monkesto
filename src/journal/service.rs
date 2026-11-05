@@ -939,7 +939,6 @@ pub async fn handle_incoming_event(
             donor_id,
             journal_id,
             name,
-            ..
         } => {
             sqlx::query!(
                 r#"
@@ -1000,6 +999,17 @@ pub async fn handle_incoming_event(
                 journal_id as JournalId,
                 deposit_account_id as AccountId,
                 donation_total as i64
+            )
+            .execute(&mut **tx)
+            .await?;
+
+            sqlx::query!(
+                r#"
+                UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
+                "#,
+                donation_total as i64,
+                deposit_account_id as AccountId,
+                journal_id as JournalId,
             )
             .execute(&mut **tx)
             .await?;
