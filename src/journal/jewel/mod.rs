@@ -6,9 +6,11 @@ use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
 use crate::dollars::Dollars;
 use crate::journal::account::{AccountId, AccountType};
-use crate::journal::donation::DonationId;
+use crate::journal::activity::scope::ActivityScope;
+use crate::journal::activity::{ActivityId, ActivityKind};
 use crate::journal::donation::donation_entry::{DonationEntryId, DonationInstrument};
 use crate::journal::donation::donor::DonorId;
+use crate::journal::donation::{CheckNum, DonationId};
 use crate::journal::error::{JournalError, JournalResult};
 use crate::journal::event::JournalDomainEvent;
 use crate::journal::file::{FileId, ObjectStore};
@@ -62,6 +64,10 @@ pub enum JewelImportError {
     MissingAccount(i64),
     #[error("missing offering with id {0}")]
     MissingOffering(i64),
+    #[error("missing envelopes for offering {0}")]
+    MissingEnvelopes(i64),
+    #[error("missing donor with the id {0}")]
+    MissingDonor(i64),
 }
 
 impl IntoResponse for JewelImportError {
@@ -86,6 +92,14 @@ impl IntoResponse for JewelImportError {
             }
             MissingOffering(_) => {
                 (StatusCode::BAD_REQUEST, "one or more offerings is missing").into_response()
+            }
+
+            MissingEnvelopes(_) => {
+                (StatusCode::BAD_REQUEST, "one or more envelopes is missing").into_response()
+            }
+
+            MissingDonor(_) => {
+                (StatusCode::BAD_REQUEST, "one or more donors is missing").into_response()
             }
         }
     }
@@ -289,75 +303,289 @@ impl JournalService {
         )
         .await?;
 
-        let mut account_creation_timestamp = Utc::now();
+        let mut creation_timestamp = Utc::now();
         let mut jewel_account_map = HashMap::new();
+        let mut jewel_fund_map = HashMap::new();
+        let mut jewel_donor_map = HashMap::new();
 
         for (jewel_account_id, account) in jewel_data.accounts {
             if account.active {
-                let account_type = if account.account_type < 3 {
-                    AccountType::Asset
-                } else {
-                    AccountType::Liability
-                };
-
-                let account_id = AccountId::new();
-                let fund_id = FundId::new();
-
                 let name = Name::try_new(account.name.clone())?;
 
-                jewel_account_map.insert(jewel_account_id, (account_id, fund_id));
+                // make an actual account if jewel stores it as a bank account
+                if jewel_data.bank_accounts.contains(&jewel_account_id) {
+                    let account_id = AccountId::new();
 
-                // jewel doesn't record account creation timestamps, but its ids are sequential
-                // since we're creating the accounts in that sequential order, we can keep the order
-                // by creating each account 1 millisecond later than the last
-                account_creation_timestamp += Duration::from_millis(1);
+                    jewel_account_map.insert(jewel_account_id, account_id);
 
-                append_creation_event_in_tx(
-                    &mut tx,
-                    JournalDomainEvent::AccountCreated {
-                        journal_id,
-                        account_id,
-                        account_type,
-                        name: name.clone(),
-                    },
-                    None,
-                    authority,
-                    account_creation_timestamp.get_time(),
-                    None,
-                )
-                .await?;
+                    // jewel doesn't record account creation timestamps, but its ids are sequential
+                    // since we're creating the accounts in that sequential order, we can keep the order
+                    // by creating each account 1 millisecond later than the last
+                    creation_timestamp += Duration::from_millis(1);
+
+                    append_creation_event_in_tx(
+                        &mut tx,
+                        JournalDomainEvent::AccountCreated {
+                            journal_id,
+                            account_id,
+                            account_type: AccountType::Asset,
+                            name: name.clone(),
+                        },
+                        None,
+                        authority,
+                        creation_timestamp.get_time(),
+                        None,
+                    )
+                    .await?;
+                } else {
+                    let activity_kind = if account.account_type < 3 {
+                        ActivityKind::Income
+                    } else {
+                        ActivityKind::Expense
+                    };
+
+                    let activity_id = ActivityId::new();
+                    let fund_id = FundId::new();
+
+                    let name = Name::try_new(account.name.clone())?;
+
+                    jewel_fund_map.insert(jewel_account_id, (activity_id, fund_id));
+
+                    creation_timestamp += Duration::from_millis(1);
+
+                    append_creation_event_in_tx(
+                        &mut tx,
+                        JournalDomainEvent::ActivityCreated {
+                            activity_id,
+                            journal_id,
+                            activity_name: name.clone(),
+                            activity_kind,
+                        },
+                        None,
+                        authority,
+                        creation_timestamp.get_time(),
+                        None,
+                    )
+                    .await?;
+
+                    event_id = append_creation_event_in_tx(
+                        &mut tx,
+                        JournalDomainEvent::FundCreated {
+                            fund_id,
+                            journal_id,
+                            fund_name: name,
+                        },
+                        None,
+                        authority,
+                        creation_timestamp.get_time(),
+                        None,
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        for (_, jewel_name) in jewel_data.names {
+            if jewel_name.donor {
+                let donor_id = DonorId::new();
+
+                creation_timestamp += Duration::from_millis(1);
 
                 event_id = append_creation_event_in_tx(
                     &mut tx,
-                    JournalDomainEvent::FundCreated {
-                        fund_id,
+                    JournalDomainEvent::DonorCreated {
+                        donor_id,
                         journal_id,
-                        fund_name: name,
+                        name: Name::try_new(jewel_name.name)?,
                     },
                     None,
                     authority,
-                    account_creation_timestamp.get_time(),
+                    creation_timestamp.get_time(),
                     None,
                 )
                 .await?;
+
+                jewel_donor_map.insert(jewel_name.name_id, donor_id);
             }
         }
+
+        let anonymous_donor_id = DonorId::from_str("annon")?;
 
         for (jewel_transaction_id, jewel_transaction) in jewel_data.journals {
             let transaction_id = TransactionId::new();
 
-            let (z_single_account_id, _) = *jewel_account_map
-                .get(&jewel_transaction.z_single_account_id)
-                .ok_or(JewelImportError::MissingAccount(
-                    jewel_transaction.z_single_account_id,
-                ))?;
-
             let mut entry_ids = Vec::new();
-            let mut entry_sum = 0;
 
+            // if the transaction is an offering AND not a check reversal, handle as a donation
             if let Some(jewel_offering_id) = jewel_data.offering_journals.get(&jewel_transaction_id)
+                && jewel_data
+                    .offerings
+                    .get(jewel_offering_id)
+                    .ok_or(JewelImportError::MissingOffering(*jewel_offering_id))?
+                    .offering_total
+                    >= 0.0
             {
+                let bank_account_id = jewel_account_map
+                    .get(&jewel_transaction.z_single_account_id)
+                    .ok_or(JewelImportError::MissingAccount(
+                        jewel_transaction.z_single_account_id,
+                    ))?;
+
                 let donation_id = DonationId::new();
+
+                let offering = jewel_data
+                    .offerings
+                    .get(jewel_offering_id)
+                    .ok_or(JewelImportError::MissingOffering(*jewel_offering_id))?;
+
+                // some early offerings seem to have negative and positive entries that cancel out
+                // there also appear to be a few cases where the total deposited is zero despite an offering total above zero
+                if offering.offering_total == 0.0
+                    || jewel_data
+                        .journal_entries
+                        .get(&jewel_transaction_id)
+                        .ok_or(JewelImportError::MissingJournalEntries(
+                            jewel_transaction_id,
+                        ))?
+                        .iter()
+                        .find(|e| e.account_id == jewel_transaction.z_single_account_id)
+                        .ok_or(JewelImportError::MissingJournalEntries(
+                            jewel_transaction_id,
+                        ))?
+                        .amount
+                        == 0.0
+                {
+                    continue;
+                }
+
+                let envelopes = jewel_data
+                    .envelopes
+                    .get(jewel_offering_id)
+                    .ok_or(JewelImportError::MissingEnvelopes(*jewel_offering_id))?;
+
+                let mut contribution_map: HashMap<
+                    (DonorId, FundId),
+                    (u64, DonationInstrument, Option<CheckNum>),
+                > = HashMap::new();
+
+                let mut fund_totals_map: HashMap<FundId, u64> = HashMap::new();
+
+                let jewel_transaction_entries = jewel_data
+                    .journal_entries
+                    .get(&jewel_transaction_id)
+                    .ok_or(JewelImportError::MissingJournalEntries(
+                        jewel_transaction_id,
+                    ))?;
+
+                for entry in jewel_transaction_entries {
+                    if entry.account_id != jewel_transaction.z_single_account_id {
+                        let (_, fund_id) = jewel_fund_map
+                            .get(&entry.account_id)
+                            .ok_or(JewelImportError::MissingAccount(entry.account_id))?;
+
+                        fund_totals_map.insert(*fund_id, (entry.amount * 100.0).round() as u64);
+                    }
+                }
+
+                for envelope in envelopes {
+                    // ignore negative envelopes for now
+                    if envelope.cash_total < 0.0 || envelope.check_total < 0.0 {
+                        continue;
+                    }
+
+                    let donor_id = jewel_donor_map
+                        .get(&envelope.name_id)
+                        .ok_or(JewelImportError::MissingDonor(envelope.name_id))?;
+
+                    // TODO(Gabriel) jewel stores all envelopes for online offerings as checks; copying their accounting until I have a reason not to
+                    let instrument = if envelope.check_total as i64 == 0 {
+                        DonationInstrument::Cash
+                    } else if envelope.cash_total as i64 == 0 {
+                        DonationInstrument::Check
+                    } else {
+                        DonationInstrument::Mixed
+                    };
+
+                    let check_num = envelope
+                        .check_num
+                        .clone()
+                        .map(CheckNum::try_new)
+                        .transpose()?;
+
+                    if let Some(contributions) = jewel_data.contributions.get(&envelope.envelope_id)
+                    {
+                        for contribution in contributions {
+                            let (_, fund_id) = jewel_fund_map
+                                .get(&contribution.account_id)
+                                .ok_or(JewelImportError::MissingAccount(contribution.account_id))?;
+
+                            let contribution_amount = (contribution.amount * 100.0).round() as u64;
+                            contribution_map
+                                .entry((*donor_id, *fund_id))
+                                // TODO(Gabriel): this might result in an incorrect donation instrument or checknum if there are multiple envelopes for a single donor
+                                .and_modify(|(amt, _inst, _check_num)| *amt += contribution_amount)
+                                .or_insert((contribution_amount, instrument, check_num.clone()));
+
+                            fund_totals_map
+                                .entry(*fund_id)
+                                .and_modify(|amt| *amt += contribution_amount)
+                                .or_insert(contribution_amount);
+                        }
+                    }
+                }
+
+                for ((donor_id, fund_id), (amount, instrument, check_num)) in contribution_map {
+                    // keep track of the total amount accounted for in each fund
+                    let fund_total = fund_totals_map
+                        .get_mut(&fund_id)
+                        .expect("fund id has already been validated");
+                    *fund_total -= amount;
+
+                    append_creation_event_in_tx(
+                        &mut tx,
+                        JournalDomainEvent::DonationEntryCreated {
+                            donation_entry_id: DonationEntryId::new(),
+                            journal_id,
+                            fund_id,
+                            donor_id,
+                            donation_id,
+                            amount,
+                            instrument,
+                            check_num,
+                        },
+                        None,
+                        authority,
+                        offering.date.get_time(),
+                        None,
+                    )
+                    .await?;
+                }
+
+                // envelopes may not be totally accounted for by the sum of contributions,
+                // so we have to separately add anonymous entries to make sure the funds have the correct balance
+                for (fund_id, outstanding_donations) in fund_totals_map {
+                    // make sure we never accidentally wrapped around to u64::max on a subtraction
+                    assert!(outstanding_donations < u32::MAX as u64);
+
+                    append_creation_event_in_tx(
+                        &mut tx,
+                        JournalDomainEvent::DonationEntryCreated {
+                            donation_entry_id: DonationEntryId::new(),
+                            journal_id,
+                            fund_id,
+                            donor_id: anonymous_donor_id,
+                            donation_id,
+                            amount: outstanding_donations,
+                            instrument: DonationInstrument::Unknown,
+                            check_num: None,
+                        },
+                        None,
+                        authority,
+                        offering.date.get_time(),
+                        None,
+                    )
+                    .await?;
+                }
 
                 let donation_total = (jewel_data
                     .offerings
@@ -367,48 +595,12 @@ impl JournalService {
                     * 100.0)
                     .round() as u64;
 
-                for entry in jewel_data
-                    .journal_entries
-                    .get(&jewel_transaction_id)
-                    .ok_or(JewelImportError::MissingJournalEntries(
-                        jewel_transaction_id,
-                    ))?
-                {
-                    let entry_amount = (entry.amount * 100.0).round() as i64;
-                    let (_, fund_id) = *jewel_account_map
-                        .get(&entry.account_id)
-                        .ok_or(JewelImportError::MissingAccount(entry.account_id))?;
-
-                    if entry.account_id != jewel_transaction.z_single_account_id {
-                        append_creation_event_in_tx(
-                            &mut tx,
-                            JournalDomainEvent::DonationEntryCreated {
-                                donation_entry_id: DonationEntryId::new(),
-                                journal_id,
-                                fund_id,
-                                // TODO(Gabriel): anonymous donor for now
-                                donor_id: DonorId::from_str("annon")?,
-                                donation_id,
-                                amount: entry_amount.unsigned_abs(),
-                                // TODO(Gabriel): ignoring donation instrument for now
-                                instrument: DonationInstrument::Cash,
-                                check_num: None,
-                            },
-                            None,
-                            authority,
-                            jewel_transaction.accounting_date.get_time(),
-                            None,
-                        )
-                        .await?;
-                    }
-                }
-
                 append_creation_event_in_tx(
                     &mut tx,
                     JournalDomainEvent::DonationCreated {
                         donation_id,
                         journal_id,
-                        deposit_account_id: z_single_account_id,
+                        deposit_account_id: *bank_account_id,
                         donation_total,
                     },
                     None,
@@ -425,74 +617,63 @@ impl JournalService {
                         jewel_transaction_id,
                     ))?
                 {
-                    if entry.account_id == jewel_transaction.z_single_account_id {
-                        continue;
-                    }
-
                     let entry_amount = (entry.amount * 100.0).round() as i64;
-
-                    entry_sum += entry_amount;
 
                     let entry_id = EntryId::new();
                     entry_ids.push(entry_id);
 
-                    let (account_id, _) = *jewel_account_map
-                        .get(&entry.account_id)
-                        .ok_or(JewelImportError::MissingAccount(entry.account_id))?;
+                    let entry_side = if entry_amount > 0 {
+                        EntrySide::Credit
+                    } else {
+                        EntrySide::Debit
+                    };
 
-                    append_creation_event_in_tx(
-                        &mut tx,
-                        JournalDomainEvent::EntryCreated {
-                            entry_id,
-                            journal_id,
-                            transaction_id,
-                            amount: entry_amount as u64,
-                            entry_side: if entry_amount > 0 {
-                                EntrySide::Credit
-                            } else {
-                                EntrySide::Debit
+                    if let Some(account_id) = jewel_account_map.get(&entry.account_id) {
+                        append_creation_event_in_tx(
+                            &mut tx,
+                            JournalDomainEvent::EntryCreated {
+                                entry_id,
+                                journal_id,
+                                transaction_id,
+                                amount: entry_amount.unsigned_abs(),
+                                entry_side,
+                                entry_kind: EntryKind::Account {
+                                    account_id: *account_id,
+                                },
                             },
-                            entry_kind: EntryKind::Account { account_id },
-                        },
-                        None,
-                        authority,
-                        jewel_transaction.accounting_date.get_time(),
-                        None,
-                    )
-                    .await?;
+                            None,
+                            authority,
+                            jewel_transaction.accounting_date.get_time(),
+                            None,
+                        )
+                        .await?;
+                    } else {
+                        let (activity_id, fund_id) = jewel_fund_map
+                            .get(&entry.account_id)
+                            .ok_or(JewelImportError::MissingAccount(entry.account_id))?;
+
+                        append_creation_event_in_tx(
+                            &mut tx,
+                            JournalDomainEvent::EntryCreated {
+                                entry_id,
+                                journal_id,
+                                transaction_id,
+                                amount: entry_amount.unsigned_abs(),
+                                entry_side,
+                                entry_kind: EntryKind::Activity {
+                                    activity_id: *activity_id,
+                                    fund_id: *fund_id,
+                                    scope: ActivityScope::Internal,
+                                },
+                            },
+                            None,
+                            authority,
+                            jewel_transaction.accounting_date.get_time(),
+                            None,
+                        )
+                        .await?;
+                    }
                 }
-
-                let (z_single_account_id, _) = *jewel_account_map
-                    .get(&jewel_transaction.z_single_account_id)
-                    .ok_or(JewelImportError::MissingAccount(
-                        jewel_transaction.z_single_account_id,
-                    ))?;
-
-                let z_single_entry_id = EntryId::new();
-                entry_ids.push(z_single_entry_id);
-
-                append_creation_event_in_tx(
-                    &mut tx,
-                    JournalDomainEvent::EntryCreated {
-                        entry_id: z_single_entry_id,
-                        journal_id,
-                        transaction_id,
-                        amount: entry_sum.unsigned_abs(),
-                        entry_side: if entry_sum > 0 {
-                            EntrySide::Debit
-                        } else {
-                            EntrySide::Credit
-                        },
-                        entry_kind: EntryKind::Account {
-                            account_id: z_single_account_id,
-                        },
-                    },
-                    None,
-                    authority,
-                    jewel_transaction.accounting_date.get_time(),
-                    None,
-                )
-                .await?;
 
                 event_id = append_creation_event_in_tx(
                     &mut tx,

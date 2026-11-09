@@ -43,16 +43,24 @@ impl JournalProjection {
                 listener.listen("journal_events").await?;
                 let mut last_processed_event = 0;
 
+                let mut interval = tokio::time::interval(Duration::from_secs(30));
+
                 loop {
-                    let notification = listener.recv().await?;
-                    let event_id: EventId = notification
-                        .payload()
-                        .parse()
-                        .expect("Failed to parse event id");
+                    let event_id: Option<EventId> = tokio::select! {
+                        _ = interval.tick() => None,
+                        notification = listener.recv() => {
+                            Some(notification
+                            .expect("failed to receive a journal event")
+                            .payload()
+                            .parse()
+                            .expect("Failed to parse event id")
+                            )
+                        }
+                    };
 
                     // notifications are queued, so we might get a notification for an event we already took processed
                     // the event also may have been processed by another node before we got the notification
-                    if event_id <= last_processed_event {
+                    if event_id.is_some_and(|ev_id| ev_id <= last_processed_event) {
                         continue;
                     }
 
@@ -68,6 +76,10 @@ impl JournalProjection {
                         )
                             .fetch_all(&mut *conn)
                             .await?;
+
+                        if unprocessed_events.is_empty() {
+                            continue;
+                        }
 
                         let saturated = unprocessed_events.len() > 99;
 
@@ -97,6 +109,11 @@ impl JournalProjection {
 
                         if !saturated {
                             break;
+                        }
+
+                        // reset the interval if we were triggered by the pg listener
+                        if event_id.is_some() {
+                            interval.reset();
                         }
                     }
                 }

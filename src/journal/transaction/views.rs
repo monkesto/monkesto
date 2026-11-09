@@ -9,7 +9,9 @@ use crate::email::Email;
 use crate::journal::JournalId;
 use crate::journal::account::AccountId;
 use crate::journal::account::AccountState;
+use crate::journal::activity::{ActivityId, ActivityState};
 use crate::journal::error::{JournalError, JournalResult};
+use crate::journal::fund::{FundId, FundState};
 use crate::journal::layout;
 use crate::journal::transaction::entry::{EntryKind, EntrySide};
 use crate::time::Timestamp;
@@ -45,6 +47,30 @@ pub async fn transaction_list_page(
             .into_iter()
             .map(|(state, _, _)| (state.id, state))
             .collect::<HashMap<AccountId, AccountState>>()),
+        Err(e) => Err(e),
+    };
+
+    let activities_res: JournalResult<HashMap<ActivityId, ActivityState>> = match state
+        .journal_service
+        .list_journal_activities(journal_id, user_authority)
+        .await
+    {
+        Ok(activities) => Ok(activities
+            .into_iter()
+            .map(|(state, _, _)| (state.id, state))
+            .collect::<HashMap<ActivityId, ActivityState>>()),
+        Err(e) => Err(e),
+    };
+
+    let funds_res: JournalResult<HashMap<FundId, FundState>> = match state
+        .journal_service
+        .list_journal_funds(journal_id, user_authority)
+        .await
+    {
+        Ok(funds) => Ok(funds
+            .into_iter()
+            .map(|(state, _, _)| (state.id, state))
+            .collect::<HashMap<FundId, FundState>>()),
         Err(e) => Err(e),
     };
 
@@ -99,8 +125,24 @@ pub async fn transaction_list_page(
 
                                             }
                                         },
-                                        EntryKind::Activity {..} => {
-                                            // TODO(Ryan): handle activity entries
+                                        EntryKind::Activity {activity_id, fund_id, scope: _} => {
+                                            div class="flex justify-between items-center" {
+                                                span class="text-base font-medium text-gray-900 dark:text-white" {
+                                                    @if let Ok(activities) = &activities_res && let Ok(funds) = &funds_res {
+                                                        (format!("{} activity, {} fund",
+                                                            activities.get(&activity_id).map(|act| act.name.as_ref()).unwrap_or("Unknown Activity"),
+                                                            funds.get(&fund_id).map(|f| f.name.as_ref()).unwrap_or("Unknown Fund"))
+                                                        )
+                                                    } @else {
+                                                       "encountered an error while fetching activities and funds"
+                                                    }
+                                                }
+
+                                                span class="text-base text-gray-700 dark:text-gray-300" {
+                                                    (Dollars(entry.amount)) " " (entry.entry_side)
+                                                }
+
+                                            }
                                         }
                                     }
                                 }

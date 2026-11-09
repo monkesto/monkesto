@@ -14,6 +14,8 @@ pub enum DonationInstrument {
     Cash = 1,
     Check = 2,
     Online = 3,
+    Mixed = 4,
+    Unknown = 5,
 }
 
 #[derive(Debug, Error, PartialEq)]
@@ -27,6 +29,8 @@ impl TryFrom<i16> for DonationInstrument {
             value if value == DonationInstrument::Cash as i16 => Ok(DonationInstrument::Cash),
             value if value == DonationInstrument::Check as i16 => Ok(DonationInstrument::Check),
             value if value == DonationInstrument::Online as i16 => Ok(DonationInstrument::Online),
+            value if value == DonationInstrument::Mixed as i16 => Ok(DonationInstrument::Mixed),
+            value if value == DonationInstrument::Unknown as i16 => Ok(DonationInstrument::Unknown),
             _ => Err(DonationInstrumentFromIntError(value)),
         }
     }

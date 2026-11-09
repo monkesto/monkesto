@@ -886,7 +886,7 @@ pub async fn handle_incoming_event(
                 EntryKind::Account { account_id } => {
                     sqlx::query!(
                             r#"
-                            UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND journal_id = $3
+                            UPDATE accounts SET balance = balance - $1 WHERE id = $2 AND journal_id = $3
                             "#,
                             diff,
                             account_id as AccountId,
@@ -898,22 +898,29 @@ pub async fn handle_incoming_event(
                     fund_id,
                     scope: _,
                 } => {
-                    sqlx::query!(
-                            r#"
-                            UPDATE funds SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
-                            "#,
-                            diff,
-                            fund_id as FundId,
-                            journal_id as JournalId,
-                        ).execute(&mut **tx).await?;
-                    sqlx::query!(
-                            r#"
-                            UPDATE activities SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
-                            "#,
-                            diff,
-                            activity_id as ActivityId,
-                            journal_id as JournalId,
-                        ).execute(&mut **tx).await?;
+                    let x = sqlx::query!(
+                        r#"
+                        UPDATE funds SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
+                        "#,
+                        diff,
+                        fund_id as FundId,
+                        journal_id as JournalId,
+                    )
+                    .execute(&mut **tx)
+                    .await?;
+
+                    assert_ne!(x.rows_affected(), 0);
+
+                    let y = sqlx::query!(
+                        r#"
+                        UPDATE activities SET balance = balance - $1 WHERE id = $2 AND journal_id = $3;
+                        "#,
+                        diff,
+                        activity_id as ActivityId,
+                        journal_id as JournalId,
+                    ).execute(&mut **tx).await?;
+
+                    assert!(x.rows_affected() != 0 && y.rows_affected() != 0);
                 }
             }
         }
@@ -971,6 +978,15 @@ pub async fn handle_incoming_event(
                 amount as i64,
                 instrument as DonationInstrument,
                 check_num as Option<CheckNum>
+            ).execute(&mut **tx).await?;
+
+            sqlx::query!(
+                r#"
+                UPDATE donors SET total_donated = total_donated + $1 WHERE id = $2 AND journal_id = $3
+                "#,
+                amount as i64,
+                donor_id as DonorId,
+                journal_id as JournalId,
             ).execute(&mut **tx).await?;
 
             // update the activity's balance

@@ -3,6 +3,7 @@ use crate::authn::{UserId, get_user};
 use crate::authority::{Actor, Authority};
 use crate::dollars::Dollars;
 use crate::email::Email;
+use crate::journal::account::{AccountId, AccountState};
 use crate::journal::donation::DonationState;
 use crate::journal::donation::donor::{DonorId, DonorState};
 use crate::journal::error::{JournalError, JournalResult};
@@ -30,6 +31,18 @@ pub async fn donation_list_page(
         .journal_service
         .list_journal_donations(journal_id, user_authority)
         .await;
+
+    let accounts_res: JournalResult<HashMap<AccountId, AccountState>> = match state
+        .journal_service
+        .list_journal_accounts(journal_id, user_authority)
+        .await
+    {
+        Ok(accounts) => Ok(accounts
+            .into_iter()
+            .map(|(state, _, _)| (state.id, state))
+            .collect::<HashMap<AccountId, AccountState>>()),
+        Err(e) => Err(e),
+    };
 
     let funds_res: JournalResult<HashMap<FundId, FundState>> = match state
         .journal_service
@@ -75,13 +88,13 @@ pub async fn donation_list_page(
     let content = html! {
           @match donations_res {
             Ok(ref donations) => {
-                @for (donations, authority, timestamp) in donations {
+                @for (donation, authority, timestamp) in donations {
                     a
-                    href=(format!("/journal/{}/donation/{}", id, donations.id))
+                    href=(format!("/journal/{}/donation/{}", id, donation.id))
                     class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
                         div class="space-y-3" {
                             div class="space-y-2" {
-                                @for entry in donations.entries.iter() {
+                                @for entry in donation.entries.iter() {
                                     div class="flex justify-between items-center" {
                                         span class="text-base font-medium text-gray-900 dark:text-white" {
                                             @match &funds_res {
@@ -132,6 +145,15 @@ pub async fn donation_list_page(
                                         Actor::System => {"system"},
                                         Actor::Anonymous => {"anonymous"}
                                     } " on " ((timestamp.format("%m/%d/%Y")))
+                                }
+                                div class="text-xs text-gray-400 dark:text-gray-500" {
+                                    "deposited " (Dollars(donation.total as i64)) " to "
+                                    @match &accounts_res {
+                                        Ok(accounts) => {
+                                            (accounts.get(&donation.deposit_account).map(|d| d.name.as_ref()).unwrap_or("Unknown Account"))
+                                        },
+                                        Err(e) => {"encountered an error while fetching accounts: " (e)}
+                                    }
                                 }
                             }
                         }

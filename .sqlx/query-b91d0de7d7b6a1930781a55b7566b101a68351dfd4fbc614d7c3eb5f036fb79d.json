@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT d.id as \"id: DonationId\", d.journal_id as \"journal_id: JournalId\", d.deposit_account_id as \"deposit_account_id: AccountId\", d.donation_total, e.authority as \"authority: Authority\", e.timestamp as \"timestamp: Timestamp\", e.display_timestamp as \"display_timestamp: Timestamp\",\n                ARRAY(\n                    SELECT (en.id, en.fund_id , en.donor_id, en.amount, en.instrument, en.check_num)\n                    FROM donation_entries en\n                    WHERE en.donation_id = d.id AND en.journal_id = d.journal_id\n                ) AS \"entries!: Vec<DonationEntryTuple>\"\n            FROM donations d\n            INNER JOIN journal_events e\n                ON d.journal_id = $1 AND e.stream_id = d.id AND e.stream_type = $2 AND e.event_type = $3\n            WHERE d.journal_id = $1\n            ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC\n            LIMIT 500\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id: DonationId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "deposit_account_id: AccountId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "donation_total",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "authority: Authority",
+        "type_info": "Bytea"
+      },
+      {
+        "ordinal": 5,
+        "name": "timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "display_timestamp: Timestamp",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "entries!: Vec<DonationEntryTuple>",
+        "type_info": "RecordArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int2",
+        "Int2"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "b91d0de7d7b6a1930781a55b7566b101a68351dfd4fbc614d7c3eb5f036fb79d"
+}

@@ -30,13 +30,13 @@ pub struct CheckNum(String);
 
 #[derive(Debug, Error, PartialEq)]
 #[error("Check numbers must be a maximum of 50 characters in length")]
-pub struct CheckNumFromIntError(String);
+pub struct CheckNumFromStrError(String);
 
 impl CheckNum {
     // for now, allow any kind of character in the check-num field to match jewel
-    pub fn try_new(s: String) -> Result<CheckNum, CheckNumFromIntError> {
+    pub fn try_new(s: String) -> Result<CheckNum, CheckNumFromStrError> {
         if s.len() > 50 {
-            return Err(CheckNumFromIntError(s));
+            return Err(CheckNumFromStrError(s));
         }
 
         Ok(CheckNum(s))
@@ -76,6 +76,8 @@ pub struct DonationState {
     #[expect(unused)]
     pub journal_id: JournalId,
     pub entries: Vec<DonationEntry>,
+    pub deposit_account: AccountId,
+    pub total: u64,
 }
 
 #[expect(unused)]
@@ -171,9 +173,10 @@ impl JournalService {
             return Err(InvalidJournal(journal_id));
         }
 
+        // TODO(Gabriel): Pagination
         let donations = sqlx::query!(
             r#"
-            SELECT d.id as "id: DonationId", d.journal_id as "journal_id: JournalId", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp",
+            SELECT d.id as "id: DonationId", d.journal_id as "journal_id: JournalId", d.deposit_account_id as "deposit_account_id: AccountId", d.donation_total, e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp",
                 ARRAY(
                     SELECT (en.id, en.fund_id , en.donor_id, en.amount, en.instrument, en.check_num)
                     FROM donation_entries en
@@ -184,6 +187,7 @@ impl JournalService {
                 ON d.journal_id = $1 AND e.stream_id = d.id AND e.stream_type = $2 AND e.event_type = $3
             WHERE d.journal_id = $1
             ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
+            LIMIT 500
             "#,
             journal_id as JournalId,
             StreamType::Donation as i16,
@@ -203,6 +207,8 @@ impl JournalService {
                     instrument,
                     check_num,
                 }).collect(),
+                deposit_account: d.deposit_account_id,
+                total: d.donation_total as u64,
             }, d.authority, timestamp)
         }).collect();
 

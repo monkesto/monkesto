@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE donors SET total_donated = total_donated + $1 WHERE id = $2 AND journal_id = $3\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "207982ef7c9073698409483378e7852055de1337ce8f03d6b0ca3b67633a652e"
+}

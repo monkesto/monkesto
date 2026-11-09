@@ -95,7 +95,7 @@ impl JournalService {
                 journal_id,
                 name: a.name,
                 activity_type: a.activity_kind,
-                balance: 0,
+                balance: a.balance,
             }, a.authority, timestamp)
         }).collect();
 

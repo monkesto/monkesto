@@ -47,7 +47,7 @@ CREATE TABLE donations (
     id TEXT NOT NULL,
     journal_id TEXT NOT NULL REFERENCES journals(id),
     deposit_account_id TEXT NOT NULL,
-    donation_total BIGINT,
+    donation_total BIGINT NOT NULL,
     PRIMARY KEY (journal_id, id)
 )
 

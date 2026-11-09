@@ -5,9 +5,9 @@ use crate::id::ident_error::IdentError;
 use crate::journal::account::{AccountId, AccountTypeFromIntError};
 use crate::journal::activity::ActivityId;
 use crate::journal::activity::kind::ActivityKindFromIntError;
-use crate::journal::donation::DonationId;
 use crate::journal::donation::donation_entry::DonationEntryId;
 use crate::journal::donation::donor::DonorId;
+use crate::journal::donation::{CheckNumFromStrError, DonationId};
 use crate::journal::error::transaction_validation::TransactionValidationError;
 use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
@@ -148,6 +148,9 @@ pub enum JournalError {
 
     #[error("a donation already exists with the id {0}")]
     DonationIdCollision(DonationId),
+
+    #[error(transparent)]
+    CheckNumFromStr(#[from] CheckNumFromStrError),
 }
 
 impl From<DecisionError<JournalError>> for JournalError {
@@ -248,6 +251,7 @@ impl IntoResponse for JournalError {
             AccountTypeFromInt(_) => {
                 (StatusCode::BAD_REQUEST, "Invalid account type").into_response()
             }
+            CheckNumFromStr(_) => (StatusCode::BAD_REQUEST, "Invalid check num").into_response(),
         }
     }
 }

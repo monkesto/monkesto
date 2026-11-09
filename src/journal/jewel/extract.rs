@@ -4,10 +4,9 @@
 use crate::journal::transaction::FinancialPeriod;
 use chrono::{DateTime, Datelike, Months, NaiveDate, Utc};
 use sqlx::error::BoxDynError;
-use sqlx::types::time::OffsetDateTime;
 use sqlx::{Database, Decode, FromRow, SqliteConnection, Type};
 use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap, HashMap};
+use std::collections::{BTreeMap, BinaryHeap, HashMap, HashSet};
 use std::str::FromStr;
 use thiserror::Error;
 
@@ -71,18 +70,18 @@ pub struct JewelAccount {
 #[sqlx(rename_all = "PascalCase")]
 pub struct JewelName {
     #[sqlx(rename = "NameID")]
-    name_id: i64,
+    pub name_id: i64,
     pub name: String,
-    last_name: String,
-    first_name: Option<String>,
-    address: Option<String>,
-    cell_phone: Option<String>,
-    home_phone: Option<String>,
-    work_phone: Option<String>,
-    email_address: Option<String>,
-    get_receipt: bool,
-    donor: bool,
-    active: bool,
+    pub last_name: String,
+    pub first_name: Option<String>,
+    pub address: Option<String>,
+    pub cell_phone: Option<String>,
+    pub home_phone: Option<String>,
+    pub work_phone: Option<String>,
+    pub email_address: Option<String>,
+    pub get_receipt: bool,
+    pub donor: bool,
+    pub active: bool,
 }
 
 #[expect(unused)]
@@ -91,7 +90,7 @@ pub struct JewelName {
 pub struct JewelOffering {
     #[sqlx(rename = "OfferingID")]
     pub offering_id: i64,
-    pub date: OffsetDateTime,
+    pub date: DateTime<Utc>,
     /// yes, jewel stores money as a floating point number
     pub offering_total: f64,
     #[sqlx(rename = "DepositJournalID")]
@@ -117,7 +116,7 @@ pub struct JewelContribution {
     pub account_id: i64,
 
     /// again, jewel stores money with *floats*
-    amount: f64,
+    pub amount: f64,
 }
 
 #[expect(unused)]
@@ -125,28 +124,28 @@ pub struct JewelContribution {
 #[sqlx(rename_all = "PascalCase")]
 pub struct JewelEnvelope {
     #[sqlx(rename = "EnvID")]
-    envelope_id: i64,
+    pub envelope_id: i64,
 
     #[sqlx(rename = "OfferingID")]
-    offering_id: i64,
+    pub offering_id: i64,
 
     #[sqlx(rename = "NameID")]
     pub name_id: i64,
 
     /// yes, floating point money
-    cash_total: f64,
+    pub cash_total: f64,
 
     /// yes, floating point money
-    check_total: f64,
+    pub check_total: f64,
 
     /// Envelopes are also created for check reversals
     ///
     /// A reversal will be in the form `{original_num} reversal` and have a negative `CheckTotal`
     ///
     /// Check numbers are alphanumeric even if there isn't a reversal
-    check_num: Option<String>,
+    pub check_num: Option<String>,
 
-    check_reversed: bool,
+    pub check_reversed: bool,
 }
 
 #[expect(unused)]
@@ -261,10 +260,13 @@ impl<'r> sqlx::Decode<'r, sqlx::Sqlite> for OfferingSource {
 pub struct JewelData {
     pub currency: JewelCurrency,
     pub accounts: BTreeMap<i64, JewelAccount>,
+    pub bank_accounts: HashSet<i64>,
     pub names: BTreeMap<i64, JewelName>,
     pub offerings: BTreeMap<i64, JewelOffering>,
-    pub contributions: BTreeMap<i64, JewelContribution>,
-    pub envelopes: BTreeMap<i64, JewelEnvelope>,
+    /// (env_id, contributions)
+    pub contributions: HashMap<i64, Vec<JewelContribution>>,
+    /// (offering_id, envelopes)
+    pub envelopes: HashMap<i64, Vec<JewelEnvelope>>,
     pub journals: BTreeMap<i64, JewelJournal>,
     /// (journal_id, offering_id)
     pub offering_journals: HashMap<i64, i64>,
@@ -286,6 +288,12 @@ pub async fn jewel_extract(
     .fetch_one(&mut *conn)
     .await?;
 
+    let bank_accounts: HashSet<i64> = sqlx::query_scalar(r#"SELECT AccountID FROM Accounts_Bank"#)
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .collect();
+
     let mut accounts: BTreeMap<i64, JewelAccount> = sqlx::query_as(
         r#"
         SELECT AccountID,
@@ -306,7 +314,7 @@ pub async fn jewel_extract(
     .map(|acc: JewelAccount| (acc.account_id, acc))
     .collect();
 
-    let names = sqlx::query_as(
+    let mut names: BTreeMap<i64, JewelName> = sqlx::query_as(
         r#"
         SELECT NameID,
                Name,
@@ -351,7 +359,9 @@ pub async fn jewel_extract(
     })
     .collect();
 
-    let contributions = sqlx::query_as(
+    let mut contributions: HashMap<i64, Vec<JewelContribution>> = HashMap::new();
+
+    let raw_contributions: Vec<JewelContribution> = sqlx::query_as(
         r#"
         SELECT ContribID,
                EnvID,
@@ -361,18 +371,23 @@ pub async fn jewel_extract(
             "#,
     )
     .fetch_all(&mut *conn)
-    .await?
-    .into_iter()
-    // ensure that all affected accounts are set as active
-    .map(|contribution: JewelContribution| {
+    .await?;
+
+    for contribution in raw_contributions {
+        // ensure the affected account is set as active
         if let Some(account) = accounts.get_mut(&contribution.account_id) {
             account.active = true;
         }
-        (contribution.contribution_id, contribution)
-    })
-    .collect();
 
-    let envelopes = sqlx::query_as(
+        contributions
+            .entry(contribution.envelope_id)
+            .and_modify(|c| c.push(contribution))
+            .or_insert(vec![contribution]);
+    }
+
+    let mut envelopes: HashMap<i64, Vec<JewelEnvelope>> = HashMap::new();
+
+    let raw_envelopes: Vec<JewelEnvelope> = sqlx::query_as(
         r#"
         SELECT EnvID,
                OfferingID,
@@ -385,10 +400,16 @@ pub async fn jewel_extract(
             "#,
     )
     .fetch_all(&mut *conn)
-    .await?
-    .into_iter()
-    .map(|envelope: JewelEnvelope| (envelope.envelope_id, envelope))
-    .collect();
+    .await?;
+
+    for envelope in raw_envelopes {
+        names.entry(envelope.name_id).and_modify(|n| n.donor = true);
+
+        envelopes
+            .entry(envelope.offering_id)
+            .and_modify(|e| e.push(envelope.clone()))
+            .or_insert(vec![envelope]);
+    }
 
     let journals = sqlx::query_as(
         r#"
@@ -848,6 +869,7 @@ pub async fn jewel_extract(
     Ok(JewelData {
         currency,
         accounts,
+        bank_accounts,
         names,
         offerings,
         contributions,

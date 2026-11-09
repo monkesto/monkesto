@@ -258,6 +258,7 @@ impl JournalService {
             return Err(JournalError::Permissions(Permissions::READ));
         }
 
+        // TODO(Gabriel): pagination
         let transactions = sqlx::query!(
             r#"
             SELECT t.id as "id: TransactionId", t.journal_id as "journal_id: JournalId", t.memo as "memo: Memo", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp",
@@ -271,6 +272,7 @@ impl JournalService {
                 ON e.stream_id = t.id AND t.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
             WHERE t.journal_id = $1
             ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
+            LIMIT 500
             "#,
             journal_id as JournalId,
             StreamType::Transaction as i16,
