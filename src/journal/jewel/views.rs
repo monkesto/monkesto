@@ -25,6 +25,10 @@ pub async fn import_jewel_page(
         .journal_service
         .get_file(file_id, journal_id, authority)
         .await?;
+    let (journal, _, _) = state
+        .journal_service
+        .get_journal(journal_id, authority)
+        .await?;
     let content = html! {
         main id="jewel-import" data-url=(format!("/journal/{journal_id}/file/{file_id}/import_jewel"))
             class="mx-auto max-w-4xl space-y-6 text-gray-900 dark:text-gray-100" {
@@ -70,7 +74,7 @@ pub async fn import_jewel_page(
         script { (PreEscaped(include_str!("import.js"))) }
     };
     Ok(layout(
-        Some("Import Jewel database"),
+        Some(journal.name.as_ref()),
         true,
         Some(journal_id.as_str()),
         content,

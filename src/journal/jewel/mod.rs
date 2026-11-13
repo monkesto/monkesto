@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::io::Write;
 mod accounting;
 pub mod commands;
@@ -67,8 +68,12 @@ impl IntoResponse for JewelImportError {
         use JewelImportError::*;
         match self {
             Io(_) | StartChildProcess(_) | Write(_) | ChildProcessExitFailure(_) => {
-                error!("{}", self);
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                error!(error = ?self, "Could not read or convert the Jewel database");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "The Jewel database could not be read. Please try again or contact support.",
+                )
+                    .into_response()
             }
             OutdatedJewelVersion(_) => {
                 (StatusCode::BAD_REQUEST, "jewel 9.0 or later is required").into_response()
@@ -124,7 +129,7 @@ pub async fn view_db(
                     @let mut curr_month = current_date.month();
 
 
-                    @for month in 0..NUM_MONTHS {
+                    @for month in 0..min(NUM_MONTHS, standard_stats.monthly_tithe.len()) {
                         @let timestamp = NaiveDate::from_ymd_opt(curr_year, curr_month, 1).expect("valid date");
 
                         h2 class="text-4xl/7 font-bold text-white sm:truncate sm:text-3xl sm:tracking-tight" {

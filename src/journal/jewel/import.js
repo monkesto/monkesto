@@ -23,7 +23,8 @@
     }
 
     function showError(message) {
-        errorBox.textContent = message;
+        errorBox.textContent = (typeof message === "string" && message.trim())
+            || "The import could not continue. Please try again or contact support.";
         errorBox.hidden = false;
     }
 
@@ -41,8 +42,30 @@
                 window.location.assign(response.url);
                 throw new Error("Sign in again to continue monitoring this import.");
             }
-            if (!response.ok) throw new Error(await response.text());
+            if (!response.ok) {
+                const body = (await response.text()).trim();
+                const contentType = response.headers.get("Content-Type") || "";
+                let message = "";
+                if (contentType.includes("application/json")) {
+                    try {
+                        const error = JSON.parse(body);
+                        if (typeof error.message === "string") message = error.message;
+                        else if (typeof error.error === "string") message = error.error;
+                    } catch {
+                        // Invalid or empty JSON still gets a useful HTTP error below.
+                    }
+                } else if (!contentType.includes("text/html")) {
+                    message = body;
+                }
+                throw new Error(message.trim()
+                    || `The import request failed (HTTP ${response.status}). Please try again or contact support.`);
+            }
             return await response.json();
+        } catch (error) {
+            if (error.name === "AbortError") {
+                throw new Error("The import request timed out. Check the import status before retrying.");
+            }
+            throw error;
         } finally {
             clearTimeout(timeout);
         }
@@ -162,10 +185,18 @@
         retryButton.disabled = true;
         renderedReport = false;
         currentPhase = "preparing";
+        statusText.textContent = "Opening the import…";
+        errorBox.hidden = true;
+        review.hidden = true;
+        confirmButton.disabled = true;
+        progress.hidden = false;
         try {
             renderStatus(await request("start", { method: "POST" }));
             schedulePoll();
         } catch (error) {
+            currentPhase = "failed";
+            statusText.textContent = "Could not start the import.";
+            progress.hidden = true;
             showError(error.message);
             retryButton.hidden = false;
         } finally {
