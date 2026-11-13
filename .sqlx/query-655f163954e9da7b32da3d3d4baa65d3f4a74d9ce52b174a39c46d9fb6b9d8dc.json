@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT first_event_id, last_event_id, total_events FROM jewel_imports WHERE journal_id = $1 AND file_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "first_event_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_event_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "total_events",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "655f163954e9da7b32da3d3d4baa65d3f4a74d9ce52b174a39c46d9fb6b9d8dc"
+}

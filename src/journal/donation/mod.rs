@@ -173,7 +173,6 @@ impl JournalService {
             return Err(InvalidJournal(journal_id));
         }
 
-        // TODO(Gabriel): Pagination
         let donations = sqlx::query!(
             r#"
             SELECT d.id as "id: DonationId", d.journal_id as "journal_id: JournalId", d.deposit_account_id as "deposit_account_id: AccountId", d.donation_total, e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp",
@@ -187,14 +186,15 @@ impl JournalService {
                 ON d.journal_id = $1 AND e.stream_id = d.id AND e.stream_type = $2 AND e.event_type = $3
             WHERE d.journal_id = $1
             ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
-            LIMIT 500
             "#,
             journal_id as JournalId,
             StreamType::Donation as i16,
             EventType::DonationCreated as i16,
         )
             .fetch_all(self.pool())
-            .await?.into_iter().map(|d| {
+            .await?
+            .into_iter()
+            .map(|d| {
             let timestamp = d.display_timestamp.unwrap_or(d.timestamp);
             (DonationState {
                 id: d.id,

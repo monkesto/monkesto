@@ -272,7 +272,6 @@ impl JournalService {
                 ON e.stream_id = t.id AND t.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
             WHERE t.journal_id = $1
             ORDER BY COALESCE(e.display_timestamp, e.timestamp) DESC
-            LIMIT 500
             "#,
             journal_id as JournalId,
             StreamType::Transaction as i16,

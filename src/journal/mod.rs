@@ -14,6 +14,7 @@ pub mod person;
 mod projection;
 pub mod service;
 pub mod transaction;
+pub(crate) mod ui;
 pub mod views;
 
 use crate::id::Ident;
@@ -65,7 +66,19 @@ pub fn router() -> Router<crate::StateType> {
         .route("/journal/{id}/file/{file_id}/jewel", get(jewel::view_db))
         .route(
             "/journal/{id}/file/{file_id}/import_jewel",
-            get(jewel::commands::import_jewel_db),
+            get(jewel::views::import_jewel_page),
+        )
+        .route(
+            "/journal/{id}/file/{file_id}/import_jewel/start",
+            post(jewel::commands::start_import),
+        )
+        .route(
+            "/journal/{id}/file/{file_id}/import_jewel/status",
+            get(jewel::commands::import_status),
+        )
+        .route(
+            "/journal/{id}/file/{file_id}/import_jewel/confirm",
+            post(jewel::commands::confirm_import),
         )
         .route(
             "/journal/{journal_id}/file/{file_id}/delete",

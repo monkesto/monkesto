@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO jewel_imports (journal_id, file_id) VALUES ($1, $2) ON CONFLICT DO NOTHING RETURNING file_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file_id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "769fc5c18089a30b874ed3885c19eec0c3fdd88ee4566b15391569f77090d7ed"
+}

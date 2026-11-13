@@ -16,6 +16,7 @@ jobs:
       - name: Install clippy
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
+          toolchain: nightly-2026-10-03
           components: clippy
 
       - name: Install protoc
@@ -33,6 +34,7 @@ jobs:
       - name: Install rustfmt
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
+          toolchain: nightly-2026-10-03
           components: rustfmt
 
       - name: Run formatter
@@ -43,8 +45,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
-      - run: rustup toolchain install stable --profile minimal
-      - uses: Swatinem/rust-cache@v2
+      - name: Install toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: nightly-2026-10-03
 
       - name: Install protoc and mold
         run: sudo apt-get install protobuf-compiler mold

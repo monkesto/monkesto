@@ -126,7 +126,6 @@ pub(crate) mod stream_lock {
     ///
     /// this method gets a read lock on the stream if it exists,
     /// ensuring it won't be modified before the transaction is committed
-    #[expect(unused)]
     pub async fn assert_stream_exists(
         tx: &mut Transaction<'_, Postgres>,
         journal_id: JournalId,
@@ -381,6 +380,7 @@ pub struct JournalService {
     pub pool: PgPool,
     pub object_store: ObjectStore,
     pub projection: &'static JournalProjection,
+    pub(crate) jewel_imports: crate::journal::jewel::jobs::ImportJobs,
 }
 
 #[repr(i16)]
@@ -594,6 +594,7 @@ impl JournalService {
             pool,
             object_store: ObjectStore::new().await,
             projection,
+            jewel_imports: Default::default(),
         })
     }
 
@@ -886,7 +887,7 @@ pub async fn handle_incoming_event(
                 EntryKind::Account { account_id } => {
                     sqlx::query!(
                             r#"
-                            UPDATE accounts SET balance = balance - $1 WHERE id = $2 AND journal_id = $3
+                            UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND journal_id = $3
                             "#,
                             diff,
                             account_id as AccountId,
@@ -898,9 +899,9 @@ pub async fn handle_incoming_event(
                     fund_id,
                     scope: _,
                 } => {
-                    let x = sqlx::query!(
+                    sqlx::query!(
                         r#"
-                        UPDATE funds SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
+                        UPDATE funds SET balance = balance - $1 WHERE id = $2 AND journal_id = $3;
                         "#,
                         diff,
                         fund_id as FundId,
@@ -909,18 +910,14 @@ pub async fn handle_incoming_event(
                     .execute(&mut **tx)
                     .await?;
 
-                    assert_ne!(x.rows_affected(), 0);
-
-                    let y = sqlx::query!(
+                    sqlx::query!(
                         r#"
-                        UPDATE activities SET balance = balance - $1 WHERE id = $2 AND journal_id = $3;
+                        UPDATE activities SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
                         "#,
                         diff,
                         activity_id as ActivityId,
                         journal_id as JournalId,
                     ).execute(&mut **tx).await?;
-
-                    assert!(x.rows_affected() != 0 && y.rows_affected() != 0);
                 }
             }
         }

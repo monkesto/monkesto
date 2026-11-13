@@ -78,7 +78,7 @@ impl JournalProjection {
                             .await?;
 
                         if unprocessed_events.is_empty() {
-                            continue;
+                            break;
                         }
 
                         let saturated = unprocessed_events.len() > 99;

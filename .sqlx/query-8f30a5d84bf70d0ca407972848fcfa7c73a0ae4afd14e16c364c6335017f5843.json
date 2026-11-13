@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT last_processed_event_id FROM journal_event_listener WHERE id = 'Journal Projection'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "last_processed_event_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "8f30a5d84bf70d0ca407972848fcfa7c73a0ae4afd14e16c364c6335017f5843"
+}

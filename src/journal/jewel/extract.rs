@@ -48,11 +48,13 @@ pub struct JewelAccount {
     pub account_id: i64,
     /// 0 -> beginning balance
     ///
-    /// 1 -> asset (bank account, petty cash fund, etc)
+    /// 1 -> bank account
     ///
-    /// 2 -> asset (program-specific funds)
+    /// 2 -> conference funds
     ///
-    /// 3 -> liability
+    /// 3 -> local funds
+    ///
+    /// Conference/local identifies fund ownership, not an income/expense category.
     pub account_type: i64,
     pub name: String,
     #[sqlx(rename = "ParentAccountID")]
@@ -156,15 +158,17 @@ pub struct JewelJournal {
     pub journal_id: i64,
     pub accounting_date: DateTime<Utc>,
 
-    /// 0 -> initial balances
+    /// 0 -> initial balances (bank/fund records must be combined and balanced)
     ///
     /// 1 -> not found
     ///
-    /// 2 -> income or check reversal
+    /// 2 -> deposits into bank
     ///
     /// 3 -> not found
     ///
-    /// 4 -> expense
+    /// 4 -> payments
+    ///
+    /// 5 -> transfers
     #[sqlx(rename = "JournalTypeID")]
     pub journal_type_id: i64,
 
@@ -203,7 +207,8 @@ pub struct JewelJournalItem {
     #[sqlx(rename = "AccountID")]
     pub account_id: i64,
 
-    /// yes, floating point money
+    /// Signed bank/fund balance change, stored as floating-point money.
+    /// Positive bank amounts are debits; positive fund amounts are credits.
     pub amount: f64,
 }
 

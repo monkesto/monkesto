@@ -1,25 +1,14 @@
-use super::TransactionState;
-use crate::BackendType;
-use crate::StateType;
-use crate::authn::user::UserState;
-use crate::authn::{UserId, get_user};
+use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
 use crate::dollars::Dollars;
-use crate::email::Email;
-use crate::journal::JournalId;
-use crate::journal::account::AccountId;
-use crate::journal::account::AccountState;
-use crate::journal::activity::{ActivityId, ActivityState};
-use crate::journal::error::{JournalError, JournalResult};
-use crate::journal::fund::{FundId, FundState};
-use crate::journal::layout;
+use crate::journal::error::JournalError;
 use crate::journal::transaction::entry::{EntryKind, EntrySide};
-use crate::time::Timestamp;
-use axum::extract::Path;
-use axum::extract::State;
+use crate::journal::ui::{self, ListQuery};
+use crate::journal::{JournalId, layout};
+use crate::{BackendType, StateType};
+use axum::extract::{Path, Query, State};
 use axum_login::AuthSession;
-use maud::Markup;
-use maud::html;
+use maud::{Markup, html};
 use std::collections::HashMap;
 use std::str::FromStr;
 
@@ -27,251 +16,220 @@ pub async fn transaction_list_page(
     State(state): State<StateType>,
     session: AuthSession<BackendType>,
     Path(id): Path<String>,
+    Query(query): Query<ListQuery>,
 ) -> Result<Markup, JournalError> {
     let user = get_user(session)?;
-    let user_authority = Authority::Direct(Actor::User(user.id));
-
+    let authority = Authority::Direct(Actor::User(user.id));
     let journal_id = JournalId::from_str(&id)?;
-
-    let transactions_res: JournalResult<Vec<(TransactionState, Authority, Timestamp)>> = state
+    let mut transactions = state
         .journal_service
-        .list_journal_transactions(journal_id, user_authority)
-        .await;
-
-    let accounts_res: JournalResult<HashMap<AccountId, AccountState>> = match state
+        .list_journal_transactions(journal_id, authority)
+        .await?;
+    let mut account_options: Vec<_> = state
         .journal_service
-        .list_journal_accounts(journal_id, user_authority)
-        .await
-    {
-        Ok(accounts) => Ok(accounts
-            .into_iter()
-            .map(|(state, _, _)| (state.id, state))
-            .collect::<HashMap<AccountId, AccountState>>()),
-        Err(e) => Err(e),
-    };
-
-    let activities_res: JournalResult<HashMap<ActivityId, ActivityState>> = match state
+        .list_journal_accounts(journal_id, authority)
+        .await?
+        .into_iter()
+        .map(|(item, _, _)| (item.id, item.name.to_string()))
+        .collect();
+    account_options.sort_by_cached_key(|(id, name)| (name.to_lowercase(), id.to_string()));
+    let accounts: HashMap<_, _> = account_options.iter().cloned().collect();
+    let activities: HashMap<_, _> = state
         .journal_service
-        .list_journal_activities(journal_id, user_authority)
-        .await
-    {
-        Ok(activities) => Ok(activities
-            .into_iter()
-            .map(|(state, _, _)| (state.id, state))
-            .collect::<HashMap<ActivityId, ActivityState>>()),
-        Err(e) => Err(e),
-    };
-
-    let funds_res: JournalResult<HashMap<FundId, FundState>> = match state
+        .list_journal_activities(journal_id, authority)
+        .await?
+        .into_iter()
+        .map(|(item, _, _)| (item.id, item.name.to_string()))
+        .collect();
+    let funds: HashMap<_, _> = state
         .journal_service
-        .list_journal_funds(journal_id, user_authority)
-        .await
-    {
-        Ok(funds) => Ok(funds
-            .into_iter()
-            .map(|(state, _, _)| (state.id, state))
-            .collect::<HashMap<FundId, FundState>>()),
-        Err(e) => Err(e),
-    };
-
-    let members_res: JournalResult<HashMap<UserId, UserState>> = match state
+        .list_journal_funds(journal_id, authority)
+        .await?
+        .into_iter()
+        .map(|(item, _, _)| (item.id, item.name.to_string()))
+        .collect();
+    let (journal, _, _) = state
         .journal_service
-        .list_journal_members(journal_id, user_authority)
-        .await
-    {
-        Ok(ids) => match state.authn_service.fetch_users(ids.as_slice()).await {
-            Ok(members) => Ok(members
-                .into_iter()
-                .map(|m| (m.id, m))
-                .collect::<HashMap<UserId, UserState>>()),
-            Err(e) => Err(e.into()),
-        },
-        Err(e) => Err(e),
-    };
-
-    let mut nonmember_cache: HashMap<UserId, Email> = HashMap::new();
-
-    let content = html! {
-          @match transactions_res {
-            Ok(ref transactions) => {
-                @for (tx, tx_authority, timestamp) in transactions {
-                    a
-                    href=(format!("/journal/{}/transaction/{}", id, tx.id))
-                    class="block p-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"{
-                        @if let Some(ref memo) = tx.memo {
-                            span class="font-medium text-gray-900 dark:text-white grid text-center place-items-center" {
-                                (memo)
-                            }
-
-                        }
-                        div class="space-y-3" {
-                            div class="space-y-2" {
-                                @for entry in tx.entries.iter() {
-                                    @match entry.entry_kind {
-                                        EntryKind::Account {
-                                            account_id
-                                        } => {
-                                            div class="flex justify-between items-center" {
-                                                span class="text-base font-medium text-gray-900 dark:text-white" {
-                                                    @match &accounts_res {
-                                                        Ok(accounts) => (accounts.get(&account_id).map(|acct| acct.name.as_ref()).unwrap_or("Unknown Account")),
-                                                        Err(e) => {"encountered an error while fetching accounts: " (e)}
-                                                    }
-                                                }
-
-                                                span class="text-base text-gray-700 dark:text-gray-300" {
-                                                    (Dollars(entry.amount)) " " (entry.entry_side)
-                                                }
-
-                                            }
-                                        },
-                                        EntryKind::Activity {activity_id, fund_id, scope: _} => {
-                                            div class="flex justify-between items-center" {
-                                                span class="text-base font-medium text-gray-900 dark:text-white" {
-                                                    @if let Ok(activities) = &activities_res && let Ok(funds) = &funds_res {
-                                                        (format!("{} activity, {} fund",
-                                                            activities.get(&activity_id).map(|act| act.name.as_ref()).unwrap_or("Unknown Activity"),
-                                                            funds.get(&fund_id).map(|f| f.name.as_ref()).unwrap_or("Unknown Fund"))
-                                                        )
-                                                    } @else {
-                                                       "encountered an error while fetching activities and funds"
-                                                    }
-                                                }
-
-                                                span class="text-base text-gray-700 dark:text-gray-300" {
-                                                    (Dollars(entry.amount)) " " (entry.entry_side)
-                                                }
-
-                                            }
-                                        }
-                                    }
-                                }
-
-                                div class="text-xs text-gray-400 dark:text-gray-500" {
-                                    @match tx_authority.actor() {
-                                        Actor::User(id) => {
-                                            @match &members_res {
-                                                Ok(members) => {
-                                                    @if let Some(email) = members.get(&id).map(|m| m.email.clone()) {
-                                                        (email.to_string())
-                                                    } @else if let Some(email) = nonmember_cache.get(&id)  {
-                                                        (email.to_string())
-                                                    } @else {
-                                                        // the user may be the owner or somebody who left the journal after creating the transaction
-                                                        @match state.authn_service.fetch_user(id).await {
-                                                            Ok(user) => {
-                                                                // maud assumes that you never want to call functions for
-                                                                // side effects and makes you assign a value to the result
-                                                                @let _ = nonmember_cache.insert(user.id, user.email.clone());
-                                                                (user.email.to_string())
-                                                            },
-                                                            Err(e) => {"failed to fetch user: " (e)}
-                                                        }
-                                                    }
-                                                },
-                                                Err(e) => {"failed to fetch users: " (e)}
-                                            }
-                                        },
-                                        Actor::System => {"system"},
-                                        Actor::Anonymous => {"anonymous"}
-                                    } " on " ((timestamp.format("%m/%d/%Y")))
-                                }
-                            }
-                        }
-                    }
-                }
-                hr class="mt-8 mb-6 border-gray-300 dark:border-gray-600";
-
-                div class="mt-10" {
-                    div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6" {
-                        h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6" {
-                            "Create New Transaction"
-                        }
-
-                        form method="post" action=(format!("/journal/{}/transaction", id)) class="space-y-6" {
-                            @for i in 0..4 {
-                                div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg" {
-                                    div class="space-y-3 md:space-y-0 md:grid md:grid-cols-12 md:gap-3" {
-                                        div class="md:col-span-6" {
-                                            label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                                (if i < 2 {"Account"} else {"Account (Optional)"})
-                                            }
-                                            select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
-                                            name="account" {
-                                                option value="" { "Select account..." }
-                                                @if let Ok(accounts) = &accounts_res {
-                                                    @for (acc_id, acc_state) in accounts {
-                                                        option value=(acc_id) { (acc_state.name)}
-                                                    }
-                                                } @else {
-                                                    option value=("invalid account") { "failed to fetch accounts" }
-                                                }
-                                            }
-                                        }
-                                        div class="grid grid-cols-4 gap-3 md:col-span-6 md:grid-cols-6" {
-                                            div class="col-span-3 md:col-span-4" {
-                                                label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                                    "Amount"
-                                                }
-                                                input class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400 text-right [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [-moz-appearance:textfield]"
-                                                type="number"
-                                                step="0.01" min="0"
-                                                placeholder="0.00"
-                                                required[i < 2]
-                                                name="amount";
-                                            }
-                                            div class="col-span-1 md:col-span-2" {
-                                                label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2" {
-                                                    "Type"
-                                                }
-                                                select class="w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 px-3 py-2 text-gray-900 dark:text-white focus:border-indigo-500 focus:ring-indigo-500 dark:focus:border-indigo-400"
-                                                name="entry_type" {
-                                                    option value=(EntrySide::Debit as i8) { "Dr" }
-                                                    option value=(EntrySide::Credit as i8) { "Cr" }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            div class="flex justify-between items-center pt-4 border-t border-gray-200 dark:border-gray-600" {
-                                div class="text-sm text-gray-500 dark:text-gray-400" {
-                                    "Debits must equal credits"
-                                }
-                                button class="px-6 py-2 bg-indigo-600 text-white font-medium rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:bg-indigo-500 dark:hover:bg-indigo-400 dark:focus:ring-indigo-400 dark:ring-offset-gray-800" type="submit" {
-                                    "Create Transaction"
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            Err(e) => {
-                "Error fetching transactions" (e)
-            }
-          }
-    };
-
-    let wrapped_content = html! {
-        div class="flex flex-col gap-6 mx-auto w-full max-w-4xl" {
-            (content)
+        .get_journal(journal_id, authority)
+        .await?;
+    let path = format!("/journal/{journal_id}/transaction");
+    let description = |kind: EntryKind| -> (String, String) {
+        match kind {
+            EntryKind::Account { account_id } => (
+                accounts
+                    .get(&account_id)
+                    .cloned()
+                    .unwrap_or_else(|| "Unknown account".into()),
+                "Account".into(),
+            ),
+            EntryKind::Activity {
+                activity_id,
+                fund_id,
+                ..
+            } => (
+                activities
+                    .get(&activity_id)
+                    .cloned()
+                    .unwrap_or_else(|| "Unknown activity".into()),
+                format!(
+                    "Fund: {}",
+                    funds
+                        .get(&fund_id)
+                        .map(String::as_str)
+                        .unwrap_or("Unknown fund")
+                ),
+            ),
         }
     };
-
-    let journal_name = match state
-        .journal_service
-        .get_journal(journal_id, user_authority)
-        .await
-    {
-        Ok((journal, _, _)) => journal.name.to_string(),
-        Err(e) => format!("failed to fetch the journal: {e}"),
+    let all = transactions.len();
+    let needle = query.needle();
+    transactions.retain(|(transaction, _, date)| {
+        needle.is_empty()
+            || transaction.id.to_string().to_lowercase().contains(&needle)
+            || date.format("%Y-%m-%d").to_string().contains(&needle)
+            || transaction
+                .memo
+                .as_ref()
+                .is_some_and(|memo| memo.as_ref().to_lowercase().contains(&needle))
+            || transaction.entries.iter().any(|entry| {
+                let (name, detail) = description(entry.entry_kind);
+                name.to_lowercase().contains(&needle) || detail.to_lowercase().contains(&needle)
+            })
+    });
+    ui::sort_history(&mut transactions, &query, |transaction| {
+        transaction.id.to_string()
+    });
+    let total = transactions.len();
+    let page = &transactions[query.range(total)];
+    let authors = ui::authors(&state, page.iter().map(|(_, authority, _)| *authority)).await?;
+    let content = html! {
+        div class="mx-auto flex w-full max-w-6xl flex-col gap-6" {
+            (ui::header(journal_id, "transaction", "Transactions", "Review account movements and fund activity. Expand a transaction to see its debits and credits.", Some("New transaction")))
+            (ui::controls(&path, &query, false, "Memo, account, activity, fund, or YYYY-MM-DD…"))
+            (ui::history_limit(all))
+            div id="list-results" data-list-results role="region" aria-label="Search results" tabindex="-1" class="flex flex-col gap-6" {
+                (ui::pagination(&path, &query, total, all, false))
+                @if transactions.is_empty() {
+                    div class=(ui::PANEL) { (ui::empty(!needle.is_empty(), "No transactions yet", "Create a transaction below to record an account movement.", &path)) }
+                }
+                div class="space-y-3" {
+                    @for (transaction, authority, timestamp) in page {
+                        @let debits: u128 = transaction.entries.iter().filter(|entry| entry.entry_side == EntrySide::Debit).map(|entry| u128::from(entry.amount.unsigned_abs())).sum();
+                        @let credits: u128 = transaction.entries.iter().filter(|entry| entry.entry_side == EntrySide::Credit).map(|entry| u128::from(entry.amount.unsigned_abs())).sum();
+                        details class="group overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xs open:border-indigo-300 dark:border-gray-700 dark:bg-gray-800 dark:open:border-indigo-600" {
+                            summary class="flex cursor-pointer list-none flex-wrap items-center gap-4 p-4 select-none hover:bg-gray-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-500 sm:p-5 dark:hover:bg-gray-700/40 [&::-webkit-details-marker]:hidden" {
+                                span aria-hidden="true" class="text-gray-400 transition-transform group-open:rotate-90" { "▸" }
+                                div class="min-w-0 grow basis-48" {
+                                    h2 class="break-words text-base font-semibold text-gray-900 dark:text-white" {
+                                        (transaction.memo.as_ref().map(|memo| memo.as_ref()).filter(|memo| !memo.trim().is_empty()).unwrap_or("Account transaction"))
+                                    }
+                                    p class="mt-1 text-sm text-gray-500 dark:text-gray-400" { (ui::date(*timestamp)) " · " (transaction.entries.len()) " entries" }
+                                }
+                                div class="ml-auto text-right" {
+                                    p class="text-lg font-semibold tabular-nums text-gray-900 dark:text-white" { (ui::money(debits)) }
+                                    p class="mt-1 text-xs text-gray-500 dark:text-gray-400" { "Total debits" }
+                                }
+                                span class="sr-only" { "Expand transaction details" }
+                            }
+                            div class="border-t border-gray-100 dark:border-gray-700" {
+                                div class="overflow-x-auto" {
+                                    table class="w-full" {
+                                        caption class="sr-only" { "Transaction entries" }
+                                        thead class="bg-gray-50 dark:bg-gray-900/40" {
+                                            tr {
+                                                th scope="col" class=(ui::TH) { "Account / activity" }
+                                                th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400" { "Debit" }
+                                                th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400" { "Credit" }
+                                            }
+                                        }
+                                        tbody class="divide-y divide-gray-100 dark:divide-gray-700" {
+                                            @for entry in &transaction.entries {
+                                                @let (name, detail) = description(entry.entry_kind);
+                                                tr {
+                                                    th scope="row" class="min-w-48 px-4 py-3 text-left text-sm font-medium text-gray-900 dark:text-white" {
+                                                        (name)
+                                                        p class="mt-1 text-xs font-normal text-gray-500 dark:text-gray-400" { (detail) }
+                                                    }
+                                                    td class="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-gray-100" {
+                                                        @if entry.entry_side == EntrySide::Debit { (Dollars(entry.amount)) } @else { span class="text-gray-400" { "—" } }
+                                                    }
+                                                    td class="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-gray-100" {
+                                                        @if entry.entry_side == EntrySide::Credit { (Dollars(entry.amount)) } @else { span class="text-gray-400" { "—" } }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        tfoot class="border-t border-gray-200 bg-gray-50 text-sm font-semibold text-gray-900 dark:border-gray-700 dark:bg-gray-900/40 dark:text-white" {
+                                            tr {
+                                                th scope="row" class="px-4 py-3 text-left" { "Totals" }
+                                                td class="whitespace-nowrap px-4 py-3 text-right tabular-nums" { (ui::money(debits)) }
+                                                td class="whitespace-nowrap px-4 py-3 text-right tabular-nums" { (ui::money(credits)) }
+                                            }
+                                        }
+                                    }
+                                }
+                                footer class="flex flex-wrap justify-between gap-2 border-t border-gray-100 px-4 py-3 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400" {
+                                    p { "Recorded by " (ui::author(*authority, &authors)) }
+                                    p class="break-all font-mono" { "ID: " (transaction.id) }
+                                }
+                            }
+                        }
+                    }
+                }
+                @if total > 50 { (ui::pagination(&path, &query, total, all, false)) }
+            }
+            section id="create" aria-labelledby="create-heading" class="scroll-mt-6 rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-gray-700 dark:bg-gray-800" {
+                h2 id="create-heading" class="text-lg font-semibold text-gray-900 dark:text-white" { "New transaction" }
+                p class="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400" { "Choose the accounts and amounts for each entry. Total debits must equal total credits." }
+                @if account_options.is_empty() {
+                    p class="mt-5 text-sm text-gray-600 dark:text-gray-300" {
+                        "Add accounts before recording a transaction. "
+                        a href=(format!("/journal/{journal_id}/account#create")) class="font-semibold text-indigo-600 hover:underline dark:text-indigo-400" { "Add an account" }
+                    }
+                } @else {
+                    form method="post" action=(&path) class="mt-6 space-y-5" {
+                        div {
+                            label for="transaction-memo" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-200" { "Memo (optional)" }
+                            input id="transaction-memo" name="memo" type="text" maxlength="100" placeholder="What is this transaction for?" class=(ui::INPUT);
+                        }
+                        @for i in 0..4 {
+                            fieldset class="rounded-lg border border-gray-200 p-4 dark:border-gray-700" {
+                                legend class="px-1 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400" { "Entry " (i + 1) @if i >= 2 { " · optional" } }
+                                div class="grid gap-4 sm:grid-cols-12" {
+                                    div class="sm:col-span-6" {
+                                        label for=(format!("entry-{i}-account")) class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-200" { "Account" }
+                                        select id=(format!("entry-{i}-account")) name="account" required[i < 2] class=(ui::INPUT) {
+                                            option value="" { "Select account…" }
+                                            @for (account_id, name) in &account_options { option value=(account_id) { (name) } }
+                                        }
+                                    }
+                                    div class="sm:col-span-3" {
+                                        label for=(format!("entry-{i}-amount")) class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-200" { "Amount ($)" }
+                                        input id=(format!("entry-{i}-amount")) name="amount" type="number" inputmode="decimal" min="0.01" step="0.01" required[i < 2] placeholder="0.00" class=(ui::INPUT);
+                                    }
+                                    div class="sm:col-span-3" {
+                                        label for=(format!("entry-{i}-side")) class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-200" { "Side" }
+                                        select id=(format!("entry-{i}-side")) name="entry_type" class=(ui::INPUT) {
+                                            option value=(EntrySide::Debit as i8) selected[i != 1] { "Debit (Dr)" }
+                                            option value=(EntrySide::Credit as i8) selected[i == 1] { "Credit (Cr)" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        div class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-5 dark:border-gray-700" {
+                            p class="text-sm text-gray-500 dark:text-gray-400" { "Use positive amounts and choose debit or credit." }
+                            button type="submit" class=(ui::BUTTON) { "Create transaction" }
+                        }
+                    }
+                }
+            }
+        }
     };
-
     Ok(layout::layout(
-        Some(&journal_name),
+        Some(journal.name.as_ref()),
         true,
         Some(&id),
-        wrapped_content,
+        content,
     ))
 }
