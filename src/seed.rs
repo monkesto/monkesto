@@ -10,6 +10,7 @@ use crate::journal::transaction::{FinancialPeriod, TransactionEntry, Transaction
 use crate::journal::{JournalId, Permissions};
 use crate::name::Name;
 use crate::time::{IncrementalTimeProvider, TimeProvider};
+use std::collections::HashMap;
 use std::str::FromStr;
 
 pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
@@ -51,7 +52,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
     let revenue_id = AccountId::from_str("ac4revenue")?;
     let expenses_id = AccountId::from_str("ac5expense")?;
 
-    let mut latest_journal_event = 0;
+    let mut latest_journal_events = HashMap::new();
 
     let journals = [
         (
@@ -80,7 +81,9 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
             )
             .await
         {
-            Ok(ev_id) => latest_journal_event = ev_id,
+            Ok(ev_id) => {
+                latest_journal_events.insert(id, ev_id);
+            }
             // journal already exists, ignore
             Err(JournalError::IdCollision(_)) => {}
             Err(e) => return Err(e),
@@ -101,7 +104,9 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
         )
         .await
     {
-        Ok(ev_id) => latest_journal_event = ev_id,
+        Ok(ev_id) => {
+            latest_journal_events.insert(maple_ridge_academy_id, ev_id);
+        }
         Err(JournalError::UserAlreadyHasAccess(_)) => {}
         Err(e) => return Err(e),
     }
@@ -147,7 +152,9 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
             )
             .await
         {
-            Ok(ev_id) => latest_journal_event = ev_id,
+            Ok(ev_id) => {
+                latest_journal_events.insert(maple_ridge_academy_id, ev_id);
+            }
             Err(JournalError::AccountIdCollision(_)) => {}
             Err(e) => return Err(e),
         }
@@ -273,7 +280,9 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
             )
             .await
         {
-            Ok(ev_id) => latest_journal_event = ev_id,
+            Ok(ev_id) => {
+                latest_journal_events.insert(maple_ridge_academy_id, ev_id);
+            }
             Err(JournalError::TransactionIdCollision(_)) => {}
             Err(e) => return Err(e),
         }
@@ -281,7 +290,9 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
 
     // wait for the projections to update
     state.authn_service.wait_for(latest_user_event).await;
-    state.journal_service.wait_for(latest_journal_event).await;
+    for event_id in latest_journal_events.into_values() {
+        state.journal_service.wait_for(event_id).await;
+    }
 
     Ok(())
 }

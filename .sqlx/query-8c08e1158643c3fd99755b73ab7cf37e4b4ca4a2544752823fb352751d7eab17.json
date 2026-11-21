@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT event_id, payload AS \"payload: JournalDomainEvent\" FROM journal_events\n         WHERE journal_id = $1 AND event_id > $2\n         ORDER BY event_id\n         LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "event_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "payload: JournalDomainEvent",
+        "type_info": "Bytea"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "8c08e1158643c3fd99755b73ab7cf37e4b4ca4a2544752823fb352751d7eab17"
+}

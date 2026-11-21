@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT p.journal_id AS \"journal_id: JournalId\", p.last_processed_event_id\n         FROM journal_projection_checkpoint p\n         WHERE p.retry_after <= now() AND EXISTS (\n             SELECT 1 FROM journal_events e\n             WHERE e.journal_id = p.journal_id AND e.event_id > p.last_processed_event_id\n         )\n         ORDER BY p.last_processed_event_id, p.journal_id\n         LIMIT 1\n         FOR UPDATE OF p SKIP LOCKED",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_processed_event_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "0108be5ef1b148ef4f6a926ef2a7c1565aedff78ac655e957aa9b4ee3a1e4cbc"
+}

@@ -105,11 +105,19 @@ The local store may not be secure and should only be used in dev environments.
 cargo make
 ```
 
+## Journal projection SQL
+
+The server uses PostgreSQL 14 or later to install the SQL in `src/journal/projection/sql/` after applying schema migrations and before starting projection workers. Edit `apply_journal_projection_batch.sql` for a new event handler, rebuild the server, and restart it to install the definition. Use migrations for schema changes and data backfills.
+
+This refactor changes the projection migration checksum. Recreate a disposable database that already ran the earlier version of `20261120000000_journal_projection_batches.sql` before starting the server. For future function updates, restart all instances on the new build before writers emit new event types. Each startup installs the definitions bundled in that build.
+
+Start the server once with `SQLX_OFFLINE=true` against a fresh development database before running `cargo sqlx prepare -- --tests`. This installs the projection functions that the checked queries reference.
+
 ## pre-commit hooks
 `scripts/pre-commit.sh` contains several important steps that correspond with the github CI:
 
 - `cargo fmt` will ensure that the code is properly formatted
-- `cargo sqlx prepare && git add .sqlx` ensures that the sqlx query cache is up to date
+- `cargo sqlx prepare -- --tests && git add .sqlx` ensures that the sqlx query cache is up to date
 - `cargo clippy -- -D warnings` ensures that there are no compiler errors or warnings
 
 ### installation

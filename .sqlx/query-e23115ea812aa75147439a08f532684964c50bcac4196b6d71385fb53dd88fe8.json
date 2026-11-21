@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH advanced AS (\n                 UPDATE journal_projection_checkpoint\n                 SET last_processed_event_id = apply_journal_projection_batch($1, $2),\n                     retry_after = '-infinity'\n                 WHERE journal_id = $1\n                 RETURNING journal_id\n             )\n             SELECT pg_notify($3, journal_id) FROM advanced",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pg_notify",
+        "type_info": "Void"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Jsonb",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e23115ea812aa75147439a08f532684964c50bcac4196b6d71385fb53dd88fe8"
+}

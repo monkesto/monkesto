@@ -4,7 +4,9 @@ use super::reconciliation::{ImportReport, PreparedImport};
 use crate::authority::Authority;
 use crate::journal::error::{JournalError, JournalResult};
 use crate::journal::file::FileId;
-use crate::journal::service::stream_lock::{append_creation_event_in_tx, assert_stream_exists};
+use crate::journal::service::stream_lock::{
+    assert_stream_exists, batch_append_creation_event_in_tx,
+};
 use crate::journal::service::{JournalService, StreamType};
 use crate::journal::{JournalId, Permissions};
 use axum_login::tracing::error;
@@ -149,24 +151,37 @@ impl JournalService {
         });
         let mut first_event_id = 0;
         let mut last_event_id = 0;
-        for (index, event) in events.into_iter().enumerate() {
-            last_event_id = append_creation_event_in_tx(
+        let mut event_iter = events.into_iter();
+        let mut index = 0;
+
+        loop {
+            let event_chunk = event_iter.by_ref().take(5000);
+            let len = event_chunk.len();
+            if len == 0 {
+                break;
+            }
+
+            let (chunk_first, chunk_last) = batch_append_creation_event_in_tx(
                 &mut transaction,
-                event.payload,
-                None,
-                authority,
-                event.timestamp,
-                None,
+                event_chunk.into_iter().map(|prepared_event| {
+                    (
+                        prepared_event.payload,
+                        None,
+                        authority,
+                        prepared_event.timestamp,
+                        None,
+                    )
+                }),
             )
             .await?;
             if first_event_id == 0 {
-                first_event_id = last_event_id;
+                first_event_id = chunk_first;
             }
-            let completed = index as i64 + 1;
-            if completed % 100 == 0 || completed == total_events {
-                status.send_modify(|status| status.completed = completed);
-            }
+            last_event_id = chunk_last;
+            index += len;
+            status.send_modify(|status| status.completed = index as i64);
         }
+
         sqlx::query!(
             "UPDATE jewel_imports SET first_event_id = $3, last_event_id = $4, total_events = $5 WHERE journal_id = $1 AND file_id = $2",
             journal_id as JournalId,
@@ -195,8 +210,12 @@ impl JournalService {
         });
         loop {
             let checkpoint = sqlx::query_scalar!(
-                "SELECT last_processed_event_id FROM journal_event_listener WHERE id = 'Journal Projection'"
-            ).fetch_one(&self.pool).await?.unwrap_or(-1);
+                "SELECT last_processed_event_id FROM journal_projection_checkpoint WHERE journal_id = $1",
+                journal_id as JournalId,
+            )
+            .fetch_optional(&self.pool)
+            .await?
+            .unwrap_or(0);
             if receipt.total_events == 0 || checkpoint >= receipt.last_event_id {
                 status.send_modify(|status| {
                     status.set_phase(

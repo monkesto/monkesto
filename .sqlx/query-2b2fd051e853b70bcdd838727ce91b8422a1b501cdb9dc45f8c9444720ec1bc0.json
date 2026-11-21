@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE journal_projection_checkpoint\n                 SET retry_after = now() + interval '5 seconds'\n                 WHERE journal_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2b2fd051e853b70bcdd838727ce91b8422a1b501cdb9dc45f8c9444720ec1bc0"
+}

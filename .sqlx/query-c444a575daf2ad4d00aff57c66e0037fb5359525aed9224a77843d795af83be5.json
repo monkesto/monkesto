@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT e.journal_id AS \"journal_id: JournalId\",\n                          p.last_processed_event_id >= e.event_id AS \"projected!\"\n                   FROM journal_events e\n                   JOIN journal_projection_checkpoint p USING (journal_id)\n                   WHERE e.event_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "journal_id: JournalId",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "projected!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "c444a575daf2ad4d00aff57c66e0037fb5359525aed9224a77843d795af83be5"
+}

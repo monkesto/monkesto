@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT last_processed_event_id FROM journal_event_listener WHERE id = 'Journal Projection'",
+  "query": "SELECT last_processed_event_id FROM journal_projection_checkpoint WHERE journal_id = $1",
   "describe": {
     "columns": [
       {
@@ -10,11 +10,13 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text"
+      ]
     },
     "nullable": [
-      true
+      false
     ]
   },
-  "hash": "8f30a5d84bf70d0ca407972848fcfa7c73a0ae4afd14e16c364c6335017f5843"
+  "hash": "5889fd8c53699b2b1049e4ed2c5709f1f0a7ebb4f35fa27600e2abcd2952f78d"
 }

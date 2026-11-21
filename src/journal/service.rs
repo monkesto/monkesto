@@ -1,28 +1,26 @@
 use crate::authn::UserId;
 use crate::authority::{Actor, Authority};
 use crate::id::Ident;
-use crate::journal::account::{AccountId, AccountType};
+use crate::journal::account::AccountId;
 use crate::journal::activity::ActivityId;
-use crate::journal::donation::CheckNum;
 use crate::journal::donation::DonationId;
 use crate::journal::donation::donation_entry::DonationEntryId;
-use crate::journal::donation::donation_entry::DonationInstrument;
 use crate::journal::donation::donor::DonorId;
 use crate::journal::error::JournalError::InvalidJournal;
 use crate::journal::error::{JournalError, JournalResult};
 use crate::journal::event::JournalDomainEvent;
 use crate::journal::file::{FileId, ObjectStore};
 use crate::journal::fund::FundId;
-use crate::journal::projection::JournalProjection;
-use crate::journal::transaction::entry::{EntryId, EntryKind, EntrySide};
-use crate::journal::transaction::memo::Memo;
-use crate::journal::transaction::{FinancialPeriod, TransactionId};
+use crate::journal::projection;
+use crate::journal::transaction::TransactionId;
+use crate::journal::transaction::entry::EntryId;
 use crate::journal::{JournalId, Permissions};
-use crate::name::Name;
 use axum_login::tracing::error;
 use futures_util::TryFutureExt;
-use sqlx::{PgPool, PgTransaction, Postgres, Transaction};
+use sqlx::postgres::PgListener;
+use sqlx::{PgPool, Postgres, Transaction};
 use thiserror::Error;
+use tokio::sync::broadcast;
 
 pub type EventId = i64;
 pub type Version = i64;
@@ -34,11 +32,21 @@ pub(crate) mod stream_lock {
     use crate::authority::Authority;
     use crate::id::Ident;
     use crate::journal::JournalId;
+    use crate::journal::account::AccountId;
+    use crate::journal::activity::ActivityId;
+    use crate::journal::donation::DonationId;
+    use crate::journal::donation::donation_entry::DonationEntryId;
+    use crate::journal::donation::donor::DonorId;
     use crate::journal::error::JournalResult;
     use crate::journal::event::JournalDomainEvent;
+    use crate::journal::file::FileId;
+    use crate::journal::fund::FundId;
     use crate::journal::service::{
-        EventAction, EventId, StreamType, Version, handle_missing_stream, handle_unique_violation,
+        EventAction, EventId, EventType, StreamType, Version, handle_missing_stream,
+        handle_unique_violation,
     };
+    use crate::journal::transaction::TransactionId;
+    use crate::journal::transaction::entry::EntryId;
     use crate::time::Timestamp;
     use sqlx::{Postgres, QueryBuilder, Transaction};
     use std::collections::HashMap;
@@ -194,7 +202,7 @@ pub(crate) mod stream_lock {
         Ok(())
     }
 
-    /// push the event, and notify the listener, and update the stream
+    /// Append the event and update its stream in the same transaction.
     #[allow(clippy::too_many_arguments)]
     pub async fn append_creation_event_in_tx(
         tx: &mut Transaction<'_, Postgres>,
@@ -278,19 +286,253 @@ pub(crate) mod stream_lock {
 
         builder.build().execute(&mut **tx).await?;
 
-        sqlx::query!(
-            r#"
-            SELECT pg_notify('journal_events', $1)
-            "#,
-            event_id.to_string()
-        )
-        .execute(&mut **tx)
-        .await?;
-
         Ok(event_id)
     }
 
-    /// push the event, and notify the listener, and update the stream
+    pub async fn batch_append_creation_event_in_tx(
+        tx: &mut Transaction<'_, Postgres>,
+        events: impl Iterator<
+            Item = (
+                JournalDomainEvent,
+                Option<UserId>,
+                Authority,
+                Timestamp,
+                Option<Timestamp>,
+            ),
+        >,
+    ) -> JournalResult<(EventId, EventId)> {
+        let mut journal_streams: Vec<JournalId> = Vec::new();
+        let mut account_streams: Vec<(JournalId, AccountId)> = Vec::new();
+        let mut fund_streams: Vec<(JournalId, FundId)> = Vec::new();
+        let mut activity_streams: Vec<(JournalId, ActivityId)> = Vec::new();
+        let mut entry_streams: Vec<(JournalId, TransactionId, EntryId)> = Vec::new();
+        let mut transaction_streams: Vec<(JournalId, TransactionId)> = Vec::new();
+        let mut file_streams: Vec<(JournalId, FileId)> = Vec::new();
+        let mut donor_streams: Vec<(JournalId, DonorId)> = Vec::new();
+        let mut donation_entry_streams: Vec<(JournalId, DonationId, DonationEntryId)> = Vec::new();
+        let mut donation_streams: Vec<(JournalId, DonationId)> = Vec::new();
+
+        let mut event_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+            "INSERT INTO journal_events (journal_id, stream_type, stream_id, version, event_type, payload, user_id, authority, timestamp, display_timestamp) ",
+        );
+        event_builder.push_values(
+            events,
+            |mut row, (payload, user_id, authority, timestamp, display_timestamp)| {
+                assert_eq!(payload.event_action(), EventAction::Created);
+
+                match payload.event_type() {
+                    EventType::JournalCreated => {
+                        journal_streams.push(JournalId(payload.stream_id()))
+                    }
+                    EventType::AccountCreated => {
+                        account_streams.push((payload.journal_id(), AccountId(payload.stream_id())))
+                    }
+                    EventType::FundCreated => {
+                        fund_streams.push((payload.journal_id(), FundId(payload.stream_id())))
+                    }
+                    EventType::ActivityCreated => activity_streams
+                        .push((payload.journal_id(), ActivityId(payload.stream_id()))),
+                    EventType::EntryCreated => entry_streams.push((
+                        payload.journal_id(),
+                        payload
+                            .transaction_id()
+                            .expect("entry created events must have a transaction id"),
+                        EntryId(payload.stream_id()),
+                    )),
+                    EventType::TransactionCreated => transaction_streams
+                        .push((payload.journal_id(), TransactionId(payload.stream_id()))),
+                    EventType::FileUploaded => {
+                        file_streams.push((payload.journal_id(), FileId(payload.stream_id())))
+                    }
+                    EventType::DonorCreated => {
+                        donor_streams.push((payload.journal_id(), DonorId(payload.stream_id())))
+                    }
+                    EventType::DonationEntryCreated => donation_entry_streams.push((
+                        payload.journal_id(),
+                        payload
+                            .donation_id()
+                            .expect("donation entry events must have a donation id"),
+                        DonationEntryId(payload.stream_id()),
+                    )),
+                    EventType::DonationCreated => donation_streams
+                        .push((payload.journal_id(), DonationId(payload.stream_id()))),
+
+                    EventType::JournalDeleted => unreachable!(),
+                    // member events are journal modification events
+                    EventType::MemberAdded => unreachable!(),
+                    EventType::MemberPermissionsUpdated => unreachable!(),
+                    EventType::MemberRemoved => unreachable!(),
+                    EventType::AccountRenamed => unreachable!(),
+                    EventType::AccountDeleted => unreachable!(),
+                    EventType::FileDeleted => unreachable!(),
+                }
+
+                row.push_bind(payload.journal_id());
+                row.push_bind(payload.stream_type() as i16);
+                row.push_bind(payload.stream_id());
+                row.push_bind(0);
+                row.push_bind(payload.event_type() as i16);
+                row.push_bind(payload);
+                row.push_bind(user_id);
+                row.push_bind(authority);
+                row.push_bind(timestamp);
+                row.push_bind(display_timestamp);
+            },
+        );
+        event_builder.push(" RETURNING event_id");
+
+        let event_ids: Vec<EventId> = event_builder
+            .build_query_scalar()
+            .fetch_all(&mut **tx)
+            .await?;
+
+        if !journal_streams.is_empty() {
+            let mut journal_builder: QueryBuilder<Postgres> =
+                QueryBuilder::new("INSERT INTO journal_stream (journal_id, version, valid) ");
+            journal_builder.push_values(journal_streams, |mut row, journal_id| {
+                row.push_bind(journal_id);
+                row.push_bind(0);
+                row.push_bind(true);
+            });
+            journal_builder.build().execute(&mut **tx).await?;
+        }
+
+        if !account_streams.is_empty() {
+            let mut account_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+                "INSERT INTO account_stream (journal_id, account_id, version, valid) ",
+            );
+            account_builder.push_values(account_streams, |mut row, (journal_id, account_id)| {
+                row.push_bind(journal_id);
+                row.push_bind(account_id);
+                row.push_bind(0);
+                row.push_bind(true);
+            });
+            account_builder.build().execute(&mut **tx).await?;
+        }
+
+        if !fund_streams.is_empty() {
+            let mut fund_builder: QueryBuilder<Postgres> =
+                QueryBuilder::new("INSERT INTO fund_stream (journal_id, fund_id, version, valid) ");
+            fund_builder.push_values(fund_streams, |mut row, (journal_id, fund_id)| {
+                row.push_bind(journal_id);
+                row.push_bind(fund_id);
+                row.push_bind(0);
+                row.push_bind(true);
+            });
+            fund_builder.build().execute(&mut **tx).await?;
+        }
+
+        if !activity_streams.is_empty() {
+            let mut activity_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+                "INSERT INTO activity_stream (journal_id, activity_id, version, valid) ",
+            );
+            activity_builder.push_values(activity_streams, |mut row, (journal_id, activity_id)| {
+                row.push_bind(journal_id);
+                row.push_bind(activity_id);
+                row.push_bind(0);
+                row.push_bind(true);
+            });
+            activity_builder.build().execute(&mut **tx).await?;
+        }
+
+        if !entry_streams.is_empty() {
+            let mut entry_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+                "INSERT INTO entry_stream (journal_id, transaction_id, entry_id, version, valid) ",
+            );
+            entry_builder.push_values(
+                entry_streams,
+                |mut row, (journal_id, transaction_id, entry_id)| {
+                    row.push_bind(journal_id);
+                    row.push_bind(transaction_id);
+                    row.push_bind(entry_id);
+                    row.push_bind(0);
+                    row.push_bind(true);
+                },
+            );
+            entry_builder.build().execute(&mut **tx).await?;
+        }
+
+        if !transaction_streams.is_empty() {
+            let mut transaction_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+                "INSERT INTO transaction_stream (journal_id, transaction_id, version, valid) ",
+            );
+            transaction_builder.push_values(
+                transaction_streams,
+                |mut row, (journal_id, transaction_id)| {
+                    row.push_bind(journal_id);
+                    row.push_bind(transaction_id);
+                    row.push_bind(0);
+                    row.push_bind(true);
+                },
+            );
+            transaction_builder.build().execute(&mut **tx).await?;
+        }
+
+        if !file_streams.is_empty() {
+            let mut file_builder: QueryBuilder<Postgres> =
+                QueryBuilder::new("INSERT INTO file_stream (journal_id, file_id, version, valid) ");
+            file_builder.push_values(file_streams, |mut row, (journal_id, file_id)| {
+                row.push_bind(journal_id);
+                row.push_bind(file_id);
+                row.push_bind(0);
+                row.push_bind(true);
+            });
+            file_builder.build().execute(&mut **tx).await?;
+        }
+
+        if !donor_streams.is_empty() {
+            let mut donor_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+                "INSERT INTO donor_stream (journal_id, donor_id, version, valid) ",
+            );
+            donor_builder.push_values(donor_streams, |mut row, (journal_id, donor_id)| {
+                row.push_bind(journal_id);
+                row.push_bind(donor_id);
+                row.push_bind(0);
+                row.push_bind(true);
+            });
+            donor_builder.build().execute(&mut **tx).await?;
+        }
+
+        if !donation_entry_streams.is_empty() {
+            let mut donation_entry_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+                "INSERT INTO donation_entry_stream (journal_id, donation_id, donation_entry_id, version, valid) ",
+            );
+            donation_entry_builder.push_values(
+                donation_entry_streams,
+                |mut row, (journal_id, donation_id, donation_entry_id)| {
+                    row.push_bind(journal_id);
+                    row.push_bind(donation_id);
+                    row.push_bind(donation_entry_id);
+                    row.push_bind(0);
+                    row.push_bind(true);
+                },
+            );
+            donation_entry_builder.build().execute(&mut **tx).await?;
+        }
+
+        if !donation_streams.is_empty() {
+            let mut donation_builder: QueryBuilder<Postgres> = QueryBuilder::new(
+                "INSERT INTO donation_stream (journal_id, donation_id, version, valid) ",
+            );
+            donation_builder.push_values(donation_streams, |mut row, (journal_id, donation_id)| {
+                row.push_bind(journal_id);
+                row.push_bind(donation_id);
+                row.push_bind(0);
+                row.push_bind(true);
+            });
+            donation_builder.build().execute(&mut **tx).await?;
+        };
+
+        let mut ids = event_ids.into_iter();
+        let first_id = ids
+            .next()
+            .expect("a bulk append must insert at least one event");
+        Ok(ids.fold((first_id, first_id), |(min, max), id| {
+            (min.min(id), max.max(id))
+        }))
+    }
+
+    /// Append the event and update its stream in the same transaction.
     #[allow(clippy::too_many_arguments)]
     pub async fn append_modification_event_in_tx(
         tx: &mut Transaction<'_, Postgres>,
@@ -362,15 +604,6 @@ pub(crate) mod stream_lock {
 
         builder.build().execute(&mut **tx).await?;
 
-        sqlx::query!(
-            r#"
-            SELECT pg_notify('journal_events', $1)
-            "#,
-            event_id.to_string()
-        )
-        .execute(&mut **tx)
-        .await?;
-
         Ok(event_id)
     }
 }
@@ -379,7 +612,7 @@ pub(crate) mod stream_lock {
 pub struct JournalService {
     pub pool: PgPool,
     pub object_store: ObjectStore,
-    pub projection: &'static JournalProjection,
+    pub(super) projection_applications: broadcast::Sender<JournalId>,
     pub(crate) jewel_imports: crate::journal::jewel::jobs::ImportJobs,
 }
 
@@ -576,24 +809,27 @@ pub(crate) async fn get_latest_member_payload(
 impl JournalService {
     pub async fn try_new(pool: PgPool) -> Result<Self, sqlx::Error> {
         sqlx::migrate!("./migrations").run(&pool).await?;
+        projection::install_sql(&pool).await?;
 
-        let projection = Box::leak(Box::new(JournalProjection::new(pool.clone())));
+        let mut listener = PgListener::connect_with(&pool).await?;
+        listener.listen(projection::APPLICATION_CHANNEL).await?;
+        let (projection_applications, _) = broadcast::channel(128);
+        tokio::spawn(projection::forward_applications(
+            listener,
+            projection_applications.clone(),
+        ));
 
-        tokio::spawn(
-            projection
-                .run()
-                .inspect_err(|e| error!("projection failed: {:#?}", e)),
-        );
-        tokio::spawn(
-            projection
-                .update_last_processed_event()
-                .inspect_err(|e| error!("event id processor failed: {:#?}", e)),
-        );
+        let worker_pool = pool.clone();
+        tokio::spawn(async move {
+            projection::run(worker_pool)
+                .inspect_err(|e| error!("projection failed: {:#?}", e))
+                .await
+        });
 
         Ok(Self {
             pool,
             object_store: ObjectStore::new().await,
-            projection,
+            projection_applications,
             jewel_imports: Default::default(),
         })
     }
@@ -659,375 +895,4 @@ impl JournalService {
     pub fn object_store(&self) -> &ObjectStore {
         &self.object_store
     }
-
-    pub async fn wait_for(&self, event_id: EventId) {
-        self.projection.wait_for(event_id).await
-    }
-}
-
-pub async fn handle_incoming_event(
-    payload: JournalDomainEvent,
-    tx: &mut PgTransaction<'_>,
-) -> Result<(), sqlx::Error> {
-    match payload {
-        JournalDomainEvent::JournalCreated {
-            journal_id,
-            owner,
-            name,
-        } => {
-            sqlx::query!(
-                    r#"
-                    INSERT INTO journals (id, owner_id, name) VALUES($1, $2, $3) ON CONFLICT DO NOTHING
-                    "#,
-                    journal_id as JournalId,
-                    owner as UserId,
-                    name as Name
-                )
-                .execute(&mut **tx)
-                .await?;
-        }
-        JournalDomainEvent::JournalDeleted { journal_id, .. } => {
-            sqlx::query!(
-                r#"
-                    DELETE FROM journals where id = $1
-                    "#,
-                journal_id as JournalId
-            )
-            .execute(&mut **tx)
-            .await?;
-        }
-        JournalDomainEvent::MemberAdded {
-            journal_id,
-            user_id,
-            permissions,
-        } => {
-            sqlx::query!(
-                    r#"
-                    INSERT INTO journal_members (user_id, journal_id, permissions) VALUES($1, $2, $3) ON CONFLICT DO NOTHING
-                    "#,
-                    user_id as UserId,
-                    journal_id as JournalId,
-                    permissions as Permissions
-                    )
-                .execute(&mut **tx)
-                .await?;
-        }
-        JournalDomainEvent::MemberPermissionsUpdated {
-            journal_id,
-            user_id,
-            permissions,
-        } => {
-            sqlx::query!(
-                    r#"
-                    UPDATE journal_members SET permissions = $1 WHERE user_id = $2 AND journal_id = $3
-                    "#,
-                    permissions as Permissions,
-                    user_id as UserId,
-                    journal_id as JournalId,
-                )
-                .execute(&mut **tx)
-                .await?;
-        }
-        JournalDomainEvent::MemberRemoved {
-            journal_id,
-            user_id,
-        } => {
-            sqlx::query!(
-                r#"
-                    DELETE FROM journal_members WHERE user_id = $1 AND journal_id = $2
-                    "#,
-                user_id as UserId,
-                journal_id as JournalId,
-            )
-            .execute(&mut **tx)
-            .await?;
-        }
-        JournalDomainEvent::AccountCreated {
-            account_id,
-            journal_id,
-            name,
-            account_type,
-        } => {
-            sqlx::query!(
-                    r#"
-                    INSERT INTO accounts (id, journal_id, name, balance, account_type) VALUES($1, $2, $3, 0, $4) ON CONFLICT DO NOTHING
-                    "#,
-                    account_id as AccountId,
-                    journal_id as JournalId,
-                    name as Name,
-                    account_type as AccountType,
-                )
-                .execute(&mut **tx)
-                .await?;
-        }
-        JournalDomainEvent::AccountRenamed {
-            account_id,
-            journal_id,
-            new_name,
-        } => {
-            sqlx::query!(
-                r#"
-                    UPDATE accounts SET name = $1 WHERE id = $2 AND journal_id = $3
-                    "#,
-                new_name as Name,
-                account_id as AccountId,
-                journal_id as JournalId,
-            )
-            .execute(&mut **tx)
-            .await?;
-        }
-        JournalDomainEvent::AccountDeleted {
-            account_id,
-            journal_id,
-        } => {
-            sqlx::query!(
-                r#"
-                    DELETE FROM accounts WHERE id = $1 AND journal_id = $2
-                    "#,
-                account_id as AccountId,
-                journal_id as JournalId,
-            )
-            .execute(&mut **tx)
-            .await?;
-        }
-        JournalDomainEvent::TransactionCreated {
-            transaction_id,
-            journal_id,
-            memo,
-            financial_period,
-        } => {
-            sqlx::query!(
-                    r#"
-                    INSERT INTO transactions (id, journal_id, financial_period, memo) VALUES($1, $2, $3, $4) ON CONFLICT DO NOTHING
-                    "#,
-                    transaction_id as TransactionId,
-                    journal_id as JournalId,
-                    financial_period as FinancialPeriod,
-                    memo as Option<Memo>
-                )
-                .execute(&mut **tx)
-                .await?;
-        }
-        JournalDomainEvent::FileUploaded {
-            file_id,
-            journal_id,
-            hash,
-            file_name,
-        } => {
-            sqlx::query!(
-                    r#"
-                    INSERT INTO files (id, journal_id, hash, name) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
-                    "#,
-                    file_id as FileId,
-                    journal_id as JournalId,
-                    hash.as_slice() as &[u8],
-                    file_name
-                )
-                .execute(&mut **tx)
-                .await?;
-        }
-        JournalDomainEvent::FileDeleted {
-            file_id,
-            journal_id,
-        } => {
-            sqlx::query!(
-                r#"
-                    DELETE FROM files where id = $1 AND journal_id = $2
-                    "#,
-                file_id as FileId,
-                journal_id as JournalId,
-            )
-            .execute(&mut **tx)
-            .await?;
-        }
-        JournalDomainEvent::FundCreated {
-            fund_id,
-            journal_id,
-            fund_name,
-        } => {
-            sqlx::query!(
-                    r#"
-                    INSERT INTO funds (id, journal_id, name, balance) VALUES ($1, $2, $3, 0) ON CONFLICT DO NOTHING
-                    "#,
-                    fund_id as FundId,
-                    journal_id as JournalId,
-                    fund_name as Name
-                )
-                .execute(&mut **tx)
-                .await?;
-        }
-        JournalDomainEvent::EntryCreated {
-            entry_id,
-            journal_id,
-            transaction_id,
-            amount,
-            entry_side,
-            entry_kind,
-        } => {
-            sqlx::query!(
-                    r#"
-                    INSERT INTO entries (id, journal_id, transaction_id, amount, entry_side, entry_kind) VALUES ($1, $2, $3, $4, $5, $6) ON CONFLICT DO NOTHING
-                    "#,
-                    entry_id as EntryId,
-                    journal_id as JournalId,
-                    transaction_id as TransactionId,
-                    amount as i64,
-                    entry_side as EntrySide,
-                    entry_kind as EntryKind
-                )
-                .execute(&mut **tx)
-                .await?;
-
-            let diff = match entry_side {
-                EntrySide::Credit => amount as i64,
-                EntrySide::Debit => -(amount as i64),
-            };
-
-            match entry_kind {
-                EntryKind::Account { account_id } => {
-                    sqlx::query!(
-                            r#"
-                            UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND journal_id = $3
-                            "#,
-                            diff,
-                            account_id as AccountId,
-                            journal_id as JournalId,
-                        ).execute(&mut **tx).await?;
-                }
-                EntryKind::Activity {
-                    activity_id,
-                    fund_id,
-                    scope: _,
-                } => {
-                    sqlx::query!(
-                        r#"
-                        UPDATE funds SET balance = balance - $1 WHERE id = $2 AND journal_id = $3;
-                        "#,
-                        diff,
-                        fund_id as FundId,
-                        journal_id as JournalId,
-                    )
-                    .execute(&mut **tx)
-                    .await?;
-
-                    sqlx::query!(
-                        r#"
-                        UPDATE activities SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
-                        "#,
-                        diff,
-                        activity_id as ActivityId,
-                        journal_id as JournalId,
-                    ).execute(&mut **tx).await?;
-                }
-            }
-        }
-        JournalDomainEvent::ActivityCreated {
-            activity_id,
-            journal_id,
-            activity_name,
-            activity_kind: activity_type,
-        } => {
-            sqlx::query!(
-                    r#"
-                    INSERT INTO activities (id, journal_id, name, balance, activity_kind) VALUES ($1, $2, $3, 0, $4) ON CONFLICT DO NOTHING
-                    "#,
-                    activity_id as ActivityId,
-                    journal_id as JournalId,
-                    activity_name as Name,
-                    activity_type as i16
-                )
-                .execute(&mut **tx)
-                .await?;
-        }
-        JournalDomainEvent::DonorCreated {
-            donor_id,
-            journal_id,
-            name,
-        } => {
-            sqlx::query!(
-                r#"
-                INSERT INTO donors (id, journal_id, name, total_donated) VALUES ($1, $2, $3, 0) ON CONFLICT DO NOTHING
-                "#,
-                donor_id as DonorId,
-                journal_id as JournalId,
-                name as Name,
-            ).execute(&mut **tx).await?;
-        }
-        JournalDomainEvent::DonationEntryCreated {
-            donation_entry_id,
-            journal_id,
-            fund_id,
-            donor_id,
-            donation_id,
-            amount,
-            instrument,
-            check_num,
-        } => {
-            sqlx::query!(
-                r#"
-                INSERT INTO donation_entries (id, journal_id, donor_id, fund_id, donation_id, amount, instrument, check_num) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT DO NOTHING
-                "#,
-                donation_entry_id as DonationEntryId,
-                journal_id as JournalId,
-                donor_id as DonorId,
-                fund_id as FundId,
-                donation_id as DonationId,
-                amount as i64,
-                instrument as DonationInstrument,
-                check_num as Option<CheckNum>
-            ).execute(&mut **tx).await?;
-
-            sqlx::query!(
-                r#"
-                UPDATE donors SET total_donated = total_donated + $1 WHERE id = $2 AND journal_id = $3
-                "#,
-                amount as i64,
-                donor_id as DonorId,
-                journal_id as JournalId,
-            ).execute(&mut **tx).await?;
-
-            // update the activity's balance
-            sqlx::query!(
-                r#"
-                UPDATE funds SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
-                "#,
-                amount as i64,
-                fund_id as FundId,
-                journal_id as JournalId,
-            )
-            .execute(&mut **tx)
-            .await?;
-        }
-        JournalDomainEvent::DonationCreated {
-            donation_id,
-            journal_id,
-            deposit_account_id,
-            donation_total,
-        } => {
-            sqlx::query!(
-                r#"
-                INSERT INTO donations (id, journal_id, deposit_account_id, donation_total) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING
-                "#,
-                donation_id as DonationId,
-                journal_id as JournalId,
-                deposit_account_id as AccountId,
-                donation_total as i64
-            )
-            .execute(&mut **tx)
-            .await?;
-
-            sqlx::query!(
-                r#"
-                UPDATE accounts SET balance = balance + $1 WHERE id = $2 AND journal_id = $3;
-                "#,
-                donation_total as i64,
-                deposit_account_id as AccountId,
-                journal_id as JournalId,
-            )
-            .execute(&mut **tx)
-            .await?;
-        }
-    }
-
-    Ok(())
 }
