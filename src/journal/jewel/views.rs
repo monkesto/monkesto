@@ -1,4 +1,3 @@
-use super::commands::authorize_import;
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
 use crate::journal::JournalId;
@@ -20,7 +19,10 @@ pub async fn import_jewel_page(
     let authority = Authority::Direct(Actor::User(user.id));
     let journal_id = JournalId::from_str(&journal_id)?;
     let file_id = FileId::from_str(&file_id)?;
-    authorize_import(&state.journal_service, journal_id, file_id, authority).await?;
+    state
+        .journal_service
+        .authorize_jewel_import(journal_id, file_id, authority)
+        .await?;
     let file = state
         .journal_service
         .get_file(file_id, journal_id, authority)

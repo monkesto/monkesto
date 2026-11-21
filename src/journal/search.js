@@ -14,10 +14,6 @@ if (form && results) {
     let composing = false;
     let useNativeSubmit = false;
 
-    function updateReset() {
-        reset.hidden = !search.value && sort.value === form.dataset.defaultSort;
-    }
-
     function cancel() {
         clearTimeout(timer);
         controller?.abort();
@@ -26,27 +22,25 @@ if (form && results) {
         results.removeAttribute('aria-busy');
     }
 
-    function formUrl() {
-        const url = new URL(form.action);
-        url.search = new URLSearchParams(new FormData(form)).toString();
-        return url;
-    }
-
     function syncControls(url) {
         search.value = url.searchParams.get('q') || '';
         const value = url.searchParams.get('sort') || form.dataset.defaultSort;
         sort.value = Array.from(sort.options).some(option => option.value === value)
             ? value : form.dataset.defaultSort;
-        updateReset();
+        reset.hidden = !search.value && sort.value === form.dataset.defaultSort;
     }
 
     async function load(url, { history = 'replace', scroll = false } = {}) {
+        if (!url) {
+            url = new URL(form.action);
+            url.search = new URLSearchParams(new FormData(form)).toString();
+        }
         cancel();
         const currentRevision = revision;
         controller = new AbortController();
         useNativeSubmit = false;
         results.setAttribute('aria-busy', 'true');
-        updateReset();
+        reset.hidden = !search.value && sort.value === form.dataset.defaultSort;
 
         try {
             const response = await fetch(url, {
@@ -92,8 +86,8 @@ if (form && results) {
 
     function schedule() {
         cancel(); // Invalidate an older response as soon as the text changes.
-        updateReset();
-        if (!composing) timer = setTimeout(() => load(formUrl()), 250);
+        reset.hidden = !search.value && sort.value === form.dataset.defaultSort;
+        if (!composing) timer = setTimeout(() => load(), 250);
     }
 
     search.addEventListener('input', schedule);
@@ -105,11 +99,11 @@ if (form && results) {
         composing = false;
         schedule();
     });
-    sort.addEventListener('change', () => load(formUrl()));
+    sort.addEventListener('change', () => load());
     form.addEventListener('submit', event => {
         if (useNativeSubmit) return;
         event.preventDefault();
-        if (!composing) load(formUrl());
+        if (!composing) load();
     });
 
     function navigate(event, link, scroll) {
@@ -134,5 +128,5 @@ if (form && results) {
         load(url, { history: 'none' });
     });
     window.addEventListener('pagehide', cancel);
-    updateReset();
+    reset.hidden = !search.value && sort.value === form.dataset.defaultSort;
 }

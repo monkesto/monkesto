@@ -1,10 +1,14 @@
 //! Shared controls for the journal's collection pages. Filtering happens before pagination.
-use crate::authority::Authority;
+use crate::StateType;
+use crate::authn::UserId;
+use crate::authority::{Actor, Authority};
 use crate::dollars::Dollars;
 use crate::journal::JournalId;
+use crate::journal::error::JournalResult;
 use crate::time::Timestamp;
 use maud::{Markup, PreEscaped, html};
 use serde::Deserialize;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use url::form_urlencoded;
 
@@ -53,10 +57,6 @@ impl ListQuery {
             None if named => Sort::NameAsc,
             None => Sort::Newest,
         }
-    }
-
-    pub fn needle(&self) -> String {
-        self.q.trim().to_lowercase()
     }
 
     pub fn range(&self, total: usize) -> Range<usize> {
@@ -194,10 +194,9 @@ pub struct Directory {
     pub title: &'static str,
     pub singular: &'static str,
     pub description: &'static str,
-    pub action: &'static str,
     pub button: &'static str,
-    pub types: &'static [(&'static str, i8)],
-    pub type_field: &'static str,
+    pub show_kind: bool,
+    pub amount_label: &'static str,
 }
 
 fn directory_row(entry: &DirectoryEntry) -> Markup {
@@ -221,10 +220,11 @@ pub fn directory(
     query: &ListQuery,
     mut entries: Vec<DirectoryEntry>,
     config: Directory,
+    create: Markup,
 ) -> Markup {
     let path = format!("/journal/{journal_id}/{}", config.section);
     let all = entries.len();
-    let needle = query.needle();
+    let needle = query.q.trim().to_lowercase();
     let sort = query.sort(true);
     entries.sort_by_cached_key(|entry| match sort {
         Sort::NameAsc | Sort::NameDesc => {
@@ -242,7 +242,6 @@ pub fn directory(
         .filter(|entry| entry.name.to_lowercase().contains(&needle))
         .collect();
     let total = filtered.len();
-    let name_field = format!("{}_name", config.section);
     html! {
         div class="mx-auto flex w-full max-w-6xl flex-col gap-6" {
             (header(journal_id, config.section, config.title, config.description, Some(config.button)))
@@ -263,9 +262,9 @@ pub fn directory(
                             thead class="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/40" {
                                 tr {
                                     th scope="col" class=(TH) { "Name" }
-                                    @if !config.types.is_empty() { th scope="col" class=(TH) { "Type" } }
+                                    @if config.show_kind { th scope="col" class=(TH) { "Type" } }
                                     th scope="col" class=(TH) { "Created" }
-                                    th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400" { (if config.section == "donor" { "Total donated" } else { "Balance" }) }
+                                    th scope="col" class="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400" { (config.amount_label) }
                                 }
                             }
                             tbody data-directory-visible class="divide-y divide-gray-100 dark:divide-gray-700" {
@@ -283,49 +282,24 @@ pub fn directory(
                     @for entry in &entries { (directory_row(entry)) }
                 } }
             }
-            section id="create" aria-labelledby="create-heading" class="scroll-mt-6 rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-gray-700 dark:bg-gray-800" {
-                div class="mb-5" {
-                    h2 id="create-heading" class="text-lg font-semibold text-gray-900 dark:text-white" { (config.button) }
-                    p class="mt-1 text-sm text-gray-500 dark:text-gray-400" { "Add a new " (config.singular) " to this journal." }
-                }
-                form method="post" action=(format!("/journal/{journal_id}/{}", config.action)) class="flex max-w-2xl flex-col gap-5" {
-                    div {
-                        label for=(&name_field) class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-200" { "Name" }
-                        input type="text" id=(&name_field) name=(&name_field) required maxlength="64" placeholder=(format!("{} name", config.singular)) class=(INPUT);
-                    }
-                    @if !config.types.is_empty() {
-                        fieldset {
-                            legend class="mb-2 text-sm font-medium text-gray-700 dark:text-gray-200" { "Type" }
-                            div class="flex flex-wrap gap-3" {
-                                @for (index, (label, value)) in config.types.iter().enumerate() {
-                                    label class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-4 py-3 text-sm text-gray-700 has-checked:border-indigo-500 has-checked:bg-indigo-50 dark:border-gray-600 dark:text-gray-200 dark:has-checked:bg-indigo-500/10" {
-                                        input type="radio" name=(config.type_field) value=(value) required checked[index == 0] class="accent-indigo-600";
-                                        (label)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    div { button type="submit" class=(BUTTON) { (config.button) } }
-                }
-            }
+            (create)
         }
     }
 }
 
 /// Resolve authors in one query for the displayed page, including former journal members.
 pub async fn authors(
-    state: &crate::StateType,
+    state: &StateType,
     authorities: impl Iterator<Item = Authority>,
-) -> crate::journal::error::JournalResult<std::collections::HashMap<crate::authn::UserId, String>> {
-    let ids: std::collections::HashSet<_> = authorities
+) -> JournalResult<HashMap<UserId, String>> {
+    let ids: HashSet<_> = authorities
         .filter_map(|authority| match authority.actor() {
-            crate::authority::Actor::User(id) => Some(id),
+            Actor::User(id) => Some(id),
             _ => None,
         })
         .collect();
     if ids.is_empty() {
-        return Ok(std::collections::HashMap::new());
+        return Ok(HashMap::new());
     }
     Ok(state
         .authn_service
@@ -336,35 +310,13 @@ pub async fn authors(
         .collect())
 }
 
-pub fn author(
-    authority: Authority,
-    authors: &std::collections::HashMap<crate::authn::UserId, String>,
-) -> &str {
+pub fn author(authority: Authority, authors: &HashMap<UserId, String>) -> &str {
     match authority.actor() {
-        crate::authority::Actor::User(id) => authors
+        Actor::User(id) => authors
             .get(&id)
             .map(String::as_str)
             .unwrap_or("Unknown user"),
-        crate::authority::Actor::System => "System",
-        crate::authority::Actor::Anonymous => "Anonymous",
-    }
-}
-
-pub fn money(cents: u128) -> String {
-    use thousands::Separable;
-    format!(
-        "${}.{:02}",
-        (cents / 100).separate_with_commas(),
-        cents % 100
-    )
-}
-
-pub fn history_limit(count: usize) -> Markup {
-    html! {
-        @if count == 500 {
-            p class="rounded-lg bg-indigo-50 px-4 py-3 text-sm leading-6 text-indigo-800 dark:bg-indigo-500/10 dark:text-indigo-200" {
-                "Showing the latest 500 records. Search and sorting apply to these records."
-            }
-        }
+        Actor::System => "System",
+        Actor::Anonymous => "Anonymous",
     }
 }

@@ -1,6 +1,8 @@
 use super::JewelImportError;
 use super::accounting::{AccountKind, JournalKind};
-use super::reconciliation::{ImportResolutions, PreparedImport, ReconciliationChoice, cents};
+use super::reconciliation::{
+    ImportResolutions, PreparedImport, ReconciliationChoice, add_balance, cents,
+};
 use crate::journal::JournalId;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::scope::ActivityScope;
@@ -38,10 +40,6 @@ struct EventBuilder {
 }
 
 impl EventBuilder {
-    fn push(&mut self, payload: JournalDomainEvent, timestamp: Timestamp) {
-        self.events.push(PreparedEvent { payload, timestamp });
-    }
-
     fn transaction(
         &mut self,
         balances: &BTreeMap<i64, i64>,
@@ -63,7 +61,6 @@ impl EventBuilder {
             let magnitude = amount.checked_abs().ok_or_else(|| {
                 JewelImportError::InvalidData("Transaction amount is too large to import".into())
             })? as u64;
-            // Source bank increases are debits; source fund increases are credits.
             // Income/expense metadata and journal type never flip these sides.
             let (entry_kind, entry_side) = if let Some(&account_id) = self.accounts.get(&account) {
                 (
@@ -112,7 +109,10 @@ impl EventBuilder {
             )).into());
         }
         for entry in entries {
-            self.push(entry, timestamp);
+            self.events.push(PreparedEvent {
+                payload: entry,
+                timestamp,
+            });
         }
         let mut memo = memo;
         if memo.len() > 100 {
@@ -122,15 +122,15 @@ impl EventBuilder {
             }
             memo.truncate(end);
         }
-        self.push(
-            JournalDomainEvent::TransactionCreated {
+        self.events.push(PreparedEvent {
+            payload: JournalDomainEvent::TransactionCreated {
                 transaction_id,
                 journal_id: self.journal_id,
                 financial_period,
                 memo: Some(Memo::try_new(memo)?),
             },
             timestamp,
-        );
+        });
         Ok(())
     }
 }
@@ -151,25 +151,27 @@ impl PreparedImport {
         };
         let mut timestamp = Utc::now();
         for (&account, source) in &self.data.accounts {
-            if !source.active
-                || AccountKind::try_from(source.account_type)? == AccountKind::BeginningBalance
-            {
+            if !source.active {
+                continue;
+            }
+            let account_kind = AccountKind::try_from(source.account_type)?;
+            if account_kind == AccountKind::BeginningBalance {
                 continue;
             }
             timestamp += std::time::Duration::from_millis(1);
             let name = Name::try_new(source.name.clone())?;
-            if AccountKind::try_from(source.account_type)? == AccountKind::Bank {
+            if account_kind == AccountKind::Bank {
                 let account_id = AccountId::new();
                 builder.accounts.insert(account, account_id);
-                builder.push(
-                    JournalDomainEvent::AccountCreated {
+                builder.events.push(PreparedEvent {
+                    payload: JournalDomainEvent::AccountCreated {
                         journal_id,
                         account_id,
                         account_type: AccountType::Asset,
                         name,
                     },
-                    timestamp.get_time(),
-                );
+                    timestamp: timestamp.get_time(),
+                });
             } else {
                 let activity_id = ActivityId::new();
                 let fund_id = FundId::new();
@@ -180,30 +182,30 @@ impl PreparedImport {
                         activity_id,
                     },
                 );
-                builder.push(
-                    JournalDomainEvent::ActivityCreated {
+                builder.events.push(PreparedEvent {
+                    payload: JournalDomainEvent::ActivityCreated {
                         activity_id,
                         journal_id,
                         activity_name: name.clone(),
                         // Preserve existing activity metadata. Entry sides depend
                         // only on the bank/fund role and signed source amount.
-                        activity_kind: if source.account_type < 3 {
+                        activity_kind: if account_kind == AccountKind::ConferenceFund {
                             ActivityKind::Income
                         } else {
                             ActivityKind::Expense
                         },
                     },
-                    timestamp.get_time(),
-                );
+                    timestamp: timestamp.get_time(),
+                });
                 timestamp += std::time::Duration::from_millis(1);
-                builder.push(
-                    JournalDomainEvent::FundCreated {
+                builder.events.push(PreparedEvent {
+                    payload: JournalDomainEvent::FundCreated {
                         fund_id,
                         journal_id,
                         fund_name: name,
                     },
-                    timestamp.get_time(),
-                );
+                    timestamp: timestamp.get_time(),
+                });
             }
         }
         for (&name_id, source) in &self.data.names {
@@ -213,14 +215,14 @@ impl PreparedImport {
             timestamp += std::time::Duration::from_millis(1);
             let donor_id = DonorId::new();
             builder.donors.insert(name_id, donor_id);
-            builder.push(
-                JournalDomainEvent::DonorCreated {
+            builder.events.push(PreparedEvent {
+                payload: JournalDomainEvent::DonorCreated {
                     donor_id,
                     journal_id,
                     name: Name::try_new(source.name.clone())?,
                 },
-                timestamp.get_time(),
-            );
+                timestamp: timestamp.get_time(),
+            });
         }
 
         for (date, opening) in &self.opening_batches {
@@ -270,11 +272,7 @@ impl PreparedImport {
                     .get(&journal_entry_id)
                     .ok_or(JewelImportError::MissingJournalEntries(journal_entry_id))?
                 {
-                    super::reconciliation::add_balance(
-                        &mut balances,
-                        entry.account_id,
-                        cents(entry.amount)?,
-                    )?;
+                    add_balance(&mut balances, entry.account_id, cents(entry.amount)?)?;
                 }
                 builder.transaction(&balances, journal.memo.clone(), timestamp, period, scope)?;
                 continue;
@@ -328,8 +326,8 @@ impl PreparedImport {
                             .get(&contribution.account_id)
                             .ok_or(JewelImportError::MissingAccount(contribution.account_id))?
                             .fund_id;
-                        builder.push(
-                            JournalDomainEvent::DonationEntryCreated {
+                        builder.events.push(PreparedEvent {
+                            payload: JournalDomainEvent::DonationEntryCreated {
                                 donation_entry_id: DonationEntryId::new(),
                                 journal_id,
                                 fund_id,
@@ -343,19 +341,19 @@ impl PreparedImport {
                                     .map(CheckNum::try_new)
                                     .transpose()?,
                             },
-                            offering.date.get_time(),
-                        );
+                            timestamp: offering.date.get_time(),
+                        });
                     }
                 }
-                builder.push(
-                    JournalDomainEvent::DonationCreated {
+                builder.events.push(PreparedEvent {
+                    payload: JournalDomainEvent::DonationCreated {
                         donation_id,
                         journal_id,
                         deposit_account_id,
                         donation_total: conversion.positive_total as u64,
                     },
                     timestamp,
-                );
+                });
             }
 
             if conversion.use_journal {
@@ -371,11 +369,7 @@ impl PreparedImport {
                         .iter()
                         .map(|(&fund, &amount)| (fund, -amount))
                         .collect();
-                    super::reconciliation::add_balance(
-                        &mut balances,
-                        conversion.bank_account_id,
-                        -reversal.total,
-                    )?;
+                    add_balance(&mut balances, conversion.bank_account_id, -reversal.total)?;
                     builder.transaction(
                         &balances,
                         format!(

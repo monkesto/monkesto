@@ -1,12 +1,11 @@
 use super::JewelImportError;
-use super::jobs::{ImportJob, ImportPhase, ImportStatus, import_permissions, supervise};
+use super::jobs::{ImportJob, ImportPhase, ImportStatus, supervise};
 use super::reconciliation::{ImportResolutions, PreparedImport};
 use crate::authn::get_user;
 use crate::authority::{Actor, Authority};
 use crate::journal::JournalId;
-use crate::journal::error::{JournalError, JournalResult};
+use crate::journal::error::JournalError;
 use crate::journal::file::FileId;
-use crate::journal::service::JournalService;
 use crate::{BackendType, StateType};
 use axum::Json;
 use axum::extract::{Path, State};
@@ -15,26 +14,6 @@ use axum::response::{IntoResponse, Response};
 use axum_login::AuthSession;
 use std::str::FromStr;
 use tokio::sync::watch;
-
-pub async fn authorize_import(
-    service: &JournalService,
-    journal_id: JournalId,
-    file_id: FileId,
-    authority: Authority,
-) -> JournalResult<()> {
-    let mut transaction = service.pool.begin().await?;
-    service
-        .check_permissions_in_tx(
-            &mut transaction,
-            journal_id,
-            authority,
-            import_permissions(),
-        )
-        .await?;
-    transaction.commit().await?;
-    service.get_file(file_id, journal_id, authority).await?;
-    Ok(())
-}
 
 fn status_response(status: ImportStatus) -> Response {
     ([(header::CACHE_CONTROL, "no-store")], Json(status)).into_response()
@@ -50,7 +29,9 @@ pub async fn start_import(
     let journal_id = JournalId::from_str(&journal_id)?;
     let file_id = FileId::from_str(&file_id)?;
     let service = state.journal_service;
-    authorize_import(&service, journal_id, file_id, authority).await?;
+    service
+        .authorize_jewel_import(journal_id, file_id, authority)
+        .await?;
     let receipt = service.jewel_import_receipt(journal_id, file_id).await?;
     let mut jobs = service.jewel_imports.lock().await;
     if let Some(job) = jobs.get(&journal_id) {
@@ -71,7 +52,13 @@ pub async fn start_import(
             .into());
         }
     }
-    let (status, _) = watch::channel(ImportStatus::preparing());
+    let (status, _) = watch::channel(ImportStatus {
+        phase: ImportPhase::Preparing,
+        completed: 0,
+        total: 0,
+        message: "Reading the Jewel database and checking offerings.".into(),
+        report: None,
+    });
     jobs.insert(
         journal_id,
         ImportJob {
@@ -129,7 +116,10 @@ pub async fn import_status(
     let authority = Authority::Direct(Actor::User(user.id));
     let journal_id = JournalId::from_str(&journal_id)?;
     let file_id = FileId::from_str(&file_id)?;
-    authorize_import(&state.journal_service, journal_id, file_id, authority).await?;
+    state
+        .journal_service
+        .authorize_jewel_import(journal_id, file_id, authority)
+        .await?;
     let jobs = state.journal_service.jewel_imports.lock().await;
     let job = jobs
         .get(&journal_id)
@@ -153,7 +143,9 @@ pub async fn confirm_import(
     let journal_id = JournalId::from_str(&journal_id)?;
     let file_id = FileId::from_str(&file_id)?;
     let service = state.journal_service;
-    authorize_import(&service, journal_id, file_id, authority).await?;
+    service
+        .authorize_jewel_import(journal_id, file_id, authority)
+        .await?;
     let mut jobs = service.jewel_imports.lock().await;
     let job = jobs
         .get_mut(&journal_id)

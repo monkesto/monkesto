@@ -40,16 +40,6 @@ pub struct ImportStatus {
 }
 
 impl ImportStatus {
-    pub fn preparing() -> Self {
-        Self {
-            phase: ImportPhase::Preparing,
-            completed: 0,
-            total: 0,
-            message: "Reading the Jewel database and checking offerings.".into(),
-            report: None,
-        }
-    }
-
     pub fn set_phase(&mut self, phase: ImportPhase, message: &str) {
         self.phase = phase;
         self.message = message.into();
@@ -104,6 +94,24 @@ pub fn supervise(
 }
 
 impl JournalService {
+    pub(super) async fn authorize_jewel_import(
+        &self,
+        journal_id: JournalId,
+        file_id: FileId,
+        authority: Authority,
+    ) -> JournalResult<()> {
+        if !self
+            .get_effective_permissions(journal_id, authority)
+            .await?
+            .contains(import_permissions())
+        {
+            Err(JournalError::Permissions(import_permissions()))?;
+        }
+
+        self.get_file(file_id, journal_id, authority).await?;
+        Ok(())
+    }
+
     pub async fn jewel_import_receipt(
         &self,
         journal_id: JournalId,

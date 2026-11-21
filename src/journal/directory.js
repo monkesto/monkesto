@@ -7,7 +7,6 @@ if (form && results && template) {
     const search = form.elements.namedItem('q');
     const sort = form.elements.namedItem('sort');
     const reset = form.querySelector('[data-list-reset]');
-    const status = form.querySelector('[data-list-status]');
     const tbody = results.querySelector('[data-directory-visible]');
     const table = results.querySelector('[data-directory-table]');
     const empty = results.querySelector('[data-directory-empty]');
@@ -30,8 +29,6 @@ if (form && results && template) {
     let sortedItems = items;
     template.remove();
 
-    const compare = (a, b) => a < b ? -1 : a > b ? 1 : 0;
-
     function pageUrl(number) {
         const url = new URL(form.action);
         url.searchParams.set('q', search.value);
@@ -45,9 +42,12 @@ if (form && results && template) {
         if (sortedBy !== sort.value) {
             sortedBy = sort.value;
             const byName = sortedBy === 'name_asc' || sortedBy === 'name_desc';
-            sortedItems = [...items].sort((a, b) => (byName ? compare(a.name, b.name) : 0)
-                || compare(a.created, b.created) || compare(a.subsecond, b.subsecond)
-                || compare(a.id, b.id));
+            sortedItems = [...items].sort((a, b) => {
+                if (byName && a.name !== b.name) return a.name < b.name ? -1 : 1;
+                if (a.created !== b.created) return a.created - b.created;
+                if (a.subsecond !== b.subsecond) return a.subsecond - b.subsecond;
+                return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+            });
             if (sortedBy === 'name_desc' || sortedBy === 'newest') sortedItems.reverse();
         }
         const filtered = sortedItems.filter(item => item.name.includes(needle));

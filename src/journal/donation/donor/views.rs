@@ -8,7 +8,7 @@ use crate::journal::ui::{self, Directory, DirectoryEntry, ListQuery};
 use crate::{BackendType, StateType};
 use axum::extract::{Path, Query, State};
 use axum_login::AuthSession;
-use maud::Markup;
+use maud::{Markup, html};
 use std::str::FromStr;
 
 pub async fn donor_list_page(
@@ -39,6 +39,23 @@ pub async fn donor_list_page(
         .journal_service
         .get_journal(journal_id, authority)
         .await?;
+    let create = html! {
+        section id="create" aria-labelledby="create-heading" class="scroll-mt-6 rounded-xl border border-gray-200 bg-white p-5 sm:p-6 dark:border-gray-700 dark:bg-gray-800" {
+            div class="mb-5" {
+                h2 id="create-heading" class="text-lg font-semibold text-gray-900 dark:text-white" { "Add donor" }
+                p class="mt-1 text-sm text-gray-500 dark:text-gray-400" { "Add a new donor to this journal." }
+            }
+            form method="post" action=(format!("/journal/{journal_id}/createdonor")) class="flex max-w-2xl flex-col gap-5" {
+                div {
+                    label for="donor_name" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-200" { "Name" }
+                    input type="text" id="donor_name" name="donor_name" required maxlength="64" placeholder="donor name" class=(ui::INPUT);
+                }
+
+                div { button type="submit" class=(ui::BUTTON) { "Add donor" } }
+            }
+        }
+    };
+
     let content = ui::directory(
         journal_id,
         &query,
@@ -48,11 +65,11 @@ pub async fn donor_list_page(
             title: "Donors",
             singular: "donor",
             description: "Find donors and review their total contributions to this journal.",
-            action: "createdonor",
             button: "Add donor",
-            types: &[],
-            type_field: "",
+            show_kind: false,
+            amount_label: "Total donated",
         },
+        create,
     );
     Ok(layout(
         Some(journal.name.as_ref()),

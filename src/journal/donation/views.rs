@@ -51,7 +51,7 @@ pub async fn donation_list_page(
         .await?;
     let path = format!("/journal/{journal_id}/donation");
     let all = donations.len();
-    let needle = query.needle();
+    let needle = query.q.trim().to_lowercase();
     let matches = |value: &str| value.to_lowercase().contains(&needle);
     donations.retain(|(donation, _, date)| {
         needle.is_empty()
@@ -75,7 +75,6 @@ pub async fn donation_list_page(
         div class="mx-auto flex w-full max-w-6xl flex-col gap-6" {
             (ui::header(journal_id, "donation", "Donations", "Review deposited donations and see how each contribution was allocated to funds. Expand a deposit to see its details.", None))
             (ui::controls(&path, &query, false, "Donor, fund, bank account, or YYYY-MM-DD…"))
-            (ui::history_limit(all))
             div id="list-results" data-list-results role="region" aria-label="Search results" tabindex="-1" class="flex flex-col gap-6" {
                 (ui::pagination(&path, &query, total, all, false))
                 @if donations.is_empty() {

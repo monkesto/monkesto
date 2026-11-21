@@ -82,7 +82,7 @@ pub async fn transaction_list_page(
         }
     };
     let all = transactions.len();
-    let needle = query.needle();
+    let needle = query.q.trim().to_lowercase();
     transactions.retain(|(transaction, _, date)| {
         needle.is_empty()
             || transaction.id.to_string().to_lowercase().contains(&needle)
@@ -106,7 +106,6 @@ pub async fn transaction_list_page(
         div class="mx-auto flex w-full max-w-6xl flex-col gap-6" {
             (ui::header(journal_id, "transaction", "Transactions", "Review account movements and fund activity. Expand a transaction to see its debits and credits.", Some("New transaction")))
             (ui::controls(&path, &query, false, "Memo, account, activity, fund, or YYYY-MM-DD…"))
-            (ui::history_limit(all))
             div id="list-results" data-list-results role="region" aria-label="Search results" tabindex="-1" class="flex flex-col gap-6" {
                 (ui::pagination(&path, &query, total, all, false))
                 @if transactions.is_empty() {
@@ -114,8 +113,8 @@ pub async fn transaction_list_page(
                 }
                 div class="space-y-3" {
                     @for (transaction, authority, timestamp) in page {
-                        @let debits: u128 = transaction.entries.iter().filter(|entry| entry.entry_side == EntrySide::Debit).map(|entry| u128::from(entry.amount.unsigned_abs())).sum();
-                        @let credits: u128 = transaction.entries.iter().filter(|entry| entry.entry_side == EntrySide::Credit).map(|entry| u128::from(entry.amount.unsigned_abs())).sum();
+                        @let debits: i128 = transaction.entries.iter().filter(|entry| entry.entry_side == EntrySide::Debit).map(|entry| i128::from(entry.amount.unsigned_abs())).sum();
+                        @let credits: i128 = transaction.entries.iter().filter(|entry| entry.entry_side == EntrySide::Credit).map(|entry| i128::from(entry.amount.unsigned_abs())).sum();
                         details class="group overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xs open:border-indigo-300 dark:border-gray-700 dark:bg-gray-800 dark:open:border-indigo-600" {
                             summary class="flex cursor-pointer list-none flex-wrap items-center gap-4 p-4 select-none hover:bg-gray-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-500 sm:p-5 dark:hover:bg-gray-700/40 [&::-webkit-details-marker]:hidden" {
                                 span aria-hidden="true" class="text-gray-400 transition-transform group-open:rotate-90" { "▸" }
@@ -126,7 +125,7 @@ pub async fn transaction_list_page(
                                     p class="mt-1 text-sm text-gray-500 dark:text-gray-400" { (ui::date(*timestamp)) " · " (transaction.entries.len()) " entries" }
                                 }
                                 div class="ml-auto text-right" {
-                                    p class="text-lg font-semibold tabular-nums text-gray-900 dark:text-white" { (ui::money(debits)) }
+                                    p class="text-lg font-semibold tabular-nums text-gray-900 dark:text-white" { (Dollars(debits)) }
                                     p class="mt-1 text-xs text-gray-500 dark:text-gray-400" { "Total debits" }
                                 }
                                 span class="sr-only" { "Expand transaction details" }
@@ -162,8 +161,8 @@ pub async fn transaction_list_page(
                                         tfoot class="border-t border-gray-200 bg-gray-50 text-sm font-semibold text-gray-900 dark:border-gray-700 dark:bg-gray-900/40 dark:text-white" {
                                             tr {
                                                 th scope="row" class="px-4 py-3 text-left" { "Totals" }
-                                                td class="whitespace-nowrap px-4 py-3 text-right tabular-nums" { (ui::money(debits)) }
-                                                td class="whitespace-nowrap px-4 py-3 text-right tabular-nums" { (ui::money(credits)) }
+                                                td class="whitespace-nowrap px-4 py-3 text-right tabular-nums" { (Dollars(debits)) }
+                                                td class="whitespace-nowrap px-4 py-3 text-right tabular-nums" { (Dollars(credits)) }
                                             }
                                         }
                                     }
