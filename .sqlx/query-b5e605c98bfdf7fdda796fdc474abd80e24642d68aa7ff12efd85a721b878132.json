@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE journal_projection_checkpoint SET last_processed_event_id = $1 WHERE journal_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b5e605c98bfdf7fdda796fdc474abd80e24642d68aa7ff12efd85a721b878132"
+}

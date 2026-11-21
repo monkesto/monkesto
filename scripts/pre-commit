@@ -2,7 +2,7 @@
 set -e
 cargo fmt --all > /dev/null 2>&1
 
-cargo sqlx prepare
+cargo sqlx prepare -- --tests
 
 # Check if anything changed in the .sqlx directory
 if [ -d ".sqlx" ]; then
