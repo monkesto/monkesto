@@ -10,7 +10,6 @@ target/
 *.pdb
 
 .env
-STYLE.md
 
 rustc-ice*
 

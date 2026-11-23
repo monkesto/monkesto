@@ -22,6 +22,7 @@ pub fn router() -> Router<crate::StateType> {
 
 use crate::authority::Authority;
 use crate::id;
+use crate::journal::activity::scope::ActivityScope;
 use crate::journal::error::{JournalError, JournalResult, TransactionValidationError};
 use crate::journal::event::JournalDomainEvent;
 use crate::journal::service::stream_lock::{
@@ -162,22 +163,37 @@ impl JournalService {
         let mut account_ids = Vec::new();
         let mut activity_ids = Vec::new();
         let mut fund_ids = Vec::new();
-        let mut entry_ids = Vec::new();
+        let mut account_and_external_balance = 0_i128;
+        let mut internal_transfer_balance = 0_i128;
 
-        for entry in entries.iter() {
+        for entry in &entries {
+            let amount = i128::from(entry.amount);
+            let change = match entry.entry_side {
+                EntrySide::Debit => -amount,
+                EntrySide::Credit => amount,
+            };
             match entry.entry_kind {
                 EntryKind::Account { account_id } => {
                     account_ids.push(*account_id);
+                    account_and_external_balance += change;
                 }
                 EntryKind::Activity {
                     activity_id,
                     fund_id,
-                    scope: _,
+                    scope,
                 } => {
                     activity_ids.push(*activity_id);
                     fund_ids.push(*fund_id);
+                    match scope {
+                        ActivityScope::Internal => internal_transfer_balance += change,
+                        ActivityScope::External => account_and_external_balance += change,
+                    }
                 }
             }
+        }
+
+        if account_and_external_balance != 0 || internal_transfer_balance != 0 {
+            return Err(TransactionValidationError::ImbalancedTransaction.into());
         }
 
         assert_multiple_streams_exist(&mut tx, journal_id, &account_ids, StreamType::Account)
@@ -188,24 +204,11 @@ impl JournalService {
 
         assert_multiple_streams_exist(&mut tx, journal_id, &fund_ids, StreamType::Fund).await?;
 
-        let mut overall_balance = 0;
-
-        for entry in entries.iter() {
-            let entry_change = match entry.entry_side {
-                EntrySide::Credit => entry.amount as i64,
-                EntrySide::Debit => -(entry.amount as i64),
-            };
-
-            overall_balance += entry_change;
-
-            let entry_id = EntryId::new();
-
-            entry_ids.push(entry_id);
-
+        for entry in entries {
             append_creation_event_in_tx(
                 &mut tx,
                 JournalDomainEvent::EntryCreated {
-                    entry_id,
+                    entry_id: EntryId::new(),
                     journal_id,
                     transaction_id,
                     amount: entry.amount,
@@ -218,12 +221,6 @@ impl JournalService {
                 None,
             )
             .await?;
-        }
-
-        if overall_balance != 0 {
-            return Err(JournalError::TransactionValidation(
-                TransactionValidationError::ImbalancedTransaction(entries),
-            ));
         }
 
         let event_id = append_creation_event_in_tx(
@@ -297,5 +294,124 @@ impl JournalService {
         }).collect();
 
         Ok(transactions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::authn::UserId;
+    use crate::authority::Actor;
+    use crate::journal::account::{AccountId, AccountType};
+    use crate::journal::activity::{ActivityId, ActivityKind};
+    use crate::journal::file::ObjectStore;
+    use crate::journal::fund::FundId;
+    use crate::journal::projection;
+    use crate::name::Name;
+    use sqlx::PgPool;
+    use tokio::sync::broadcast;
+
+    #[sqlx::test(migrations = "./migrations")]
+    #[ignore = "requires a PostgreSQL test server with database creation privileges"]
+    async fn transactions_with_offsetting_balance_groups_do_not_commit(
+        pool: PgPool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        projection::install_sql(&pool).await?;
+        let service = JournalService {
+            pool,
+            object_store: ObjectStore::Local {
+                storage_directory: std::env::temp_dir(),
+            },
+            projection_applications: broadcast::channel(1).0,
+            jewel_imports: Default::default(),
+        };
+        let owner = UserId::new();
+        let authority = Authority::Direct(Actor::User(owner));
+        let timestamp = Timestamp(DateTime::UNIX_EPOCH);
+        let journal_id = JournalId::new();
+        let account_id = AccountId::new();
+        let activity_id = ActivityId::new();
+        let fund_id = "gfund".parse::<FundId>()?;
+        service
+            .create_journal(journal_id, owner, Name::default(), authority, timestamp)
+            .await?;
+        service
+            .create_account(
+                account_id,
+                journal_id,
+                Name::default(),
+                AccountType::Asset,
+                authority,
+                timestamp,
+            )
+            .await?;
+        service
+            .create_activity(
+                activity_id,
+                journal_id,
+                Name::default(),
+                ActivityKind::Income,
+                authority,
+                timestamp,
+            )
+            .await?;
+
+        let debit = TransactionEntry {
+            amount: 100,
+            entry_side: EntrySide::Debit,
+            entry_kind: EntryKind::Account { account_id },
+        };
+        let transfer_credit = TransactionEntry {
+            amount: 100,
+            entry_side: EntrySide::Credit,
+            entry_kind: EntryKind::Activity {
+                activity_id,
+                fund_id,
+                scope: ActivityScope::Internal,
+            },
+        };
+        let transaction_id = TransactionId::new();
+        let result = service
+            .create_transaction(
+                transaction_id,
+                journal_id,
+                vec![debit.clone(), transfer_credit.clone()],
+                FinancialPeriod::January,
+                None,
+                authority,
+                timestamp,
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(JournalError::TransactionValidation(
+                TransactionValidationError::ImbalancedTransaction
+            ))
+        ));
+
+        // The corrected transaction can reuse the ID only if the first write did not commit.
+        service
+            .create_transaction(
+                transaction_id,
+                journal_id,
+                vec![
+                    TransactionEntry {
+                        entry_side: EntrySide::Debit,
+                        ..transfer_credit.clone()
+                    },
+                    transfer_credit,
+                    TransactionEntry {
+                        entry_side: EntrySide::Credit,
+                        ..debit.clone()
+                    },
+                    debit,
+                ],
+                FinancialPeriod::January,
+                None,
+                authority,
+                timestamp,
+            )
+            .await?;
+        Ok(())
     }
 }

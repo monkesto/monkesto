@@ -1,5 +1,3 @@
-use crate::journal::transaction::TransactionEntry;
-use crate::journal::transaction::entry::EntrySideFromIntError;
 use crate::journal::transaction::memo::MemoError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -9,24 +7,20 @@ use thiserror::Error;
 pub enum TransactionValidationError {
     #[error("Did not receive any transaction entries")]
     NoTransactionEntries,
-    #[error("Did not receive a corresponding amount for an entry")]
-    MissingEntryAmount,
-    #[error("Did not receive a corresponding entry type for an entry")]
-    MissingEntryType,
+    #[error("{0}")]
+    InvalidJson(String),
     #[error("Invalid entry amount: {0}")]
     ParseDecimal(String),
     #[error("Received an entry with a partial cent value: {0}")]
     PartialCentValue(String),
-    #[error("Received an entry with a value greater than 9 quintillion")]
+    #[error("The entry amount is out of range: {0}")]
     OutOfRange(String),
     #[error(
-        "Received an entry with a negative amount: {0}. Please use the debit/credit selector instead."
+        "Received an entry with a nonpositive amount: {0}. Please use the debit/credit selector instead."
     )]
     NegativeEntryAmount(String),
-    #[error("Imbalanced transaction: {:?}", 0)]
-    ImbalancedTransaction(Vec<TransactionEntry>),
-    #[error(transparent)]
-    InvalidEntrySide(#[from] EntrySideFromIntError),
+    #[error("Imbalanced transaction")]
+    ImbalancedTransaction,
     #[error(transparent)]
     Memo(#[from] MemoError),
 }
@@ -35,21 +29,16 @@ impl IntoResponse for TransactionValidationError {
     fn into_response(self) -> Response {
         use TransactionValidationError::*;
 
-        (
-            StatusCode::BAD_REQUEST,
-            match self {
-                NoTransactionEntries => "No transaction entries",
-                MissingEntryAmount => "Missing entry amount",
-                MissingEntryType => "Missing entry type",
-                ParseDecimal(_) => "Failed to parse a dollar amount",
-                PartialCentValue(_) => "Failed to parse a partial cent value",
-                OutOfRange(_) => "Values must be below 9 quintillion",
-                NegativeEntryAmount(_) => "All entry amounts must be positive",
-                ImbalancedTransaction(_) => "The transaction is not balanced",
-                InvalidEntrySide(_) => "Invalid entry side",
-                Memo(_) => "Memos must be under 100 characters",
-            },
-        )
-            .into_response()
+        let message = match &self {
+            NoTransactionEntries => "Add at least one transaction entry",
+            InvalidJson(message) => message,
+            ParseDecimal(_) => "Failed to parse a dollar amount",
+            PartialCentValue(_) => "Entry amounts must be in whole cents",
+            OutOfRange(_) => "An entry amount is too large",
+            NegativeEntryAmount(_) => "All entry amounts must be positive",
+            ImbalancedTransaction => "The transaction is not balanced.",
+            Memo(_) => "Memos must be at most 100 characters",
+        };
+        (StatusCode::BAD_REQUEST, message.to_owned()).into_response()
     }
 }
