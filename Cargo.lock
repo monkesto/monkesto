@@ -1459,9 +1459,9 @@ dependencies = [
 
 [[package]]
 name = "ecow"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62bac48c16a993694c703f2991527d422d9efb8ec5625756004ba30e97683720"
+checksum = "2dca6141d10838e13f9b166c190254a3f9b5d8379521f9b7510810061cef17a4"
 dependencies = [
  "serde",
 ]
@@ -2589,9 +2589,9 @@ dependencies = [
 
 [[package]]
 name = "mailparse"
-version = "0.16.1"
+version = "0.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60819a97ddcb831a5614eb3b0174f3620e793e97e09195a395bfa948fd68ed2f"
+checksum = "068d4f5d1083883b9e626051dc5bdaa321f5be01093e61ade3ee3ab44dafeadd"
 dependencies = [
  "charset",
  "data-encoding",
@@ -3595,11 +3595,12 @@ dependencies = [
 
 [[package]]
 name = "resend-rs"
-version = "0.35.0"
+version = "0.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "641bb43849955a6394f1b7f2d0a653381b8dab7a4d20c7fb9a87633c1ce8624f"
+checksum = "52953aaf158b756cb1e033ccc27205170f888cf8913e7bb955e69c0a5920a0ca"
 dependencies = [
  "ecow",
+ "futures-timer",
  "getrandom 0.4.3",
  "governor",
  "mailparse",
