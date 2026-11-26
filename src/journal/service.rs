@@ -4,7 +4,6 @@ use crate::id::Ident;
 use crate::journal::account::AccountId;
 use crate::journal::activity::ActivityId;
 use crate::journal::donation::DonationId;
-use crate::journal::donation::donation_entry::DonationEntryId;
 use crate::journal::donation::donor::DonorId;
 use crate::journal::error::JournalError::InvalidJournal;
 use crate::journal::error::{JournalError, JournalResult};
@@ -13,7 +12,6 @@ use crate::journal::file::{FileId, ObjectStore};
 use crate::journal::fund::FundId;
 use crate::journal::projection;
 use crate::journal::transaction::TransactionId;
-use crate::journal::transaction::entry::EntryId;
 use crate::journal::{JournalId, Permissions};
 use axum_login::tracing::error;
 use futures_util::TryFutureExt;
@@ -35,7 +33,6 @@ pub(crate) mod stream_lock {
     use crate::journal::account::AccountId;
     use crate::journal::activity::ActivityId;
     use crate::journal::donation::DonationId;
-    use crate::journal::donation::donation_entry::DonationEntryId;
     use crate::journal::donation::donor::DonorId;
     use crate::journal::error::JournalResult;
     use crate::journal::event::JournalDomainEvent;
@@ -46,7 +43,6 @@ pub(crate) mod stream_lock {
         handle_unique_violation,
     };
     use crate::journal::transaction::TransactionId;
-    use crate::journal::transaction::entry::EntryId;
     use crate::time::Timestamp;
     use sqlx::{Postgres, QueryBuilder, Transaction};
     use std::collections::HashMap;
@@ -220,8 +216,6 @@ pub(crate) mod stream_lock {
         let journal_id = payload.journal_id();
         let stream_id = payload.stream_id();
         let stream_type = payload.stream_type();
-        let transaction_id = payload.transaction_id();
-        let donation_id = payload.donation_id();
         let version = 0;
 
         let event_id = sqlx::query_scalar!(
@@ -263,12 +257,6 @@ pub(crate) mod stream_lock {
             builder.push(stream_prefix);
             builder.push("_id");
 
-            if let Some(_transaction_id) = transaction_id {
-                builder.push(", transaction_id");
-            } else if let Some(_donation_id) = donation_id {
-                builder.push(", donation_id");
-            }
-
             builder.push(") VALUES (");
 
             let mut sep = builder.separated(", ");
@@ -276,11 +264,6 @@ pub(crate) mod stream_lock {
             sep.push_bind(0);
             sep.push_bind(true);
             sep.push_bind(stream_id);
-            if let Some(transaction_id) = transaction_id {
-                sep.push_bind(transaction_id);
-            } else if let Some(donation_id) = donation_id {
-                sep.push_bind(donation_id);
-            }
             sep.push_unseparated(")");
         }
 
@@ -305,11 +288,9 @@ pub(crate) mod stream_lock {
         let mut account_streams: Vec<(JournalId, AccountId)> = Vec::new();
         let mut fund_streams: Vec<(JournalId, FundId)> = Vec::new();
         let mut activity_streams: Vec<(JournalId, ActivityId)> = Vec::new();
-        let mut entry_streams: Vec<(JournalId, TransactionId, EntryId)> = Vec::new();
         let mut transaction_streams: Vec<(JournalId, TransactionId)> = Vec::new();
         let mut file_streams: Vec<(JournalId, FileId)> = Vec::new();
         let mut donor_streams: Vec<(JournalId, DonorId)> = Vec::new();
-        let mut donation_entry_streams: Vec<(JournalId, DonationId, DonationEntryId)> = Vec::new();
         let mut donation_streams: Vec<(JournalId, DonationId)> = Vec::new();
 
         let mut event_builder: QueryBuilder<Postgres> = QueryBuilder::new(
@@ -332,13 +313,6 @@ pub(crate) mod stream_lock {
                     }
                     EventType::ActivityCreated => activity_streams
                         .push((payload.journal_id(), ActivityId(payload.stream_id()))),
-                    EventType::EntryCreated => entry_streams.push((
-                        payload.journal_id(),
-                        payload
-                            .transaction_id()
-                            .expect("entry created events must have a transaction id"),
-                        EntryId(payload.stream_id()),
-                    )),
                     EventType::TransactionCreated => transaction_streams
                         .push((payload.journal_id(), TransactionId(payload.stream_id()))),
                     EventType::FileUploaded => {
@@ -347,13 +321,6 @@ pub(crate) mod stream_lock {
                     EventType::DonorCreated => {
                         donor_streams.push((payload.journal_id(), DonorId(payload.stream_id())))
                     }
-                    EventType::DonationEntryCreated => donation_entry_streams.push((
-                        payload.journal_id(),
-                        payload
-                            .donation_id()
-                            .expect("donation entry events must have a donation id"),
-                        DonationEntryId(payload.stream_id()),
-                    )),
                     EventType::DonationCreated => donation_streams
                         .push((payload.journal_id(), DonationId(payload.stream_id()))),
 
@@ -435,23 +402,6 @@ pub(crate) mod stream_lock {
             activity_builder.build().execute(&mut **tx).await?;
         }
 
-        if !entry_streams.is_empty() {
-            let mut entry_builder: QueryBuilder<Postgres> = QueryBuilder::new(
-                "INSERT INTO entry_stream (journal_id, transaction_id, entry_id, version, valid) ",
-            );
-            entry_builder.push_values(
-                entry_streams,
-                |mut row, (journal_id, transaction_id, entry_id)| {
-                    row.push_bind(journal_id);
-                    row.push_bind(transaction_id);
-                    row.push_bind(entry_id);
-                    row.push_bind(0);
-                    row.push_bind(true);
-                },
-            );
-            entry_builder.build().execute(&mut **tx).await?;
-        }
-
         if !transaction_streams.is_empty() {
             let mut transaction_builder: QueryBuilder<Postgres> = QueryBuilder::new(
                 "INSERT INTO transaction_stream (journal_id, transaction_id, version, valid) ",
@@ -491,23 +441,6 @@ pub(crate) mod stream_lock {
                 row.push_bind(true);
             });
             donor_builder.build().execute(&mut **tx).await?;
-        }
-
-        if !donation_entry_streams.is_empty() {
-            let mut donation_entry_builder: QueryBuilder<Postgres> = QueryBuilder::new(
-                "INSERT INTO donation_entry_stream (journal_id, donation_id, donation_entry_id, version, valid) ",
-            );
-            donation_entry_builder.push_values(
-                donation_entry_streams,
-                |mut row, (journal_id, donation_id, donation_entry_id)| {
-                    row.push_bind(journal_id);
-                    row.push_bind(donation_id);
-                    row.push_bind(donation_entry_id);
-                    row.push_bind(0);
-                    row.push_bind(true);
-                },
-            );
-            donation_entry_builder.build().execute(&mut **tx).await?;
         }
 
         if !donation_streams.is_empty() {
@@ -623,12 +556,10 @@ pub enum StreamType {
     Account = 2,
     Activity = 3,
     Fund = 4,
-    Entry = 5,
-    Transaction = 6,
-    File = 7,
-    Donor = 8,
-    DonationEntry = 9,
-    Donation = 10,
+    Transaction = 5,
+    File = 6,
+    Donor = 7,
+    Donation = 8,
 }
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum EventAction {
@@ -644,11 +575,9 @@ impl StreamType {
             StreamType::Account => "account",
             StreamType::Activity => "activity",
             StreamType::Fund => "fund",
-            StreamType::Entry => "entry",
             StreamType::Transaction => "transaction",
             StreamType::File => "file",
             StreamType::Donor => "donor",
-            StreamType::DonationEntry => "donation_entry",
             StreamType::Donation => "donation",
         }
     }
@@ -666,7 +595,6 @@ impl TryFrom<i16> for StreamType {
             x if x == StreamType::Account as i16 => Ok(StreamType::Account),
             x if x == StreamType::Activity as i16 => Ok(StreamType::Activity),
             x if x == StreamType::Fund as i16 => Ok(StreamType::Fund),
-            x if x == StreamType::Entry as i16 => Ok(StreamType::Entry),
             x if x == StreamType::File as i16 => Ok(StreamType::File),
             _ => Err(StreamTypeFromIntError(value)),
         }
@@ -686,13 +614,11 @@ pub enum EventType {
     AccountDeleted = 203,
     FundCreated = 301,
     ActivityCreated = 401,
-    EntryCreated = 501,
-    TransactionCreated = 601,
-    FileUploaded = 701,
-    FileDeleted = 702,
-    DonorCreated = 801,
-    DonationEntryCreated = 901,
-    DonationCreated = 1001,
+    TransactionCreated = 501,
+    FileUploaded = 601,
+    FileDeleted = 602,
+    DonorCreated = 701,
+    DonationCreated = 801,
 }
 
 #[derive(Error, Debug)]
@@ -715,7 +641,6 @@ impl TryFrom<i16> for EventType {
             x if x == EventType::AccountDeleted as i16 => Ok(EventType::AccountDeleted),
             x if x == EventType::FundCreated as i16 => Ok(EventType::FundCreated),
             x if x == EventType::ActivityCreated as i16 => Ok(EventType::ActivityCreated),
-            x if x == EventType::EntryCreated as i16 => Ok(EventType::EntryCreated),
             x if x == EventType::TransactionCreated as i16 => Ok(EventType::TransactionCreated),
             x if x == EventType::FileUploaded as i16 => Ok(EventType::FileUploaded),
             x if x == EventType::FileDeleted as i16 => Ok(EventType::FileDeleted),
@@ -737,15 +662,11 @@ fn handle_unique_violation(
             StreamType::Account => JournalError::AccountIdCollision(AccountId(stream_id)),
             StreamType::Activity => JournalError::ActivityIdCollision(ActivityId(stream_id)),
             StreamType::Fund => JournalError::FundIdCollision(FundId(stream_id)),
-            StreamType::Entry => JournalError::EntryIdCollision(EntryId(stream_id)),
             StreamType::Transaction => {
                 JournalError::TransactionIdCollision(TransactionId(stream_id))
             }
             StreamType::File => JournalError::FileIdCollision(FileId(stream_id)),
             StreamType::Donor => JournalError::DonorIdCollision(DonorId(stream_id)),
-            StreamType::DonationEntry => {
-                JournalError::DonationEntryIdCollision(DonationEntryId(stream_id))
-            }
             StreamType::Donation => JournalError::DonationIdCollision(DonationId(stream_id)),
         };
     }
@@ -760,11 +681,9 @@ fn handle_missing_stream(stream_id: Ident, stream_type: StreamType) -> JournalEr
         StreamType::Account => InvalidAccount(AccountId(stream_id)),
         StreamType::Activity => InvalidActivity(ActivityId(stream_id)),
         StreamType::Fund => InvalidFund(FundId(stream_id)),
-        StreamType::Entry => InvalidEntry(EntryId(stream_id)),
         StreamType::Transaction => InvalidTransaction(TransactionId(stream_id)),
         StreamType::File => InvalidFile(FileId(stream_id)),
         StreamType::Donor => InvalidDonor(DonorId(stream_id)),
-        StreamType::DonationEntry => InvalidDonationEntry(DonationEntryId(stream_id)),
         StreamType::Donation => InvalidDonation(DonationId(stream_id)),
     }
 }

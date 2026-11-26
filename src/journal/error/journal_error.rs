@@ -5,7 +5,6 @@ use crate::id::ident_error::IdentError;
 use crate::journal::account::{AccountId, AccountTypeFromIntError};
 use crate::journal::activity::ActivityId;
 use crate::journal::activity::kind::ActivityKindFromIntError;
-use crate::journal::donation::donation_entry::DonationEntryId;
 use crate::journal::donation::donor::DonorId;
 use crate::journal::donation::{CheckNumFromStrError, DonationId};
 use crate::journal::error::transaction_validation::TransactionValidationError;
@@ -13,7 +12,6 @@ use crate::journal::file::FileId;
 use crate::journal::fund::FundId;
 use crate::journal::jewel::JewelImportError;
 use crate::journal::transaction::TransactionId;
-use crate::journal::transaction::entry::EntryId;
 use crate::journal::transaction::memo::MemoError;
 use crate::journal::{JournalId, PermissionDecodeError, Permissions};
 use crate::name::NameError;
@@ -22,7 +20,6 @@ use aws_sdk_s3::error::SdkError;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum_login::tracing::error;
-use disintegrate::{BoxDynError, DecisionError};
 use std::backtrace::Backtrace;
 use thiserror::Error;
 
@@ -39,9 +36,6 @@ pub enum JournalError {
 
     #[error("a fund already exists with the id {0}")]
     FundIdCollision(FundId),
-
-    #[error("an entry already exists with the id {0}")]
-    EntryIdCollision(EntryId),
 
     #[error("a transaction already exists with the id {0}")]
     TransactionIdCollision(TransactionId),
@@ -61,13 +55,10 @@ pub enum JournalError {
     #[error("invalid fund: {0}")]
     InvalidFund(FundId),
 
-    #[error("invalid entry: {0}")]
-    InvalidEntry(EntryId),
-
     #[error("invalid transaction: {0}")]
     InvalidTransaction(TransactionId),
 
-    #[error("failed to validate a transaction: {0}")]
+    #[error(transparent)]
     TransactionValidation(#[from] TransactionValidationError),
 
     #[error("The user doesn't have the {:?} permission", .0)]
@@ -110,12 +101,6 @@ pub enum JournalError {
     #[error("failed to create a name: {0}")]
     Name(#[from] NameError),
 
-    #[error("got an error from the disintegrate event store: {0}")]
-    DisintegrateEvent(BoxDynError),
-
-    #[error("got an error from the disintegrate state store: {0}")]
-    DisintegrateState(BoxDynError),
-
     #[error("got an error from the user store: {0}")]
     User(#[from] UserError),
 
@@ -137,30 +122,18 @@ pub enum JournalError {
     #[error("a donor already exists with the id {0}")]
     DonorIdCollision(DonorId),
 
-    #[error("invalid donation entry: {0}")]
-    InvalidDonationEntry(DonationEntryId),
-
-    #[error("a donation entry already exists with the id {0}")]
-    DonationEntryIdCollision(DonationEntryId),
-
     #[error("invalid donation: {0}")]
     InvalidDonation(DonationId),
 
     #[error("a donation already exists with the id {0}")]
     DonationIdCollision(DonationId),
 
+    #[error("multiple entries in the same donation have the id {0}")]
+    #[expect(unused)]
+    DonationEntryIdCollision(i64),
+
     #[error(transparent)]
     CheckNumFromStr(#[from] CheckNumFromStrError),
-}
-
-impl From<DecisionError<JournalError>> for JournalError {
-    fn from(error: DecisionError<JournalError>) -> Self {
-        match error {
-            DecisionError::Domain(e) => e,
-            DecisionError::EventStore(e) => JournalError::DisintegrateEvent(e),
-            DecisionError::StateStore(e) => JournalError::DisintegrateState(e),
-        }
-    }
 }
 
 impl<E, R> From<SdkError<E, R>> for JournalError {
@@ -175,12 +148,7 @@ impl IntoResponse for JournalError {
     fn into_response(self) -> Response {
         use JournalError::*;
         match self {
-            EventDecode(_)
-            | PermissionDecode(_)
-            | Sqlx { .. }
-            | S3(_)
-            | DisintegrateState(_)
-            | DisintegrateEvent(_) => {
+            EventDecode(_) | PermissionDecode(_) | Sqlx { .. } | S3(_) => {
                 error!("{}", self);
                 StatusCode::INTERNAL_SERVER_ERROR.into_response()
             }
@@ -188,11 +156,9 @@ impl IntoResponse for JournalError {
             | AccountIdCollision(_)
             | ActivityIdCollision(_)
             | FundIdCollision(_)
-            | EntryIdCollision(_)
             | TransactionIdCollision(_)
             | FileIdCollision(_)
             | DonorIdCollision(_)
-            | DonationEntryIdCollision(_)
             | DonationIdCollision(_) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "Id collision, try again.",
@@ -202,11 +168,9 @@ impl IntoResponse for JournalError {
             | InvalidAccount(_)
             | InvalidActivity(_)
             | InvalidFund(_)
-            | InvalidEntry(_)
             | InvalidTransaction(_)
             | InvalidFile(_)
             | InvalidDonor(_)
-            | InvalidDonationEntry(_)
             | InvalidDonation(_) => {
                 (StatusCode::CONFLICT, "tried to fetch an invalid resource").into_response()
             }
@@ -252,6 +216,11 @@ impl IntoResponse for JournalError {
                 (StatusCode::BAD_REQUEST, "Invalid account type").into_response()
             }
             CheckNumFromStr(_) => (StatusCode::BAD_REQUEST, "Invalid check num").into_response(),
+            DonationEntryIdCollision(_) => (
+                StatusCode::BAD_REQUEST,
+                "Multiple donation entries have the same id",
+            )
+                .into_response(),
         }
     }
 }

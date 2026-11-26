@@ -1,5 +1,3 @@
-use crate::id;
-use crate::id::Ident;
 use crate::journal::account::AccountId;
 use crate::journal::activity::ActivityId;
 use crate::journal::activity::scope::ActivityScope;
@@ -10,9 +8,8 @@ use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::fmt::Display;
+use std::ops::Deref;
 use thiserror::Error;
-
-id!(EntryId, Ident::new16());
 
 #[repr(i8)]
 #[derive(Copy, Clone, Default, Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -114,9 +111,11 @@ impl<'r> Decode<'r, Postgres> for EntryKind {
 
 use crate::proto::DecodeError;
 use crate::proto::DecodeError::FieldRequired;
-use crate::proto::journal::transaction::entry::entry::ProtoEntryKind;
 use crate::proto::journal::transaction::entry::entry::proto_entry_kind::{
     ProtoActivityEntryKind, ProtoEntryKindVariant,
+};
+use crate::proto::journal::transaction::entry::entry::{
+    ProtoEntryKind, ProtoTransactionEntries, ProtoTransactionEntry,
 };
 
 impl From<EntryKind> for ProtoEntryKind {
@@ -165,5 +164,99 @@ impl TryFrom<Option<ProtoEntryKind>> for EntryKind {
     type Error = DecodeError;
     fn try_from(proto_entry_kind: Option<ProtoEntryKind>) -> Result<Self, Self::Error> {
         proto_entry_kind.ok_or(FieldRequired)?.try_into()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct TransactionEntry {
+    pub entry_id: i64,
+    pub amount: u64,
+    pub entry_side: EntrySide,
+    pub entry_kind: EntryKind,
+}
+
+impl From<TransactionEntry> for ProtoTransactionEntry {
+    fn from(entry: TransactionEntry) -> Self {
+        ProtoTransactionEntry {
+            entry_id: entry.entry_id,
+            amount: entry.amount,
+            entry_side: entry.entry_side as i32,
+            entry_kind: Some(entry.entry_kind.into()),
+        }
+    }
+}
+
+impl TryFrom<ProtoTransactionEntry> for TransactionEntry {
+    type Error = DecodeError;
+    fn try_from(entry: ProtoTransactionEntry) -> Result<Self, Self::Error> {
+        Ok(Self {
+            entry_id: entry.entry_id,
+            amount: entry.amount,
+            entry_side: EntrySide::try_from(entry.entry_side as i8)?,
+            entry_kind: entry.entry_kind.try_into()?,
+        })
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct TransactionEntries(pub Vec<TransactionEntry>);
+
+impl From<TransactionEntries> for ProtoTransactionEntries {
+    fn from(entries: TransactionEntries) -> Self {
+        ProtoTransactionEntries {
+            entries: entries.0.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl TryFrom<ProtoTransactionEntries> for TransactionEntries {
+    type Error = DecodeError;
+    fn try_from(proto_entries: ProtoTransactionEntries) -> Result<Self, Self::Error> {
+        let mut entries = Vec::with_capacity(proto_entries.entries.len());
+
+        for entry in proto_entries.entries {
+            entries.push(TransactionEntry::try_from(entry)?);
+        }
+
+        Ok(Self(entries))
+    }
+}
+
+impl TryFrom<Option<ProtoTransactionEntries>> for TransactionEntries {
+    type Error = DecodeError;
+    fn try_from(proto_entries: Option<ProtoTransactionEntries>) -> Result<Self, Self::Error> {
+        proto_entries.ok_or(FieldRequired)?.try_into()
+    }
+}
+
+impl Deref for TransactionEntries {
+    type Target = Vec<TransactionEntry>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Type<Postgres> for TransactionEntries {
+    fn type_info() -> <Postgres as Database>::TypeInfo {
+        <&[u8] as Type<Postgres>>::type_info()
+    }
+}
+
+impl<'q> Encode<'q, Postgres> for TransactionEntries {
+    fn encode_by_ref(
+        &self,
+        buf: &mut <Postgres as Database>::ArgumentBuffer<'q>,
+    ) -> Result<IsNull, BoxDynError> {
+        <Vec<u8> as Encode<Postgres>>::encode(
+            ProtoTransactionEntries::from(self.clone()).encode_to_vec(),
+            buf,
+        )
+    }
+}
+
+impl<'r> Decode<'r, Postgres> for TransactionEntries {
+    fn decode(value: <Postgres as Database>::ValueRef<'r>) -> Result<Self, BoxDynError> {
+        let bytes = <&[u8] as Decode<Postgres>>::decode(value)?;
+        Ok(ProtoTransactionEntries::decode(bytes)?.try_into()?)
     }
 }

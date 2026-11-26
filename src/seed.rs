@@ -4,7 +4,7 @@ use crate::authn::user::{DEV_USERS, UserError};
 use crate::authority::{Actor, Authority};
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::error::{JournalError, JournalResult};
-use crate::journal::transaction::entry::{EntryKind, EntrySide};
+use crate::journal::transaction::entry::{EntryKind, EntrySide, TransactionEntries};
 use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{FinancialPeriod, TransactionEntry, TransactionId};
 use crate::journal::{JournalId, Permissions};
@@ -166,6 +166,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
             Memo::try_new("Tuition Payment".to_string()).map_err(JournalError::from)?,
             vec![
                 TransactionEntry {
+                    entry_id: 0,
                     entry_kind: EntryKind::Account {
                         account_id: assets_id,
                     },
@@ -173,6 +174,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
                     entry_side: EntrySide::Debit,
                 },
                 TransactionEntry {
+                    entry_id: 1,
                     entry_kind: EntryKind::Account {
                         account_id: revenue_id,
                     },
@@ -186,6 +188,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
             Memo::try_new("Salary".to_string()).map_err(JournalError::from)?,
             vec![
                 TransactionEntry {
+                    entry_id: 0,
                     entry_kind: EntryKind::Account {
                         account_id: expenses_id,
                     },
@@ -193,6 +196,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
                     entry_side: EntrySide::Debit,
                 },
                 TransactionEntry {
+                    entry_id: 1,
                     entry_kind: EntryKind::Account {
                         account_id: assets_id,
                     },
@@ -206,6 +210,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
             Memo::try_new("Textbooks".to_string()).map_err(JournalError::from)?,
             vec![
                 TransactionEntry {
+                    entry_id: 0,
                     entry_kind: EntryKind::Account {
                         account_id: expenses_id,
                     },
@@ -213,6 +218,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
                     entry_side: EntrySide::Debit,
                 },
                 TransactionEntry {
+                    entry_id: 1,
                     entry_kind: EntryKind::Account {
                         account_id: assets_id,
                     },
@@ -226,6 +232,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
             Memo::try_new("Tuition Payment".to_string()).map_err(JournalError::from)?,
             vec![
                 TransactionEntry {
+                    entry_id: 0,
                     entry_kind: EntryKind::Account {
                         account_id: assets_id,
                     },
@@ -233,6 +240,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
                     entry_side: EntrySide::Debit,
                 },
                 TransactionEntry {
+                    entry_id: 1,
                     entry_kind: EntryKind::Account {
                         account_id: revenue_id,
                     },
@@ -246,6 +254,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
             Memo::try_new("Check Deposit".to_string()).map_err(JournalError::from)?,
             vec![
                 TransactionEntry {
+                    entry_id: 0,
                     entry_kind: EntryKind::Account {
                         account_id: expenses_id,
                     },
@@ -253,6 +262,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
                     entry_side: EntrySide::Debit,
                 },
                 TransactionEntry {
+                    entry_id: 1,
                     entry_kind: EntryKind::Account {
                         account_id: assets_id,
                     },
@@ -272,7 +282,7 @@ pub(crate) async fn seed_dev_data(state: &AppState) -> JournalResult<()> {
             .create_transaction(
                 id,
                 maple_ridge_academy_id,
-                entries,
+                TransactionEntries(entries),
                 period,
                 Some(memo),
                 pacioli_authority,

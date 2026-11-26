@@ -169,8 +169,5 @@ pub async fn remove_member(
 
     state.journal_service.wait_for(event_id).await;
 
-    Ok(Redirect::to(&format!(
-        "/journal/{}/person/{}",
-        id, person_id
-    )))
+    Ok(Redirect::to(&format!("/journal/{}/person", id)))
 }

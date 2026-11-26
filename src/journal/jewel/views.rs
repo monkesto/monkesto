@@ -48,7 +48,6 @@ pub async fn import_jewel_page(
                 progress id="jewel-progress" class="h-3 w-full accent-indigo-600" aria-label="Import progress" {}
                 p id="jewel-counts" class="text-sm text-gray-600 dark:text-gray-400" {}
                 p class="text-sm text-gray-600 dark:text-gray-400" {
-                    "Large databases may need several minutes after records are saved to finish updating balances. "
                     "The import continues if you leave this page; return here to check it."
                 }
             }

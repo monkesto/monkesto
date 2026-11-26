@@ -7,6 +7,8 @@ use thiserror::Error;
 pub enum TransactionValidationError {
     #[error("Did not receive any transaction entries")]
     NoTransactionEntries,
+    #[error("Got multiple entries with the same id: {0}")]
+    EntryIdCollision(i64),
     #[error("{0}")]
     InvalidJson(String),
     #[error("Invalid entry amount: {0}")]
@@ -38,6 +40,7 @@ impl IntoResponse for TransactionValidationError {
             NegativeEntryAmount(_) => "All entry amounts must be positive",
             ImbalancedTransaction => "The transaction is not balanced.",
             Memo(_) => "Memos must be at most 100 characters",
+            EntryIdCollision(_) => "Multiple entries had the same id",
         };
         (StatusCode::BAD_REQUEST, message.to_owned()).into_response()
     }

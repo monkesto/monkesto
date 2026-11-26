@@ -60,7 +60,7 @@ pub async fn donation_list_page(
             || accounts
                 .get(&donation.deposit_account)
                 .is_some_and(|name| matches(name))
-            || donation.entries.iter().any(|entry| {
+            || donation.entries.0.iter().any(|entry| {
                 funds.get(&entry.fund_id).is_some_and(|name| matches(name))
                     || donors
                         .get(&entry.donor_id)
@@ -91,7 +91,7 @@ pub async fn donation_list_page(
                                 }
                                 div class="ml-auto text-right" {
                                     p class="text-lg font-semibold tabular-nums text-gray-900 dark:text-white" { (Dollars(donation.total as i64)) }
-                                    p class="mt-1 text-xs text-gray-500 dark:text-gray-400" { (donation.entries.len()) " entries" }
+                                    p class="mt-1 text-xs text-gray-500 dark:text-gray-400" { (donation.entries.0.len()) " entries" }
                                 }
                                 span class="sr-only" { "Expand donation details" }
                             }
@@ -107,11 +107,11 @@ pub async fn donation_list_page(
                                             }
                                         }
                                         tbody class="divide-y divide-gray-100 dark:divide-gray-700" {
-                                            @for entry in &donation.entries {
+                                            @for entry in &donation.entries.0 {
                                                 tr {
                                                     td class=(ui::TD) { (donors.get(&entry.donor_id).map(String::as_str).unwrap_or("Unknown donor")) }
                                                     td class=(ui::TD) { (funds.get(&entry.fund_id).map(String::as_str).unwrap_or("Unknown fund")) }
-                                                    td class="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-gray-100" { (Dollars(entry.amount as i64)) }
+                                                    td class="whitespace-nowrap px-4 py-3 text-right text-sm tabular-nums text-gray-900 dark:text-gray-100" { (Dollars(entry.amount() as i64)) }
                                                 }
                                             }
                                         }

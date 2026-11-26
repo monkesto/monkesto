@@ -36,14 +36,6 @@ CREATE TABLE transaction_stream (
     PRIMARY KEY (journal_id, transaction_id)
 );
 
-CREATE TABLE entry_stream (
-    journal_id TEXT NOT NULL REFERENCES journal_stream(journal_id),
-    entry_id TEXT NOT NULL,
-    transaction_id TEXT NOT NULL,
-    version BIGINT NOT NULL,
-    valid bool NOT NULL,
-    PRIMARY KEY (journal_id, entry_id)
-);
 
 CREATE TABLE file_stream (
     journal_id TEXT NOT NULL REFERENCES journal_stream(journal_id),

@@ -10,6 +10,7 @@ fn main() {
             "src/journal/event/journal.proto",
             "src/name/name.proto",
             "src/journal/transaction/memo/memo.proto",
+            "src/journal/donation/donation_entry/donation_entry.proto",
         ],
         &["src"],
     )

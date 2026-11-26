@@ -7,15 +7,17 @@ use crate::journal::JournalId;
 use crate::journal::account::{AccountId, AccountType};
 use crate::journal::activity::scope::ActivityScope;
 use crate::journal::activity::{ActivityId, ActivityKind};
-use crate::journal::donation::donation_entry::{DonationEntryId, DonationInstrument};
+use crate::journal::donation::donation_entry::{
+    DonationEntries, DonationEntry, DonationInstrument,
+};
 use crate::journal::donation::donor::DonorId;
 use crate::journal::donation::{CheckNum, DonationId};
 use crate::journal::error::JournalResult;
 use crate::journal::event::JournalDomainEvent;
 use crate::journal::fund::FundId;
-use crate::journal::transaction::entry::{EntryId, EntryKind, EntrySide};
+use crate::journal::transaction::entry::{EntryKind, EntrySide, TransactionEntries};
 use crate::journal::transaction::memo::Memo;
-use crate::journal::transaction::{FinancialPeriod, TransactionId};
+use crate::journal::transaction::{FinancialPeriod, TransactionEntry, TransactionId};
 use crate::name::Name;
 use crate::time::{TimeProvider, Timestamp};
 use chrono::Utc;
@@ -54,14 +56,13 @@ impl EventBuilder {
         let transaction_id = TransactionId::new();
         let mut entries = Vec::new();
         let mut difference = 0_i128;
-        for (&account, &amount) in balances {
+        for (idx, (&account, &amount)) in balances.iter().enumerate() {
             if amount == 0 {
                 continue;
             }
             let magnitude = amount.checked_abs().ok_or_else(|| {
                 JewelImportError::InvalidData("Transaction amount is too large to import".into())
             })? as u64;
-            // Income/expense metadata and journal type never flip these sides.
             let (entry_kind, entry_side) = if let Some(&account_id) = self.accounts.get(&account) {
                 (
                     EntryKind::Account { account_id },
@@ -93,10 +94,8 @@ impl EventBuilder {
                 EntrySide::Debit => i128::from(magnitude),
                 EntrySide::Credit => -i128::from(magnitude),
             };
-            entries.push(JournalDomainEvent::EntryCreated {
-                entry_id: EntryId::new(),
-                journal_id: self.journal_id,
-                transaction_id,
+            entries.push(TransactionEntry {
+                entry_id: idx as i64,
                 amount: magnitude,
                 entry_side,
                 entry_kind,
@@ -108,26 +107,14 @@ impl EventBuilder {
                 timestamp.format("%Y-%m-%d")
             )).into());
         }
-        for entry in entries {
-            self.events.push(PreparedEvent {
-                payload: entry,
-                timestamp,
-            });
-        }
-        let mut memo = memo;
-        if memo.len() > 100 {
-            let mut end = 100;
-            while !memo.is_char_boundary(end) {
-                end -= 1;
-            }
-            memo.truncate(end);
-        }
+
         self.events.push(PreparedEvent {
             payload: JournalDomainEvent::TransactionCreated {
                 transaction_id,
                 journal_id: self.journal_id,
-                financial_period,
+                period: financial_period,
                 memo: Some(Memo::try_new(memo)?),
+                entries: TransactionEntries(entries),
             },
             timestamp,
         });
@@ -290,7 +277,9 @@ impl PreparedImport {
                 .get(&offering_id)
                 .ok_or(JewelImportError::MissingOffering(offering_id))?;
             if conversion.positive_total > 0 {
-                let donation_id = DonationId::new();
+                let mut donation_entries = Vec::new();
+                let mut donation_entry_idx = 0;
+
                 let deposit_account_id = *builder
                     .accounts
                     .get(&conversion.bank_account_id)
@@ -298,15 +287,37 @@ impl PreparedImport {
                 for envelope in self.data.envelopes.get(&offering_id).into_iter().flatten() {
                     let cash = cents(envelope.cash_total)?;
                     let check = cents(envelope.check_total)?;
+
+                    // jewel's offerings encode online donations as checks
                     let instrument = if offering.offering_source == 5 {
-                        DonationInstrument::Online
+                        DonationInstrument::Online {
+                            amount: check.unsigned_abs(),
+                        }
                     } else if check == 0 {
-                        DonationInstrument::Cash
+                        DonationInstrument::Cash {
+                            amount: cash.unsigned_abs(),
+                        }
                     } else if cash == 0 {
-                        DonationInstrument::Check
+                        DonationInstrument::Check {
+                            amount: check.unsigned_abs(),
+                            check_num: envelope
+                                .check_num
+                                .clone()
+                                .map(CheckNum::try_new)
+                                .transpose()?,
+                        }
                     } else {
-                        DonationInstrument::Mixed
+                        DonationInstrument::Mixed {
+                            cash_amount: cash.unsigned_abs(),
+                            check_amount: check.unsigned_abs(),
+                            check_num: envelope
+                                .check_num
+                                .clone()
+                                .map(CheckNum::try_new)
+                                .transpose()?,
+                        }
                     };
+
                     for contribution in conversion
                         .contributions
                         .get(&envelope.envelope_id)
@@ -326,30 +337,23 @@ impl PreparedImport {
                             .get(&contribution.account_id)
                             .ok_or(JewelImportError::MissingAccount(contribution.account_id))?
                             .fund_id;
-                        builder.events.push(PreparedEvent {
-                            payload: JournalDomainEvent::DonationEntryCreated {
-                                donation_entry_id: DonationEntryId::new(),
-                                journal_id,
-                                fund_id,
-                                donor_id,
-                                donation_id,
-                                amount: amount as u64,
-                                instrument,
-                                check_num: envelope
-                                    .check_num
-                                    .clone()
-                                    .map(CheckNum::try_new)
-                                    .transpose()?,
-                            },
-                            timestamp: offering.date.get_time(),
+
+                        donation_entries.push(DonationEntry {
+                            id: donation_entry_idx as i64,
+                            fund_id,
+                            donor_id,
+                            instrument: instrument.clone(),
                         });
+
+                        donation_entry_idx += 1;
                     }
                 }
                 builder.events.push(PreparedEvent {
                     payload: JournalDomainEvent::DonationCreated {
-                        donation_id,
+                        donation_id: DonationId::new(),
                         journal_id,
                         deposit_account_id,
+                        entries: DonationEntries(donation_entries),
                         donation_total: conversion.positive_total as u64,
                     },
                     timestamp,

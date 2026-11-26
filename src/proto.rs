@@ -6,7 +6,6 @@ use crate::journal::account::AccountTypeFromIntError;
 use crate::journal::activity::kind::ActivityKindFromIntError;
 use crate::journal::activity::scope::ActivityScopeFromIntError;
 use crate::journal::donation::CheckNumFromStrError;
-use crate::journal::donation::donation_entry::DonationInstrumentFromIntError;
 use crate::journal::transaction::FinancialPeriodFromIntError;
 use crate::journal::transaction::entry::EntrySideFromIntError;
 use crate::journal::transaction::memo::MemoError;
@@ -41,6 +40,17 @@ pub mod journal {
                 include!(concat!(
                     env!("OUT_DIR"),
                     "/proto.journal.transaction.entry.entry.rs"
+                ));
+            }
+        }
+    }
+
+    pub mod donation {
+        pub mod donation_entry {
+            pub mod donation_entry {
+                include!(concat!(
+                    env!("OUT_DIR"),
+                    "/proto.journal.donation.donation_entry.donation_entry.rs"
                 ));
             }
         }
@@ -111,8 +121,6 @@ pub enum DecodeError {
     ActivityScopeFromInt(#[from] ActivityScopeFromIntError),
     #[error("invalid prost message: {0}")]
     InvalidMessage(#[from] prost::DecodeError),
-    #[error(transparent)]
-    DonationInstrument(#[from] DonationInstrumentFromIntError),
     #[error(transparent)]
     CheckNum(#[from] CheckNumFromStrError),
 }

@@ -115,8 +115,8 @@ pub async fn transaction_list_page(
                 }
                 div class="space-y-3" {
                     @for (transaction, authority, timestamp) in page {
-                        @let debits: i128 = transaction.entries.iter().filter(|entry| entry.entry_side == EntrySide::Debit).map(|entry| i128::from(entry.amount.unsigned_abs())).sum();
-                        @let credits: i128 = transaction.entries.iter().filter(|entry| entry.entry_side == EntrySide::Credit).map(|entry| i128::from(entry.amount.unsigned_abs())).sum();
+                        @let debits: i128 = transaction.entries.0.iter().filter(|entry| entry.entry_side == EntrySide::Debit).map(|entry| i128::from(entry.amount)).sum();
+                        @let credits: i128 = transaction.entries.0.iter().filter(|entry| entry.entry_side == EntrySide::Credit).map(|entry| i128::from(entry.amount)).sum();
                         details class="group overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xs open:border-indigo-300 dark:border-gray-700 dark:bg-gray-800 dark:open:border-indigo-600" {
                             summary class="flex cursor-pointer list-none flex-wrap items-center gap-4 p-4 select-none hover:bg-gray-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-indigo-500 sm:p-5 dark:hover:bg-gray-700/40 [&::-webkit-details-marker]:hidden" {
                                 span aria-hidden="true" class="text-gray-400 transition-transform group-open:rotate-90" { "▸" }
@@ -144,7 +144,7 @@ pub async fn transaction_list_page(
                                             }
                                         }
                                         tbody class="divide-y divide-gray-100 dark:divide-gray-700" {
-                                            @for entry in &transaction.entries {
+                                            @for entry in &transaction.entries.0 {
                                                 @let (name, detail) = description(entry.entry_kind);
                                                 tr {
                                                     th scope="row" class="min-w-48 px-4 py-3 text-left text-sm font-medium text-gray-900 dark:text-white" {

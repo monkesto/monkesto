@@ -3,7 +3,7 @@ use crate::authority::{Actor, Authority};
 use crate::journal::JournalId;
 use crate::journal::activity::scope::ActivityScope;
 use crate::journal::error::{JournalError, TransactionValidationError};
-use crate::journal::transaction::entry::{EntryKind, EntrySide};
+use crate::journal::transaction::entry::{EntryKind, EntrySide, TransactionEntries};
 use crate::journal::transaction::memo::Memo;
 use crate::journal::transaction::{FinancialPeriod, TransactionEntry, TransactionId};
 use crate::time::{DefaultTimeProvider, TimeProvider};
@@ -84,7 +84,7 @@ pub async fn transact(
 
     let mut entries = Vec::with_capacity(request.entries.len());
 
-    for entry in request.entries {
+    for (idx, entry) in request.entries.into_iter().enumerate() {
         let (entry_kind, amount, entry_side) = match entry {
             EntryRequest::Account {
                 account_id,
@@ -119,6 +119,7 @@ pub async fn transact(
         };
 
         entries.push(TransactionEntry {
+            entry_id: idx as i64,
             entry_kind,
             amount: parse_amount(&amount)?,
             entry_side,
@@ -136,7 +137,7 @@ pub async fn transact(
         .create_transaction(
             TransactionId::new(),
             journal_id,
-            entries,
+            TransactionEntries(entries),
             request.period,
             memo,
             authority,

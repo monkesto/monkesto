@@ -3,10 +3,6 @@ syntax = "proto3";
 package proto.journal.transaction.entry.entry;
 import "id/ident.proto";
 
-message ProtoRepeatedTransactionEntryIds {
-  repeated id.ident.ProtoIdent entries = 1;
-}
-
 message ProtoEntryKind {
   message ProtoActivityEntryKind {
     id.ident.ProtoIdent activity_id = 1;
@@ -18,4 +14,15 @@ message ProtoEntryKind {
     id.ident.ProtoIdent account = 1;
     ProtoActivityEntryKind activity = 2;
   }
+}
+
+message ProtoTransactionEntry {
+  int64 entry_id = 1;
+  uint64 amount = 2;
+  int32 entry_side = 3;
+  ProtoEntryKind entry_kind = 4;
+}
+
+message ProtoTransactionEntries {
+  repeated ProtoTransactionEntry entries = 1;
 }

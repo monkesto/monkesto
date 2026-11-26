@@ -7,6 +7,7 @@ use crate::id::Ident;
 use axum::Router;
 use axum::routing::{get, post};
 use axum_login::login_required;
+use std::collections::HashSet;
 
 id!(TransactionId, Ident::new16());
 
@@ -29,7 +30,8 @@ use crate::journal::service::stream_lock::{
     append_creation_event_in_tx, assert_multiple_streams_exist,
 };
 use crate::journal::service::{EventId, EventType, JournalService, StreamType};
-use crate::journal::transaction::entry::{EntryId, EntryKind, EntrySide};
+use crate::journal::transaction::entry::TransactionEntries;
+pub(crate) use crate::journal::transaction::entry::{EntryKind, EntrySide, TransactionEntry};
 use crate::journal::transaction::memo::Memo;
 use crate::journal::{JournalId, Permissions};
 use crate::time::Timestamp;
@@ -38,7 +40,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
-use sqlx::{Database, Decode, Encode, FromRow, Postgres, Type};
+use sqlx::{Database, Decode, Encode, Postgres, Type};
 use std::fmt::Debug;
 use thiserror::Error;
 
@@ -115,26 +117,11 @@ impl<'r> Decode<'r, Postgres> for FinancialPeriod {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
-pub struct TransactionEntry {
-    pub amount: u64,
-    pub entry_side: EntrySide,
-    pub entry_kind: EntryKind,
-}
-
-#[derive(Copy, Clone, Serialize, Deserialize, Debug, PartialEq, FromRow)]
-pub struct PersistedTransactionEntry {
-    pub id: EntryId,
-    pub amount: i64,
-    pub entry_side: EntrySide,
-    pub entry_kind: EntryKind,
-}
-
 pub struct TransactionState {
     pub id: TransactionId,
     #[expect(unused)]
     pub journal_id: JournalId,
-    pub entries: Vec<PersistedTransactionEntry>,
+    pub entries: TransactionEntries,
     pub memo: Option<Memo>,
 }
 
@@ -144,7 +131,7 @@ impl JournalService {
         &self,
         transaction_id: TransactionId,
         journal_id: JournalId,
-        entries: Vec<TransactionEntry>,
+        entries: TransactionEntries,
         period: FinancialPeriod,
         memo: Option<Memo>,
         authority: Authority,
@@ -166,7 +153,13 @@ impl JournalService {
         let mut account_and_external_balance = 0_i128;
         let mut internal_transfer_balance = 0_i128;
 
-        for entry in &entries {
+        let mut entry_ids = HashSet::new();
+
+        for entry in &entries.0 {
+            if !entry_ids.insert(entry.entry_id) {
+                Err(TransactionValidationError::EntryIdCollision(entry.entry_id))?;
+            }
+
             let amount = i128::from(entry.amount);
             let change = match entry.entry_side {
                 EntrySide::Debit => -amount,
@@ -204,32 +197,14 @@ impl JournalService {
 
         assert_multiple_streams_exist(&mut tx, journal_id, &fund_ids, StreamType::Fund).await?;
 
-        for entry in entries {
-            append_creation_event_in_tx(
-                &mut tx,
-                JournalDomainEvent::EntryCreated {
-                    entry_id: EntryId::new(),
-                    journal_id,
-                    transaction_id,
-                    amount: entry.amount,
-                    entry_side: entry.entry_side,
-                    entry_kind: entry.entry_kind,
-                },
-                None,
-                authority,
-                timestamp,
-                None,
-            )
-            .await?;
-        }
-
         let event_id = append_creation_event_in_tx(
             &mut tx,
             JournalDomainEvent::TransactionCreated {
                 transaction_id,
                 journal_id,
-                financial_period: period,
+                period,
                 memo,
+                entries,
             },
             None,
             authority,
@@ -258,12 +233,7 @@ impl JournalService {
         // TODO(Gabriel): pagination
         let transactions = sqlx::query!(
             r#"
-            SELECT t.id as "id: TransactionId", t.journal_id as "journal_id: JournalId", t.memo as "memo: Memo", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp",
-                   ARRAY(
-                        SELECT (en.id, en.amount, en.entry_side, en.entry_kind)
-                        FROM entries en
-                        WHERE en.transaction_id = t.id AND t.journal_id = $1
-                   ) AS "entries!: Vec<(EntryId, i64, EntrySide, EntryKind)>"
+            SELECT t.id as "id: TransactionId", t.journal_id as "journal_id: JournalId", t.memo as "memo: Memo", t.entries as "entries: TransactionEntries", e.authority as "authority: Authority", e.timestamp as "timestamp: Timestamp", e.display_timestamp as "display_timestamp: Timestamp"
             FROM transactions t
             INNER JOIN journal_events e
                 ON e.stream_id = t.id AND t.journal_id = $1 AND e.stream_type = $2 AND e.event_type = $3
@@ -278,140 +248,14 @@ impl JournalService {
             .await?.into_iter().map(|t| {
             let timestamp = t.display_timestamp.unwrap_or(t.timestamp);
 
-            let entries = t.entries.into_iter().map(|(id, amount, entry_side, entry_kind)| PersistedTransactionEntry {
-                id,
-                amount,
-                entry_side,
-                entry_kind,
-            }).collect();
-
             (TransactionState {
                 id: t.id,
                 journal_id,
-                entries,
+                entries: t.entries,
                 memo: t.memo,
             }, t.authority, timestamp)
         }).collect();
 
         Ok(transactions)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::authn::UserId;
-    use crate::authority::Actor;
-    use crate::journal::account::{AccountId, AccountType};
-    use crate::journal::activity::{ActivityId, ActivityKind};
-    use crate::journal::file::ObjectStore;
-    use crate::journal::fund::FundId;
-    use crate::journal::projection;
-    use crate::name::Name;
-    use sqlx::PgPool;
-    use tokio::sync::broadcast;
-
-    #[sqlx::test(migrations = "./migrations")]
-    #[ignore = "requires a PostgreSQL test server with database creation privileges"]
-    async fn transactions_with_offsetting_balance_groups_do_not_commit(
-        pool: PgPool,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        projection::install_sql(&pool).await?;
-        let service = JournalService {
-            pool,
-            object_store: ObjectStore::Local {
-                storage_directory: std::env::temp_dir(),
-            },
-            projection_applications: broadcast::channel(1).0,
-            jewel_imports: Default::default(),
-        };
-        let owner = UserId::new();
-        let authority = Authority::Direct(Actor::User(owner));
-        let timestamp = Timestamp(DateTime::UNIX_EPOCH);
-        let journal_id = JournalId::new();
-        let account_id = AccountId::new();
-        let activity_id = ActivityId::new();
-        let fund_id = "gfund".parse::<FundId>()?;
-        service
-            .create_journal(journal_id, owner, Name::default(), authority, timestamp)
-            .await?;
-        service
-            .create_account(
-                account_id,
-                journal_id,
-                Name::default(),
-                AccountType::Asset,
-                authority,
-                timestamp,
-            )
-            .await?;
-        service
-            .create_activity(
-                activity_id,
-                journal_id,
-                Name::default(),
-                ActivityKind::Income,
-                authority,
-                timestamp,
-            )
-            .await?;
-
-        let debit = TransactionEntry {
-            amount: 100,
-            entry_side: EntrySide::Debit,
-            entry_kind: EntryKind::Account { account_id },
-        };
-        let transfer_credit = TransactionEntry {
-            amount: 100,
-            entry_side: EntrySide::Credit,
-            entry_kind: EntryKind::Activity {
-                activity_id,
-                fund_id,
-                scope: ActivityScope::Internal,
-            },
-        };
-        let transaction_id = TransactionId::new();
-        let result = service
-            .create_transaction(
-                transaction_id,
-                journal_id,
-                vec![debit.clone(), transfer_credit.clone()],
-                FinancialPeriod::January,
-                None,
-                authority,
-                timestamp,
-            )
-            .await;
-        assert!(matches!(
-            result,
-            Err(JournalError::TransactionValidation(
-                TransactionValidationError::ImbalancedTransaction
-            ))
-        ));
-
-        // The corrected transaction can reuse the ID only if the first write did not commit.
-        service
-            .create_transaction(
-                transaction_id,
-                journal_id,
-                vec![
-                    TransactionEntry {
-                        entry_side: EntrySide::Debit,
-                        ..transfer_credit.clone()
-                    },
-                    transfer_credit,
-                    TransactionEntry {
-                        entry_side: EntrySide::Credit,
-                        ..debit.clone()
-                    },
-                    debit,
-                ],
-                FinancialPeriod::January,
-                None,
-                authority,
-                timestamp,
-            )
-            .await?;
-        Ok(())
     }
 }

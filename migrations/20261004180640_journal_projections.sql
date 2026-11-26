@@ -51,23 +51,13 @@ CREATE TABLE transactions (
     journal_id TEXT NOT NULL REFERENCES journals(id),
     financial_period int2 NOT NULL,
     memo TEXT,
+    entries BYTEA NOT NULL,
     PRIMARY KEY (journal_id, id)
 );
 
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE EXTENSION IF NOT EXISTS btree_gin;
 CREATE INDEX idx_tx_memo_trgm ON transactions USING GIN (journal_id, memo gin_trgm_ops);
-
-CREATE TABLE entries (
-    id TEXT NOT NULL,
-    journal_id TEXT NOT NULL REFERENCES journals(id),
-    transaction_id TEXT NOT NULL,
-    amount BIGINT NOT NULL,
-    entry_side int2 NOT NULL,
-    entry_kind BYTEA NOT NULL,
-    PRIMARY KEY (journal_id, transaction_id, id)
-);
-
 
 CREATE TABLE files (
     id TEXT NOT NULL,

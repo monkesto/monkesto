@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package proto.journal.donation.donation_entry.donation_entry;
+import "id/ident.proto";
+
+message ProtoDonationInstrument {
+  message ProtoCheckDonationInstrument {
+    uint64 amount = 1;
+    optional string check_num = 2;
+  }
+
+  message ProtoMixedDonationInstrument {
+    uint64 cash_amount = 1;
+    uint64 check_amount = 2;
+    optional string check_num = 3;
+  }
+
+  oneof ProtoDonationInstrumentType {
+    uint64 cash = 1;
+    ProtoCheckDonationInstrument check = 2;
+    ProtoMixedDonationInstrument mixed = 3;
+    uint64 online = 4;
+    uint64 unknown = 5;
+  }
+}
+
+message ProtoDonationEntry {
+  int64 id = 1;
+  id.ident.ProtoIdent fund_id = 2;
+  id.ident.ProtoIdent donor_id = 3;
+  ProtoDonationInstrument instrument = 4;
+}
+
+message ProtoDonationEntries {
+  repeated ProtoDonationEntry entries = 1;
+}

@@ -1,7 +1,8 @@
 use crate::journal::service::{EventId, JournalService};
 use crate::journal::transaction::entry::EntryKind;
 use crate::journal::{JournalDomainEvent, JournalId};
-use crate::proto::journal::transaction::entry::entry::ProtoEntryKind;
+use crate::proto::journal::donation::donation_entry::donation_entry::ProtoDonationEntries;
+use crate::proto::journal::transaction::entry::entry::ProtoTransactionEntries;
 use axum_login::tracing::error;
 use prost::Message;
 use serde_json::{Value, json};
@@ -12,7 +13,7 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio::time::{sleep, timeout};
 
-const BATCH_SIZE: i64 = 1000;
+const BATCH_SIZE: i64 = 250;
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
 pub(super) const APPLICATION_CHANNEL: &str = "journal_projection";
 
@@ -265,13 +266,37 @@ fn projection_record(event_id: EventId, event: JournalDomainEvent) -> Value {
         }),
         TransactionCreated {
             transaction_id,
-            financial_period,
+            period: financial_period,
             memo,
+            entries,
             ..
-        } => json!({
-            "event_id": event_id, "kind": "TransactionCreated", "id": transaction_id.as_str(),
-            "financial_period": financial_period as i16, "memo": memo.as_ref().map(AsRef::<str>::as_ref)
-        }),
+        } => {
+            let balance_entries: Vec<_> = entries
+                .iter()
+                .map(|entry| {
+                    let (account, activity, fund) = match &entry.entry_kind {
+                        EntryKind::Account { account_id } => {
+                            (Some(account_id.as_str()), None, None)
+                        }
+                        EntryKind::Activity {
+                            activity_id,
+                            fund_id,
+                            ..
+                        } => (None, Some(activity_id.as_str()), Some(fund_id.as_str())),
+                    };
+                    json!({
+                        "amount": entry.amount, "entry_side": entry.entry_side as i16,
+                        "account_id": account, "activity_id": activity, "fund_id": fund
+                    })
+                })
+                .collect();
+            json!({
+                "event_id": event_id, "kind": "TransactionCreated", "id": transaction_id.as_str(),
+                "financial_period": financial_period as i16, "memo": memo.as_ref().map(AsRef::<str>::as_ref),
+                "entries": hex::encode(ProtoTransactionEntries::from(entries).encode_to_vec()),
+                "balance_entries": balance_entries
+            })
+        }
         FileUploaded {
             file_id,
             hash,
@@ -290,29 +315,6 @@ fn projection_record(event_id: EventId, event: JournalDomainEvent) -> Value {
             "event_id": event_id, "kind": "FundCreated", "id": fund_id.as_str(),
             "name": fund_name.as_ref()
         }),
-        EntryCreated {
-            entry_id,
-            transaction_id,
-            amount,
-            entry_side,
-            entry_kind,
-            ..
-        } => {
-            let (account, activity, fund) = match &entry_kind {
-                EntryKind::Account { account_id } => (Some(account_id.as_str()), None, None),
-                EntryKind::Activity {
-                    activity_id,
-                    fund_id,
-                    ..
-                } => (None, Some(activity_id.as_str()), Some(fund_id.as_str())),
-            };
-            json!({
-                "event_id": event_id, "kind": "EntryCreated", "id": entry_id.as_str(),
-                "transaction_id": transaction_id.as_str(), "amount": amount, "entry_side": entry_side as i16,
-                "entry_kind": hex::encode(ProtoEntryKind::from(entry_kind).encode_to_vec()),
-                "account_id": account, "activity_id": activity, "fund_id": fund
-            })
-        }
         ActivityCreated {
             activity_id,
             activity_name,
@@ -326,31 +328,28 @@ fn projection_record(event_id: EventId, event: JournalDomainEvent) -> Value {
             "event_id": event_id, "kind": "DonorCreated", "id": donor_id.as_str(),
             "name": name.as_ref()
         }),
-        DonationEntryCreated {
-            donation_entry_id,
-            fund_id,
-            donor_id,
-            donation_id,
-            amount,
-            instrument,
-            check_num,
-            ..
-        } => json!({
-            "event_id": event_id, "kind": "DonationEntryCreated", "id": donation_entry_id.as_str(),
-            "fund_id": fund_id.as_str(), "donor_id": donor_id.as_str(), "donation_id": donation_id.as_str(),
-            "amount": amount, "instrument": instrument as i16, "check_num": check_num.map(|check| check.to_string())
-        }),
         DonationCreated {
             donation_id,
             deposit_account_id,
             donation_total,
+            entries,
             ..
-        } => json!({
-            "event_id": event_id, "kind": "DonationCreated", "id": donation_id.as_str(),
-            "account_id": deposit_account_id.as_str(), "amount": donation_total
-        }),
+        } => {
+            let balance_entries: Vec<_> = entries
+                .iter()
+                .map(|entry| {
+                    json!({
+                        "fund_id": entry.fund_id.as_str(), "donor_id": entry.donor_id.as_str(),
+                        "amount": entry.amount()
+                    })
+                })
+                .collect();
+            json!({
+                "event_id": event_id, "kind": "DonationCreated", "id": donation_id.as_str(),
+                "account_id": deposit_account_id.as_str(), "amount": donation_total,
+                "entries": hex::encode(ProtoDonationEntries::from(entries).encode_to_vec()),
+                "balance_entries": balance_entries
+            })
+        }
     }
 }
-
-#[cfg(test)]
-mod tests;

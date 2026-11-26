@@ -163,7 +163,7 @@ impl JournalService {
         let mut index = 0;
 
         loop {
-            let event_chunk = event_iter.by_ref().take(5000);
+            let event_chunk = event_iter.by_ref().take(500);
             let len = event_chunk.len();
             if len == 0 {
                 break;

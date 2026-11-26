@@ -3,6 +3,7 @@ RETURNS BIGINT
 LANGUAGE plpgsql AS $$
 DECLARE
     e RECORD;
+    entry RECORD;
     balance_delta BIGINT;
     last_event_id BIGINT;
 BEGIN
@@ -17,21 +18,14 @@ BEGIN
             name TEXT,
             permissions INTEGER,
             account_type SMALLINT,
-            transaction_id TEXT,
             financial_period SMALLINT,
             memo TEXT,
             hash TEXT,
             amount BIGINT,
-            entry_side SMALLINT,
-            entry_kind TEXT,
             account_id TEXT,
-            fund_id TEXT,
-            activity_id TEXT,
             activity_kind SMALLINT,
-            donor_id TEXT,
-            donation_id TEXT,
-            instrument SMALLINT,
-            check_num TEXT
+            entries TEXT,
+            balance_entries JSONB
         )
         ORDER BY event_id
     LOOP
@@ -61,9 +55,35 @@ BEGIN
             WHEN 'AccountDeleted' THEN
                 DELETE FROM accounts WHERE journal_id = p_journal_id AND id = e.id;
             WHEN 'TransactionCreated' THEN
-                INSERT INTO transactions (id, journal_id, financial_period, memo)
-                VALUES (e.id, p_journal_id, e.financial_period, e.memo)
+                INSERT INTO transactions (id, journal_id, financial_period, memo, entries)
+                VALUES (e.id, p_journal_id, e.financial_period, e.memo, decode(e.entries, 'hex'))
                 ON CONFLICT DO NOTHING;
+                CONTINUE WHEN NOT FOUND;
+
+                FOR entry IN
+                    SELECT *
+                    FROM jsonb_to_recordset(e.balance_entries) AS fields (
+                        amount BIGINT, entry_side SMALLINT, account_id TEXT, fund_id TEXT, activity_id TEXT
+                    )
+                LOOP
+                    balance_delta := CASE WHEN entry.entry_side = 1 THEN -entry.amount ELSE entry.amount END;
+                    IF entry.account_id IS NOT NULL THEN
+                        UPDATE accounts SET balance = balance + balance_delta
+                        WHERE journal_id = p_journal_id AND id = entry.account_id;
+                    ELSE
+                        UPDATE funds SET balance = balance - balance_delta
+                        WHERE journal_id = p_journal_id AND id = entry.fund_id;
+                        IF NOT FOUND THEN
+                            RAISE EXCEPTION 'journal % event %: missing fund %', p_journal_id, e.event_id, entry.fund_id;
+                        END IF;
+                        UPDATE activities SET balance = balance + balance_delta
+                        WHERE journal_id = p_journal_id AND id = entry.activity_id;
+                    END IF;
+                    IF NOT FOUND THEN
+                        RAISE EXCEPTION 'journal % event %: missing balance target %',
+                            p_journal_id, e.event_id, COALESCE(entry.account_id, entry.activity_id);
+                    END IF;
+                END LOOP;
             WHEN 'FileUploaded' THEN
                 INSERT INTO files (id, journal_id, hash, name)
                 VALUES (e.id, p_journal_id, decode(e.hash, 'hex'), e.name)
@@ -74,30 +94,6 @@ BEGIN
                 INSERT INTO funds (id, journal_id, name, balance)
                 VALUES (e.id, p_journal_id, e.name, 0)
                 ON CONFLICT DO NOTHING;
-            WHEN 'EntryCreated' THEN
-                INSERT INTO entries (id, journal_id, transaction_id, amount, entry_side, entry_kind)
-                VALUES (e.id, p_journal_id, e.transaction_id, e.amount, e.entry_side,
-                        decode(e.entry_kind, 'hex'))
-                ON CONFLICT DO NOTHING;
-                CONTINUE WHEN NOT FOUND;
-
-                balance_delta := CASE WHEN e.entry_side = 1 THEN -e.amount ELSE e.amount END;
-                IF e.account_id IS NOT NULL THEN
-                    UPDATE accounts SET balance = balance + balance_delta
-                    WHERE journal_id = p_journal_id AND id = e.account_id;
-                ELSE
-                    UPDATE funds SET balance = balance - balance_delta
-                    WHERE journal_id = p_journal_id AND id = e.fund_id;
-                    IF NOT FOUND THEN
-                        RAISE EXCEPTION 'journal % event %: missing fund %', p_journal_id, e.event_id, e.fund_id;
-                    END IF;
-                    UPDATE activities SET balance = balance + balance_delta
-                    WHERE journal_id = p_journal_id AND id = e.activity_id;
-                END IF;
-                IF NOT FOUND THEN
-                    RAISE EXCEPTION 'journal % event %: missing balance target %',
-                        p_journal_id, e.event_id, COALESCE(e.account_id, e.activity_id);
-                END IF;
             WHEN 'ActivityCreated' THEN
                 INSERT INTO activities (id, journal_id, name, balance, activity_kind)
                 VALUES (e.id, p_journal_id, e.name, 0, e.activity_kind)
@@ -106,29 +102,29 @@ BEGIN
                 INSERT INTO donors (id, journal_id, name, total_donated)
                 VALUES (e.id, p_journal_id, e.name, 0)
                 ON CONFLICT DO NOTHING;
-            WHEN 'DonationEntryCreated' THEN
-                INSERT INTO donation_entries
-                    (id, journal_id, donor_id, fund_id, donation_id, amount, instrument, check_num)
-                VALUES (e.id, p_journal_id, e.donor_id, e.fund_id, e.donation_id, e.amount,
-                        e.instrument, e.check_num)
+            WHEN 'DonationCreated' THEN
+                INSERT INTO donations (id, journal_id, deposit_account_id, donation_total, entries)
+                VALUES (e.id, p_journal_id, e.account_id, e.amount, decode(e.entries, 'hex'))
                 ON CONFLICT DO NOTHING;
                 CONTINUE WHEN NOT FOUND;
 
-                UPDATE donors SET total_donated = total_donated + e.amount
-                WHERE journal_id = p_journal_id AND id = e.donor_id;
-                IF NOT FOUND THEN
-                    RAISE EXCEPTION 'journal % event %: missing donor %', p_journal_id, e.event_id, e.donor_id;
-                END IF;
-                UPDATE funds SET balance = balance + e.amount
-                WHERE journal_id = p_journal_id AND id = e.fund_id;
-                IF NOT FOUND THEN
-                    RAISE EXCEPTION 'journal % event %: missing fund %', p_journal_id, e.event_id, e.fund_id;
-                END IF;
-            WHEN 'DonationCreated' THEN
-                INSERT INTO donations (id, journal_id, deposit_account_id, donation_total)
-                VALUES (e.id, p_journal_id, e.account_id, e.amount)
-                ON CONFLICT DO NOTHING;
-                CONTINUE WHEN NOT FOUND;
+                FOR entry IN
+                    SELECT *
+                    FROM jsonb_to_recordset(e.balance_entries) AS fields (
+                        donor_id TEXT, fund_id TEXT, amount BIGINT
+                    )
+                LOOP
+                    UPDATE donors SET total_donated = total_donated + entry.amount
+                    WHERE journal_id = p_journal_id AND id = entry.donor_id;
+                    IF NOT FOUND THEN
+                        RAISE EXCEPTION 'journal % event %: missing donor %', p_journal_id, e.event_id, entry.donor_id;
+                    END IF;
+                    UPDATE funds SET balance = balance + entry.amount
+                    WHERE journal_id = p_journal_id AND id = entry.fund_id;
+                    IF NOT FOUND THEN
+                        RAISE EXCEPTION 'journal % event %: missing fund %', p_journal_id, e.event_id, entry.fund_id;
+                    END IF;
+                END LOOP;
 
                 UPDATE accounts SET balance = balance + e.amount
                 WHERE journal_id = p_journal_id AND id = e.account_id;
