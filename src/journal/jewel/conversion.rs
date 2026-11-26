@@ -285,38 +285,8 @@ impl PreparedImport {
                     .get(&conversion.bank_account_id)
                     .ok_or(JewelImportError::MissingAccount(conversion.bank_account_id))?;
                 for envelope in self.data.envelopes.get(&offering_id).into_iter().flatten() {
-                    let cash = cents(envelope.cash_total)?;
-                    let check = cents(envelope.check_total)?;
-
-                    // jewel's offerings encode online donations as checks
-                    let instrument = if offering.offering_source == 5 {
-                        DonationInstrument::Online {
-                            amount: check.unsigned_abs(),
-                        }
-                    } else if check == 0 {
-                        DonationInstrument::Cash {
-                            amount: cash.unsigned_abs(),
-                        }
-                    } else if cash == 0 {
-                        DonationInstrument::Check {
-                            amount: check.unsigned_abs(),
-                            check_num: envelope
-                                .check_num
-                                .clone()
-                                .map(CheckNum::try_new)
-                                .transpose()?,
-                        }
-                    } else {
-                        DonationInstrument::Mixed {
-                            cash_amount: cash.unsigned_abs(),
-                            check_amount: check.unsigned_abs(),
-                            check_num: envelope
-                                .check_num
-                                .clone()
-                                .map(CheckNum::try_new)
-                                .transpose()?,
-                        }
-                    };
+                    let cash_total = cents(envelope.cash_total)?;
+                    let check_total = cents(envelope.check_total)?;
 
                     for contribution in conversion
                         .contributions
@@ -328,10 +298,43 @@ impl PreparedImport {
                         if amount <= 0 {
                             continue;
                         }
+
+                        // jewel's offerings encode online donations as checks
+                        let instrument = if offering.offering_source == 5 {
+                            DonationInstrument::Online {
+                                amount: amount.unsigned_abs(),
+                            }
+                        } else if check_total == 0 {
+                            DonationInstrument::Cash {
+                                amount: amount.unsigned_abs(),
+                            }
+                        } else if cash_total == 0 {
+                            DonationInstrument::Check {
+                                amount: amount.unsigned_abs(),
+                                check_num: envelope
+                                    .check_num
+                                    .clone()
+                                    .map(CheckNum::try_new)
+                                    .transpose()?,
+                            }
+                        } else {
+                            // TODO(Gabriel): This must be fixed when we add envelopes
+                            DonationInstrument::Mixed {
+                                cash_amount: 0,
+                                check_amount: amount.unsigned_abs(),
+                                check_num: envelope
+                                    .check_num
+                                    .clone()
+                                    .map(CheckNum::try_new)
+                                    .transpose()?,
+                            }
+                        };
+
                         let donor_id = *builder
                             .donors
                             .get(&envelope.name_id)
                             .ok_or(JewelImportError::MissingDonor(envelope.name_id))?;
+
                         let fund_id = builder
                             .funds
                             .get(&contribution.account_id)
