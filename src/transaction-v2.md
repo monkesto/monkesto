@@ -60,6 +60,13 @@ enum ActivityScope {
 The date and period do not need to match. They generally should, but they may
 diverge when necessary.
 
+A transaction may be edited while its period is open. Once its period is
+closed, the transaction can no longer be changed.
+
+Periods can be reopened, in the reverse order they were closed. A closed
+period can be reopened only if every period closed after it has been reopened
+first.
+
 The term "account" is often overloaded in accounting. It may refer to where value
 is held or owed, such as a bank account or credit card. It may also refer to
 revenue or expense activity. Another use is equity reserved for a particular
@@ -98,8 +105,19 @@ and expenses separately or combine them as net transfers.
 References to journals, accounts, and activities do not include `id` in the
 field name. Their types identify them as IDs.
 
-An amount includes its currency. Debit or credit is the entry's side rather than
-part of the amount.
+An amount includes its currency and is signed. Debit or credit is the entry's
+side rather than part of the amount. Side is the usual way to express direction;
+negative amounts are uncommon but permitted when there is occasion for them.
+User interfaces may commonly disallow negative amounts.
 
-Each entry has a stable ID so it can be referenced by reconciliations and by
-extensions such as contributions and invoices.
+Each entry has a stable ID so it can be referenced, for example by
+reconciliations.
+
+Entries will need references to supporting documents, such as check scans, for
+provenance. The document record is separate from transactions, deposits, and
+payments, and is not yet designed.
+
+[Deposits](deposit.md), [payments](payment.md), [returns](return.md), and
+[cancellations](cancellation.md) produce transactions when they are
+[submitted](submission.md). A transaction does not refer to what produced it;
+the producer records which transaction and entries it produced.
